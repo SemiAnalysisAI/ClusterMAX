@@ -1,19 +1,28 @@
-name: python-nightly
+name: python-publish
 
 on:
   schedule:
     - cron: '17 8 * * *'
   workflow_dispatch:
+    inputs:
+      channel:
+        description: Package channel to publish
+        required: true
+        default: nightly
+        type: choice
+        options:
+          - nightly
+          - stable
 
 concurrency:
-  group: python-nightly-0.2.1
+  group: python-publish-${{ inputs.channel || 'nightly' }}
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 env:
-  RELEASE_VERSION: 0.2.1
+  NIGHTLY_VERSION: 0.3.0
 
 jobs:
   build:
@@ -30,24 +39,43 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Set the nightly version
+      - name: Select the publication version
         id: version
+        env:
+          DISPATCH_CHANNEL: ${{ inputs.channel }}
         run: |
           commit="$(git rev-parse --short=12 HEAD)"
-          date_utc="$(date -u +%Y%m%d)"
-          version="$(python .github/scripts/nightly_version.py \
-            --release-version "$RELEASE_VERSION" \
-            --date "$date_utc" \
-            --run-number "$GITHUB_RUN_NUMBER")"
+          source_version="$(python -c 'import cmax; print(cmax.__version__)')"
+          channel="${DISPATCH_CHANNEL:-nightly}"
+          case "$channel" in
+            stable)
+              version="$source_version"
+              ;;
+            nightly)
+              date_utc="$(date -u +%Y%m%d)"
+              version="$(python .github/scripts/nightly_version.py \
+                --release-version "$NIGHTLY_VERSION" \
+                --date "$date_utc" \
+                --run-number "$GITHUB_RUN_NUMBER")"
+              ;;
+            *)
+              echo "Unknown publication channel: $channel" >&2
+              exit 1
+              ;;
+          esac
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "source_version=$source_version" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "### ClusterMAX nightly" >> "$GITHUB_STEP_SUMMARY"
+          echo "### ClusterMAX publication" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Channel: \`$channel\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Version: \`$version\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: \`$commit\`" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Build the nightly distributions
+      - name: Build the distributions
         env:
           CLUSTERMAX_BUILD_VERSION: ${{ steps.version.outputs.version }}
+          SOURCE_VERSION: ${{ steps.version.outputs.source_version }}
         run: |
           python -m pip install \
             --require-hashes \
@@ -57,18 +85,18 @@ jobs:
           python -m build --no-isolation
           python -m twine check dist/*
           check-wheel-contents dist/clustermax-*.whl
-          test "$(python -c 'import cmax; print(cmax.__version__)')" = "0.2.1"
+          test "$(python -c 'import cmax; print(cmax.__version__)')" = "$SOURCE_VERSION"
 
-      - name: Verify the nightly wheel
+      - name: Verify the wheel
         env:
           EXPECTED_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          python -m venv /tmp/clustermax-nightly
-          /tmp/clustermax-nightly/bin/pip install dist/clustermax-*.whl
+          python -m venv /tmp/clustermax-publication
+          /tmp/clustermax-publication/bin/pip install dist/clustermax-*.whl
           cd /tmp
-          test "$(/tmp/clustermax-nightly/bin/cmax --version)" = "cmax ${EXPECTED_VERSION}"
-          /tmp/clustermax-nightly/bin/cmax audit --show
-          /tmp/clustermax-nightly/bin/cmax audit security --show
+          test "$(/tmp/clustermax-publication/bin/cmax --version)" = "cmax ${EXPECTED_VERSION}"
+          /tmp/clustermax-publication/bin/cmax audit --show
+          /tmp/clustermax-publication/bin/cmax audit security --show
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

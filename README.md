@@ -32,7 +32,8 @@ cmax audit -h
 cmax audit security -h
 ```
 
-Nightly releases use the `0.2.1.devYYYYMMDDNN` format until the next major release, 3.0.
+Nightly releases use the `0.3.0.devYYYYMMDDNN` format until the stable 0.3.0
+release. This version is newer than stable 0.2.1 when `--pre` is enabled.
 
 ## Public documentation
 
