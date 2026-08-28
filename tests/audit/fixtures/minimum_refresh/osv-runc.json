@@ -1,0 +1,735 @@
+{
+ "_releases": {
+  "0.1.0": {
+   "published_at": "2016-04-12T21:48:04Z",
+   "html_url": "https://github.com/opencontainers/runc/releases/tag/v0.1.0"
+  },
+  "1.0.3": {
+   "published_at": "2021-12-06T04:31:14Z",
+   "html_url": "https://github.com/opencontainers/runc/releases/tag/v1.0.3"
+  },
+  "1.1.14": {
+   "published_at": "2024-09-03T01:26:22Z",
+   "html_url": "https://github.com/opencontainers/runc/releases/tag/v1.1.14"
+  },
+  "1.2.8": {
+   "published_at": "2025-11-05T09:16:04Z",
+   "html_url": "https://github.com/opencontainers/runc/releases/tag/v1.2.8"
+  },
+  "1.3.6": {
+   "published_at": "2026-06-13T17:23:17Z",
+   "html_url": "https://github.com/opencontainers/runc/releases/tag/v1.3.6"
+  },
+  "1.4.3": {
+   "published_at": "2026-06-13T17:23:20Z",
+   "html_url": "https://github.com/opencontainers/runc/releases/tag/v1.4.3"
+  },
+  "1.5.0-rc.3": {
+   "published_at": "2026-06-13T17:24:34Z",
+   "html_url": "https://github.com/opencontainers/runc/releases/tag/v1.5.0-rc.3"
+  }
+ },
+ "vulns": [
+  {
+   "id": "GHSA-9493-h29p-rfm2",
+   "published": "2025-11-05T16:37:15Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.2.8"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    },
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "1.3.0-rc.1"
+        },
+        {
+         "fixed": "1.3.3"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    },
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "1.4.0-rc.1"
+        },
+        {
+         "fixed": "1.4.0-rc.3"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-c3xm-pvg7-gh7r",
+   "published": "2021-05-25T18:44:42Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.0.0-rc95"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-cgrx-mc8f-2prm",
+   "published": "2025-11-05T18:40:40Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.2.8"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    },
+    {
+     "package": {
+      "name": "github.com/opencontainers/selinux",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.13.0"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    },
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "1.3.0-rc.1"
+        },
+        {
+         "fixed": "1.3.3"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    },
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "1.4.0-rc.1"
+        },
+        {
+         "fixed": "1.4.0-rc.3"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-f3fp-gc8g-vw66",
+   "published": "2022-05-24T17:36:56Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.1.2"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-fgv8-vj5c-2ppq",
+   "published": "2022-02-22T15:38:08Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.0.0-rc8.0.20190930145003-cad42f6e0932"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    },
+    {
+     "package": {
+      "name": "github.com/opencontainers/selinux",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.3.1-0.20190929122143-5215b1806f52"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-fh74-hm69-rqjw",
+   "published": "2021-05-27T18:41:17Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.0.0-rc9.0.20200122160610-2fc03cc11c77"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-g2j6-57v7-gm8c",
+   "published": "2023-03-30T20:20:23Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.1.5"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-g54h-m393-cpwq",
+   "published": "2021-12-20T18:21:54Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.0.0-rc91"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-gp4j-w3vj-7299",
+   "published": "2021-12-20T18:21:43Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.0.0-rc3"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-jfvp-7x6p-h2pv",
+   "published": "2024-09-03T19:49:32Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.1.14"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    },
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "1.2.0-rc.1"
+        },
+        {
+         "fixed": "1.2.0-rc.3"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-m8cg-xc2p-r3fc",
+   "published": "2023-03-30T20:17:24Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.1.5"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-q3j5-32m5-58c2",
+   "published": "2021-12-20T18:21:34Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "0.1.0"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-qw9x-cqr3-wc7r",
+   "published": "2025-11-05T17:34:49Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "1.0.0-rc3"
+        },
+        {
+         "fixed": "1.2.8"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    },
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "1.3.0-rc.1"
+        },
+        {
+         "fixed": "1.3.3"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    },
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "1.4.0-rc.1"
+        },
+        {
+         "fixed": "1.4.0-rc.3"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-v95c-p5hm-xq8f",
+   "published": "2021-12-07T21:22:39Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.0.3"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-vpvm-3wq2-2wvm",
+   "published": "2023-03-03T21:30:19Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "1.0.0-rc95"
+        },
+        {
+         "fixed": "1.1.5"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-xjvp-4fhw-gc47",
+   "published": "2026-06-22T20:01:35Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.3.6"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    },
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "1.4.0"
+        },
+        {
+         "fixed": "1.4.3"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    },
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "1.5.0-rc.1"
+        },
+        {
+         "fixed": "1.5.0-rc.3"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-xr7r-f8xq-vfvv",
+   "published": "2024-01-31T22:44:08Z",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "1.0.0-rc93"
+        },
+        {
+         "fixed": "1.1.12"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GO-2021-0070",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "0.1.0"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GO-2021-0085",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.0.0-rc8.0.20190930145003-cad42f6e0932"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    },
+    {
+     "package": {
+      "name": "github.com/opencontainers/selinux",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "0"
+        },
+        {
+         "fixed": "1.3.1-0.20190929122143-5215b1806f52"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

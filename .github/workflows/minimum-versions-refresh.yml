@@ -1,0 +1,640 @@
+name: minimum-versions-refresh
+
+# Daily refresh of the audit minimum version table
+# (cmax/scripts/1-audit/minimum-versions.json). A "minimum" is the lowest
+# version of a component that has no known applicable vulnerability. The audit
+# grades an observed version against its minimum.
+#
+# Why this runs in CI and not at audit time:
+#   - Clusters under audit frequently have no outbound network. A fetch during
+#     the audit would fail on those clusters, or give a different verdict on
+#     each cluster.
+#   - Audit output is evidence. The verdict must stay reproducible from the
+#     committed table, so the minimums must be a committed input.
+#   - A minimum or fix availability change can change a provider from pass to
+#     fail. That result needs human review, so this job opens a pull request and
+#     never pushes to the base branch.
+#   - Upstream advisory text changes over time. A parser break must show here as
+#     a red job, not as a wrong verdict on a live cluster.
+#
+# The generator is stdlib only. It needs outbound HTTPS to
+# raw.githubusercontent.com, api.github.com, api.osv.dev, ubuntu.com, and
+# www.amd.com.
+
+on:
+  schedule:
+    # 07:17 UTC each day.
+    #   - Off-peak: GitHub queues many scheduled jobs at the top of the hour,
+    #     so an odd minute starts sooner.
+    #   - 07:17 UTC is 00:17 US Pacific. The upstream vendors publish during
+    #     their working day, so an overnight run collects the full previous day,
+    #     and a minimum change waits for review at the start of the next workday.
+    - cron: '17 7 * * *'
+  workflow_dispatch:
+
+# Least privilege at the workflow level. Only the refresh job gets write access.
+permissions:
+  contents: read
+
+# One refresh at a time. A manual run must not race the scheduled run, because
+# both push the same branch.
+concurrency:
+  group: minimum-versions-refresh
+  cancel-in-progress: false
+
+env:
+  MINIMUMS_PATH: cmax/scripts/1-audit/minimum-versions.json
+  BRANCH: automation/minimum-versions
+  # The branch the refresh reads from and opens pull requests against. A
+  # manual dispatch works on the ref the operator picked, so this branch's
+  # copy of the job cannot refresh another branch with a job definition that
+  # branch does not carry. A scheduled run works on the repository default
+  # branch, which is the ref it starts from. One place to change if the
+  # table ever moves off the default branch.
+  BASE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || github.event.repository.default_branch || github.ref_name }}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    # The refresh reads the advisory feeds and the exact fixed-release records.
+    # The rest of the time is the pip install and the audit test suite. 15
+    # minutes leaves room for retries and still kills a hung connection quickly.
+    timeout-minutes: 15
+    permissions:
+      # The job pushes one branch and opens or updates one pull request.
+      # It needs nothing more.
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Refresh the table that the base branch carries. A manual run
+          # refreshes the branch the operator started it from.
+          ref: ${{ env.BASE_BRANCH }}
+          # The generator parses data from external advisory feeds. Do not put
+          # a write token in Git configuration while that code runs. The final
+          # pull request step gets the token only when it must push.
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Install test runner
+        # Install only the reviewed distributions and verify each registry
+        # artifact against the committed hashes. Binary-only installation also
+        # prevents an sdist build backend from running code during installation.
+        run: >-
+          python -m pip install
+          --require-hashes
+          --only-binary=:all:
+          --disable-pip-version-check
+          -r .github/requirements/minimum-versions.txt
+
+      - name: Snapshot the committed minimum table
+        run: cp "$MINIMUMS_PATH" "$RUNNER_TEMP/minimums-before.json"
+
+      - name: Refresh the minimum table
+        timeout-minutes: 5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          generated="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # Retry a small number of times for transient upstream failures. A
+          # fail-closed error (a populated component that extracts empty) is
+          # deterministic: it fails every attempt, the generator writes nothing,
+          # and the final exit below makes the job red.
+          for attempt in 1 2 3; do
+            if python3 -m cmax.minimum_refresh --write "$MINIMUMS_PATH" --generated "$generated"; then
+              exit 0
+            fi
+            echo "::warning::the minimum refresh failed on attempt ${attempt}"
+            sleep $((attempt * 10))
+          done
+          echo "::error::the minimum refresh failed on all 3 attempts. The generator wrote nothing. Read the log above for the failed component."
+          exit 1
+
+      - name: Check that the refreshed table is complete
+        # A second gate after the generator's own fail-closed check. An empty or
+        # partial table must never reach a commit.
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          path = os.environ["MINIMUMS_PATH"]
+          with open(path, encoding="utf-8") as handle:
+              data = json.load(handle)
+
+          components = data.get("components") or {}
+          if not components:
+              sys.exit(f"::error::{path} has no components. Refuse to commit it.")
+
+          # Each kind keeps its minimums under its own key: minimum, branches,
+          # trains, ladder, packages, lines. Name the metadata keys instead and
+          # treat everything else as a minimum value, so a new kind with a new
+          # value key needs no edit here. `cves` stays metadata because a
+          # component can carry a minimum with no CVE list. `advisoryRanges` is
+          # applicability evidence for advisories already reflected in the
+          # ladder, not a minimum: without it here, a runc block with an empty
+          # ladder but populated ranges would pass this gate.
+          metadata_keys = {
+              "advisory", "advisories", "advisoryRanges", "branchSources",
+              "cves", "floorSources", "fixAvailability", "floorAvailability",
+              "kind", "release", "source", "sources",
+          }
+          empty = sorted(
+              name for name, component in components.items()
+              if not any(
+                  value for key, value in component.items()
+                  if key not in metadata_keys
+              )
+          )
+          if empty:
+              sys.exit(f"::error::these components carry no minimum value: {', '.join(empty)}")
+
+          print(f"{len(components)} components carry minimum values")
+          PY
+
+      - name: Compare the new table with the committed table
+        id: compare
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import shutil
+          from datetime import datetime, timezone
+
+          path = os.environ["MINIMUMS_PATH"]
+          before_path = os.path.join(os.environ["RUNNER_TEMP"], "minimums-before.json")
+
+          def load(name):
+              with open(name, encoding="utf-8") as handle:
+                  return json.load(handle)
+
+          before, after = load(before_path), load(path)
+
+          def policy_only(table):
+              # The generated timestamp changes on every run. Compare the minimum
+              # values, bulletin sources, and fix availability evidence.
+              return {key: value for key, value in table.items() if key != "generated"}
+
+          policy_changed = policy_only(before) != policy_only(after)
+
+          # The audit reports the table as stale after maxAgeDays. Refresh the
+          # timestamp before that limit, so a table with steady minimums does not
+          # age out. The 2-day margin leaves two more scheduled runs if one run
+          # fails.
+          max_age_days = int(after.get("maxAgeDays", 10))
+          refresh_after_days = max(1, max_age_days - 2)
+
+          def age_days(stamp):
+              if not stamp:
+                  return None
+              parsed = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+              if parsed.tzinfo is None:
+                  parsed = parsed.replace(tzinfo=timezone.utc)
+              return (datetime.now(timezone.utc) - parsed).days
+
+          age = age_days(before.get("generated"))
+          stale = age is None or age >= refresh_after_days
+
+          if not policy_changed and not stale:
+              # Only the timestamp moved and the table is still fresh. Restore
+              # the committed file so the run leaves no diff and opens no pull
+              # request.
+              shutil.copyfile(before_path, path)
+
+          changed = policy_changed or stale
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"changed={'true' if changed else 'false'}\n")
+              out.write(f"policy_changed={'true' if policy_changed else 'false'}\n")
+              out.write(f"stale={'true' if stale else 'false'}\n")
+
+          if policy_changed:
+              summary = (
+                  "One or more minimum values or fix availability records changed. "
+                  "The job opens a pull request."
+              )
+          elif stale:
+              summary = (
+                  f"No minimum moved. The committed table is {age} days old and the limit is "
+                  f"{max_age_days} days, so the job refreshes the timestamp."
+              )
+          else:
+              summary = f"No minimum moved and the table is {age} days old. No pull request."
+          print(summary)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(f"### Minimum versions\n\n{summary}\n")
+          PY
+
+      - name: Run the offline audit policy tests
+        # Runs on every day, also when nothing changed, so a table that no longer
+        # grades correctly cannot stay green. The policy tests confirm that each
+        # minimum compares as safe at the minimum and unsafe below it. The reported
+        # audit result permits a below-minimum version during the declared
+        # vendor window, measured from the later of the bulletin and fix dates.
+        run: python3 -m pytest -q tests/audit/
+
+      - name: Detect new upstream bulletins
+        id: bulletins
+        timeout-minutes: 5
+        # This is a separate, informational scan of upstream for bulletins the
+        # table does not track. It must never gate the pull request. The minimum
+        # steps above have already refreshed, completeness-checked, compared and
+        # policy-tested the table, and every pull request step below carries an
+        # implicit success(), so an exit 1 here skipped them: a transient network
+        # failure in this scan stranded the refreshed minimums on the runner and
+        # left the base branch on the old table, while the staleness clock this job exists
+        # to hold back kept running. `continue-on-error` keeps the pipeline
+        # moving; the terminal gate at the end of the job still turns the run red
+        # for the same failure, after the minimums have reached a pull request.
+        continue-on-error: true
+        # Exit 3 means the generator found a relevant bulletin that the table
+        # does not track. Retry only the other non-zero codes, which are
+        # transient network or upstream errors.
+        run: |
+          set -uo pipefail
+          report="$RUNNER_TEMP/new-bulletins.txt"
+          rc=1
+          for attempt in 1 2 3; do
+            python3 -m cmax.minimum_refresh --detect-new-bulletins > "$report" 2>&1
+            rc=$?
+            if [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ]; then
+              break
+            fi
+            echo "::warning::bulletin detection failed on attempt ${attempt} with exit ${rc}"
+            sleep $((attempt * 10))
+          done
+          cat "$report"
+          if [ "$rc" -eq 3 ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          elif [ "$rc" -eq 0 ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::bulletin detection failed on all 3 attempts with exit ${rc}"
+            exit 1
+          fi
+
+      - name: Add the bulletin scan to the job summary
+        # The generator prints the deferred bulletins and their written reasons
+        # on every run, exit 0 included. This step puts that report in the job
+        # summary on every run, quiet days included, so a recorded decision stays
+        # in front of a reader who does not open the log.
+        #
+        # The step reads one file that this job wrote, and it always exits 0, so
+        # it cannot fail the run on its own. `always()` makes it run after a
+        # failed detection step as well. It never hides that failure: the job
+        # result still comes from the failed step.
+        if: always()
+        run: |
+          report="${RUNNER_TEMP}/new-bulletins.txt"
+          if [ ! -s "$report" ]; then
+            echo 'the bulletin scan produced no report'
+            exit 0
+          fi
+          {
+            echo '### Upstream bulletin scan'
+            echo
+            echo '```'
+            cat "$report"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
+          exit 0
+
+      - name: Write the pull request description
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          NEW_BULLETINS: ${{ steps.bulletins.outputs.found }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import textwrap
+
+          path = os.environ["MINIMUMS_PATH"]
+          temp = os.environ["RUNNER_TEMP"]
+
+          def load(name):
+              with open(name, encoding="utf-8") as handle:
+                  return json.load(handle)
+
+          before = load(os.path.join(temp, "minimums-before.json"))
+          after = load(path)
+
+          def flatten(node, prefix=""):
+              """Give one (dotted path, text) pair for each leaf value."""
+              if isinstance(node, dict):
+                  for key in sorted(node):
+                      child = f"{prefix}.{key}" if prefix else str(key)
+                      yield from flatten(node[key], child)
+              elif isinstance(node, list):
+                  yield prefix, ", ".join(str(item) for item in node)
+              else:
+                  yield prefix, str(node)
+
+          old_leaves = dict(flatten(before.get("components") or {}))
+          new_leaves = dict(flatten(after.get("components") or {}))
+
+          def cell(text):
+              # Keep a value with a pipe character inside the table cell.
+              return text.replace("|", "\\|") if text else "(none)"
+
+          changes = {}
+          for leaf in sorted(set(old_leaves) | set(new_leaves)):
+              old_value, new_value = old_leaves.get(leaf), new_leaves.get(leaf)
+              if old_value == new_value:
+                  continue
+              component, _, item = leaf.partition(".")
+              changes.setdefault(component, []).append((item or leaf, old_value, new_value))
+
+          def links(component):
+              found = []
+              for _, value in flatten((after.get("components") or {}).get(component, {})):
+                  for part in value.split(", "):
+                      if part.startswith("https://") and part not in found:
+                          found.append(part)
+              return found
+
+          lines = []
+          def count(number, noun):
+              return f"{number} {noun}" if number == 1 else f"{number} {noun}s"
+
+          if changes:
+              total = sum(len(rows) for rows in changes.values())
+              lines.append(
+                  f"- `{path}`: {count(total, 'value')} changed in "
+                  f"{count(len(changes), 'component')}."
+              )
+              lines.append(
+                  "- A component version below its new minimum reports a pass with "
+                  "an upgrade recommendation until the fixed release is confirmed, "
+                  "then during the three-calendar-day grace period. The grace clock "
+                  "starts on the later of bulletin publication and fix availability."
+              )
+              lines.append("")
+              for component, rows in changes.items():
+                  lines.append(f"### {component}")
+                  lines.append("")
+                  lines.append("| Item | Before | After |")
+                  lines.append("| --- | --- | --- |")
+                  for item, old_value, new_value in rows:
+                      lines.append(f"| `{item}` | {cell(old_value)} | {cell(new_value)} |")
+                  lines.append("")
+                  source_links = links(component)
+                  if source_links:
+                      lines.append("Upstream sources:")
+                      lines.extend(f"- {link}" for link in source_links)
+                      lines.append("")
+          else:
+              lines.append(
+                  f"- `{path}`: no minimum changed. Only the `generated` timestamp "
+                  "moved, because the table was near its `maxAgeDays` limit."
+              )
+              lines.append("")
+
+          report_path = os.path.join(temp, "new-bulletins.txt")
+          report = ""
+          if os.path.exists(report_path):
+              with open(report_path, encoding="utf-8") as handle:
+                  report = handle.read().strip()
+
+          if os.environ.get("NEW_BULLETINS", "") == "":
+              # The scan failed on every attempt. `found=` is written only on the
+              # exit 0 and exit 3 paths, so an empty value is the one state the
+              # two success paths cannot produce, and `continue-on-error` is what
+              # lets this step run at all after that failure. The report holds the
+              # error text: the generator raises during the fetch, before it
+              # prints the deferred list, so no other branch here can recognise
+              # this state. Without its own branch it fell through to "found no
+              # new relevant bulletin", which claimed a clean scan the run never
+              # made, in the body a human reads before approving minimum changes.
+              bulletin_text = (
+                  "The upstream bulletin scan failed on every attempt, so this "
+                  "run did not check for bulletins the table does not track. The "
+                  "minimum changes above are unaffected, and the run is red for "
+                  "this reason. Read the detection step log."
+              )
+              if report:
+                  bulletin_text += "\n\n```\n" + report + "\n```"
+          elif os.environ.get("NEW_BULLETINS") == "true":
+              bulletin_text = (
+                  "The generator found relevant bulletins that the table does not "
+                  "track. A new bulletin is a human decision, so this job does not "
+                  "add it. Track each NVIDIA bulletin in BULLETINS in "
+                  "`cmax/minimum_refresh.py`, or record the reason to defer it in "
+                  "DEFERRED_BULLETINS. Track each Docker Engine major in "
+                  "DOCKER_ENGINE_MAJORS. Track each AMD GPU bulletin in "
+                  "AMD_BULLETINS, or record the reason to defer it in "
+                  "AMD_DEFERRED_BULLETINS. Do that in a separate pull request."
+                  "\n\n```\n" + report + "\n```"
+              )
+          elif "Deferred bulletins" in report:
+              # A deferred bulletin is a recorded decision. The generator reports
+              # it on every run, so the reviewer sees it here too.
+              bulletin_text = (
+                  "The generator found no new bulletin. It reports each deferred "
+                  "bulletin and its written reason on every run, so the decision "
+                  "stays visible.\n\n```\n" + report + "\n```"
+              )
+          else:
+              bulletin_text = "The generator found no new relevant bulletin."
+
+          # The template is indented so that the YAML block scalar stays valid.
+          # textwrap.dedent removes that indentation again. The substituted
+          # values can hold many lines, so they go in after the dedent.
+          template = textwrap.dedent(
+              """\
+              ## Purpose
+
+              The audit compares each cluster component against a minimum safe
+              version, which this repository calls a minimum. The upstream vendors
+              publish new advisories, and the minimums must follow them. The daily
+              refresh job made this pull request.
+
+              ## What changed
+
+              CHANGE_LIST
+
+              ## New upstream bulletins
+
+              BULLETIN_REPORT
+
+              ## Effect
+
+              - Users: None.
+              - Operators: The audit can give a new fail result for a cluster
+                that did not change. Read each source link above before you
+                approve this change.
+              - Developers: None.
+              - Data and compatibility: Audit results that are already committed
+                stay unchanged. The table keeps schema version SCHEMA_VERSION.
+
+              ## Technical terms
+
+              - `minimum`: the lowest version of a component that has no known
+                applicable vulnerability.
+              - `CVE`: Common Vulnerabilities and Exposures. A public identifier
+                for one vulnerability.
+              - `CSAF`: Common Security Advisory Framework. The machine-readable
+                advisory format that NVIDIA publishes.
+              - `fix availability`: the confirmed date when the exact fixed
+                release became available from the upstream vendor.
+
+              ## Validation
+
+              - `python3 -m cmax.minimum_refresh --write MINIMUMS_FILE`: pass. The
+                generator stops with an error and writes nothing if a populated
+                component extracts empty. It also records confirmed or
+                unconfirmed availability for every generated minimum.
+              - `python3 -m pytest -q tests/audit/`: pass. The policy
+                tests grade each minimum at the minimum and below the minimum.
+              - Not run: an audit on a live cluster. This job has no cluster.
+
+              ## Merge plan
+
+              - Merge order: None. This PR can merge independently.
+              - Dependency: None.
+              - Release step: None.
+
+              ## Design decisions for approval
+
+              - Approval required: Yes.
+              - Decision: accept the new minimums and fix availability evidence.
+              - Options: merge the refreshed table, or keep the current table
+                and correct the generator.
+              - Recommendation: merge the refreshed table after you check each
+                upstream source link above, including the fixed-release link.
+              - Approver: the ClusterMAX security reviewer.
+
+              ---
+
+              Automation notes:
+
+              - The `minimum-versions-refresh` workflow made this pull request
+                from run RUN_URL.
+              - The workflow owns the branch. Each run rebuilds the branch from
+                `BASE_BRANCH_NAME` and force-pushes it. Do not add commits to this branch.
+                To change the table, change the generator `cmax/minimum_refresh.py`.
+              - GitHub does not start the other workflows for a pull request that
+                a workflow token created. Close and reopen this pull request to
+                start the usual checks.
+              """
+          )
+
+          replacements = {
+              "CHANGE_LIST": "\n".join(lines).rstrip(),
+              "BULLETIN_REPORT": bulletin_text,
+              "SCHEMA_VERSION": str(after.get("schemaVersion")),
+              "MINIMUMS_FILE": path,
+              "RUN_URL": os.environ.get("RUN_URL", ""),
+              "BASE_BRANCH_NAME": os.environ.get("BASE_BRANCH", ""),
+          }
+          body = template
+          for token, value in replacements.items():
+              body = body.replace(token, value)
+
+          with open(os.path.join(temp, "pr-body.md"), "w", encoding="utf-8") as out:
+              out.write(body)
+          print(body)
+          PY
+
+      - name: Open or update the pull request
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITLE: 'chore(audit): refresh the minimum version table'
+        run: |
+          set -euo pipefail
+
+          # checkout does not persist a credential. Give only this final step's
+          # Git network commands a helper that reads GH_TOKEN through gh.
+          git_with_token() {
+            git -c credential.helper= \
+              -c credential.helper='!gh auth git-credential' "$@"
+          }
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # The branch holds exactly one commit on top of the base branch, so
+          # the pull request always shows the current table against it.
+          # The branch does not exist before the first run, so the fetch can fail.
+          git_with_token fetch origin \
+            "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}" || true
+          git checkout -B "$BRANCH"
+          git add -- "$MINIMUMS_PATH"
+          if git diff --cached --quiet; then
+            echo "::error::the compare step reported a change, but ${MINIMUMS_PATH} has no diff against ${BASE_BRANCH}. Read the compare step log."
+            exit 1
+          fi
+          git commit -m "$TITLE" \
+            -m 'The daily refresh job read the upstream advisory feeds and wrote the new minimums.'
+
+          if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
+            # A lease against the tip that this run fetched. The push fails if
+            # another run pushed the branch in the meantime.
+            expected="$(git rev-parse "refs/remotes/origin/${BRANCH}")"
+            git_with_token push --force-with-lease="refs/heads/${BRANCH}:${expected}" \
+              origin "HEAD:refs/heads/${BRANCH}"
+          else
+            git_with_token push origin "HEAD:refs/heads/${BRANCH}"
+          fi
+
+          # Reuse the open pull request. A new one each day would be a duplicate.
+          number="$(gh pr list --head "$BRANCH" --base "$BASE_BRANCH" --state open \
+            --json number --jq '.[0].number // empty')"
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --title "$TITLE" --body-file "$RUNNER_TEMP/pr-body.md"
+            url="$(gh pr view "$number" --json url --jq .url)"
+            echo "Updated ${url}"
+          else
+            url="$(gh pr create --base "$BASE_BRANCH" --head "$BRANCH" --title "$TITLE" \
+              --body-file "$RUNNER_TEMP/pr-body.md")"
+            echo "Opened ${url}"
+          fi
+          echo "Pull request: ${url}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report untracked upstream bulletins
+        # This step runs only for a bulletin that neither list covers. The
+        # generator exits 3 only when at least one bulletin is new. A bulletin
+        # that DEFERRED_BULLETINS records keeps exit 0, and the generator prints
+        # it with its written reason on every run. A recorded decision therefore
+        # keeps a quiet day green, and the decision stays visible in the job log
+        # and in the job summary above.
+        #
+        # A new bulletin is a human decision, never an automatic edit. When a
+        # pull request is open, the description carries the list and the reviewer
+        # sees it there. When there is no diff, this step fails the run instead.
+        #
+        # Why a failed run and not a new issue: an issue needs `issues: write`,
+        # which this job does not need for anything else, and it adds duplicate
+        # bookkeeping across days. A person can also close an issue while the
+        # condition continues. A failed scheduled run stays red every day until
+        # someone tracks the bulletin or records the reason to defer it, and it
+        # needs no extra permission.
+        if: steps.bulletins.outputs.found == 'true' && steps.compare.outputs.changed != 'true'
+        run: |
+          set -euo pipefail
+          cat "$RUNNER_TEMP/new-bulletins.txt"
+          echo "::error::The generator found relevant bulletins that the minimum table does not track. No minimum moved, so there is no pull request. Track each NVIDIA bulletin in BULLETINS in cmax/minimum_refresh.py, or record the reason to defer it in DEFERRED_BULLETINS. Track each Docker Engine major in DOCKER_ENGINE_MAJORS. Track each AMD GPU bulletin in AMD_BULLETINS, or record the reason to defer it in AMD_DEFERRED_BULLETINS. A deferred bulletin is still reported every run, so the decision stays visible."
+          exit 1
+
+      - name: Fail the run when the bulletin scan could not complete
+        # The terminal half of the `continue-on-error` on the detection step.
+        # That flag stops a failed scan from skipping the pull request steps; it
+        # must not also make the failure disappear, because a scan that never
+        # ran is a day nobody looked upstream for an untracked bulletin. So the
+        # failure is reported here, after the minimums have reached a pull
+        # request, and it still turns the scheduled run red.
+        #
+        # `outcome`, not `conclusion`: `continue-on-error` rewrites the
+        # conclusion to success and leaves the real result in the outcome.
+        if: '!cancelled() && steps.bulletins.outcome == ''failure'''
+        run: |
+          set -euo pipefail
+          echo "::error::The upstream bulletin scan failed on all 3 attempts, so this run did not check upstream for bulletins the minimum table does not track. Any minimum change above still reached a pull request. Read the detection step log; a repeated failure means the scan itself needs a fix."
+          exit 1

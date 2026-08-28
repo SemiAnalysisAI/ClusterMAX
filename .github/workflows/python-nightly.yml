@@ -1,0 +1,97 @@
+name: python-nightly
+
+on:
+  schedule:
+    - cron: '17 8 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: python-nightly-0.2.1
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_VERSION: 0.2.1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Set the nightly version
+        id: version
+        run: |
+          commit="$(git rev-parse --short=12 HEAD)"
+          date_utc="$(date -u +%Y%m%d)"
+          version="$(python .github/scripts/nightly_version.py \
+            --release-version "$RELEASE_VERSION" \
+            --date "$date_utc" \
+            --run-number "$GITHUB_RUN_NUMBER")"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "### ClusterMAX nightly" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version: \`$version\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: \`$commit\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build the nightly distributions
+        env:
+          CLUSTERMAX_BUILD_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python -m pip install \
+            --require-hashes \
+            --only-binary=:all: \
+            --disable-pip-version-check \
+            -r .github/requirements/release.txt
+          python -m build --no-isolation
+          python -m twine check dist/*
+          check-wheel-contents dist/clustermax-*.whl
+          test "$(python -c 'import cmax; print(cmax.__version__)')" = "0.2.1"
+
+      - name: Verify the nightly wheel
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python -m venv /tmp/clustermax-nightly
+          /tmp/clustermax-nightly/bin/pip install dist/clustermax-*.whl
+          cd /tmp
+          test "$(/tmp/clustermax-nightly/bin/cmax --version)" = "cmax ${EXPECTED_VERSION}"
+          /tmp/clustermax-nightly/bin/cmax audit --show
+          /tmp/clustermax-nightly/bin/cmax audit security --show
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: clustermax-${{ steps.version.outputs.version }}-${{ steps.version.outputs.commit }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    if: github.repository == 'SemiAnalysisAI/ClusterMAX' && github.ref == 'refs/heads/master'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/clustermax/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: clustermax-${{ needs.build.outputs.version }}-${{ needs.build.outputs.commit }}
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          packages-dir: dist/

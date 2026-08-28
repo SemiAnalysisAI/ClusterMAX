@@ -1,0 +1,5 @@
+version: 4
+
+phase:
+  audit:
+    audit: true

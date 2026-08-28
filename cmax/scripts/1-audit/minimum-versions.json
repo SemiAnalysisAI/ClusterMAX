@@ -1,0 +1,845 @@
+{
+  "components": {
+    "connectxFirmware": {
+      "advisory": "https://nvidia.custhelp.com/app/answers/detail/a_id/5699/",
+      "floorAvailability": {
+        "28": {
+          "aId": 5699,
+          "available": "2026-06-30T00:00:00.000Z",
+          "bulletinReleased": "2026-06-30T00:00:00.000Z",
+          "feed": "nvidia-csaf-fixed-product",
+          "status": "confirmed",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5699/5699.json",
+          "version": "28.4702"
+        },
+        "32": {
+          "aId": 5699,
+          "available": "2026-06-30T00:00:00.000Z",
+          "bulletinReleased": "2026-06-30T00:00:00.000Z",
+          "feed": "nvidia-csaf-fixed-product",
+          "status": "confirmed",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5699/5699.json",
+          "version": "32.1908"
+        },
+        "35": {
+          "aId": 5699,
+          "available": "2026-06-30T00:00:00.000Z",
+          "bulletinReleased": "2026-06-30T00:00:00.000Z",
+          "feed": "nvidia-csaf-fixed-product",
+          "status": "confirmed",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5699/5699.json",
+          "version": "35.8002"
+        },
+        "39": {
+          "aId": 5699,
+          "available": "2026-06-30T00:00:00.000Z",
+          "bulletinReleased": "2026-06-30T00:00:00.000Z",
+          "feed": "nvidia-csaf-fixed-product",
+          "status": "confirmed",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5699/5699.json",
+          "version": "39.8002"
+        },
+        "43": {
+          "aId": 5699,
+          "available": "2026-06-30T00:00:00.000Z",
+          "bulletinReleased": "2026-06-30T00:00:00.000Z",
+          "feed": "nvidia-csaf-fixed-product",
+          "status": "confirmed",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5699/5699.json",
+          "version": "43.8002"
+        },
+        "46": {
+          "aId": 5699,
+          "available": "2026-06-30T00:00:00.000Z",
+          "bulletinReleased": "2026-06-30T00:00:00.000Z",
+          "feed": "nvidia-csaf-fixed-product",
+          "status": "confirmed",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5699/5699.json",
+          "version": "46.3008"
+        }
+      },
+      "kind": "trainMap",
+      "source": {
+        "aId": 5699,
+        "feed": "nvidia-csaf",
+        "released": "2026-06-30T00:00:00.000Z",
+        "title": "Security Bulletin: NVIDIA Networking Bluefield and ConnectX - June 2026",
+        "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5699/5699.json"
+      },
+      "trains": {
+        "28": 4702,
+        "32": 1908,
+        "35": 8002,
+        "39": 8002,
+        "43": 8002,
+        "46": 3008
+      }
+    },
+    "cudaToolkit": {
+      "advisory": "https://nvidia.custhelp.com/app/answers/detail/a_id/5755/",
+      "cves": [
+        "CVE-2025-33228",
+        "CVE-2025-33229",
+        "CVE-2025-33230",
+        "CVE-2025-33231"
+      ],
+      "fixAvailability": {
+        "aId": 5755,
+        "available": "2026-01-20T00:00:00Z",
+        "bulletinReleased": "2026-01-20T00:00:00Z",
+        "feed": "nvidia-csaf-fixed-product",
+        "status": "confirmed",
+        "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5755/5755.json",
+        "version": "13.1"
+      },
+      "kind": "minimum",
+      "minimum": "13.1",
+      "source": {
+        "aId": 5755,
+        "feed": "nvidia-csaf",
+        "released": "2026-01-20T00:00:00Z",
+        "title": "Security Bulletin - CUDA Toolkit - January 2026",
+        "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5755/5755.json"
+      }
+    },
+    "dcgm": {
+      "advisory": "https://nvidia.custhelp.com/app/answers/detail/a_id/5857/",
+      "cves": [
+        "CVE-2026-47483"
+      ],
+      "fixAvailability": {
+        "available": "2026-05-07T00:28:58Z",
+        "bulletinReleased": "2026-07-28T00:00:00.000Z",
+        "feed": "github-release",
+        "repo": "NVIDIA/dcgm-exporter",
+        "status": "confirmed",
+        "tag": "4.5.3-4.8.2",
+        "url": "https://github.com/NVIDIA/dcgm-exporter/releases/tag/4.5.3-4.8.2",
+        "version": "4.5.3"
+      },
+      "kind": "minimum",
+      "minimum": "4.5.3",
+      "source": {
+        "aId": 5857,
+        "feed": "nvidia-csaf",
+        "released": "2026-07-28T00:00:00.000Z",
+        "title": "Security Bulletin: NVIDIA DCGM Exporter - July 2026",
+        "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5857/5857.json"
+      }
+    },
+    "dcgmExporter": {
+      "advisory": "https://nvidia.custhelp.com/app/answers/detail/a_id/5857/",
+      "cves": [
+        "CVE-2026-47483"
+      ],
+      "fixAvailability": {
+        "available": "2026-05-07T00:28:58Z",
+        "bulletinReleased": "2026-07-28T00:00:00.000Z",
+        "feed": "github-release",
+        "repo": "NVIDIA/dcgm-exporter",
+        "status": "confirmed",
+        "tag": "4.5.3-4.8.2",
+        "url": "https://github.com/NVIDIA/dcgm-exporter/releases/tag/4.5.3-4.8.2",
+        "version": "4.8.2"
+      },
+      "kind": "minimum",
+      "minimum": "4.8.2",
+      "source": {
+        "aId": 5857,
+        "feed": "nvidia-csaf",
+        "released": "2026-07-28T00:00:00.000Z",
+        "title": "Security Bulletin: NVIDIA DCGM Exporter - July 2026",
+        "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5857/5857.json"
+      }
+    },
+    "docker": {
+      "advisory": "https://docs.docker.com/engine/release-notes/29/#2970",
+      "cves": [
+        "CVE-2026-17106"
+      ],
+      "fixAvailability": {
+        "available": "2026-07-30T00:00:00Z",
+        "bulletinReleased": "2026-07-30T21:33:46Z",
+        "commit": "34dfa2b7389ef29b28ee9147cf4bbdaf4bf765f6",
+        "feed": "docker-release-notes",
+        "id": "docker-engine-29.7.0",
+        "status": "confirmed",
+        "url": "https://docs.docker.com/engine/release-notes/29/#2970",
+        "version": "29.7.0"
+      },
+      "kind": "minimum",
+      "minimum": "29.7.0",
+      "source": {
+        "feed": "manual",
+        "reason": "Docker publishes no machine-readable feed that maps advisories to Engine releases",
+        "url": "https://docs.docker.com/security/security-announcements/"
+      }
+    },
+    "nvidiaContainerToolkit": {
+      "advisory": "https://nvidia.custhelp.com/app/answers/detail/a_id/5850/",
+      "cves": [
+        "CVE-2026-24260"
+      ],
+      "fixAvailability": {
+        "available": "2026-05-21T23:32:36Z",
+        "bulletinReleased": "2026-06-30T00:00:00.000Z",
+        "feed": "github-release",
+        "repo": "NVIDIA/nvidia-container-toolkit",
+        "status": "confirmed",
+        "tag": "v1.19.1",
+        "url": "https://github.com/NVIDIA/nvidia-container-toolkit/releases/tag/v1.19.1",
+        "version": "1.19.1"
+      },
+      "kind": "minimum",
+      "minimum": "1.19.1",
+      "source": {
+        "aId": 5850,
+        "feed": "nvidia-csaf",
+        "released": "2026-06-30T00:00:00.000Z",
+        "title": "Security Bulletin: NVIDIA Container Toolkit - June 2026",
+        "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5850/5850.json"
+      }
+    },
+    "nvidiaDriver": {
+      "advisory": "https://nvidia.custhelp.com/app/answers/detail/a_id/5821/",
+      "branchSources": {
+        "535": 5821,
+        "570": 5747,
+        "580": 5821,
+        "590": 5747,
+        "595": 5821
+      },
+      "branches": {
+        "535": "535.309.01",
+        "570": "570.211.01",
+        "580": "580.159.03",
+        "590": "590.48.01",
+        "595": "595.71.05"
+      },
+      "floorAvailability": {
+        "535": {
+          "available": "2026-04-28T18:29:13Z",
+          "bulletinReleased": "2026-05-19T00:00:00Z",
+          "feed": "github-release",
+          "repo": "NVIDIA/open-gpu-kernel-modules",
+          "status": "confirmed",
+          "tag": "535.309.01",
+          "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/releases/tag/535.309.01",
+          "version": "535.309.01"
+        },
+        "570": {
+          "available": "2026-01-13T17:18:44Z",
+          "bulletinReleased": "2026-01-28T00:00:00Z",
+          "feed": "github-release",
+          "repo": "NVIDIA/open-gpu-kernel-modules",
+          "status": "confirmed",
+          "tag": "570.211.01",
+          "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/releases/tag/570.211.01",
+          "version": "570.211.01"
+        },
+        "580": {
+          "available": "2026-04-28T18:06:04Z",
+          "bulletinReleased": "2026-05-19T00:00:00Z",
+          "feed": "github-release",
+          "repo": "NVIDIA/open-gpu-kernel-modules",
+          "status": "confirmed",
+          "tag": "580.159.03",
+          "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/releases/tag/580.159.03",
+          "version": "580.159.03"
+        },
+        "590": {
+          "available": "2025-12-18T17:17:52Z",
+          "bulletinReleased": "2026-01-28T00:00:00Z",
+          "feed": "github-release",
+          "repo": "NVIDIA/open-gpu-kernel-modules",
+          "status": "confirmed",
+          "tag": "590.48.01",
+          "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/releases/tag/590.48.01",
+          "version": "590.48.01"
+        },
+        "595": {
+          "available": "2026-04-28T15:59:29Z",
+          "bulletinReleased": "2026-05-19T00:00:00Z",
+          "feed": "github-release",
+          "repo": "NVIDIA/open-gpu-kernel-modules",
+          "status": "confirmed",
+          "tag": "595.71.05",
+          "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/releases/tag/595.71.05",
+          "version": "595.71.05"
+        }
+      },
+      "kind": "branchMap",
+      "source": {
+        "aId": 5821,
+        "feed": "nvidia-csaf",
+        "released": "2026-05-19T00:00:00Z",
+        "title": "Security Bulletin: GPU Display Driver - May 2026",
+        "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5821/5821.json"
+      },
+      "sources": [
+        {
+          "aId": 5747,
+          "feed": "nvidia-csaf",
+          "released": "2026-01-28T00:00:00Z",
+          "title": "Security Bulletin: GPU Display Driver - January 2026",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5747/5747.json"
+        },
+        {
+          "aId": 5821,
+          "feed": "nvidia-csaf",
+          "released": "2026-05-19T00:00:00Z",
+          "title": "Security Bulletin: GPU Display Driver - May 2026",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5821/5821.json"
+        }
+      ]
+    },
+    "nvhpc": {
+      "current": "26.5",
+      "kind": "releaseWindow",
+      "minimum": "26.3",
+      "policy": "current-or-previous",
+      "source": {
+        "feed": "nvidia-hpc-sdk-releases",
+        "url": "https://developer.nvidia.com/hpc-sdk/releases"
+      }
+    },
+    "runc": {
+      "advisories": [
+        "GHSA-9493-h29p-rfm2",
+        "GHSA-c3xm-pvg7-gh7r",
+        "GHSA-cgrx-mc8f-2prm",
+        "GHSA-f3fp-gc8g-vw66",
+        "GHSA-fgv8-vj5c-2ppq",
+        "GHSA-fh74-hm69-rqjw",
+        "GHSA-g2j6-57v7-gm8c",
+        "GHSA-g54h-m393-cpwq",
+        "GHSA-gp4j-w3vj-7299",
+        "GHSA-jfvp-7x6p-h2pv",
+        "GHSA-m8cg-xc2p-r3fc",
+        "GHSA-q3j5-32m5-58c2",
+        "GHSA-qw9x-cqr3-wc7r",
+        "GHSA-v95c-p5hm-xq8f",
+        "GHSA-vpvm-3wq2-2wvm",
+        "GHSA-xjvp-4fhw-gc47",
+        "GHSA-xr7r-f8xq-vfvv"
+      ],
+      "advisory": "https://github.com/opencontainers/runc/security/advisories/GHSA-9493-h29p-rfm2",
+      "advisoryRanges": {
+        "GHSA-9493-h29p-rfm2": [
+          {
+            "fixed": "1.2.8",
+            "introduced": "0"
+          },
+          {
+            "fixed": "1.3.3",
+            "introduced": "1.3.0-rc.1"
+          },
+          {
+            "fixed": "1.4.0-rc.3",
+            "introduced": "1.4.0-rc.1"
+          }
+        ],
+        "GHSA-c3xm-pvg7-gh7r": [
+          {
+            "fixed": "1.0.0-rc95",
+            "introduced": "0"
+          }
+        ],
+        "GHSA-cgrx-mc8f-2prm": [
+          {
+            "fixed": "1.2.8",
+            "introduced": "0"
+          },
+          {
+            "fixed": "1.3.3",
+            "introduced": "1.3.0-rc.1"
+          },
+          {
+            "fixed": "1.4.0-rc.3",
+            "introduced": "1.4.0-rc.1"
+          }
+        ],
+        "GHSA-f3fp-gc8g-vw66": [
+          {
+            "fixed": "1.1.2",
+            "introduced": "0"
+          }
+        ],
+        "GHSA-fgv8-vj5c-2ppq": [
+          {
+            "fixed": "1.0.0-rc8.0.20190930145003-cad42f6e0932",
+            "introduced": "0"
+          }
+        ],
+        "GHSA-fh74-hm69-rqjw": [
+          {
+            "fixed": "1.0.0-rc9.0.20200122160610-2fc03cc11c77",
+            "introduced": "0"
+          }
+        ],
+        "GHSA-g2j6-57v7-gm8c": [
+          {
+            "fixed": "1.1.5",
+            "introduced": "0"
+          }
+        ],
+        "GHSA-g54h-m393-cpwq": [
+          {
+            "fixed": "1.0.0-rc91",
+            "introduced": "0"
+          }
+        ],
+        "GHSA-gp4j-w3vj-7299": [
+          {
+            "fixed": "1.0.0-rc3",
+            "introduced": "0"
+          }
+        ],
+        "GHSA-jfvp-7x6p-h2pv": [
+          {
+            "fixed": "1.1.14",
+            "introduced": "0"
+          },
+          {
+            "fixed": "1.2.0-rc.3",
+            "introduced": "1.2.0-rc.1"
+          }
+        ],
+        "GHSA-m8cg-xc2p-r3fc": [
+          {
+            "fixed": "1.1.5",
+            "introduced": "0"
+          }
+        ],
+        "GHSA-q3j5-32m5-58c2": [
+          {
+            "fixed": "0.1.0",
+            "introduced": "0"
+          }
+        ],
+        "GHSA-qw9x-cqr3-wc7r": [
+          {
+            "fixed": "1.2.8",
+            "introduced": "1.0.0-rc3"
+          },
+          {
+            "fixed": "1.3.3",
+            "introduced": "1.3.0-rc.1"
+          },
+          {
+            "fixed": "1.4.0-rc.3",
+            "introduced": "1.4.0-rc.1"
+          }
+        ],
+        "GHSA-v95c-p5hm-xq8f": [
+          {
+            "fixed": "1.0.3",
+            "introduced": "0"
+          }
+        ],
+        "GHSA-vpvm-3wq2-2wvm": [
+          {
+            "fixed": "1.1.5",
+            "introduced": "1.0.0-rc95"
+          }
+        ],
+        "GHSA-xjvp-4fhw-gc47": [
+          {
+            "fixed": "1.3.6",
+            "introduced": "0"
+          },
+          {
+            "fixed": "1.4.3",
+            "introduced": "1.4.0"
+          },
+          {
+            "fixed": "1.5.0-rc.3",
+            "introduced": "1.5.0-rc.1"
+          }
+        ],
+        "GHSA-xr7r-f8xq-vfvv": [
+          {
+            "fixed": "1.1.12",
+            "introduced": "1.0.0-rc93"
+          }
+        ]
+      },
+      "floorAvailability": {
+        "0.1": {
+          "available": "2016-04-12T21:48:04Z",
+          "bulletinReleased": "2021-12-20T18:21:34Z",
+          "feed": "github-release",
+          "repo": "opencontainers/runc",
+          "status": "confirmed",
+          "tag": "v0.1.0",
+          "url": "https://github.com/opencontainers/runc/releases/tag/v0.1.0",
+          "version": "0.1.0"
+        },
+        "1.0": {
+          "available": "2021-12-06T04:31:14Z",
+          "bulletinReleased": "2021-12-07T21:22:39Z",
+          "feed": "github-release",
+          "repo": "opencontainers/runc",
+          "status": "confirmed",
+          "tag": "v1.0.3",
+          "url": "https://github.com/opencontainers/runc/releases/tag/v1.0.3",
+          "version": "1.0.3"
+        },
+        "1.1": {
+          "available": "2024-09-03T01:26:22Z",
+          "bulletinReleased": "2024-09-03T19:49:32Z",
+          "feed": "github-release",
+          "repo": "opencontainers/runc",
+          "status": "confirmed",
+          "tag": "v1.1.14",
+          "url": "https://github.com/opencontainers/runc/releases/tag/v1.1.14",
+          "version": "1.1.14"
+        },
+        "1.2": {
+          "available": "2025-11-05T09:16:04Z",
+          "bulletinReleased": "2025-11-05T16:37:15Z",
+          "feed": "github-release",
+          "repo": "opencontainers/runc",
+          "status": "confirmed",
+          "tag": "v1.2.8",
+          "url": "https://github.com/opencontainers/runc/releases/tag/v1.2.8",
+          "version": "1.2.8"
+        },
+        "1.3": {
+          "available": "2026-06-13T17:23:17Z",
+          "bulletinReleased": "2026-06-22T20:01:35Z",
+          "feed": "github-release",
+          "repo": "opencontainers/runc",
+          "status": "confirmed",
+          "tag": "v1.3.6",
+          "url": "https://github.com/opencontainers/runc/releases/tag/v1.3.6",
+          "version": "1.3.6"
+        },
+        "1.4": {
+          "available": "2026-06-13T17:23:20Z",
+          "bulletinReleased": "2026-06-22T20:01:35Z",
+          "feed": "github-release",
+          "repo": "opencontainers/runc",
+          "status": "confirmed",
+          "tag": "v1.4.3",
+          "url": "https://github.com/opencontainers/runc/releases/tag/v1.4.3",
+          "version": "1.4.3"
+        },
+        "1.5": {
+          "available": "2026-06-13T17:24:34Z",
+          "bulletinReleased": "2026-06-22T20:01:35Z",
+          "feed": "github-release",
+          "repo": "opencontainers/runc",
+          "status": "confirmed",
+          "tag": "v1.5.0-rc.3",
+          "url": "https://github.com/opencontainers/runc/releases/tag/v1.5.0-rc.3",
+          "version": "1.5.0-rc.3"
+        }
+      },
+      "floorSources": {
+        "0.1": "GHSA-q3j5-32m5-58c2",
+        "1.0": "GHSA-v95c-p5hm-xq8f",
+        "1.1": "GHSA-jfvp-7x6p-h2pv",
+        "1.2": "GHSA-9493-h29p-rfm2",
+        "1.3": "GHSA-xjvp-4fhw-gc47",
+        "1.4": "GHSA-xjvp-4fhw-gc47",
+        "1.5": "GHSA-xjvp-4fhw-gc47"
+      },
+      "kind": "ladder",
+      "ladder": {
+        "0.1": "0.1.0",
+        "1.0": "1.0.3",
+        "1.1": "1.1.14",
+        "1.2": "1.2.8",
+        "1.3": "1.3.6",
+        "1.4": "1.4.3",
+        "1.5": "1.5.0-rc.3"
+      },
+      "source": {
+        "ecosystem": "Go",
+        "feed": "osv",
+        "package": "github.com/opencontainers/runc",
+        "url": "https://api.osv.dev/v1/query"
+      },
+      "sources": [
+        {
+          "feed": "osv",
+          "id": "GHSA-9493-h29p-rfm2",
+          "released": "2025-11-05T16:37:15Z",
+          "url": "https://osv.dev/vulnerability/GHSA-9493-h29p-rfm2"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-c3xm-pvg7-gh7r",
+          "released": "2021-05-25T18:44:42Z",
+          "url": "https://osv.dev/vulnerability/GHSA-c3xm-pvg7-gh7r"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-cgrx-mc8f-2prm",
+          "released": "2025-11-05T18:40:40Z",
+          "url": "https://osv.dev/vulnerability/GHSA-cgrx-mc8f-2prm"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-f3fp-gc8g-vw66",
+          "released": "2022-05-24T17:36:56Z",
+          "url": "https://osv.dev/vulnerability/GHSA-f3fp-gc8g-vw66"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-fgv8-vj5c-2ppq",
+          "released": "2022-02-22T15:38:08Z",
+          "url": "https://osv.dev/vulnerability/GHSA-fgv8-vj5c-2ppq"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-fh74-hm69-rqjw",
+          "released": "2021-05-27T18:41:17Z",
+          "url": "https://osv.dev/vulnerability/GHSA-fh74-hm69-rqjw"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-g2j6-57v7-gm8c",
+          "released": "2023-03-30T20:20:23Z",
+          "url": "https://osv.dev/vulnerability/GHSA-g2j6-57v7-gm8c"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-g54h-m393-cpwq",
+          "released": "2021-12-20T18:21:54Z",
+          "url": "https://osv.dev/vulnerability/GHSA-g54h-m393-cpwq"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-gp4j-w3vj-7299",
+          "released": "2021-12-20T18:21:43Z",
+          "url": "https://osv.dev/vulnerability/GHSA-gp4j-w3vj-7299"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-jfvp-7x6p-h2pv",
+          "released": "2024-09-03T19:49:32Z",
+          "url": "https://osv.dev/vulnerability/GHSA-jfvp-7x6p-h2pv"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-m8cg-xc2p-r3fc",
+          "released": "2023-03-30T20:17:24Z",
+          "url": "https://osv.dev/vulnerability/GHSA-m8cg-xc2p-r3fc"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-q3j5-32m5-58c2",
+          "released": "2021-12-20T18:21:34Z",
+          "url": "https://osv.dev/vulnerability/GHSA-q3j5-32m5-58c2"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-qw9x-cqr3-wc7r",
+          "released": "2025-11-05T17:34:49Z",
+          "url": "https://osv.dev/vulnerability/GHSA-qw9x-cqr3-wc7r"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-v95c-p5hm-xq8f",
+          "released": "2021-12-07T21:22:39Z",
+          "url": "https://osv.dev/vulnerability/GHSA-v95c-p5hm-xq8f"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-vpvm-3wq2-2wvm",
+          "released": "2023-03-03T21:30:19Z",
+          "url": "https://osv.dev/vulnerability/GHSA-vpvm-3wq2-2wvm"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-xjvp-4fhw-gc47",
+          "released": "2026-06-22T20:01:35Z",
+          "url": "https://osv.dev/vulnerability/GHSA-xjvp-4fhw-gc47"
+        },
+        {
+          "feed": "osv",
+          "id": "GHSA-xr7r-f8xq-vfvv",
+          "released": "2024-01-31T22:44:08Z",
+          "url": "https://osv.dev/vulnerability/GHSA-xr7r-f8xq-vfvv"
+        }
+      ]
+    },
+    "ubuntuNoble": {
+      "advisory": "https://ubuntu.com/security/notices",
+      "kind": "distroPackages",
+      "packages": {
+        "linuxFragnesia": {
+          "abi": 124,
+          "cve": "CVE-2026-46300",
+          "fixAvailability": {
+            "available": "2026-06-02T17:12:50.716867",
+            "bulletinReleased": "2026-06-02T17:12:50.716867",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8373-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8373-1.json",
+            "version": "6.8.0-124.124"
+          },
+          "fixed": "6.8.0-124.124",
+          "package": "linux",
+          "priority": "high",
+          "relatedCves": [
+            "CVE-2026-43284",
+            "CVE-2026-43500"
+          ],
+          "released": "2026-06-02T17:12:50.716867",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8373-1",
+            "url": "https://ubuntu.com/security/notices/USN-8373-1.json"
+          },
+          "status": "released"
+        },
+        "linuxJanuscape": {
+          "cve": "CVE-2026-53359",
+          "fixAvailability": {
+            "available": "2026-08-12T19:43:13.556058",
+            "bulletinReleased": "2026-08-12T19:43:13.556058",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8630-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8630-1.json",
+            "version": "6.8.0-137.137"
+          },
+          "fixed": "6.8.0-137.137",
+          "package": "linux",
+          "priority": "high",
+          "released": "2026-08-12T19:43:13.556058",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8630-1",
+            "url": "https://ubuntu.com/security/notices/USN-8630-1.json"
+          },
+          "status": "released"
+        },
+        "linuxVmscape": {
+          "cve": "CVE-2025-40300",
+          "fixAvailability": {
+            "available": "2025-11-06T09:10:53.068752",
+            "bulletinReleased": "2025-11-06T09:10:53.068752",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-7861-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-7861-1.json",
+            "version": "6.8.0-87.88"
+          },
+          "fixed": "6.8.0-87.88",
+          "package": "linux",
+          "priority": "high",
+          "released": "2025-11-06T09:10:53.068752",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-7861-1",
+            "url": "https://ubuntu.com/security/notices/USN-7861-1.json"
+          },
+          "status": "released"
+        },
+        "qemu": {
+          "cve": "CVE-2024-3446",
+          "fixAvailability": {
+            "available": "2025-09-11T12:41:28.262010",
+            "bulletinReleased": "2025-09-11T12:41:28.262010",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-7744-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-7744-1.json",
+            "version": "1:8.2.2+ds-0ubuntu1.10"
+          },
+          "fixed": "1:8.2.2+ds-0ubuntu1.10",
+          "package": "qemu",
+          "priority": "medium",
+          "released": "2025-09-11T12:41:28.262010",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-7744-1",
+            "url": "https://ubuntu.com/security/notices/USN-7744-1.json"
+          },
+          "status": "released"
+        }
+      },
+      "release": "noble",
+      "source": {
+        "feed": "ubuntu-security-api",
+        "url": "https://ubuntu.com/security/cves/"
+      }
+    },
+    "virtioNetBluefield": {
+      "advisory": "https://nvidia.custhelp.com/app/answers/detail/a_id/5815/",
+      "cves": [
+        "CVE-2026-65094"
+      ],
+      "floorAvailability": {
+        "GA": {
+          "aId": 5815,
+          "available": "2026-07-28T00:00:00.000Z",
+          "bulletinReleased": "2026-07-28T00:00:00.000Z",
+          "feed": "nvidia-csaf-fixed-product",
+          "status": "confirmed",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5815/5815.json",
+          "version": "25.10.6"
+        },
+        "LTS23": {
+          "aId": 5815,
+          "available": "2026-07-28T00:00:00.000Z",
+          "bulletinReleased": "2026-07-28T00:00:00.000Z",
+          "feed": "nvidia-csaf-fixed-product",
+          "status": "confirmed",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5815/5815.json",
+          "version": "23.10.23"
+        },
+        "LTS24": {
+          "aId": 5815,
+          "available": "2026-07-28T00:00:00.000Z",
+          "bulletinReleased": "2026-07-28T00:00:00.000Z",
+          "feed": "nvidia-csaf-fixed-product",
+          "status": "confirmed",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5815/5815.json",
+          "version": "24.10.50"
+        },
+        "LTS25": {
+          "aId": 5815,
+          "available": "2026-07-28T00:00:00.000Z",
+          "bulletinReleased": "2026-07-28T00:00:00.000Z",
+          "feed": "nvidia-csaf-fixed-product",
+          "status": "confirmed",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5815/5815.json",
+          "version": "25.10.2"
+        }
+      },
+      "kind": "releaseLines",
+      "lines": {
+        "GA": {
+          "fixed": "25.10.6"
+        },
+        "LTS23": {
+          "fixed": "23.10.23",
+          "legacyAffectedThrough": "1.7.21"
+        },
+        "LTS24": {
+          "fixed": "24.10.50"
+        },
+        "LTS25": {
+          "fixed": "25.10.2"
+        }
+      },
+      "source": {
+        "aId": 5815,
+        "feed": "nvidia-csaf",
+        "released": "2026-07-28T00:00:00.000Z",
+        "title": "Security Bulletin: NVIDIA Networking Bluefield, ConnectX - July 2026",
+        "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5815/5815.json"
+      }
+    }
+  },
+  "generated": "2026-08-19T19:32:40Z",
+  "gracePeriodDays": 3,
+  "maxAgeDays": 10,
+  "schemaVersion": 1
+}

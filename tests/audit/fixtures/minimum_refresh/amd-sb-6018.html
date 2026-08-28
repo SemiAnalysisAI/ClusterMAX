@@ -1,0 +1,939 @@
+<!-- Trimmed copy of https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6018.html. Every table of the live page is kept verbatim; the page chrome around the tables is dropped. -->
+<html><head><title>AMD Graphics Vulnerabilities – August 2025</title></head><body>
+<table border="0" cellspacing="0" cellpadding="0" width="99%">
+<tbody><tr><td><p><b>CVE</b></p>
+</td>
+<td><p><b>CVE Description</b></p>
+</td>
+<td><p><b>CVSS Score</b></p>
+</td>
+</tr><tr><td><p>CVE-2024-36312</p>
+</td>
+<td><p>Improper isolation of VCN-JPEG HW memory space control register could allow a malicious guest VM to perform an unauthorized write to that register to gain arbitrary read/write access to the host and other guest VM physical memory.</p>
+</td>
+<td><p>8.8 High</p>
+<p>CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H</p>
+<p>8.5 High</p>
+<p>CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N</p>
+</td>
+</tr><tr><td><p>CVE-2024-36342</p>
+</td>
+<td><p>Improper input validation in the GPU driver could allow an attacker to exploit a heap overflow, potentially resulting in arbitrary code execution.</p>
+</td>
+<td><p>8.8 (High)</p>
+<p>CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H</p>
+<p>8.4 (High)</p>
+<p>CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N</p>
+</td>
+</tr><tr><td><p>CVE-2023-31322</p>
+</td>
+<td><p>Type confusion in the AMD Secure Processor (ASP) could allow an attacker to pass a malformed argument to the Reliability, Availability, and Serviceability Trusted Application (RAS TA), potentially leading to a read or write to shared memory, resulting in loss of confidentiality, integrity, or availability.</p>
+<p>(Note: Impact is limited to AMD Radeon™ 7000 and AMD Radeon™ Pro W7000 series graphics cards).</p>
+</td>
+<td><p>8.7 (High)</p>
+<p>CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:L</p>
+<p>9.3 (Critical)</p>
+<p>CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:L/SC:H/SI:H/SA:L</p>
+</td>
+</tr><tr><td><p>CVE-2024-36352</p>
+</td>
+<td><p>Improper input validation in the AMD Graphics Driver could allow an attacker to supply a specially crafted pointer, potentially leading to arbitrary writes or denial of service.</p>
+</td>
+<td><p>8.4 (High)</p>
+<p>CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:N/I:H/A:H</p>
+<p>6.2 (Medium)</p>
+<p>CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:N/SC:N/SI:H/SA:H</p>
+</td>
+</tr><tr><td><p>CVE-2021-26383</p>
+</td>
+<td><p>Insufficient bounds checking in AMD Trusted Execution Environment (TEE) could allow an attacker with a compromised userspace to invoke a command with malformed arguments, leading to out of bounds memory access, potentially resulting in loss of integrity or availability.</p>
+</td>
+<td><p>7.9 (High)</p>
+<p>CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:C/C:N/I:H/A:H</p>
+<p>6.8 (Medium)</p>
+<p>CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:N/VI:H/VA:H/SC:N/SI:N/SA:N</p>
+</td>
+</tr><tr><td><p>CVE-2023-31325</p>
+</td>
+<td><p>Improper isolation of shared resources on a System-on-a-Chip (SOC) could allow a privileged attacker to tamper with the contents of the PSP reserved DRAM region, potentially resulting in loss of confidentiality and integrity.</p>
+</td>
+<td><p>7.2 High</p>
+<p>CVSS:3.1/AV:L/AC:H/PR:H/UI:N/S:C/C:H/I:H/A:N</p>
+<p>7.0 High</p>
+<p>CVSS:4.0/AV:L/AC:H/AT:N/PR:H/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N</p>
+</td>
+</tr><tr><td><p>CVE-2025-0010</p>
+</td>
+<td><p>An out of bounds write in the graphics driver for Linux® could allow an attacker to overflow the buffer, potentially resulting in loss of confidentiality, integrity, or availability.</p>
+</td>
+<td><p>6.1 (Medium)</p>
+<p>CVSS:3.0/AV:L/AC:L/PR:L/UI:R/S:U/C:L/I:L/A:H</p>
+<p>6.9 (Medium)</p>
+<p>CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N</p>
+</td>
+</tr><tr><td><p>CVE-2024-36346</p>
+</td>
+<td><p>Improper input validation in AMD Power Management Firmware (PMFW) could allow a privileged attacker from Guest VM to send arbitrary input data potentially causing a GPU Reset condition.</p>
+</td>
+<td><p>6.0 Medium</p>
+<p>CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:C/C:N/I:N/A:H</p>
+<p>6.8 Medium</p>
+<p>CVSS:4.0/AV:L/AC:L/AT:P/PR:H/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:H</p>
+</td>
+</tr><tr><td><p>CVE-2025-0009</p>
+</td>
+<td><p>NULL pointer dereference in AMD Crash Defender could allow an attacker to write a NULL output to a log file, potentially resulting in a system crash and loss of availability.</p>
+</td>
+<td><p>5.5 (Medium)</p>
+<p>CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H</p>
+<p>6.8 (Medium)</p>
+<p>CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N</p>
+</td>
+</tr><tr><td><p>CVE-2025-0034</p>
+</td>
+<td><p>Insufficient parameter sanitization in TEE SOC Driver could allow an attacker to issue a malformed DRV_SOC_CMD_ID_SRIOV_SPATIAL_PART and cause read or write past the end of allocated arrays, potentially resulting in a loss of platform integrity or denial of service.</p>
+</td>
+<td><p>4.7 (Medium)</p>
+<p>CVSS:3.1/AV:L/AC:H/PR:H/UI:N/S:U/C:N/I:L/A:H</p>
+<p>5.6 (Medium)</p>
+<p>CVSS:4.0/AV:L/AC:H/AT:N/PR:H/UI:N/VC:N/VI:L/VA:H/SC:N/SI:N/SA:N</p>
+</td>
+</tr><tr><td><p>CVE-2021-26377</p>
+</td>
+<td><p>Insufficient parameter validation while allocating process space in the Trusted OS (TOS) may allow for a malicious userspace process to trigger an integer overflow, leading to a potential denial of service.</p>
+</td>
+<td><p>4.1 (Medium)</p>
+<p>CVSS:3.1/AV:L/AC:H/PR:H/UI:N/S:U/C:N/I:N/A:H</p>
+<p>5.6 (Medium)</p>
+<p>CVSS:4.0/AV:L/AC:H/AT:N/PR:H/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N</p>
+</td>
+</tr><tr><td><p><br />
+CVE-2023-31365</p>
+<p> </p>
+</td>
+<td><p>An integer overflow in the SMU could allow a privileged attacker to potentially write memory beyond the end of the reserved dRAM area, resulting in loss of integrity or availability.</p>
+</td>
+<td><p>3.9 (Low)</p>
+<p>CVSS:3.1/AV:L/AC:H/PR:H/UI:N/S:C/C:N/I:L/A:L</p>
+<p>1.8 (Low)</p>
+<p>CVSS:4.0/AV:L/AC:H/AT:N/PR:H/UI:N/VC:N/VI:L/VA:L/SC:N/SI:L/SA:L</p>
+</td>
+</tr><tr><td><p>CVE-2025-0011</p>
+</td>
+<td><p>Improper removal of sensitive information before storage or transfer in AMD Crash Defender could allow an attacker to obtain kernel address information, potentially resulting in loss of confidentiality.</p>
+</td>
+<td><p>3.3 (Low)</p>
+<p>CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N</p>
+<p>4.8 (Medium)</p>
+<p>CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N</p>
+</td>
+</tr><tr><td><p>CVE-2023-20516</p>
+</td>
+<td><p>Improper handling of insufficiency privileges in the AMD Secure Processor (ASP) could allow a privileged attacker to modify Translation Map Registers (TMRs), potentially resulting in loss of confidentiality or integrity.</p>
+</td>
+<td><p>3.3 (Low)</p>
+<p>CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:L/I:L/A:N</p>
+<p>2.1 (Low)</p>
+<p>CVSS:4.0/AV:N/AC:H/AT:N/PR:H/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N</p>
+</td>
+</tr><tr><td><p>CVE-2023-31306</p>
+</td>
+<td><p>Improper validation of an array index in the AMD graphics driver software could allow an attacker to pass malformed arguments to the dynamic power management (DPM) functions, resulting in an out of bounds read and loss of availability.</p>
+</td>
+<td><p>3.3 (Low)</p>
+<p>CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:L</p>
+<p>4.8 (Medium)</p>
+<p>CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N</p>
+<p> </p>
+</td>
+</tr><tr><td><p>CVE-2021-46745</p>
+</td>
+<td><p>Insufficient input validation in ASP and the system driver may allow an attacker to send malformed structures, causing memory corruption, potentially leading to loss of memory integrity.</p>
+</td>
+<td><p>3.0 (Low)</p>
+<p>CVSS:3.1/AV:L/AC:H/PR:H/UI:N/S:U/C:L/I:L/A:N</p>
+<p>1.8 (Low)</p>
+<p>CVSS:4.0/AV:L/AC:H/AT:N/PR:H/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N</p>
+</td>
+</tr><tr><td><p><span class="text-nowrap">CVE-2021-46750</span></p>
+</td>
+<td><p>Failure to validate the address and size in Trusted Execution Environment (TEE) may allow a malicious x86 attacker to send malformed messages to the graphics mailbox, resulting in an overlap of a Trusted Memory Region (TMR) that was previously allocated by the ASP bootloader, potentially leading to a loss of integrity.</p>
+</td>
+<td><p>3.0 (Low)</p>
+<p>CVSS:3.1/AV:L/AC:H/PR:H/UI:N/S:U/C:L/I:L/A:N</p>
+<p>1.8 (Low)</p>
+<p>CVSS:4.0/AV:L/AC:H/AT:N/PR:H/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N</p>
+</td>
+</tr><tr><td><p>CVE-2023-31326</p>
+</td>
+<td><p>Use of an uninitialized variable in the ASP could allow an attacker to access leftover data from a trusted execution environment (TEE) driver, potentially leading to loss of confidentiality.</p>
+</td>
+<td><p>2.8 (Low)</p>
+<p>CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:C/C:L/I:N/A:N</p>
+<p>2 (Low)</p>
+<p>CVSS:4.0/AV:L/AC:H/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N</p>
+</td>
+</tr></tbody></table>
+<table border="0" cellspacing="0" cellpadding="0" width="100%">
+<tbody><tr><td><p><b>Product</b></p>
+</td>
+<td><p><b>CVE ID</b></p>
+</td>
+<td><p><b>Mitigation</b></p>
+</td>
+<td><p><b>Release Date</b></p>
+</td>
+</tr><tr><td rowspan="4"><p>AMD Instinct™ MI210</p>
+<p>AMD Instinct™ MI250</p>
+</td>
+<td rowspan="2"><p>CVE-2021-46745<sup>1</sup></p>
+</td>
+<td><p>ROCm™ 6.4</p>
+</td>
+<td><p>2025-04-11</p>
+</td>
+</tr><tr><td><p>MU4</p>
+</td>
+<td><p>2025-05-13</p>
+</td>
+</tr><tr><td><p>CVE-2023-31326</p>
+<p>CVE-2021-26383</p>
+<p>CVE-2024-36342</p>
+</td>
+<td><p>ROCm 6.4</p>
+</td>
+<td><p>2025-04-11</p>
+</td>
+</tr><tr><td><p>CVE-2023-20516</p>
+<p>CVE-2025-0010</p>
+</td>
+<td><p>ROCm 6.3</p>
+</td>
+<td><p>2024-12-03</p>
+</td>
+</tr><tr><td rowspan="3"><p>AMD Instinct™ MI300A</p>
+</td>
+<td><p>CVE-2024-36342</p>
+</td>
+<td><p>ROCm 6.4</p>
+</td>
+<td><p>2025-04-11</p>
+</td>
+</tr><tr><td><p>CVE-2025-0010</p>
+<p>CVE-2024-36312</p>
+</td>
+<td><p>ROCm 6.3</p>
+</td>
+<td><p>2024-12-03</p>
+</td>
+</tr><tr><td><p>CVE-2024-36346</p>
+</td>
+<td><p>BKC 21</p>
+</td>
+<td><p>2024-11-12</p>
+</td>
+</tr><tr><td rowspan="3"><p>AMD Instinct™ MI300X</p>
+</td>
+<td><p>CVE-2024-36342</p>
+</td>
+<td><p>ROCm 6.4</p>
+</td>
+<td><p>2025-04-11</p>
+</td>
+</tr><tr><td><p>CVE-2025-0010</p>
+<p>CVE-2025-0034</p>
+<p>CVE-2024-36312</p>
+</td>
+<td><p>ROCm 6.3</p>
+</td>
+<td><p>2024-12-03</p>
+</td>
+</tr><tr><td><p>CVE-2024-36346</p>
+</td>
+<td><p>BKC 24.13<u></u></p>
+</td>
+<td><p>2024-09-27<u></u></p>
+</td>
+</tr><tr><td><p>AMD Instinct™ MI308X</p>
+</td>
+<td><p>CVE-2024-36342</p>
+</td>
+<td><p>ROCm 6.4</p>
+</td>
+<td><p>2025-04-11</p>
+</td>
+</tr><tr><td rowspan="2"><p>AMD Instinct™ MI325X</p>
+</td>
+<td><p>CVE-2024-36342</p>
+</td>
+<td><p>ROCm 6.4</p>
+</td>
+<td><p>2025-04-11</p>
+</td>
+</tr><tr><td><p>CVE-2025-0034</p>
+</td>
+<td><p>ROCm 6.3</p>
+</td>
+<td><p>2024-12-03</p>
+</td>
+</tr></tbody></table>
+<table border="0" cellspacing="0" cellpadding="0" width="100%">
+<tbody><tr><td><p><b>Program</b></p>
+</td>
+<td width="20%"><p><b>CVE ID</b></p>
+</td>
+<td><p><b>Mitigation</b></p>
+</td>
+</tr><tr><td rowspan="4"><p>AMD Radeon™ Instinct™ MI25 Graphics Products</p>
+</td>
+<td><p><span class="text-nowrap">CVE-2021-26377</span></p>
+</td>
+<td rowspan="4"><p>Contact your AMD Customer Engineering representative</p>
+</td>
+</tr><tr><td><p>CVE-2023-20511</p>
+</td>
+</tr><tr><td><p>CVE-2023-20516</p>
+</td>
+</tr><tr><td><p>CVE-2024-36352</p>
+</td>
+</tr><tr><td rowspan="9"><p>AMD Radeon™ PRO V520 Graphics Products</p>
+</td>
+<td><p>CVE-2021-26377</p>
+</td>
+<td rowspan="8"><p>Contact your AMD Customer Engineering representative</p>
+</td>
+</tr><tr><td><p>CVE-2023-20516</p>
+</td>
+</tr><tr><td><p>CVE-2021-26383</p>
+</td>
+</tr><tr><td><p>CVE-2023-31306</p>
+</td>
+</tr><tr><td><p><span class="text-nowrap">CVE-2024-36352</span></p>
+</td>
+</tr><tr><td><p>CVE-2025-0009</p>
+</td>
+</tr><tr><td><p>CVE-2025-0010</p>
+</td>
+</tr><tr><td><p>CVE-2025-0011</p>
+</td>
+</tr><tr><td><p>CVE-2024-36342</p>
+</td>
+<td><p>Radeon Software for Linux 25.10.1</p>
+<p>(2025-05-21)</p>
+</td>
+</tr><tr><td rowspan="12"><p>AMD Radeon™ PRO V620 Graphics Products</p>
+</td>
+<td><p>CVE-2021-26377</p>
+</td>
+<td rowspan="11"><p>Contact your AMD Customer Engineering representative</p>
+</td>
+</tr><tr><td><p>CVE-2021-26383</p>
+</td>
+</tr><tr><td><p>CVE-2021-46750</p>
+</td>
+</tr><tr><td><p>CVE-2023-20511</p>
+</td>
+</tr><tr><td><p>CVE-2023-20516</p>
+</td>
+</tr><tr><td><p>CVE-2023-31306</p>
+</td>
+</tr><tr><td><p>CVE-2023-31308</p>
+</td>
+</tr><tr><td><p>CVE-2024-36352</p>
+</td>
+</tr><tr><td><p>CVE-2025-0009</p>
+</td>
+</tr><tr><td><p>CVE-2025-0010</p>
+</td>
+</tr><tr><td><p>CVE-2025-0011</p>
+</td>
+</tr><tr><td><p>CVE-2024-36342</p>
+</td>
+<td><p>Radeon Software for Linux 25.10.1</p>
+<p>(2025-05-21)</p>
+</td>
+</tr><tr><td rowspan="8"><p>AMD Radeon™ PRO V710 Graphics Products</p>
+</td>
+<td><p>CVE-2023-31326</p>
+</td>
+<td rowspan="7"><p>Contact your AMD Customer Engineering representative</p>
+</td>
+</tr><tr><td><p>CVE-2025-0010</p>
+</td>
+</tr><tr><td><p>CVE-2025-0011</p>
+</td>
+</tr><tr><td><p>CVE-2023-31365</p>
+</td>
+</tr><tr><td><p>CVE-2024-36352</p>
+</td>
+</tr><tr><td><p>CVE-2025-0009</p>
+</td>
+</tr><tr><td><p>CVE-2025-48508</p>
+</td>
+</tr><tr><td><p>CVE-2024-36342</p>
+</td>
+<td><p>Radeon Software for Linux 25.10.1</p>
+<p>(2025-05-21)</p>
+</td>
+</tr></tbody></table>
+<table border="0" cellspacing="0" cellpadding="0" width="973">
+<tbody><tr><td><p><b>Program</b></p>
+</td>
+<td width="20%"><p><b>CVE</b></p>
+</td>
+<td><p><b>Fix Version</b></p>
+</td>
+<td><p><b>Date Fix Released</b></p>
+</td>
+</tr><tr><td rowspan="8"><p>AMD Radeon™ RX 5000 Series Graphics Products</p>
+</td>
+<td><p>CVE-2024-36352</p>
+</td>
+<td><p>AMD Software: Adrenalin Edition 24.10.1</p>
+<p>(24.20.19.01 RDNA)</p>
+</td>
+<td><p>2024-11-26</p>
+</td>
+</tr><tr><td><p>CVE-2025-0009</p>
+</td>
+<td rowspan="2"><p>AMD Software: Adrenalin Edition 24.10.1</p>
+<p>(24.20.19.01)</p>
+</td>
+<td rowspan="2"><p>2024-11-26</p>
+</td>
+</tr><tr><td><p>CVE-2025-0011</p>
+</td>
+</tr><tr><td><p>CVE-2021-26377</p>
+</td>
+<td><p>AMD Software: Adrenalin Edition 24.7.1</p>
+<p>(24.10.29.01)</p>
+</td>
+<td><p>2024-07-25</p>
+</td>
+</tr><tr><td><p>CVE-2021-26383</p>
+</td>
+<td><p>AMD Software: Adrenalin Edition 23.2.1</p>
+<p>(22.40.01.45)</p>
+</td>
+<td><p>2023-03-15</p>
+</td>
+</tr><tr><td><p><span class="text-nowrap">CVE-2024-36342</span></p>
+</td>
+<td><p>Radeon Software for Linux 25.10.1</p>
+</td>
+<td><p>2025-05-21</p>
+</td>
+</tr><tr><td><p>CVE-2025-0010</p>
+</td>
+<td><p>Radeon Software for Linux 24.30.2</p>
+</td>
+<td><p>2025-01-30</p>
+</td>
+</tr><tr><td><p>CVE-2023-31306</p>
+</td>
+<td><p>No fix planned<sup>1</sup></p>
+</td>
+<td><p>N/A</p>
+</td>
+</tr><tr><td rowspan="9"><p>AMD Radeon™ RX 6000 Series Graphics Products</p>
+</td>
+<td><p>CVE-2024-36352</p>
+</td>
+<td><p>AMD Software: Adrenalin Edition 24.10.1</p>
+<p>(24.20.19.01 RDNA)</p>
+</td>
+<td><p>2024-11-26</p>
+</td>
+</tr><tr><td><p>CVE-2025-0011</p>
+</td>
+<td rowspan="3"><p>AMD Software: Adrenalin Edition 24.10.1</p>
+<p>(24.20.19.01)</p>
+</td>
+<td rowspan="3"><p>2024-10-18</p>
+</td>
+</tr><tr><td><p>CVE-2023-31306</p>
+</td>
+</tr><tr><td><p>CVE-2025-0009</p>
+</td>
+</tr><tr><td><p>CVE-2021-26377</p>
+</td>
+<td><p>AMD Software: Adrenalin Edition 24.7.1</p>
+<p>(24.10.29.01)</p>
+</td>
+<td><p>2024-07-25</p>
+</td>
+</tr><tr><td><p>CVE-2021-46750</p>
+</td>
+<td><p>AMD Software: Adrenalin Edition 23.12.1</p>
+<p>(23.30.13.01)</p>
+</td>
+<td><p>2023-12-12</p>
+</td>
+</tr><tr><td><p>CVE-2021-26383</p>
+</td>
+<td><p>AMD Software: Adrenalin Edition 23.2.1</p>
+<p>(22.40.01.45)</p>
+</td>
+<td><p>2023-03-15</p>
+</td>
+</tr><tr><td><p>CVE-2024-36342</p>
+</td>
+<td><p>Radeon Software for Linux 25.10.1</p>
+</td>
+<td><p>2025-05-21</p>
+</td>
+</tr><tr><td><p>CVE-2025-0010</p>
+</td>
+<td><p>Radeon Software for Linux 24.30.2</p>
+</td>
+<td><p>2025-01-30</p>
+</td>
+</tr><tr><td rowspan="9"><p>AMD Radeon™ RX 7000 Series Graphics Products</p>
+</td>
+<td><p>CVE-2024-36352</p>
+</td>
+<td><p>AMD Software: Adrenalin Edition 24.10.1</p>
+<p>(24.20.19.01 RDNA)</p>
+</td>
+<td><p>2024-11-26</p>
+</td>
+</tr><tr><td><p>CVE-2025-0009</p>
+</td>
+<td rowspan="2"><p>AMD Software: Adrenalin Edition 24.10.1</p>
+<p>(24.20.19.01)</p>
+</td>
+<td><p>2024-11-26</p>
+</td>
+</tr><tr><td><p>CVE-2025-0011</p>
+</td>
+<td><p>2024-11-26</p>
+</td>
+</tr><tr><td><p>CVE-2023-31325</p>
+</td>
+<td rowspan="2"><p>AMD Software: Adrenalin Edition 24.7.1</p>
+<p>(24.10.29.01)</p>
+</td>
+<td rowspan="2"><p>2024-07-19</p>
+</td>
+</tr><tr><td><p>CVE-2023-31326</p>
+</td>
+</tr><tr><td><p>CVE-2023-31322</p>
+</td>
+<td><p>AMD Software: Adrenalin Edition 24.6.1</p>
+<p>(24.10.21.01)</p>
+</td>
+<td><p>2023-01-31</p>
+</td>
+</tr><tr><td><p>CVE-2023-31365</p>
+</td>
+<td><p>AMD Software: Adrenalin Edition 24.1.1</p>
+<p>(23.40.02)</p>
+</td>
+<td><p>2023-11-30</p>
+</td>
+</tr><tr><td><p><span class="text-nowrap">CVE-2024-36342</span></p>
+</td>
+<td><p>Radeon Software for Linux 25.10.1</p>
+</td>
+<td><p>2025-05-21</p>
+</td>
+</tr><tr><td><p>CVE-2025-0010</p>
+</td>
+<td><p>Radeon Software for Linux 24.30.2</p>
+</td>
+<td><p>2025-01-30</p>
+</td>
+</tr><tr><td><p>AMD Radeon™ RX 9000 Series Graphics Products</p>
+</td>
+<td>CVE-2024-36342</td>
+<td><p>Radeon Software for Linux 25.10.1</p>
+</td>
+<td>2025-05-21</td>
+</tr><tr><td rowspan="8"><p>AMD Radeon™ PRO W5000 Series Graphics Products</p>
+</td>
+<td><p>CVE-2024-36352</p>
+</td>
+<td rowspan="3"><p>AMD Software: PRO Edition 24.Q4</p>
+<p>(24.20.30 RDNA)</p>
+</td>
+<td rowspan="3"><p>2024-11-26</p>
+</td>
+</tr><tr><td><p>CVE-2025-0009</p>
+</td>
+</tr><tr><td><p>CVE-2025-0011</p>
+</td>
+</tr><tr><td><p>CVE-2021-26377</p>
+</td>
+<td><p>AMD Software: PRO Edition 24.Q2</p>
+<p>(24.10.20)</p>
+</td>
+<td><p>2024-07-25</p>
+</td>
+</tr><tr><td><p>CVE-2021-26383</p>
+</td>
+<td><p>AMD Software: PRO Edition 23.Q1</p>
+<p>(22.40.37.05)</p>
+</td>
+<td><p>2023-03-15</p>
+</td>
+</tr><tr><td><p>CVE-2023-31306</p>
+</td>
+<td><p>No fix planned<sup>1</sup></p>
+</td>
+<td><p>N/A</p>
+</td>
+</tr><tr><td><p>CVE-2024-36342</p>
+</td>
+<td><p>Radeon Software for Linux 25.10.1</p>
+</td>
+<td><p>2025-05-21</p>
+</td>
+</tr><tr><td><p>CVE-2025-0010</p>
+</td>
+<td><p>Radeon Software for Linux 24.30.2</p>
+</td>
+<td><p>2025-01-30</p>
+</td>
+</tr><tr><td rowspan="9"><p>AMD Radeon™ PRO W6000 Series Graphics Products</p>
+</td>
+<td><p>CVE-2024-36352</p>
+</td>
+<td><p>AMD Software: PRO Edition 24.Q4</p>
+<p>(24.20.30 RDNA)</p>
+</td>
+<td><p>2024-11-26</p>
+</td>
+</tr><tr><td><p>CVE-2023-31306</p>
+</td>
+<td rowspan="3">AMD Software: PRO Edition 24.Q4(24.20.30)</td>
+<td rowspan="3" colspan="2"><p>2024-12-11</p>
+<p>2024-11-26</p>
+<p>2024-11-26</p>
+</td>
+</tr><tr><td><p>CVE-2025-0009</p>
+</td>
+</tr><tr><td><p>CVE-2025-0011</p>
+</td>
+</tr><tr><td><p>CVE-2021-26377</p>
+</td>
+<td><p>AMD Software: PRO Edition 24.Q2 (24.10.20)</p>
+</td>
+<td><p>2024-07-25</p>
+</td>
+</tr><tr><td><p>CVE-2021-46750</p>
+</td>
+<td><p>AMD Software: PRO Edition 23.Q4 (23.30.13.03)</p>
+</td>
+<td><p>2023-12-12</p>
+</td>
+</tr><tr><td><p>CVE-2021-26383</p>
+</td>
+<td><p>AMD Software: PRO Edition 23.Q1 (22.40.37.05)</p>
+</td>
+<td><p>2023-03-15</p>
+</td>
+</tr><tr><td><p>CVE-2024-36342</p>
+</td>
+<td><p>Radeon Software for Linux 25.10.1</p>
+</td>
+<td><p>2025-05-21</p>
+</td>
+</tr><tr><td><p>CVE-2025-0010</p>
+</td>
+<td><p>Radeon Software for Linux 24.30.2</p>
+</td>
+<td><p>2025-01-30</p>
+</td>
+</tr><tr><td rowspan="7"><p>AMD Radeon™ PRO W7000 Series Graphics Products</p>
+</td>
+<td><p>CVE-2024-36352</p>
+</td>
+<td><p>AMD Software: PRO Edition 24.Q4 (24.20.30 RDNA)</p>
+</td>
+<td colspan="2">2024-11-26</td>
+</tr><tr><td><p>CVE-2025-0011</p>
+</td>
+<td rowspan="2"><p>AMD Software: PRO Edition 24.Q4</p>
+<p>(24.20.30)</p>
+</td>
+<td rowspan="2" colspan="4">2024-11-26</td>
+</tr><tr><td><p>CVE-2025-0009</p>
+</td>
+</tr><tr><td><p>CVE-2023-31326</p>
+</td>
+<td><p>AMD Software: PRO Edition 24.Q2</p>
+<p>(24.10.20)</p>
+</td>
+<td colspan="2">2024-07-03</td>
+</tr><tr><td><p>CVE-2023-31365</p>
+</td>
+<td><p>AMD Software: PRO Edition 24.Q1</p>
+<p>(23.40.20)</p>
+</td>
+<td colspan="2">2024-03-26</td>
+</tr><tr><td><p>CVE-2024-36342</p>
+</td>
+<td><p>Radeon Software for Linux 25.10.1</p>
+</td>
+<td colspan="2">2025-05-21</td>
+</tr><tr><td><p>CVE-2025-0010</p>
+</td>
+<td><p>Radeon Software for Linux 24.30.2</p>
+</td>
+<td colspan="2">2025-01-30</td>
+</tr><tr><td rowspan="2"><p>AMD Radeon™ PRO W7000 Series Graphics Products<br />
+(only &quot;Navi 32&quot;)</p>
+</td>
+<td><p>CVE-2023-31322</p>
+</td>
+<td rowspan="2"><p>AMD Software: PRO Edition 24.Q2</p>
+<p>(24.10.20)</p>
+</td>
+<td rowspan="2" colspan="4">2024-07-03<br />
+</td>
+</tr><tr><td><p>CVE-2023-31325</p>
+</td>
+</tr><tr><td rowspan="3"><p>AMD Radeon™ RX Vega Series Graphics Cards</p>
+</td>
+<td><p>CVE-2024-36352</p>
+</td>
+<td><p>AMD Software: Adrenalin Edition 24.10.1</p>
+<p>(23.19.21.01 pre-RDNA)</p>
+</td>
+<td colspan="2">2024-12-11</td>
+</tr><tr><td><p>CVE-2024-36342</p>
+</td>
+<td><p>Radeon Software for Linux 25.10.1</p>
+</td>
+<td colspan="2">2025-05-21</td>
+</tr><tr><td><p>CVE-2025-0010</p>
+</td>
+<td><p>Radeon Software for Linux 24.30.2</p>
+</td>
+<td colspan="2">2025-01-30</td>
+</tr><tr><td rowspan="3"><p>AMD Radeon™ PRO VII</p>
+</td>
+<td><p>CVE-2024-36352</p>
+</td>
+<td><p>AMD Software: PRO Edition 24.Q4</p>
+<p>(23.19.21.01/23.19.21.04 pre-RDNA)</p>
+</td>
+<td colspan="2">2024-12-11</td>
+</tr><tr><td><p>CVE-2024-36342</p>
+</td>
+<td><p>Radeon Software for Linux 25.10.1</p>
+</td>
+<td colspan="2">2025-05-21</td>
+</tr><tr><td><p>CVE-2025-0010</p>
+</td>
+<td><p>Radeon Software for Linux 24.30.2</p>
+</td>
+<td colspan="2">2025-01-30</td>
+</tr><tr><td><p>AMD Radeon™ RX Vega Series Graphics Cards</p>
+<p>AMD Radeon™ PRO VII</p>
+</td>
+<td><p>CVE-2023-31306</p>
+</td>
+<td><p>No fix planned<sup>1</sup></p>
+</td>
+<td colspan="2">N/A</td>
+</tr></tbody></table>
+<table border="0" cellspacing="0" cellpadding="0">
+<tbody><tr><td><p><b>Product</b></p>
+</td>
+<td><p><b>Former Code Name</b></p>
+</td>
+<td><p><b>Integrated AMD Radeon™ Graphics</b></p>
+</td>
+<td><p><b>Mitigation</b></p>
+</td>
+</tr><tr><td><p>AMD Athlon™ 3000 Series Desktop Processors with Radeon™ Graphics</p>
+</td>
+<td><p>“Picasso”</p>
+</td>
+<td><p>AMD Radeon™ RX Vega Series</p>
+</td>
+<td rowspan="6" valign="top"><p>AMD Software: Refer to the <a href="#radeon">AMD Radeon™ Graphics Cards</a> tables above for the mitigated version appropriate for your system.</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 4000 Series Desktop Processors with Radeon™ Graphics</p>
+</td>
+<td><p>“Renoir”</p>
+</td>
+<td><p>AMD Radeon™ RX Vega Series</p>
+<p>AMD Radeon™ PRO VII Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 5000 Series Desktop Processor with Radeon™ Graphics</p>
+</td>
+<td><p>“Cezanne”</p>
+</td>
+<td><p>AMD Radeon™ RX Vega Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 7000 Series Desktop Processors</p>
+</td>
+<td><p>“Raphael”</p>
+</td>
+<td><p>AMD Radeon™ RX 6000 Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 8000 Series Processors with Radeon™ Graphics</p>
+</td>
+<td><p>“Phoenix”</p>
+</td>
+<td><p>AMD Radeon™ RX 7000 Series</p>
+<p>AMD Radeon™ PRO W7000 Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 9000 Series Desktop Processors</p>
+</td>
+<td><p>&quot;Granite Ridge&quot;</p>
+</td>
+<td><p>AMD Radeon™ RX 6000 Series</p>
+</td>
+</tr></tbody></table>
+<table border="0" cellspacing="0" cellpadding="0">
+<tbody><tr><td><p><b>Product</b></p>
+</td>
+<td><p><b>Former Code Name</b></p>
+</td>
+<td><p><b>Integrated AMD Radeon™ Graphics</b></p>
+</td>
+<td><p><b>Mitigation</b></p>
+</td>
+</tr><tr><td><p>AMD Athlon™ 3000 Series Mobile Processors with Radeon™ Graphics</p>
+</td>
+<td><p>&quot;Dali&quot;</p>
+</td>
+<td><p>AMD Radeon™ RX Vega Series</p>
+</td>
+<td rowspan="20" valign="top"><p>AMD Software: Refer to the AMD Radeon™ Graphics Cards tables above for the mitigated version appropriate for your system.</p>
+</td>
+</tr><tr><td><p>AMD Athlon™ 3000 Series Mobile Processors with Radeon™ Graphics</p>
+</td>
+<td><p>“Picasso”</p>
+</td>
+<td><p>AMD Radeon™ RX Vega Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 3000 Series Mobile Processors with Radeon™ Graphics</p>
+</td>
+<td><p>“Dali”</p>
+</td>
+<td><p>AMD Radeon™ RX Vega Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 4000 Series Mobile Processors with Radeon™ Graphics</p>
+</td>
+<td><p>“Renoir”</p>
+</td>
+<td><p>AMD Radeon™ RX Vega Series</p>
+<p>AMD Radeon™ PRO VII Cards</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 5000 Series Processors with Radeon™ Graphics</p>
+</td>
+<td><p>“Barcelo”</p>
+</td>
+<td><p>AMD Radeon™ RX Vega Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 5000 Series Mobile Processors with Radeon™ Graphics</p>
+</td>
+<td><p>“Lucienne”</p>
+</td>
+<td><p>AMD Radeon™ RX Vega Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 5000 Series Mobile Processors with Radeon™ Graphics</p>
+</td>
+<td><p>“Cezanne”</p>
+</td>
+<td><p>AMD Radeon™ RX Vega Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 6000 Series Processors with Radeon™ Graphics</p>
+</td>
+<td><p>“Rembrandt”</p>
+</td>
+<td><p>AMD Radeon™ RX 6000 Series</p>
+<p>AMD Radeon™ PRO W6000 Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 7020 Series Processors with Radeon™ Graphics</p>
+</td>
+<td><p>“Mendocino”</p>
+</td>
+<td><p>AMD Radeon™ RX 6000 Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 7030 Series Mobile Processors with Radeon™ Graphics</p>
+</td>
+<td><p>“Barcelo-R”</p>
+</td>
+<td><p>AMD Radeon™ RX Vega Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 7035 Series Processors with Radeon™ Graphics</p>
+</td>
+<td><p>“Rembrandt-R”</p>
+</td>
+<td><p>AMD Radeon™ RX 6000 Series</p>
+<p>AMD Radeon™ PRO W6000 Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 7040 Series Processors with Radeon™ Graphics</p>
+</td>
+<td><p>“Phoenix”</p>
+</td>
+<td><p>AMD Radeon™ RX 7000 Series</p>
+<p>AMD Radeon™ PRO W7000 Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 7045 Series Mobile Processors</p>
+</td>
+<td><p>“Dragon Range”</p>
+</td>
+<td><p>AMD Radeon™ RX 6000 Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ AI 300 Series Processor</p>
+</td>
+<td><p>“Strix Point”</p>
+</td>
+<td><p>AMD Radeon™ RX 7000 Series</p>
+<p>AMD Radeon™ PRO W7000 Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ AI Max 300 Series Processors</p>
+</td>
+<td><p>&quot;Strix Halo&quot;</p>
+</td>
+<td><p>AMD Radeon™ RX 7000 Series</p>
+<p>AMD Radeon™ PRO W7000 Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 9000HX Series Processors</p>
+</td>
+<td><p>&quot;Fire Range&quot;</p>
+</td>
+<td><p>AMD Radeon™ RX 6000 Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ 8040 Series Mobile Processors with Radeon™ Graphics</p>
+</td>
+<td><p>&quot;Hawk Point&quot;</p>
+</td>
+<td><p>AMD Radeon™ RX 7000 Series</p>
+<p>AMD Radeon™ PRO W7000 Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ Z1 Series Processors</p>
+</td>
+<td><p>&quot;Phoenix&quot;</p>
+</td>
+<td><p>AMD Radeon™ RX 7000 Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ Z2 Series Processors</p>
+</td>
+<td><p>&quot;Hawk Point&quot;</p>
+<p>“Strix Point”</p>
+</td>
+<td><p>AMD Radeon™ RX 7000 Series</p>
+</td>
+</tr><tr><td><p>AMD Ryzen™ Z2 Series Processors</p>
+</td>
+<td><p>“Rembrandt”</p>
+</td>
+<td><p>AMD Radeon™ RX 6000 Series</p>
+</td>
+</tr></tbody></table>
+<table>
+<tbody><tr><td><b>Revision Date</b></td>
+<td><b>Description</b></td>
+</tr><tr><td>2025-09-22</td>
+<td>Updated researcher acknowledgements</td>
+</tr><tr><td>2025-08-12</td>
+<td>Initial publication</td>
+</tr></tbody></table>
+</body></html>

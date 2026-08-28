@@ -1,0 +1,53 @@
+{
+ "_comment": "Synthetic OSV response. Two advisories fix the same minor branch, one at a release candidate and one at the stable release that follows it. The ladder must publish the stable release. Ranking the rc digits inside the release tuple ranks 1.5.0-rc.3 above 1.5.0 and publishes a vulnerable release candidate as the floor.",
+ "vulns": [
+  {
+   "id": "GHSA-rc00-0000-0000",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "1.5.0-rc.1"
+        },
+        {
+         "fixed": "1.5.0-rc.3"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "GHSA-st00-0000-0000",
+   "affected": [
+    {
+     "package": {
+      "name": "github.com/opencontainers/runc",
+      "ecosystem": "Go"
+     },
+     "ranges": [
+      {
+       "events": [
+        {
+         "introduced": "1.5.0-rc.1"
+        },
+        {
+         "fixed": "1.5.0"
+        }
+       ],
+       "type": "SEMVER"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

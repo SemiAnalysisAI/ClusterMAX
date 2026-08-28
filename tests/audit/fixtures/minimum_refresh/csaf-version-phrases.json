@@ -1,0 +1,252 @@
+{
+ "_comment": "Synthetic CSAF product tree. Every architecture branch carries one version-phrase variant seen in real NVIDIA bulletins. The branch name is the product label and product.name holds the version phrase, exactly as upstream publishes it.",
+ "document": {
+  "title": "Synthetic Bulletin: version phrase variants",
+  "tracking": {
+   "current_release_date": "2026-07-30T00:00:00Z",
+   "id": "synthetic-phrases"
+  }
+ },
+ "product_tree": {
+  "branches": [
+   {
+    "category": "vendor",
+    "name": "NVIDIA",
+    "branches": [
+     {
+      "category": "architecture",
+      "name": "PriorToOnly",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "All versions prior to 4.2.1",
+         "product_id": "widget_all_versions_prior_to_4_2_1"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "UpToAndIncludingOnly",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "All versions up to and including 1.19.0",
+         "product_id": "widget_all_versions_up_to_and_including_1_19_0"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "OrNewer",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "All versions prior to 46.3008",
+         "product_id": "widget_all_versions_prior_to_46_3008"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "46.3008 or newer",
+         "product_id": "widget_46_3008_or_newer"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "BareVersion",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "All versions prior to 28.4702",
+         "product_id": "widget_all_versions_prior_to_28_4702"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "28.4702",
+         "product_id": "widget_28_4702"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "DoubleSpaceRange",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "0.0  to 4.5.2",
+         "product_id": "widget_0_0_to_4_5_2"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "4.5.3",
+         "product_id": "widget_4_5_3"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "DriverWording",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "Tesla",
+        "product": {
+         "name": "All driver versions prior to 595.71.05",
+         "product_id": "tesla_all_driver_versions_prior_to_595_71_05"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "Tesla",
+        "product": {
+         "name": "595.71.05",
+         "product_id": "tesla_595_71_05"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "FixedEqualsAffectedUpperBound",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "0.0  to 4.8.2",
+         "product_id": "widget_0_0__to_4_8_2"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "4.8.2",
+         "product_id": "widget_4_8_2"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "TrailingComma",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "All versions prior to 24.10.50",
+         "product_id": "widget_all_versions_prior_to_24_10_50"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "24.10.50 or newer,",
+         "product_id": "widget_24_10_50_or_newer"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "AndOlderVersionsOnly",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "1.7.21 and older versions",
+         "product_id": "widget_1_7_21_and_older_versions"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "AndOlderWithFix",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "1.7.21 and older versions",
+         "product_id": "widget_1_7_21_and_older_versions"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "23.10.23 or newer",
+         "product_id": "widget_23_10_23_or_newer"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "TwoProducts",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "1.19.1",
+         "product_id": "widget_1_19_1"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "Gadget",
+        "product": {
+         "name": "26.3.2",
+         "product_id": "gadget_26_3_2"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "NoVersionAtAll",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "Widget",
+        "product": {
+         "name": "All supported versions",
+         "product_id": "widget_all_supported_versions"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

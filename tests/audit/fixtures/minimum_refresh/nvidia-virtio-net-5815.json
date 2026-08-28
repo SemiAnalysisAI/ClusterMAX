@@ -1,0 +1,94 @@
+{
+ "document": {
+  "title": "Security Bulletin: NVIDIA Networking Bluefield, ConnectX - July 2026",
+  "tracking": {
+   "current_release_date": "2026-07-28T00:00:00.000Z",
+   "id": "5815"
+  }
+ },
+ "product_tree": {
+  "branches": [
+   {
+    "category": "vendor",
+    "name": "NVIDIA",
+    "branches": [
+     {
+      "category": "architecture",
+      "name": "Bluefield-3",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "VIRTIO-Net GA",
+        "product": {
+         "name": "All versions prior to 25.10.6",
+         "product_id": "bluefield3_virtionet_ga_all_versions_prior_to_25_10_6"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "VIRTIO-Net GA",
+        "product": {
+         "name": "25.10.6 or newer",
+         "product_id": "bluefield3_virtionet_ga_25_10_6_or_newer"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "VIRTIO-Net LTS25",
+        "product": {
+         "name": "All versions prior to 25.10.2",
+         "product_id": "bluefield3_virtionet_lts25_all_versions_prior_to_25_10_2"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "VIRTIO-Net LTS25",
+        "product": {
+         "name": "25.10.2 or newer",
+         "product_id": "bluefield3_virtionet_lts25_25_10_2_or_newer"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "VIRTIO-Net LTS24",
+        "product": {
+         "name": "24.10.50 or newer,",
+         "product_id": "bluefield3_virtionet_lts24_24_10_50_or_newer"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "VIRTIO-Net LTS24",
+        "product": {
+         "name": "All versions prior to 24.10.50",
+         "product_id": "bluefield3_virtionet_lts24_all_versions_prior_to_24_10_50"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "VIRTIO-Net LTS23",
+        "product": {
+         "name": "1.7.21 and older versions",
+         "product_id": "bluefield3_virtionet_lts23_1_7_21_and_older_versions"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "VIRTIO-Net LTS23",
+        "product": {
+         "name": "23.10.23 or newer",
+         "product_id": "bluefield3_virtionet_lts23_23_10_23_or_newer"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "vulnerabilities": [
+  {
+   "cve": "CVE-2026-65094"
+  }
+ ]
+}

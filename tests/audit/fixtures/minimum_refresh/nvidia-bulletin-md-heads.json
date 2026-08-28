@@ -1,0 +1,8 @@
+{
+ "5744": "### Security Bulletin: NVIDIA Networking SNAP4 - March 2026\n\nUpdated 2026-03-24\n\nNVIDIA has released a software update for NVIDIA Networking SNAP4.\n",
+ "5815": "### Security Bulletin: NVIDIA Networking Bluefield, ConnectX - July 2026\n\nUpdated 2026-07-28\n\nNVIDIA has released a software update for NVIDIA VIRTIO-Net for Bluefield.\n",
+ "5851": "### Security Bulletin: NVIDIA Jetson AGX Orin - July 2026\n\nUpdated 2026-07-14\n\nNVIDIA has released a software update for NVIDIA Jetson AGX Orin.\n",
+ "5857": "### Security Bulletin: NVIDIA DCGM Exporter - July 2026\n\nUpdated 2026-07-21\n\nNVIDIA has released a software update for NVIDIA Data Center GPU Manager (DCGM) Exporter.\n",
+ "5871": "### Security Bulletin: GPU Display Driver - August 2026\n\nUpdated 2026-08-04\n\nNVIDIA has released a software update for the NVIDIA GPU Display Driver.\n",
+ "_comment": "First 1200 bytes of each <a_id>.md file, keyed by bulletin id, as the ranged read returns them. 5869 is absent on purpose: the detector must survive a bulletin whose markdown file cannot be read."
+}

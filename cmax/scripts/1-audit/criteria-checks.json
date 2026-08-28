@@ -1,0 +1,734 @@
+{
+  "_generated_from": "dashboard/src/data/audit-criteria.ts (master)",
+  "_regenerate": "Extract every AUDIT_CRITERIA entry with coverage \"audit\" or \"partial\" as {id, label, category, coverage, harnesses} (harness aliases: ALL=slurm,k8s,standalone; SLURM_ONLY=slurm; K8S_ONLY=k8s; SLURM_K8S=slurm,k8s) and cross-check ids/coverage/category against the criteria page export.",
+  "criteria": [
+    {
+      "id": "sudo-available",
+      "label": "Root / sudo opt-in",
+      "category": "Access & Identity",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "user-management",
+      "label": "User / group management",
+      "category": "Access & Identity",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "ssh-between-nodes",
+      "label": "Passwordless SSH between nodes",
+      "category": "Access & Identity",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "external-idp",
+      "label": "External IdP integration",
+      "category": "Access & Identity",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "helm-access",
+      "label": "helm access",
+      "category": "Access & Identity",
+      "coverage": "audit",
+      "harnesses": [
+        "k8s"
+      ]
+    },
+    {
+      "id": "security-nvidia-driver",
+      "label": "NVIDIA driver minimum version",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-nvidia-container-toolkit",
+      "label": "NVIDIA Container Toolkit minimum version",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "cuda-toolkit-security",
+      "label": "CUDA Toolkit minimum version",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-runc",
+      "label": "runc minimum version",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-docker",
+      "label": "Docker Engine minimum version",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-connectx-firmware",
+      "label": "ConnectX and BlueField firmware minimum version",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "guest-kernel-current",
+      "label": "Active kernel version",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "ubuntu-kernel-fragnesia-dirty-frag",
+      "label": "Fragnesia / Dirty Frag kernel fix",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-januscape",
+      "label": "Januscape nested virtualization boundary",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-qemu-virtio-serial",
+      "label": "QEMU virtio-serial security fix",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-vmscape",
+      "label": "VMSCAPE host mitigation",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-bmc-ipmi",
+      "label": "BMC and IPMI tenant isolation",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "ufm-secured-bare-metal-cloud",
+      "label": "InfiniBand UFM secured profile",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-pcie-passthrough",
+      "label": "PCIe passthrough isolation",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-nvlink-boundary",
+      "label": "NVLink tenant boundary",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-observability-isolation",
+      "label": "Observability backend tenant isolation",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-virtio-net-bluefield",
+      "label": "BlueField VIRTIO-Net controller firmware",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-dpu-host-isolation",
+      "label": "BlueField host isolation (RShim)",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "gpu-drivers",
+      "label": "GPU drivers present",
+      "category": "GPU Stack",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "container-toolkit",
+      "label": "NVIDIA Container Toolkit",
+      "category": "GPU Stack",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "gpudirect-rdma",
+      "label": "GPUDirect RDMA (dma_buf)",
+      "category": "GPU Stack",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s"
+      ]
+    },
+    {
+      "id": "pcie-acs",
+      "label": "PCIe ACS disabled on GPU\u2194NIC switches",
+      "category": "GPU Stack",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "gdrcopy",
+      "label": "GDRCopy library",
+      "category": "GPU Stack",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s"
+      ]
+    },
+    {
+      "id": "vboost-control",
+      "label": "NVIDIA Vboost control",
+      "category": "GPU Stack",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "vm-iommu-passthrough",
+      "label": "IOMMU passthrough for GPU and RDMA devices",
+      "category": "GPU Stack",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "arm-smmu-cmdqv",
+      "label": "Arm SMMU command queue virtualization (CMDQV)",
+      "category": "GPU Stack",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "ncu-profiling",
+      "label": "ncu hardware counters",
+      "category": "Profiling Access",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "perf-access",
+      "label": "perf top / perf stat",
+      "category": "Profiling Access",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "idle-thermals",
+      "label": "Idle GPU thermals",
+      "category": "Thermals & Monitoring",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "xid-monitoring",
+      "label": "Xid / dmesg error capture",
+      "category": "Thermals & Monitoring",
+      "coverage": "partial",
+      "harnesses": [
+        "slurm",
+        "k8s"
+      ]
+    },
+    {
+      "id": "monitoring-stack",
+      "label": "Prometheus / DCGM / Grafana",
+      "category": "Thermals & Monitoring",
+      "coverage": "partial",
+      "harnesses": [
+        "slurm",
+        "k8s"
+      ]
+    },
+    {
+      "id": "cpu-power-governor",
+      "label": "CPU governor & power limit",
+      "category": "Thermals & Monitoring",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "gpu-job-attribution",
+      "label": "Per-job GPU attribution",
+      "category": "Thermals & Monitoring",
+      "coverage": "partial",
+      "harnesses": [
+        "k8s"
+      ]
+    },
+    {
+      "id": "fabric-class",
+      "label": "NIC fabric classified",
+      "category": "Networking & Fabric",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s"
+      ]
+    },
+    {
+      "id": "hca-naming",
+      "label": "HCA naming for NCCL",
+      "category": "Networking & Fabric",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "topology-conf",
+      "label": "Topology-aware scheduling",
+      "category": "Networking & Fabric",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s"
+      ]
+    },
+    {
+      "id": "gang-scheduling",
+      "label": "Gang scheduling",
+      "category": "Networking & Fabric",
+      "coverage": "audit",
+      "harnesses": [
+        "k8s"
+      ]
+    },
+    {
+      "id": "bin-packing",
+      "label": "Bin packing",
+      "category": "Networking & Fabric",
+      "coverage": "audit",
+      "harnesses": [
+        "k8s"
+      ]
+    },
+    {
+      "id": "nccl-autoconfig",
+      "label": "NCCL auto-config left alone",
+      "category": "Networking & Fabric",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "ib-tenant-isolation",
+      "label": "IB tenant isolation",
+      "category": "Networking & Fabric",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "nccl-ib-qps-entropy",
+      "label": "NCCL queue pairs per connection on a large fabric",
+      "category": "Networking & Fabric",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s"
+      ]
+    },
+    {
+      "id": "nccl-installed",
+      "label": "NCCL installed",
+      "category": "Software Stack",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "mpi-srun-pmix",
+      "label": "MPI integrated with srun",
+      "category": "Software Stack",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "hpc-sdk",
+      "label": "NVIDIA HPC SDK / nvcc",
+      "category": "Software Stack",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "lmod",
+      "label": "lmod modules",
+      "category": "Software Stack",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "pyxis",
+      "label": "Pyxis plugin",
+      "category": "Containers",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "enroot",
+      "label": "Enroot",
+      "category": "Containers",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "nccl-topo-file-container",
+      "label": "NCCL topology file reaches the container",
+      "category": "Containers",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "docker-workers",
+      "label": "Docker on workers",
+      "category": "Containers",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "singularity",
+      "label": "Singularity / Apptainer",
+      "category": "Containers",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "dcgm-healthchecks",
+      "label": "DCGM health checks",
+      "category": "Health Checks & Remediation",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "healthcheck-program",
+      "label": "HealthCheckProgram set",
+      "category": "Health Checks & Remediation",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "prolog-fast",
+      "label": "Lightweight prolog",
+      "category": "Health Checks & Remediation",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "auto-remediation",
+      "label": "Automatic remediation",
+      "category": "Health Checks & Remediation",
+      "coverage": "partial",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "shared-fs",
+      "label": "Shared filesystem",
+      "category": "Storage",
+      "coverage": "partial",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "default-storage-class",
+      "label": "Default StorageClass",
+      "category": "Storage",
+      "coverage": "audit",
+      "harnesses": [
+        "k8s"
+      ]
+    },
+    {
+      "id": "csi-rwx",
+      "label": "ReadWriteMany CSI",
+      "category": "Storage",
+      "coverage": "audit",
+      "harnesses": [
+        "k8s"
+      ]
+    },
+    {
+      "id": "slurm-commands",
+      "label": "SLURM commands functional",
+      "category": "Scheduler & Resources",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "sacct-accounting",
+      "label": "sacct job accounting",
+      "category": "Scheduler & Resources",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "resource-limits",
+      "label": "Logical resource limits",
+      "category": "Scheduler & Resources",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm"
+      ]
+    },
+    {
+      "id": "gpu-operator",
+      "label": "GPU Operator",
+      "category": "Scheduler & Resources",
+      "coverage": "audit",
+      "harnesses": [
+        "k8s"
+      ]
+    },
+    {
+      "id": "network-operator",
+      "label": "Network Operator",
+      "category": "Scheduler & Resources",
+      "coverage": "audit",
+      "harnesses": [
+        "k8s"
+      ]
+    },
+    {
+      "id": "vcluster-tenancy",
+      "label": "Host visibility (no vCluster opacity)",
+      "category": "Access & Identity",
+      "coverage": "audit",
+      "harnesses": [
+        "k8s"
+      ]
+    },
+    {
+      "id": "mpi-operator",
+      "label": "MPI Operator",
+      "category": "Scheduler & Resources",
+      "coverage": "audit",
+      "harnesses": [
+        "k8s"
+      ]
+    },
+    {
+      "id": "workload-schedulers",
+      "label": "GPU-aware scheduler",
+      "category": "Scheduler & Resources",
+      "coverage": "audit",
+      "harnesses": [
+        "k8s"
+      ]
+    },
+    {
+      "id": "ingress-controller",
+      "label": "Ingress controller",
+      "category": "Networking & Fabric",
+      "coverage": "audit",
+      "harnesses": [
+        "k8s"
+      ]
+    },
+    {
+      "id": "load-balancer",
+      "label": "Service load balancer",
+      "category": "Networking & Fabric",
+      "coverage": "audit",
+      "harnesses": [
+        "k8s"
+      ]
+    },
+    {
+      "id": "rbac-access",
+      "label": "RBAC self-service",
+      "category": "Access & Identity",
+      "coverage": "audit",
+      "harnesses": [
+        "k8s"
+      ]
+    }
+  ]
+}

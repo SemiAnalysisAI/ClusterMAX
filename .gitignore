@@ -1,0 +1,25 @@
+.env
+.env.*
+!.env.example
+*.egg-info/
+*.py[cod]
+*.whl
+.pytest_cache/
+.venv/
+__pycache__/
+build/
+dist/
+
+# Workload outputs and large local artifacts.
+*.log
+*.jsonl
+*.jsonl.gz
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.sqsh
+*.sif
+*.tar
+*.tar.gz
+*.zip

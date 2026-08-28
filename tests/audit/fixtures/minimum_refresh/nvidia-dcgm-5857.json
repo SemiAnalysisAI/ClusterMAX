@@ -1,0 +1,72 @@
+{
+ "_release": {
+  "published_at": "2026-05-07T00:28:58Z",
+  "html_url": "https://github.com/NVIDIA/dcgm-exporter/releases/tag/4.5.3-4.8.2"
+ },
+ "document": {
+  "title": "Security Bulletin: NVIDIA DCGM Exporter - July 2026",
+  "tracking": {
+   "current_release_date": "2026-07-28T00:00:00.000Z",
+   "id": "5857"
+  }
+ },
+ "product_tree": {
+  "branches": [
+   {
+    "category": "vendor",
+    "name": "NVIDIA",
+    "branches": [
+     {
+      "category": "architecture",
+      "name": "All(4.5)",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "DCGM",
+        "product": {
+         "name": "0.0  to 4.5.2",
+         "product_id": "all4_5_dcgm_0_0__to_4_5_2"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "DCGM",
+        "product": {
+         "name": "4.5.3",
+         "product_id": "all4_5_dcgm_4_5_3"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "All(4.8)",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "DCGM Exporter",
+        "product": {
+         "name": "4.8.2",
+         "product_id": "all4_8_dcgm_exporter_4_8_2"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "DCGM Exporter",
+        "product": {
+         "name": "0.0  to 4.8.2",
+         "product_id": "all4_8_dcgm_exporter_0_0__to_4_8_2"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "vulnerabilities": [
+  {
+   "cve": "CVE-2026-47483"
+  }
+ ]
+}

@@ -1,0 +1,42 @@
+{
+ "_comment": "Synthetic driver bulletin. Its R580 version 580.99.01 is lexically greater than the real 580.159.03 from bulletin 5821 and numerically lower. Merging it must keep 580.159.03. A lexical comparison would lower the floor and grade a vulnerable fleet as patched.",
+ "document": {
+  "title": "Synthetic Bulletin: GPU Display Driver - lexical trap",
+  "tracking": {
+   "current_release_date": "2026-02-15T00:00:00Z",
+   "id": "synthetic-lexical-trap"
+  }
+ },
+ "product_tree": {
+  "branches": [
+   {
+    "category": "vendor",
+    "name": "NVIDIA",
+    "branches": [
+     {
+      "category": "architecture",
+      "name": "Linux(R580)",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "Tesla",
+        "product": {
+         "name": "All driver versions prior to 580.99.01",
+         "product_id": "linuxr580_tesla_all_driver_versions_prior_to_580_99_01"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "Tesla",
+        "product": {
+         "name": "580.99.01",
+         "product_id": "linuxr580_tesla_580_99_01"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

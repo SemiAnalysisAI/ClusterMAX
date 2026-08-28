@@ -1,0 +1,239 @@
+{
+  "_comment": "One trimmed response per CVE from the Ubuntu security API (https://ubuntu.com/security/cves/<CVE>.json), keyed by CVE id. Each value is the document that endpoint returns, unchanged in shape, so the extractor under test reads real packages[].statuses[] entries. Folded into one file because these four share a feed and a shape; the CSAF and OSV fixtures stay separate because they do not.",
+  "responses": {
+    "CVE-2024-3446": {
+      "id": "CVE-2024-3446",
+      "priority": "medium",
+      "description": "\nA double free vulnerability was found in QEMU virtio devices (virtio-gpu,\nvirtio-serial-bus, virtio-crypto), where the mem_reentrancy_guard flag\ninsufficiently",
+      "notices": [
+        {
+          "id": "USN-7744-1",
+          "published": "2025-09-11T12:41:28.262010"
+        }
+      ],
+      "packages": [
+        {
+          "name": "qemu",
+          "source": "https://ubuntu.com/security/cve?package=qemu",
+          "statuses": [
+            {
+              "release_codename": "jammy",
+              "status": "released",
+              "description": "1:6.2+dfsg-2ubuntu6.27"
+            },
+            {
+              "release_codename": "noble",
+              "status": "released",
+              "description": "1:8.2.2+ds-0ubuntu1.10"
+            },
+            {
+              "release_codename": "focal",
+              "status": "released",
+              "description": "1:4.2-3ubuntu6.30+esm1"
+            }
+          ]
+        }
+      ]
+    },
+    "CVE-2025-40300": {
+      "id": "CVE-2025-40300",
+      "priority": "high",
+      "description": "\nIn the Linux kernel, the following vulnerability has been resolved:\nx86/vmscape: Add conditional IBPB mitigation\nVMSCAPE is a vulnerability that exploits insuf",
+      "notices": [
+        {
+          "id": "USN-7861-1",
+          "published": "2025-11-06T09:10:53.068752"
+        }
+      ],
+      "packages": [
+        {
+          "name": "linux",
+          "source": "https://ubuntu.com/security/cve?package=linux",
+          "statuses": [
+            {
+              "release_codename": "jammy",
+              "status": "released",
+              "description": "5.15.0-161.171"
+            },
+            {
+              "release_codename": "noble",
+              "status": "released",
+              "description": "6.8.0-87.88"
+            },
+            {
+              "release_codename": "focal",
+              "status": "released",
+              "description": "5.4.0-223.243"
+            }
+          ]
+        },
+        {
+          "name": "linux-hwe-6.8",
+          "source": "https://ubuntu.com/security/cve?package=linux-hwe-6.8",
+          "statuses": [
+            {
+              "release_codename": "focal",
+              "status": "DNE",
+              "description": ""
+            },
+            {
+              "release_codename": "noble",
+              "status": "DNE",
+              "description": ""
+            },
+            {
+              "release_codename": "jammy",
+              "status": "released",
+              "description": "6.8.0-87.88~22.04.1"
+            }
+          ]
+        }
+      ]
+    },
+    "CVE-2026-46300": {
+      "id": "CVE-2026-46300",
+      "priority": "high",
+      "description": "\nIn the Linux kernel, the following vulnerability has been resolved:\nnet: skbuff: preserve shared-frag marker during coalescing\nskb_try_coalesce() can attach pa",
+      "notices": [
+        {
+          "id": "USN-8373-1",
+          "published": "2026-06-02T17:12:50.716867"
+        }
+      ],
+      "packages": [
+        {
+          "name": "linux",
+          "source": "https://ubuntu.com/security/cve?package=linux",
+          "statuses": [
+            {
+              "release_codename": "focal",
+              "status": "not-affected",
+              "description": "5.4.0-9.12"
+            },
+            {
+              "release_codename": "jammy",
+              "status": "released",
+              "description": "5.15.0-181.191"
+            },
+            {
+              "release_codename": "noble",
+              "status": "released",
+              "description": "6.8.0-124.124"
+            }
+          ]
+        },
+        {
+          "name": "linux-hwe-6.8",
+          "source": "https://ubuntu.com/security/cve?package=linux-hwe-6.8",
+          "statuses": [
+            {
+              "release_codename": "noble",
+              "status": "DNE",
+              "description": ""
+            },
+            {
+              "release_codename": "focal",
+              "status": "DNE",
+              "description": ""
+            },
+            {
+              "release_codename": "jammy",
+              "status": "released",
+              "description": "6.8.0-124.124~22.04.1"
+            }
+          ]
+        }
+      ]
+    },
+    "CVE-2026-53359": {
+      "id": "CVE-2026-53359",
+      "priority": "high",
+      "description": "\nIn the Linux kernel, the following vulnerability has been resolved:\nKVM: x86: Fix shadow paging use-after-free due to unexpected role\nCommit 0cb2af2ea66ad (\"KV",
+      "packages": [
+        {
+          "name": "linux",
+          "source": "https://ubuntu.com/security/cve?package=linux",
+          "statuses": [
+            {
+              "release_codename": "focal",
+              "status": "pending",
+              "description": "5.4.0-234.254"
+            },
+            {
+              "release_codename": "jammy",
+              "status": "pending",
+              "description": "5.15.0-187.197"
+            },
+            {
+              "release_codename": "noble",
+              "status": "pending",
+              "description": "6.8.0-137.137"
+            }
+          ]
+        },
+        {
+          "name": "linux-hwe-6.8",
+          "source": "https://ubuntu.com/security/cve?package=linux-hwe-6.8",
+          "statuses": [
+            {
+              "release_codename": "noble",
+              "status": "DNE",
+              "description": ""
+            },
+            {
+              "release_codename": "jammy",
+              "status": "needed",
+              "description": ""
+            },
+            {
+              "release_codename": "focal",
+              "status": "DNE",
+              "description": ""
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "notices": {
+    "USN-7744-1": {
+      "id": "USN-7744-1",
+      "published": "2025-09-11T12:41:28.262010",
+      "release_packages": {
+        "noble": [
+          {
+            "name": "qemu",
+            "version": "1:8.2.2+ds-0ubuntu1.10",
+            "is_source": true
+          }
+        ]
+      }
+    },
+    "USN-7861-1": {
+      "id": "USN-7861-1",
+      "published": "2025-11-06T09:10:53.068752",
+      "release_packages": {
+        "noble": [
+          {
+            "name": "linux",
+            "version": "6.8.0-87.88",
+            "is_source": true
+          }
+        ]
+      }
+    },
+    "USN-8373-1": {
+      "id": "USN-8373-1",
+      "published": "2026-06-02T17:12:50.716867",
+      "release_packages": {
+        "noble": [
+          {
+            "name": "linux",
+            "version": "6.8.0-124.124",
+            "is_source": true
+          }
+        ]
+      }
+    }
+  }
+}

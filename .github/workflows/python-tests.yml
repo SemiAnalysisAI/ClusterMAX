@@ -1,0 +1,59 @@
+name: python-tests
+
+on:
+  pull_request:
+    branches: [master, 'release/**']
+  push:
+    branches: [master, 'release/**']
+    paths:
+      - 'bench/**'
+      - 'cmax/**'
+      - 'pyproject.toml'
+      - 'setup.py'
+      - 'tests/**'
+      - '.github/scripts/nightly_version.py'
+      - '.github/requirements/release.in'
+      - '.github/requirements/release.txt'
+      - '.github/workflows/python-nightly.yml'
+      - '.github/workflows/python-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Install test runner
+        run: |
+          python -m pip install pytest pyyaml prompt-toolkit
+
+      - name: Run Python tests
+        run: python -m pytest -q
+
+      - name: Smoke-test checkout-free public wheel
+        run: |
+          python -m pip wheel --no-deps --wheel-dir /tmp/clustermax-wheel .
+          python -c 'import glob, zipfile; wheel = glob.glob("/tmp/clustermax-wheel/clustermax-*.whl")[0]; names = zipfile.ZipFile(wheel).namelist(); assert not any("__pycache__" in name or name.endswith((".pyc", ".pyo")) for name in names)'
+          python -m venv /tmp/clustermax-wheel-venv
+          /tmp/clustermax-wheel-venv/bin/pip install /tmp/clustermax-wheel/clustermax-*.whl
+          cd /tmp
+          /tmp/clustermax-wheel-venv/bin/cmax audit security --show
+          /tmp/clustermax-wheel-venv/bin/cmax audit --show
+          /tmp/clustermax-wheel-venv/bin/cmax audit --standalone --show
+          /tmp/clustermax-wheel-venv/bin/cmax audit --help | grep -F "full cluster configuration and health audit"
+          /tmp/clustermax-wheel-venv/bin/cmax audit security --help | grep -F "focused, read-only security report"
+          if /tmp/clustermax-wheel-venv/bin/cmax init 2>/dev/null; then exit 1; fi
+          /tmp/clustermax-wheel-venv/bin/cmax audit security --standalone --dry-run -o yaml > /tmp/clustermax-security-plan.yaml
+          grep -q '^audit_profile:' /tmp/clustermax-security-plan.yaml
+          /tmp/clustermax-wheel-venv/bin/python -c 'from cmax.security import find_runtime_root; assert find_runtime_root().is_dir()'
+          /tmp/clustermax-wheel-venv/bin/python -c 'from cmax.security import find_runtime_root; root = find_runtime_root(); assert root.name == "cmax"; assert (root / "cmax.yaml").is_file(); assert (root / "scripts/1-audit/run.sh").is_file()'
+          /tmp/clustermax-wheel-venv/bin/python -c 'import cmax; from importlib.metadata import version; assert cmax.__version__ == version("clustermax")'

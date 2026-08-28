@@ -1,0 +1,63 @@
+{
+ "_comment": "Bulletin 5850 with every version phrase reworded to an affected range, as if NVIDIA stopped naming the fixed release. No floor can be derived, so the generator must fail closed and write nothing.",
+ "document": {
+  "title": "Security Bulletin: NVIDIA Container Toolkit - June 2026",
+  "tracking": {
+   "current_release_date": "2026-06-30T00:00:00.000Z",
+   "id": "5850"
+  }
+ },
+ "product_tree": {
+  "branches": [
+   {
+    "category": "vendor",
+    "name": "NVIDIA",
+    "branches": [
+     {
+      "category": "architecture",
+      "name": "Linux",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "NVIDIA Container Toolkit",
+        "product": {
+         "name": "All versions up to and including 1.19.1",
+         "product_id": "linux_nvidia_container_toolkit_1_19_1"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "NVIDIA Container Toolkit",
+        "product": {
+         "name": "All versions up to and including 1.19.0",
+         "product_id": "linux_nvidia_container_toolkit_all_versions_up_to_and_including_1_19_0"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "NVIDIA GPU Operator",
+        "product": {
+         "name": "All versions up to and including 26.3.2",
+         "product_id": "linux_nvidia_gpu_operator_26_3_2"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "NVIDIA GPU Operator",
+        "product": {
+         "name": "All versions up to and including 26.3.1",
+         "product_id": "linux_nvidia_gpu_operator_all_versions_up_to_and_including_26_3_1"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "vulnerabilities": [
+  {
+   "cve": "CVE-2026-24260"
+  }
+ ]
+}

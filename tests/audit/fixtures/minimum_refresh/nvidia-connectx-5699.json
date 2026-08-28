@@ -1,0 +1,233 @@
+{
+ "document": {
+  "title": "Security Bulletin: NVIDIA Networking Bluefield and ConnectX - June 2026",
+  "tracking": {
+   "current_release_date": "2026-06-30T00:00:00.000Z",
+   "id": "5699"
+  }
+ },
+ "product_tree": {
+  "branches": [
+   {
+    "category": "vendor",
+    "name": "NVIDIA",
+    "branches": [
+     {
+      "category": "architecture",
+      "name": "BlueField-2(46), BlueField-3(46)",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "BlueField GA",
+        "product": {
+         "name": "All versions prior to 46.3008",
+         "product_id": "bluefield246_bluefield346_bluefield_ga_all_versions_prior_to_46_3008"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "BlueField GA",
+        "product": {
+         "name": "46.3008 or newer",
+         "product_id": "bluefield246_bluefield346_bluefield_ga_46_3008_or_newer"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "BlueField-2(35)",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "BlueField LTS22",
+        "product": {
+         "name": "35.8002 or newer",
+         "product_id": "bluefield235_bluefield_lts22_35_8002_or_newer"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "BlueField LTS22",
+        "product": {
+         "name": "All versions prior to 35.8002",
+         "product_id": "bluefield235_bluefield_lts22_all_versions_prior_to_35_8002"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "BlueField-2(39), BlueField-3(39)",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "BlueField LTS23",
+        "product": {
+         "name": "39.8002 or newer",
+         "product_id": "bluefield239_bluefield339_bluefield_lts23_39_8002_or_newer"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "BlueField LTS23",
+        "product": {
+         "name": "All versions prior to 39.8002",
+         "product_id": "bluefield239_bluefield339_bluefield_lts23_all_versions_prior_to_39_8002"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "BlueField-2(43), BlueField-3(43)",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "BlueField LTS24",
+        "product": {
+         "name": "43.8002 or newer",
+         "product_id": "bluefield243_bluefield343_bluefield_lts24_43_8002_or_newer"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "BlueField LTS24",
+        "product": {
+         "name": "All versions prior to 43.8002",
+         "product_id": "bluefield243_bluefield343_bluefield_lts24_all_versions_prior_to_43_8002"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "ConnectX-6 DE, ConnectX-6 DX, ConnectX-6 LX, ConnectX-7, ConnectX-8",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "ConnectX GA",
+        "product": {
+         "name": "All versions prior to 46.3008",
+         "product_id": "connectx6_de_connectx6_dx_connectx6_lx_connectx7_connectx8_connectx_ga_all_versions_prior_to_46_3008"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "ConnectX GA",
+        "product": {
+         "name": "46.3008 or newer",
+         "product_id": "connectx6_de_connectx6_dx_connectx6_lx_connectx7_connectx8_connectx_ga_46_3008_or_newer"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "ConnectX-5*, ConnectX-6*, ConnectX-6 DE, ConnectX-6 DX, ConnectX-6 LX, ConnectX-7",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "ConnectX LTS22",
+        "product": {
+         "name": "35.8002 or newer",
+         "product_id": "connectx5*_connectx6*_connectx6_de_connectx6_dx_connectx6_lx_connectx7_connectx_lts22_35_8002_or_newer"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "ConnectX LTS22",
+        "product": {
+         "name": "All versions prior to 35.8002",
+         "product_id": "connectx5*_connectx6*_connectx6_de_connectx6_dx_connectx6_lx_connectx7_connectx_lts22_all_versions_prior_to_35_8002"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "ConnectX-6*, ConnectX-6 DE, ConnectX-6 DX, ConnectX-6 LX, ConnectX-7",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "ConnectX LTS23",
+        "product": {
+         "name": "39.8002 or newer",
+         "product_id": "connectx6*_connectx6_de_connectx6_dx_connectx6_lx_connectx7_connectx_lts23_39_8002_or_newer"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "ConnectX LTS23",
+        "product": {
+         "name": "All versions prior to 39.8002",
+         "product_id": "connectx6*_connectx6_de_connectx6_dx_connectx6_lx_connectx7_connectx_lts23_all_versions_prior_to_39_8002"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "ConnectX LTS24",
+        "product": {
+         "name": "43.8002 or newer",
+         "product_id": "connectx6*_connectx6_de_connectx6_dx_connectx6_lx_connectx7_connectx_lts24_43_8002_or_newer"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "ConnectX LTS24",
+        "product": {
+         "name": "All versions prior to 43.8002",
+         "product_id": "connectx6*_connectx6_de_connectx6_dx_connectx6_lx_connectx7_connectx_lts24_all_versions_prior_to_43_8002"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "N/A(28)",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "ConnectX-4",
+        "product": {
+         "name": "28.4702",
+         "product_id": "na28_connectx4_28_4702"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "ConnectX-4",
+        "product": {
+         "name": "All versions prior to 28.4702",
+         "product_id": "na28_connectx4_all_versions_prior_to_28_4702"
+        }
+       }
+      ]
+     },
+     {
+      "category": "architecture",
+      "name": "N/A(32)",
+      "branches": [
+       {
+        "category": "product_version",
+        "name": "ConnectX-4 LX",
+        "product": {
+         "name": "32.1908",
+         "product_id": "na32_connectx4_lx_32_1908"
+        }
+       },
+       {
+        "category": "product_version",
+        "name": "ConnectX-4 LX",
+        "product": {
+         "name": "All versions prior to 32.1908",
+         "product_id": "na32_connectx4_lx_all_versions_prior_to_32_1908"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}
