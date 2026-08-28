@@ -5,7 +5,7 @@ import unittest
 from packaging.version import Version
 
 
-SCRIPT_PATH = Path(__file__).parents[2] / ".github" / "scripts" / "nightly_version.py"
+SCRIPT_PATH = Path(__file__).parents[1] / ".github" / "scripts" / "nightly_version.py"
 SPEC = importlib.util.spec_from_file_location("nightly_version", SCRIPT_PATH)
 assert SPEC is not None
 assert SPEC.loader is not None
