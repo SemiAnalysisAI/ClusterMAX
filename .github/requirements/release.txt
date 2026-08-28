@@ -432,6 +432,7 @@ packaging==26.3 \
     #   build
     #   check-wheel-contents
     #   twine
+    #   wheel
 pycparser==3.0 \
     --hash=sha256:600f49d217304a5902ac3c37e1281c9fe94e4d0489de643a9504c5cdfdfc6b29 \
     --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
@@ -624,9 +625,9 @@ urllib3==2.7.0 \
     #   id
     #   requests
     #   twine
-wheel==0.45.1 \
-    --hash=sha256:661e1abd9198507b1409a20c02106d9670b2576e916d58f520316666abca6729 \
-    --hash=sha256:708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248
+wheel==0.48.0 \
+    --hash=sha256:3217dcc807155e45db462d7ef2431f5ddda0d7273b700d05a67b271ceb1287ab \
+    --hash=sha256:94800765601e9171bf5d58d066e640662842bcedcbab982b2c90787a2c987322
     # via -r .github/requirements/release.in
 wheel-filename==1.4.2 \
     --hash=sha256:3fa599046443d4ca830d06e3d180cd0a675d5871af0a68daa5623318bb4d17e3 \
