@@ -28,6 +28,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
+      channel: ${{ steps.version.outputs.channel }}
       version: ${{ steps.version.outputs.version }}
       commit: ${{ steps.version.outputs.commit }}
     steps:
@@ -110,7 +111,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     environment:
-      name: pypi
+      name: ${{ needs.build.outputs.channel == 'nightly' && 'pypi-nightly' || 'pypi' }}
       url: https://pypi.org/project/clustermax/
     permissions:
       id-token: write
