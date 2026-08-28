@@ -1,14 +1,16 @@
 # ClusterMAX
 
-This repo is for `cmax`, a CLI tool that we use to audit GPU clusters and standalone machines during research for ClusterMAX. The initial release supports our recent article on neocloud security that precedes ClusterMAX 3.0.
+This repo is for `cmax`, a CLI tool that we use to audit GPU clusters and standalone machines during research for ClusterMAX. 
 
-Version 0.2.1 of the `cmax` CLI provides these functional commands:
+The initial release is a small subset of our full test suite. It supports our recent article on neocloud security that precedes ClusterMAX 3.0.
+
+This version of the `cmax` CLI provides the following commands:
 
 | Command | Function |
 |---|---|
 | `cmax audit security` | This command runs a focused, read-only security audit. |
-| `cmax audit` | This command runs the complete cluster audit. |
-| `cmax audit review` | This command reviews a saved audit without new checks. |
+| `cmax audit` | This command runs a full cluster audit covering more than just security. |
+| `cmax audit review` | This command reviews a saved audit output without running new checks. |
 
 ## Install ClusterMAX
 
