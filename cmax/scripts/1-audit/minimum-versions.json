@@ -153,6 +153,9 @@
       }
     },
     "docker": {
+      "advisories": [
+        "GHSA-hfg8-hc9c-6c3h"
+      ],
       "advisory": "https://docs.docker.com/engine/release-notes/29/#2970",
       "cves": [
         "CVE-2026-17106"
@@ -170,9 +173,22 @@
       "kind": "minimum",
       "minimum": "29.7.0",
       "source": {
-        "feed": "manual",
-        "reason": "Docker publishes no machine-readable feed that maps advisories to Engine releases",
-        "url": "https://docs.docker.com/security/security-announcements/"
+        "feed": "docker-release-notes",
+        "majors": [
+          29
+        ],
+        "released": "2026-07-30T00:00:00Z",
+        "url": "https://docs.docker.com/engine/release-notes/29/"
+      }
+    },
+    "nvhpc": {
+      "current": "26.5",
+      "kind": "releaseWindow",
+      "minimum": "26.3",
+      "policy": "current-or-previous",
+      "source": {
+        "feed": "nvidia-hpc-sdk-releases",
+        "url": "https://developer.nvidia.com/hpc-sdk/releases"
       }
     },
     "nvidiaContainerToolkit": {
@@ -293,15 +309,135 @@
         }
       ]
     },
-    "nvhpc": {
-      "current": "26.5",
-      "kind": "releaseWindow",
-      "minimum": "26.3",
-      "policy": "current-or-previous",
+    "rocm": {
+      "advisory": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6027.html",
+      "cves": [
+        "CVE-2025-21940",
+        "CVE-2025-66660",
+        "CVE-2025-66664",
+        "CVE-2026-0428"
+      ],
+      "floorAvailability": {
+        "MI210": {
+          "aId": "AMD-SB-6027",
+          "available": "2025-09-15T00:00:00Z",
+          "bulletinReleased": "2026-05-12T00:00:00Z",
+          "feed": "amd-security-bulletin",
+          "status": "confirmed",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6027.html",
+          "version": "7.0.1"
+        },
+        "MI250": {
+          "aId": "AMD-SB-6027",
+          "available": "2025-09-15T00:00:00Z",
+          "bulletinReleased": "2026-05-12T00:00:00Z",
+          "feed": "amd-security-bulletin",
+          "status": "confirmed",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6027.html",
+          "version": "7.0.1"
+        },
+        "MI300A": {
+          "aId": "AMD-SB-6027",
+          "available": "2025-10-06T00:00:00Z",
+          "bulletinReleased": "2026-05-12T00:00:00Z",
+          "feed": "amd-security-bulletin",
+          "status": "confirmed",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6027.html",
+          "version": "7.0.1"
+        },
+        "MI300X": {
+          "aId": "AMD-SB-6024",
+          "available": "2025-07-21T00:00:00Z",
+          "bulletinReleased": "2026-02-10T00:00:00Z",
+          "feed": "amd-security-bulletin",
+          "status": "confirmed",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6024.html",
+          "version": "6.4.2"
+        },
+        "MI308X": {
+          "aId": "AMD-SB-6027",
+          "available": "2025-06-09T00:00:00Z",
+          "bulletinReleased": "2026-05-12T00:00:00Z",
+          "feed": "amd-security-bulletin",
+          "status": "confirmed",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6027.html",
+          "version": "6.4.2"
+        },
+        "MI325X": {
+          "aId": "AMD-SB-6024",
+          "available": "2025-07-21T00:00:00Z",
+          "bulletinReleased": "2026-02-10T00:00:00Z",
+          "feed": "amd-security-bulletin",
+          "status": "confirmed",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6024.html",
+          "version": "6.4.2"
+        }
+      },
+      "kind": "programMap",
+      "programCves": {
+        "MI210": [
+          "CVE-2025-66660"
+        ],
+        "MI250": [
+          "CVE-2025-66660"
+        ],
+        "MI300A": [
+          "CVE-2025-66664"
+        ],
+        "MI300X": [
+          "CVE-2025-21940"
+        ],
+        "MI308X": [
+          "CVE-2025-66660",
+          "CVE-2025-66664",
+          "CVE-2026-0428"
+        ],
+        "MI325X": [
+          "CVE-2025-21940"
+        ]
+      },
+      "programSources": {
+        "MI210": "AMD-SB-6027",
+        "MI250": "AMD-SB-6027",
+        "MI300A": "AMD-SB-6027",
+        "MI300X": "AMD-SB-6024",
+        "MI308X": "AMD-SB-6027",
+        "MI325X": "AMD-SB-6024"
+      },
+      "programs": {
+        "MI210": "7.0.1",
+        "MI250": "7.0.1",
+        "MI300A": "7.0.1",
+        "MI300X": "6.4.2",
+        "MI308X": "6.4.2",
+        "MI325X": "6.4.2"
+      },
       "source": {
-        "feed": "nvidia-hpc-sdk-releases",
-        "url": "https://developer.nvidia.com/hpc-sdk/releases"
-      }
+        "aId": "AMD-SB-6027",
+        "feed": "amd-security-bulletin",
+        "released": "2026-05-12T00:00:00Z",
+        "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6027.html"
+      },
+      "sources": [
+        {
+          "aId": "AMD-SB-6018",
+          "feed": "amd-security-bulletin",
+          "released": "2025-08-12T00:00:00Z",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6018.html"
+        },
+        {
+          "aId": "AMD-SB-6024",
+          "feed": "amd-security-bulletin",
+          "released": "2026-02-10T00:00:00Z",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6024.html"
+        },
+        {
+          "aId": "AMD-SB-6027",
+          "feed": "amd-security-bulletin",
+          "released": "2026-05-12T00:00:00Z",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6027.html"
+        }
+      ]
     },
     "runc": {
       "advisories": [
@@ -838,7 +974,7 @@
       }
     }
   },
-  "generated": "2026-08-19T19:32:40Z",
+  "generated": "2026-08-30T07:24:57Z",
   "gracePeriodDays": 3,
   "maxAgeDays": 10,
   "schemaVersion": 1
