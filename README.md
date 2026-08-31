@@ -316,6 +316,32 @@ evidence. Use `-vvv` to include recommended remediation and labeled reference
 URLs. Use `--command raw` to print the saved collector log. Use
 `--no-interactive` to print the review and exit.
 
+## Develop with Nix
+
+The repository ships a [Nix](https://nixos.org) flake for a reproducible
+development environment, a hermetic build of `cmax`, OCI container images, and
+report-only static analysers. It is optional: it does not change the pip install
+above. If you are new to Nix, [`nix/README.md`](nix/README.md) has a short
+introduction, install steps, and video walkthroughs.
+
+Quickstart, from the repo root (flakes must be enabled — see
+[`nix/README.md`](nix/README.md)):
+
+```
+nix develop            # dev shell (Python, ruff, mypy, bandit, shellcheck); type 'cmax-help'
+nix build .#cmax       # build the CLI -> ./result/bin/cmax
+nix run   .#test       # run the pytest suite
+nix build .#analysis   # run all static analysers; cat result/summary.txt
+nix build .#oci-cmax   # OCI image for the host arch; docker load < result
+nix flake check        # package build + CLI smoke check + nix formatting
+```
+
+The full target list is in the header comment of `flake.nix` and in
+[`nix/README.md`](nix/README.md).
+
+> Flakes only see git-tracked files. After adding or editing files under `nix/`,
+> `git add` them before `nix build` / `nix develop`.
+
 ## Repository contents
 
 | Path | Contents |
@@ -323,6 +349,7 @@ URLs. Use `--command raw` to print the saved collector log. Use
 | `cmax/` | This directory contains the command code and `cmax.yaml` configuration. |
 | `cmax/scripts/1-audit/` | This directory contains the scripts that run an audit. |
 | `tests/audit/` | This directory contains all audit tests, fixtures, and test helpers. |
+| `flake.nix`, `nix/` | The Nix flake and its modules. See [`nix/README.md`](nix/README.md). |
 
 This release excludes provider results, internal notes, the private dashboard,
 benchmark implementations, bundled data, and database code.

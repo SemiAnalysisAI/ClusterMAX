@@ -43,3 +43,27 @@ cmax = [
 [tool.check-wheel-contents]
 # The audit runs these Python files as package resources through their paths.
 ignore = ["W004"]
+
+# --- Static analysis (report-only; wired into the Nix flake analysis-* targets) ---
+# These configs make the analyzers usable both inside `nix build .#analysis` and
+# directly (ruff/mypy/bandit) from a plain checkout.
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = ["tests/audit/fixtures"]
+
+[tool.ruff.lint]
+# A sensible default rule set. Reports only — nothing gates on these.
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+# Non-strict: the codebase is not annotated yet, so surface only real errors.
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[tool.bandit]
+# Test fixtures and the suite are not shipped code.
+exclude_dirs = ["tests"]
