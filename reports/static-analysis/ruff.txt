@@ -1,0 +1,2739 @@
+SIM114 [*] Combine `if` branches using logical `or` operator
+    --> cmax/audit_report.py:1079:9
+     |
+1077 |           if any(rule.severity in {findings.MISSING, findings.VERSION} for rule in failing):
+1078 |               status = FAIL
+1079 | /         elif failing:
+1080 | |             status = WARNING
+1081 | |         elif unverified:
+1082 | |             status = WARNING
+     | |____________________________^
+1083 |           else:
+1084 |               status = PASS
+     |
+help: Combine `if` branches
+     |
+1078 |             status = FAIL
+     -         elif failing:
+     -             status = WARNING
+     -         elif unverified:
+1079 +         elif failing or unverified:
+1080 |             status = WARNING
+     |
+
+E501 Line too long (125 > 100)
+    --> cmax/audit_report.py:1214:101
+     |
+1212 |     if verbosity < 3:
+1213 |         hint = {
+1214 |             1: f"run '{command} -vv' for CVE and documentation links, -vvv for issue details, reproduction, and remediation",
+     |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+1215 |             2: f"run '{command} -vvv' for issue details, reproduction, and remediation",
+1216 |         }[verbosity]
+     |
+
+UP035 [*] Import from `collections.abc` instead: `Callable`
+  --> cmax/audit_review.py:11:1
+   |
+ 9 | from dataclasses import dataclass
+10 | from pathlib import Path
+11 | from typing import Callable, TextIO
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+12 |
+13 | from cmax import audit_report
+   |
+help: Import from `collections.abc`
+   |
+10 | from pathlib import Path
+   - from typing import Callable, TextIO
+11 + from typing import TextIO
+12 + from collections.abc import Callable
+13 |
+   |
+
+UP035 [*] Import from `collections.abc` instead: `Sequence`
+  --> cmax/banner.py:40:1
+   |
+38 | import sys
+39 | from dataclasses import dataclass
+40 | from typing import Sequence, TextIO
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+41 |
+42 | from cmax import logo
+   |
+help: Import from `collections.abc`
+   |
+39 | from dataclasses import dataclass
+   - from typing import Sequence, TextIO
+40 + from typing import TextIO
+41 + from collections.abc import Sequence
+42 |
+   |
+
+F401 [*] `cmax.logo.BASIC` imported but unused
+  --> cmax/banner.py:43:23
+   |
+42 | from cmax import logo
+43 | from cmax.logo import BASIC, PALETTE256, TRUECOLOR, Ink, color_depth
+   |                       ^^^^^
+44 | from cmax.progress import Theme, progress_enabled
+   |
+help: Remove unused import
+   |
+42 | from cmax import logo
+   - from cmax.logo import BASIC, PALETTE256, TRUECOLOR, Ink, color_depth
+43 + from cmax.logo import Ink, color_depth
+44 | from cmax.progress import Theme, progress_enabled
+   |
+
+F401 [*] `cmax.logo.PALETTE256` imported but unused
+  --> cmax/banner.py:43:30
+   |
+42 | from cmax import logo
+43 | from cmax.logo import BASIC, PALETTE256, TRUECOLOR, Ink, color_depth
+   |                              ^^^^^^^^^^
+44 | from cmax.progress import Theme, progress_enabled
+   |
+help: Remove unused import
+   |
+42 | from cmax import logo
+   - from cmax.logo import BASIC, PALETTE256, TRUECOLOR, Ink, color_depth
+43 + from cmax.logo import Ink, color_depth
+44 | from cmax.progress import Theme, progress_enabled
+   |
+
+F401 [*] `cmax.logo.TRUECOLOR` imported but unused
+  --> cmax/banner.py:43:42
+   |
+42 | from cmax import logo
+43 | from cmax.logo import BASIC, PALETTE256, TRUECOLOR, Ink, color_depth
+   |                                          ^^^^^^^^^
+44 | from cmax.progress import Theme, progress_enabled
+   |
+help: Remove unused import
+   |
+42 | from cmax import logo
+   - from cmax.logo import BASIC, PALETTE256, TRUECOLOR, Ink, color_depth
+43 + from cmax.logo import Ink, color_depth
+44 | from cmax.progress import Theme, progress_enabled
+   |
+
+SIM300 [*] Yoda condition detected
+   --> cmax/banner.py:356:8
+    |
+354 |     """
+355 |     found = logo.defects()
+356 |     if logo.HEIGHT != BLOCK_FONT.height:
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+357 |         found.append(
+358 |             f"logo is {logo.HEIGHT} rows and the block font is "
+    |
+help: Rewrite as `BLOCK_FONT.height != logo.HEIGHT`
+    |
+355 |     found = logo.defects()
+    -     if logo.HEIGHT != BLOCK_FONT.height:
+356 +     if BLOCK_FONT.height != logo.HEIGHT:
+357 |         found.append(
+    |
+
+C408 Unnecessary `dict()` call (rewrite as a literal)
+   --> cmax/cli.py:431:26
+    |
+429 |           if target is None:
+430 |               return AUDIT_CANCEL_EXIT
+431 |           runner_options = dict(
+    |  __________________________^
+432 | |             repo=args.repo,
+433 | |             verbosity=_audit_verbosity(args.verbose),
+434 | |             category=category,
+435 | |             resolved_target=target,
+436 | |         )
+    | |_________^
+437 |           if exit_on_fail:
+438 |               runner_options["exit_on_fail"] = True
+    |
+help: Rewrite as a literal
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> cmax/criteria_links.py:3:1
+  |
+1 | """Stable links from audit checks to the public evaluation criteria."""
+2 |
+3 | from __future__ import annotations
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: Organize imports
+  |
+4 |
+  -
+5 | CRITERIA_URL = "https://www.clustermax.ai/criteria"
+  |
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> cmax/minimum_links.py:3:1
+  |
+1 |   """Stable links from audit checks to the published minimum-version table."""
+2 |
+3 | / from __future__ import annotations
+4 | |
+5 | | from collections.abc import Iterable
+  | |____________________________________^
+help: Organize imports
+  |
+6 |
+  -
+7 | MINIMUM_VERSIONS_URL = "https://www.clustermax.ai/minimum-versions"
+  |
+
+UP035 [*] Import from `collections.abc` instead: `Iterator`, `Sequence`
+  --> cmax/minimum_refresh.py:70:1
+   |
+68 | from html.parser import HTMLParser
+69 | from pathlib import Path
+70 | from typing import Any, Iterator, Sequence
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+71 |
+72 | from cmax import runtime_paths
+   |
+help: Import from `collections.abc`
+   |
+69 | from pathlib import Path
+   - from typing import Any, Iterator, Sequence
+70 + from typing import Any
+71 + from collections.abc import Iterator, Sequence
+72 |
+   |
+
+UP035 [*] Import from `collections.abc` instead: `Callable`, `Iterable`, `Sequence`
+  --> cmax/progress.py:37:1
+   |
+35 | from dataclasses import dataclass
+36 | from pathlib import Path
+37 | from typing import Callable, Iterable, Sequence, TextIO
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+38 |
+39 | from prompt_toolkit.application import Application, get_app
+   |
+help: Import from `collections.abc`
+   |
+36 | from pathlib import Path
+   - from typing import Callable, Iterable, Sequence, TextIO
+37 + from typing import TextIO
+38 + from collections.abc import Callable, Iterable, Sequence
+39 |
+   |
+
+B023 Function definition does not bind loop variable `code`
+   --> cmax/progress.py:155:54
+    |
+153 |     rendered = text
+154 |     for pattern, code in _STATUS_WORDS:
+155 |         rendered = pattern.sub(lambda match: f"\x1b[{code}m{match.group(0)}\x1b[0m", rendered)
+    |                                                      ^^^^
+156 |     # Findings use a padded seven-character category. Color only the text so
+157 |     # `[CONFIG ]` keeps the alignment operators rely on in screenshots.
+    |
+
+UP037 [*] Remove quotes from type annotation
+   --> cmax/progress.py:955:33
+    |
+953 |     """Expose preformatted log rows through an independently moved viewport."""
+954 |
+955 |     def __init__(self, display: "LiveDisplay") -> None:
+    |                                 ^^^^^^^^^^^^^
+956 |         self.display = display
+957 |         self._cursor_line = max(0, len(display._timeline) - 1)
+    |
+help: Remove quotes
+    |
+954 |
+    -     def __init__(self, display: "LiveDisplay") -> None:
+955 +     def __init__(self, display: LiveDisplay) -> None:
+956 |         self.display = display
+    |
+
+UP037 [*] Remove quotes from type annotation
+    --> cmax/progress.py:1174:28
+     |
+1172 |         self._closed = False
+1173 |
+1174 |     def __enter__(self) -> "LiveDisplay":
+     |                            ^^^^^^^^^^^^^
+1175 |         self.start()
+1176 |         return self
+     |
+help: Remove quotes
+     |
+1173 |
+     -     def __enter__(self) -> "LiveDisplay":
+1174 +     def __enter__(self) -> LiveDisplay:
+1175 |         self.start()
+     |
+
+SIM105 Use `contextlib.suppress(OSError, ValueError)` instead of `try`-`except`-`pass`
+    --> cmax/progress.py:1662:13
+     |
+1660 |               self._tui_input_thread = None
+1661 |           if self._tui_stdin_attrs is not None and termios is not None:
+1662 | /             try:
+1663 | |                 termios.tcsetattr(
+1664 | |                     sys.stdin.fileno(),
+1665 | |                     termios.TCSANOW,
+1666 | |                     self._tui_stdin_attrs,
+1667 | |                 )
+1668 | |             except (OSError, ValueError):
+1669 | |                 pass
+     | |____________________^
+1670 |               self._tui_stdin_attrs = None
+     |
+help: Replace `try`-`except`-`pass` with `with contextlib.suppress(OSError, ValueError): ...`
+
+SIM105 Use `contextlib.suppress(RuntimeError)` instead of `try`-`except`-`pass`
+    --> cmax/progress.py:1686:9
+     |
+1684 |                   app.exit()
+1685 |
+1686 | /         try:
+1687 | |             app.loop.call_soon_threadsafe(exit_app)
+1688 | |         except RuntimeError:
+1689 | |             pass
+     | |________________^
+1690 |
+1691 |       def _invalidate_tui(self) -> None:
+     |
+help: Replace `try`-`except`-`pass` with `with contextlib.suppress(RuntimeError): ...`
+
+UP037 [*] Remove quotes from type annotation
+    --> cmax/progress.py:1861:28
+     |
+1859 |         self._last: Step | None = None
+1860 |
+1861 |     def __enter__(self) -> "PlainDisplay":
+     |                            ^^^^^^^^^^^^^^
+1862 |         self.start()
+1863 |         return self
+     |
+help: Remove quotes
+     |
+1860 |
+     -     def __enter__(self) -> "PlainDisplay":
+1861 +     def __enter__(self) -> PlainDisplay:
+1862 |         self.start()
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> cmax/report_style.py:3:1
+  |
+1 |   """Shared terminal styling for ClusterMAX audit reports."""
+2 |
+3 | / from __future__ import annotations
+4 | |
+5 | | from collections.abc import Iterable
+  | |____________________________________^
+help: Organize imports
+  |
+6 |
+  -
+7 | _ANSI = {
+  |
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> cmax/runtime_paths.py:3:1
+  |
+1 |   """Canonical paths for the audit runtime that ships with ClusterMAX."""
+2 |
+3 | / from importlib import resources
+4 | | from pathlib import Path
+  | |________________________^
+help: Organize imports
+  |
+5 |
+  -
+6 | AUDIT_RELATIVE = Path("scripts/1-audit")
+  |
+
+UP035 [*] Import from `collections.abc` instead: `Callable`
+  --> cmax/scripts/1-audit/audit_findings.py:39:1
+   |
+37 | from dataclasses import dataclass
+38 | from pathlib import Path
+39 | from typing import Any, Callable
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+40 | from urllib.parse import unquote, urlparse
+   |
+help: Import from `collections.abc`
+   |
+38 | from pathlib import Path
+   - from typing import Any, Callable
+39 + from typing import Any
+40 + from collections.abc import Callable
+41 | from urllib.parse import unquote, urlparse
+   |
+
+E501 Line too long (115 > 100)
+   --> cmax/scripts/1-audit/audit_findings.py:156:101
+    |
+154 |     attest, so the worker-check attestation note should stay silent.
+155 |     """
+156 |     return _is_true(nested_get(audit, "containers", "nvidiaContainerToolkit")) or _nvidia_runtime_configured(audit)
+    |                                                                                                     ^^^^^^^^^^^^^^^
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> cmax/scripts/1-audit/audit_findings.py:502:5
+    |
+500 |       """True only when a completed inventory found no BlueField device."""
+501 |       isolation = nested_get(audit, "securityVersions", "dpuHostIsolation")
+502 | /     if isinstance(isolation, dict):
+503 | |         if (
+504 | |             isolation.get("scanComplete") is True
+505 | |             and isolation.get("bluefieldPresent") is False
+506 | |         ):
+    | |__________^
+507 |               return True
+508 |       controller = nested_get(audit, "securityVersions", "virtioNetBluefield")
+    |
+help: Combine `if` statements using `and`
+
+E501 Line too long (153 > 100)
+   --> cmax/scripts/1-audit/audit_findings.py:786:101
+    |
+784 | …
+785 | …
+786 | …time unverified from this vantage; requires provider attestation (not evidence of absence)",
+    |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+787 | …
+788 | …
+    |
+
+E501 Line too long (114 > 100)
+   --> cmax/scripts/1-audit/audit_findings.py:933:101
+    |
+931 |     Rule(
+932 |         "nccl_topo_file.status",
+933 |         "Host NCCL topology file is present but the container mount is unverified; requires provider attestation",
+    |                                                                                                     ^^^^^^^^^^^^^^
+934 |         CONFIG,
+935 |         _status_is("unknown"),
+    |
+
+E501 Line too long (104 > 100)
+   --> cmax/scripts/1-audit/audit_findings.py:941:101
+    |
+939 |     Rule(
+940 |         "nccl_ib_qps.status",
+941 |         "NCCL_IB_QPS_PER_CONNECTION is at the default on a multi-tier Clos fabric; sweep it (advisory)",
+    |                                                                                                     ^^^^
+942 |         CONFIG,
+943 |         _status_is("warning"),
+    |
+
+E501 Line too long (116 > 100)
+    --> cmax/scripts/1-audit/audit_findings.py:1633:101
+     |
+1631 |         if rule.severity == MISSING or "not installed" in rule.title.lower():
+1632 |             detected = "Not installed"
+1633 |         elif any(word in rule.key.lower() for word in ("allowed", "configured")) or "enabled" in rule.title.lower():
+     |                                                                                                     ^^^^^^^^^^^^^^^^
+1634 |             detected = "Disabled"
+1635 |         else:
+     |
+
+E501 Line too long (101 > 100)
+    --> cmax/scripts/1-audit/audit_findings.py:1665:101
+     |
+1663 |         detected = str(value).replace("_", " ").capitalize()
+1664 |         if "reboot required" in rule.title.lower():
+1665 |             recommendation = "Reboot the affected worker, and confirm that it runs the newer kernel."
+     |                                                                                                     ^
+1666 |         elif "attestation" in rule.title.lower() or "could not be verified" in rule.title.lower():
+1667 |             recommendation = "Ask the provider to attest this state with host evidence."
+     |
+
+UP035 [*] Import from `collections.abc` instead: `Callable`
+  --> cmax/scripts/1-audit/checks/_fanout.py:28:1
+   |
+26 | import json
+27 | from concurrent.futures import ThreadPoolExecutor
+28 | from typing import Any, Callable, Optional
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+29 |
+30 | # (node) -> (record | None, error | None). ``node`` is whatever k8s_gpu_nodes
+   |
+help: Import from `collections.abc`
+   |
+27 | from concurrent.futures import ThreadPoolExecutor
+   - from typing import Any, Callable, Optional
+28 + from typing import Any, Optional
+29 + from collections.abc import Callable
+30 |
+   |
+
+UP045 [*] Use `X | None` for type annotations
+  --> cmax/scripts/1-audit/checks/_fanout.py:32:34
+   |
+30 | # (node) -> (record | None, error | None). ``node`` is whatever k8s_gpu_nodes
+31 | # produced; the caller's closure decides how to reach and check it.
+32 | PerNode = Callable[[Any], "tuple[Optional[dict[str, Any]], Optional[str]]"]
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^
+33 | MAX_K8S_FANOUT_WORKERS = 8
+   |
+help: Convert to `X | None`
+   |
+31 | # produced; the caller's closure decides how to reach and check it.
+   - PerNode = Callable[[Any], "tuple[Optional[dict[str, Any]], Optional[str]]"]
+32 + PerNode = Callable[[Any], "tuple[dict[str, Any] | None, Optional[str]]"]
+33 | MAX_K8S_FANOUT_WORKERS = 8
+   |
+
+UP045 [*] Use `X | None` for type annotations
+  --> cmax/scripts/1-audit/checks/_fanout.py:32:60
+   |
+30 | # (node) -> (record | None, error | None). ``node`` is whatever k8s_gpu_nodes
+31 | # produced; the caller's closure decides how to reach and check it.
+32 | PerNode = Callable[[Any], "tuple[Optional[dict[str, Any]], Optional[str]]"]
+   |                                                            ^^^^^^^^^^^^^
+33 | MAX_K8S_FANOUT_WORKERS = 8
+   |
+help: Convert to `X | None`
+   |
+31 | # produced; the caller's closure decides how to reach and check it.
+   - PerNode = Callable[[Any], "tuple[Optional[dict[str, Any]], Optional[str]]"]
+32 + PerNode = Callable[[Any], "tuple[Optional[dict[str, Any]], str | None]"]
+33 | MAX_K8S_FANOUT_WORKERS = 8
+   |
+
+E501 Line too long (104 > 100)
+   --> cmax/scripts/1-audit/checks/_fanout.py:123:101
+    |
+121 |     if max_nodes < len(nodes):
+122 |         errors.append(
+123 |             f"checked {max_nodes} of {len(nodes)} GPU nodes due to CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS"
+    |                                                                                                     ^^^^
+124 |         )
+125 |     return records, errors
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> cmax/scripts/1-audit/checks/fabric/nccl-ib-qps-check.py:12:1
+   |
+11 | sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+12 | from platform_config import run_named_check
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: Organize imports
+   |
+13 |
+   -
+14 | if __name__ == "__main__":
+   |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> cmax/scripts/1-audit/checks/fabric/nccl-topology-file-check.py:12:1
+   |
+11 | sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+12 | from platform_config import run_named_check
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: Organize imports
+   |
+13 |
+   -
+14 | if __name__ == "__main__":
+   |
+
+UP035 [*] Import from `collections.abc` instead: `Callable`
+  --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:78:1
+   |
+76 | import sys
+77 | from pathlib import Path
+78 | from typing import Any, Callable
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+79 |
+80 | Runner = Callable[..., subprocess.CompletedProcess]
+   |
+help: Import from `collections.abc`
+   |
+77 | from pathlib import Path
+   - from typing import Any, Callable
+78 + from typing import Any
+79 + from collections.abc import Callable
+80 |
+   |
+
+E741 Ambiguous variable name: `l`
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:158:33
+    |
+156 |     header_idx = -1
+157 |     if topo:
+158 |         lines = [l.rstrip() for l in topo.splitlines()]
+    |                                 ^
+159 |         for i, l in enumerate(lines):
+160 |             toks = l.split()
+    |
+
+E741 Ambiguous variable name: `l`
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:159:16
+    |
+157 |     if topo:
+158 |         lines = [l.rstrip() for l in topo.splitlines()]
+159 |         for i, l in enumerate(lines):
+    |                ^
+160 |             toks = l.split()
+161 |             if toks and toks[0].startswith("GPU0"):
+    |
+
+E741 Ambiguous variable name: `l`
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:166:17
+    |
+164 |                 break
+165 |         if header:
+166 |             for l in lines[header_idx + 1:]:
+    |                 ^
+167 |                 toks = l.split()
+168 |                 if not toks:
+    |
+
+B905 `zip()` without an explicit `strict=` parameter
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:176:29
+    |
+174 |                 cells = toks[1:1 + len(header)]
+175 |                 aff = "far"
+176 |                 for h, c in zip(header, cells):
+    |                             ^^^^^^^^^^^^^^^^^^
+177 |                     if h.startswith("GPU") and c in ("PIX", "PXB", "PHB"):
+178 |                         aff = "close"
+    |
+help: Add explicit value for parameter `strict=`
+
+C420 [*] Unnecessary dict comprehension for iterable; use `dict.fromkeys` instead
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:221:16
+    |
+219 |       ]
+220 |       if rails:
+221 |           return {
+    |  ________________^
+222 | |             name: "rail-named RDMA HCA; no GPU-affinity signal on this platform"
+223 | |             for name in rails
+224 | |         }
+    | |_________^
+225 |
+226 |       ib = [
+    |
+help: Replace with `dict.fromkeys(iterable)`)
+    |
+220 |     if rails:
+    -         return {
+    -             name: "rail-named RDMA HCA; no GPU-affinity signal on this platform"
+    -             for name in rails
+    -         }
+221 +         return dict.fromkeys(rails, "rail-named RDMA HCA; no GPU-affinity signal on this platform")
+222 |
+    |
+
+B007 Loop control variable `state` not used within loop body
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:267:28
+    |
+266 |     first_pass = {}
+267 |     for name, rate, layer, state in hcas:
+    |                            ^^^^^
+268 |         first_pass[name] = classify(name, rate, layer)
+    |
+help: Rename unused `state` to `_state`
+
+SIM115 Use a context manager for opening files
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:309:31
+    |
+307 |             continue
+308 |         try:
+309 |             rate = parse_rate(open(path + "/ports/1/rate").read())
+    |                               ^^^^
+310 |         except OSError:
+311 |             rate = 0.0
+    |
+
+SIM115 Use a context manager for opening files
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:313:21
+    |
+311 |             rate = 0.0
+312 |         try:
+313 |             layer = open(path + "/ports/1/link_layer").read().strip()
+    |                     ^^^^
+314 |         except OSError:
+315 |             layer = "?"
+    |
+
+SIM115 Use a context manager for opening files
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:317:21
+    |
+315 |             layer = "?"
+316 |         try:
+317 |             state = open(path + "/ports/1/state").read().split(":")[1].split()[0]
+    |                     ^^^^
+318 |         except (OSError, IndexError):
+319 |             state = "?"
+    |
+
+SIM115 Use a context manager for opening files
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:336:26
+    |
+334 |             continue
+335 |         try:
+336 |             speed_mbps = open("/sys/class/net/" + n + "/speed").read().strip()
+    |                          ^^^^
+337 |             speed_mbps = int(speed_mbps) if speed_mbps.lstrip("-").isdigit() else 0
+338 |         except (OSError, ValueError):
+    |
+
+E501 Line too long (114 > 100)
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:411:101
+    |
+409 |     ]
+410 |     try:
+411 |         proc = runner(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=SLURM_TIMEOUT_S)
+    |                                                                                                     ^^^^^^^^^^^^^^
+412 |     except (OSError, subprocess.TimeoutExpired) as exc:
+413 |         return [gather()], [f"srun NIC check failed; local host only: {exc}"]
+    |
+
+E501 Line too long (104 > 100)
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:469:101
+    |
+467 |     try:
+468 |         proc = kubectl(
+469 |             ["get", "pods", "-n", namespace, "--field-selector", f"spec.nodeName={node}", "-o", "json"],
+    |                                                                                                     ^^^^
+470 |             runner=runner,
+471 |             timeout=45,
+    |
+
+E501 Line too long (110 > 100)
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:565:101
+    |
+563 |                 layer = parts[3].strip() or "?"
+564 |                 state_raw = parts[4]
+565 |                 state = state_raw.split(":")[1].split()[0] if ":" in state_raw else (state_raw.strip() or "?")
+    |                                                                                                     ^^^^^^^^^^
+566 |                 hcas.append((name, rate, layer, state))
+567 |         elif line.startswith("@@NET@@\t"):
+    |
+
+E501 Line too long (113 > 100)
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:576:101
+    |
+576 | def run_k8s_node_check(namespace: str, node: str, *, runner: Runner) -> tuple[dict[str, Any] | None, str | None]:
+    |                                                                                                     ^^^^^^^^^^^^^
+577 |     access = k8s_driver_pod(namespace, node, runner=runner)
+578 |     if not access:
+    |
+
+E501 Line too long (101 > 100)
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:579:101
+    |
+577 |     access = k8s_driver_pod(namespace, node, runner=runner)
+578 |     if not access:
+579 |         return None, f"{node}: no running nvidia-smi-capable GPU Operator pod for NIC classification"
+    |                                                                                                     ^
+580 |     exec_args = ["exec", "-i", "-n", namespace, access["name"]]
+581 |     if access["container"]:
+    |
+
+E501 Line too long (111 > 100)
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:636:101
+    |
+634 |     namespace = k8s_gpu_namespace(env=env, runner=runner)
+635 |     if not namespace:
+636 |         return [], ["no NVIDIA GPU Operator namespace found; cannot reach a driver pod for NIC classification"]
+    |                                                                                                     ^^^^^^^^^^^
+637 |
+638 |     try:
+    |
+
+E501 Line too long (111 > 100)
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:643:101
+    |
+641 |         max_nodes = len(nodes)
+642 |
+643 |     return load_fanout().fan_out_k8s(_nic_per_node(namespace, runner=runner), nodes=nodes, max_nodes=max_nodes)
+    |                                                                                                     ^^^^^^^^^^^
+
+E501 Line too long (129 > 100)
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:678:101
+    |
+676 | def main(argv: list[str]) -> int:
+677 |     parser = argparse.ArgumentParser(description="NIC topology check")
+678 |     parser.add_argument("--collect-host", action="store_true", help="emit one host record instead of the aggregate check object")
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+679 |     parser.add_argument("--harness", default=os.environ.get("CLUSTERMAX_AUDIT_HARNESS") or os.environ.get("CLUSTERMAX_HARNESS") or "")
+680 |     args = parser.parse_args(argv)
+    |
+
+E501 Line too long (134 > 100)
+   --> cmax/scripts/1-audit/checks/fabric/nic-topology-check.py:679:101
+    |
+677 |     parser = argparse.ArgumentParser(description="NIC topology check")
+678 |     parser.add_argument("--collect-host", action="store_true", help="emit one host record instead of the aggregate check object")
+679 |     parser.add_argument("--harness", default=os.environ.get("CLUSTERMAX_AUDIT_HARNESS") or os.environ.get("CLUSTERMAX_HARNESS") or "")
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+680 |     args = parser.parse_args(argv)
+    |
+
+UP035 [*] Import from `collections.abc` instead: `Callable`
+   --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:137:1
+    |
+135 | import sys
+136 | from pathlib import Path
+137 | from typing import Any, Callable
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+138 |
+139 | Runner = Callable[..., subprocess.CompletedProcess]
+    |
+help: Import from `collections.abc`
+    |
+136 | from pathlib import Path
+    - from typing import Any, Callable
+137 + from typing import Any
+138 + from collections.abc import Callable
+139 |
+    |
+
+E501 Line too long (112 > 100)
+   --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:961:101
+    |
+959 |     pci = collect_pci(runner=runner, env=env)
+960 |     devices = pci["devices"]
+961 |     mode = collect_mode(devices, runner=runner) if devices else {"mode": "unknown", "values": {}, "error": None}
+    |                                                                                                     ^^^^^^^^^^^^
+962 |     rshim = collect_rshim(mode.get("values") or {}, env=env)
+963 |     version = collect_version(rshim, env=env, runner=runner)
+    |
+
+F841 Local variable `states` is assigned to but never used
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1120:5
+     |
+1119 |     observed = observed_controllers(records)
+1120 |     states = {str(record.get("state") or STATE_INCOMPLETE) for record in records}
+     |     ^^^^^^
+1121 |     modes = {str(record.get("mode") or "unknown") for record in records}
+1122 |     versions = [str(record["version"]) for record in records if record.get("version")]
+     |
+help: Remove assignment to unused variable `states`
+
+E501 Line too long (114 > 100)
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1135:101
+     |
+1133 |         None,
+1134 |     )
+1135 |     source = str(oldest_record["versionSource"]) if oldest_record and oldest_record.get("versionSource") else None
+     |                                                                                                     ^^^^^^^^^^^^^^
+1136 |     # Only the line that belongs to the version being reported. A line read off
+1137 |     # a different node would grade this version against the wrong minimum.
+     |
+
+E501 Line too long (109 > 100)
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1139:101
+     |
+1137 |     # a different node would grade this version against the wrong minimum.
+1138 |     line = str(oldest_record["line"]) if oldest_record and oldest_record.get("line") else None
+1139 |     reasons = sorted({str(record.get("reason") or "") for record in records if record.get("state") == state})
+     |                                                                                                     ^^^^^^^^^
+1140 |
+1141 |     # Cluster mode, worst case first: one node still in DPU mode keeps the
+     |
+
+E501 Line too long (103 > 100)
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1149:101
+     |
+1147 |     elif "nic" in modes:
+1148 |         cluster_mode = "nic"
+1149 |     elif all(record.get("scanComplete") and not record.get("bluefield3Present") for record in records):
+     |                                                                                                     ^^^
+1150 |         cluster_mode = "absent"
+1151 |     else:
+     |
+
+E501 Line too long (114 > 100)
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1379:101
+     |
+1377 |     ]
+1378 |     try:
+1379 |         proc = runner(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=SLURM_TIMEOUT_S)
+     |                                                                                                     ^^^^^^^^^^^^^^
+1380 |     except (OSError, subprocess.TimeoutExpired) as exc:
+1381 |         return [gather(env=env, runner=runner)], [f"srun virtio-net check failed; local host only: {exc}"]
+     |
+
+E501 Line too long (106 > 100)
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1381:101
+     |
+1379 |         proc = runner(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=SLURM_TIMEOUT_S)
+1380 |     except (OSError, subprocess.TimeoutExpired) as exc:
+1381 |         return [gather(env=env, runner=runner)], [f"srun virtio-net check failed; local host only: {exc}"]
+     |                                                                                                     ^^^^^^
+1382 |     records = load_fanout().parse_json_lines(proc.stdout, require_host=True)
+1383 |     if not records:
+     |
+
+E501 Line too long (105 > 100)
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1421:101
+     |
+1419 |   printf '@@SCAN_ERROR@@\t%s\n' "lspci is not installed"
+1420 | fi
+1421 | slot=$(lspci -Dn 2>/dev/null | grep -Eio '^[0-9a-f:.]+ [^ ]* 15b3:(a2dc|a2d9)' | head -1 | cut -d' ' -f1)
+     |                                                                                                     ^^^^^
+1422 | if [ -n "$slot" ] && command -v mlxconfig >/dev/null 2>&1; then
+1423 |   echo @@MLXCONFIG_BEGIN@@
+     |
+
+SIM910 [*] Use `dict.get()` without default value
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1495:28
+     |
+1493 |         "tmfifoNet0": "tmfifo" in parsed["rshim"],
+1494 |         "internalCpuRshim": mode_values.get("INTERNAL_CPU_RSHIM", "unknown"),
+1495 |         "rshimRestricted": {"0": False, "1": True}.get(mode_values.get("INTERNAL_CPU_RSHIM", ""), None),
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1496 |         "dpuReachedFromHost": None,
+1497 |     }
+     |
+help: Remove default value
+     |
+1494 |         "internalCpuRshim": mode_values.get("INTERNAL_CPU_RSHIM", "unknown"),
+     -         "rshimRestricted": {"0": False, "1": True}.get(mode_values.get("INTERNAL_CPU_RSHIM", ""), None),
+1495 +         "rshimRestricted": {"0": False, "1": True}.get(mode_values.get("INTERNAL_CPU_RSHIM", "")),
+1496 |         "dpuReachedFromHost": None,
+     |
+
+E501 Line too long (104 > 100)
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1495:101
+     |
+1493 |         "tmfifoNet0": "tmfifo" in parsed["rshim"],
+1494 |         "internalCpuRshim": mode_values.get("INTERNAL_CPU_RSHIM", "unknown"),
+1495 |         "rshimRestricted": {"0": False, "1": True}.get(mode_values.get("INTERNAL_CPU_RSHIM", ""), None),
+     |                                                                                                     ^^^^
+1496 |         "dpuReachedFromHost": None,
+1497 |     }
+     |
+
+E501 Line too long (113 > 100)
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1525:101
+     |
+1525 | def kubectl(args: list[str], *, runner: Runner, timeout: int = KUBECTL_TIMEOUT_S) -> subprocess.CompletedProcess:
+     |                                                                                                     ^^^^^^^^^^^^^
+1526 |     return runner(["kubectl", *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
+     |
+
+E501 Line too long (113 > 100)
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1526:101
+     |
+1525 | def kubectl(args: list[str], *, runner: Runner, timeout: int = KUBECTL_TIMEOUT_S) -> subprocess.CompletedProcess:
+1526 |     return runner(["kubectl", *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
+     |                                                                                                     ^^^^^^^^^^^^^
+
+E501 Line too long (104 > 100)
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1558:101
+     |
+1556 |     try:
+1557 |         proc = kubectl(
+1558 |             ["get", "pods", "-n", namespace, "--field-selector", f"spec.nodeName={node}", "-o", "json"],
+     |                                                                                                     ^^^^
+1559 |             runner=runner,
+1560 |             timeout=45,
+     |
+
+E501 Line too long (113 > 100)
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1596:101
+     |
+1596 | def run_k8s_node_check(namespace: str, node: str, *, runner: Runner) -> tuple[dict[str, Any] | None, str | None]:
+     |                                                                                                     ^^^^^^^^^^^^^
+1597 |     access = k8s_driver_pod(namespace, node, runner=runner)
+1598 |     if not access:
+     |
+
+E501 Line too long (113 > 100)
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1640:101
+     |
+1638 |     namespace = k8s_namespace(env=env, runner=runner)
+1639 |     if not namespace:
+1640 |         return [], ["no NVIDIA GPU Operator namespace found; cannot reach a driver pod for the virtio-net check"]
+     |                                                                                                     ^^^^^^^^^^^^^
+1641 |     try:
+1642 |         max_nodes = int(str(env.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS")))
+     |
+
+E501 Line too long (114 > 100)
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1669:101
+     |
+1667 |     return {
+1668 |         "virtio_net_bluefield": {
+1669 |             "hosts": {str(record.get("host") or f"host-{index}"): record for index, record in enumerate(records)},
+     |                                                                                                     ^^^^^^^^^^^^^^
+1670 |             "summary": summary,
+1671 |         }
+     |
+
+SIM105 Use `contextlib.suppress(OSError)` instead of `try`-`except`-`pass`
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1762:9
+     |
+1760 |       payload = build_check_payload(harness=harness, env=env)
+1761 |       if cache_path is not None:
+1762 | /         try:
+1763 | |             cache_path.write_text(json.dumps(payload, sort_keys=True))
+1764 | |         except OSError:
+1765 | |             # The cache is only a runtime optimization. Collection remains
+1766 | |             # authoritative when the temporary directory cannot be written.
+1767 | |             pass
+     | |________________^
+1768 |       return payload
+     |
+help: Replace `try`-`except`-`pass` with `with contextlib.suppress(OSError): ...`
+
+E501 Line too long (116 > 100)
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1773:101
+     |
+1771 | def main(argv: list[str]) -> int:
+1772 |     parser = argparse.ArgumentParser(description="BlueField VIRTIO-Net controller check")
+1773 |     parser.add_argument("--collect-host", action="store_true", help="emit one host record instead of the aggregate")
+     |                                                                                                     ^^^^^^^^^^^^^^^^
+1774 |     parser.add_argument(
+1775 |         "--summary",
+     |
+
+E501 Line too long (105 > 100)
+    --> cmax/scripts/1-audit/checks/fabric/virtio-net-check.py:1781:101
+     |
+1779 |     parser.add_argument(
+1780 |         "--harness",
+1781 |         default=os.environ.get("CLUSTERMAX_AUDIT_HARNESS") or os.environ.get("CLUSTERMAX_HARNESS") or "",
+     |                                                                                                     ^^^^^
+1782 |     )
+1783 |     args = parser.parse_args(argv)
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> cmax/scripts/1-audit/checks/gpu/vboost.py:4:1
+   |
+ 2 |   """Check whether the current provider allows changing NVIDIA vboost."""
+ 3 |
+ 4 | / from __future__ import annotations
+ 5 | |
+ 6 | | import json
+ 7 | | import os
+ 8 | | import re
+ 9 | | import shutil
+10 | | import socket
+11 | | import subprocess
+12 | | import sys
+13 | | from pathlib import Path
+14 | | from typing import Any, Callable, Optional
+   | |__________________________________________^
+help: Organize imports
+   |
+15 |
+   -
+16 | TARGET_VBOOST = 2
+   |
+
+UP035 [*] Import from `collections.abc` instead: `Callable`
+  --> cmax/scripts/1-audit/checks/gpu/vboost.py:14:1
+   |
+12 | import sys
+13 | from pathlib import Path
+14 | from typing import Any, Callable, Optional
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: Import from `collections.abc`
+   |
+13 | from pathlib import Path
+   - from typing import Any, Callable, Optional
+14 + from typing import Any, Optional
+15 + from collections.abc import Callable
+16 |
+   |
+
+UP045 [*] Use `X | None` for type annotations
+  --> cmax/scripts/1-audit/checks/gpu/vboost.py:36:25
+   |
+35 | Runner = Callable[..., subprocess.CompletedProcess[str]]
+36 | Which = Callable[[str], Optional[str]]
+   |                         ^^^^^^^^^^^^^
+37 |
+38 | _FANOUT = None
+   |
+help: Convert to `X | None`
+   |
+35 | Runner = Callable[..., subprocess.CompletedProcess[str]]
+   - Which = Callable[[str], Optional[str]]
+36 + Which = Callable[[str], str | None]
+37 |
+   |
+
+E501 Line too long (118 > 100)
+  --> cmax/scripts/1-audit/checks/gpu/vboost.py:76:101
+   |
+76 | def vboost_command(which: Which = shutil.which, euid: Callable[[], int] = os.geteuid) -> tuple[list[str] | None, str]:
+   |                                                                                                     ^^^^^^^^^^^^^^^^^^
+77 |     nvidia_smi = which("nvidia-smi")
+78 |     if not nvidia_smi:
+   |
+
+E501 Line too long (104 > 100)
+   --> cmax/scripts/1-audit/checks/gpu/vboost.py:237:101
+    |
+235 |     try:
+236 |         proc = kubectl(
+237 |             ["get", "pods", "-n", namespace, "--field-selector", f"spec.nodeName={node}", "-o", "json"],
+    |                                                                                                     ^^^^
+238 |             runner=runner,
+239 |             timeout=45,
+    |
+
+E501 Line too long (110 > 100)
+   --> cmax/scripts/1-audit/checks/gpu/vboost.py:264:101
+    |
+264 | def k8s_vboost_node(namespace: str, node: str, *, runner: Runner) -> tuple[dict[str, Any] | None, str | None]:
+    |                                                                                                     ^^^^^^^^^^
+265 |     """Try to set vboost from inside the node's nvidia-driver daemonset pod.
+    |
+
+E501 Line too long (103 > 100)
+   --> cmax/scripts/1-audit/checks/gpu/vboost.py:330:101
+    |
+328 |     namespace = k8s_gpu_namespace(env=env, runner=runner)
+329 |     if not namespace:
+330 |         return [], ["no NVIDIA GPU Operator namespace found; cannot reach a driver pod to test vboost"]
+    |                                                                                                     ^^^
+331 |
+332 |     try:
+    |
+
+E501 Line too long (102 > 100)
+   --> cmax/scripts/1-audit/checks/gpu/vboost.py:432:101
+    |
+430 |         return 0
+431 |
+432 |     harness = os.environ.get("CLUSTERMAX_AUDIT_HARNESS") or os.environ.get("CLUSTERMAX_HARNESS") or ""
+    |                                                                                                     ^^
+433 |     print(json.dumps(build_check_payload(harness=harness), sort_keys=True))
+434 |     return 0
+    |
+
+E501 Line too long (112 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:115:101
+    |
+113 | # fails, which is the point.
+114 | TOPO_REMEDIATION = (
+115 |     f"Provider fix: add an enroot mount hook or a pyxis default mount so {TOPO_FILE_GLOB_DIR}/{TOPO_FILE_GLOB} "
+    |                                                                                                     ^^^^^^^^^^^^
+116 |     "is mounted into every container with no per-job flag. Per-job workaround, which this check does not "
+117 |     "score as a pass: --mount type=bind,source=/etc/nccl/topo.xml,target=/etc/nccl/topo.xml"
+    |
+
+E501 Line too long (106 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:116:101
+    |
+114 | TOPO_REMEDIATION = (
+115 |     f"Provider fix: add an enroot mount hook or a pyxis default mount so {TOPO_FILE_GLOB_DIR}/{TOPO_FILE_GLOB} "
+116 |     "is mounted into every container with no per-job flag. Per-job workaround, which this check does not "
+    |                                                                                                     ^^^^^^
+117 |     "score as a pass: --mount type=bind,source=/etc/nccl/topo.xml,target=/etc/nccl/topo.xml"
+118 | )
+    |
+
+UP022 Prefer `capture_output` over sending `stdout` and `stderr` to `PIPE`
+   --> cmax/scripts/1-audit/checks/platform_config.py:252:12
+    |
+251 |   def run_command(command: list[str], *, timeout: int = 30, input_text: str | None = None):
+252 |       return subprocess.run(
+    |  ____________^
+253 | |         command,
+254 | |         input=input_text,
+255 | |         stdout=subprocess.PIPE,
+256 | |         stderr=subprocess.PIPE,
+257 | |         text=True,
+258 | |         timeout=timeout,
+259 | |     )
+    | |_____^
+help: Replace with `capture_output` keyword argument
+
+E501 Line too long (115 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:415:101
+    |
+414 | def iommu_disabled_requested(params: dict[str, str]) -> bool:
+415 |     return any(params.get(key, "").lower() in {"off", "disabled"} for key in ("iommu", "intel_iommu", "amd_iommu"))
+    |                                                                                                     ^^^^^^^^^^^^^^^
+
+E501 Line too long (103 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:467:101
+    |
+467 | def collect_pci_devices(root: Path, *, include_rdma: bool = True) -> tuple[list[dict[str, Any]], bool]:
+    |                                                                                                     ^^^
+468 |     """Selected GPU and RDMA NIC PCI functions with their IOMMU group.
+    |
+
+E501 Line too long (113 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:572:101
+    |
+570 |             return summary(
+571 |                 "unknown",
+572 |                 "the PCI bus is not readable from where this check ran; GPU and RDMA device presence is unknown",
+    |                                                                                                     ^^^^^^^^^^^^^
+573 |                 evidence=evidence,
+574 |             )
+    |
+
+E501 Line too long (101 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:603:101
+    |
+601 |         ),
+602 |         warnings=[
+603 |             f"IOMMU mode is translated with kernel parameters {iommu.get('cmdline_params') or '{}'}",
+    |                                                                                                     ^
+604 |         ],
+605 |         evidence=evidence,
+    |
+
+SIM110 Use `return any(CMDQV_COMPATIBLE in read_text(candidate) for candidate in candidates)` instead of `for` loop
+   --> cmax/scripts/1-audit/checks/platform_config.py:620:5
+    |
+618 |       except OSError:
+619 |           return False
+620 | /     for candidate in candidates:
+621 | |         if CMDQV_COMPATIBLE in read_text(candidate):
+622 | |             return True
+623 | |     return False
+    | |________________^
+help: Replace with `return any(CMDQV_COMPATIBLE in read_text(candidate) for candidate in candidates)`
+
+E501 Line too long (111 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:663:101
+    |
+661 |                     entry.name
+662 |                     for entry in under_root(root, path).iterdir()
+663 |                     if entry.is_symlink() and not entry.name.startswith(("bind", "uevent", "unbind", "module"))
+    |                                                                                                     ^^^^^^^^^^^
+664 |                 )
+665 |             )
+    |
+
+E501 Line too long (117 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:673:101
+    |
+671 |     # Anything that names the CMDQV driver or node is itself proof of Grace, so
+672 |     # the platform markers only have to answer for a host that exposes neither.
+673 |     grace = bool(driver_dirs or bound_devices or devicetree) or devicetree_names_grace(root) or dmi_names_grace(root)
+    |                                                                                                     ^^^^^^^^^^^^^^^^^
+674 |
+675 |     return {
+    |
+
+E501 Line too long (109 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:700:101
+    |
+698 |         return summary(
+699 |             "not_applicable",
+700 |             f"{machine} host; Arm SMMU command queue virtualization applies to Arm and Grace platforms only",
+    |                                                                                                     ^^^^^^^^^
+701 |             evidence=evidence,
+702 |         )
+    |
+
+E501 Line too long (101 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:730:101
+    |
+728 |                 "unknown",
+729 |                 (
+730 |                     "Arm virtual machine guest uses SMMUv3, and this vantage could not identify the "
+    |                                                                                                     ^
+731 |                     "platform as Grace; CMDQV / VCMDQ exists only on Grace"
+732 |                 ),
+    |
+
+E501 Line too long (117 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:741:101
+    |
+739 |                 "guest invalidations serialize through one host command queue"
+740 |             ),
+741 |             warnings=[f"SMMUv3 unit(s) {', '.join(smmu.get('smmuv3_units') or [])} with no tegra241-cmdqv evidence"],
+    |                                                                                                     ^^^^^^^^^^^^^^^^^
+742 |             evidence=evidence,
+743 |         )
+    |
+
+E501 Line too long (124 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:772:101
+    |
+770 |     paths: list[str] = []
+771 |     mentions_topology: list[str] = []
+772 |     for relative in ("/etc/enroot/enroot.conf", "/etc/enroot/enroot.conf.d", "/etc/enroot/hooks.d", "/etc/enroot/mounts.d"):
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^
+773 |         entry = under_root(root, relative)
+774 |         # pathlib's recursive glob swallows PermissionError, but not the rest of
+    |
+
+E501 Line too long (106 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:831:101
+    |
+829 |         "sysfs_read": sysfs_read,
+830 |         "link_layers": unique_layers,
+831 |         "fabric": unique_layers[0] if len(unique_layers) == 1 else ("mixed" if unique_layers else "none"),
+    |                                                                                                     ^^^^^^
+832 |     }
+    |
+
+E501 Line too long (104 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:850:101
+    |
+848 |     # would let an unreadable entry stand for an absent file, which is the
+849 |     # asserted absence this check must never make.
+850 |     return [f"{TOPO_FILE_GLOB_DIR}/{entry.name}" for entry in entries if file_state(entry) is not False]
+    |                                                                                                     ^^^^
+
+E501 Line too long (102 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:919:101
+    |
+917 |         "topo_file_declared": declared,
+918 |         "topo_files_readable": readable,
+919 |         "topo_file_evidence": {path: describe_topo_file(under_root(root, path)) for path in readable},
+    |                                                                                                     ^^
+920 |         "topo_candidates_unreachable": unreachable,
+921 |         "declared_topo_file_readable": bool(declared) and declared in readable,
+    |
+
+E501 Line too long (104 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:990:101
+    |
+988 |         conf_block = (
+989 |             f"if [ -r '{conf[0]}' ]; then\n"
+990 |             "  conf_topo=$(sed -n 's/#.*//; s/^[[:space:]]*NCCL_TOPO_FILE[[:space:]]*=[[:space:]]*//p' "
+    |                                                                                                     ^^^^
+991 |             f"'{conf[0]}'"
+992 |             " | sed -e 's/[[:space:]]*$//' -e 's/^\"\\(.*\\)\"$/\\1/' -e \"s/^'\\(.*\\)'\\$/\\1/\" | tail -n 1)\n"
+    |
+
+E501 Line too long (114 > 100)
+   --> cmax/scripts/1-audit/checks/platform_config.py:992:101
+    |
+990 |             "  conf_topo=$(sed -n 's/#.*//; s/^[[:space:]]*NCCL_TOPO_FILE[[:space:]]*=[[:space:]]*//p' "
+991 |             f"'{conf[0]}'"
+992 |             " | sed -e 's/[[:space:]]*$//' -e 's/^\"\\(.*\\)\"$/\\1/' -e \"s/^'\\(.*\\)'\\$/\\1/\" | tail -n 1)\n"
+    |                                                                                                     ^^^^^^^^^^^^^^
+993 |             '  if [ -n "$conf_topo" ]; then\n'
+994 |             '    printf "topo_file_conf=%s\\n" "$conf_topo"\n'
+    |
+
+E501 Line too long (123 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1103:101
+     |
+1103 | def run_container_check(*, harness: str, env: dict[str, str], candidates: list[str], runner=run_command) -> dict[str, Any]:
+     |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^
+1104 |     """Read NCCL_TOPO_FILE from inside a container started by the same launcher.
+     |
+
+E501 Line too long (104 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1175:101
+     |
+1173 |             "available": False,
+1174 |             "reason_code": "launch_failed",
+1175 |             "reason": f"pyxis container check did not run ({exc}); the mount is unverified, not absent",
+     |                                                                                                     ^^^^
+1176 |             **attestation,
+1177 |         }
+     |
+
+E501 Line too long (116 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1184:101
+     |
+1182 |         if stderr_says_no_pyxis(stderr):
+1183 |             reason_code = "no_pyxis"
+1184 |             reason = "pyxis/enroot is not installed on this cluster; the container arm of this check does not apply"
+     |                                                                                                     ^^^^^^^^^^^^^^^^
+1185 |         else:
+1186 |             reason_code = "check_incomplete"
+     |
+
+E501 Line too long (101 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1195:101
+     |
+1193 |             **attestation,
+1194 |         }
+1195 |     return {"available": True, "stdout": (proc.stdout or "").strip()[:8000], **attestation, **parsed}
+     |                                                                                                     ^
+
+E501 Line too long (109 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1219:101
+     |
+1217 | ) -> dict[str, Any]:
+1218 |     hosts = [report.get("nccl", {}) for report in reports]
+1219 |     declared = next((host.get("topo_file_declared") for host in hosts if host.get("topo_file_declared")), "")
+     |                                                                                                     ^^^^^^^^^
+1220 |     host_env = next((host.get("topo_file_env") for host in hosts if host.get("topo_file_env")), "")
+1221 |     host_files = sorted({path for host in hosts for path in (host.get("topo_files_readable") or [])})
+     |
+
+E501 Line too long (101 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1221:101
+     |
+1219 |     declared = next((host.get("topo_file_declared") for host in hosts if host.get("topo_file_declared")), "")
+1220 |     host_env = next((host.get("topo_file_env") for host in hosts if host.get("topo_file_env")), "")
+1221 |     host_files = sorted({path for host in hosts for path in (host.get("topo_files_readable") or [])})
+     |                                                                                                     ^
+1222 |     enroot_hooks = sorted({path for host in hosts for path in (host.get("enroot", {}).get("files_mentioning_topology") or [])})
+1223 |     host_evidence: dict[str, Any] = {}
+     |
+
+E501 Line too long (127 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1222:101
+     |
+1220 |     host_env = next((host.get("topo_file_env") for host in hosts if host.get("topo_file_env")), "")
+1221 |     host_files = sorted({path for host in hosts for path in (host.get("topo_files_readable") or [])})
+1222 |     enroot_hooks = sorted({path for host in hosts for path in (host.get("enroot", {}).get("files_mentioning_topology") or [])})
+     |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1223 |     host_evidence: dict[str, Any] = {}
+1224 |     for host in hosts:
+     |
+
+E501 Line too long (114 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1254:101
+     |
+1252 |         # pointing at a path that holds nothing leaves nothing to mount, so the
+1253 |         # check has no subject and must not hard-fail on a missing mount.
+1254 |         unreachable = sorted({path for host in hosts for path in (host.get("topo_candidates_unreachable") or [])})
+     |                                                                                                     ^^^^^^^^^^^^^^
+1255 |         if unreachable:
+1256 |             # A path the vantage cannot reach is not a path with no file on it.
+     |
+
+E501 Line too long (104 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1324:101
+     |
+1322 |     if host_env and not container_env:
+1323 |         failures.append(
+1324 |             f"the host sets NCCL_TOPO_FILE={host_env} but the container environment does not carry it; "
+     |                                                                                                     ^^^^
+1325 |             "the launcher does not propagate the job environment into the container"
+1326 |         )
+     |
+
+E501 Line too long (118 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1331:101
+     |
+1329 |         if container_declared:
+1330 |             failures.append(
+1331 |                 f"container declares NCCL topology file {container_declared} in {TOPO_SOURCE_LABELS[source]} but the "
+     |                                                                                                     ^^^^^^^^^^^^^^^^^^
+1332 |                 "file is not readable inside the container; NCCL falls back to automatic detection without a warning"
+1333 |             )
+     |
+
+E501 Line too long (117 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1332:101
+     |
+1330 |             failures.append(
+1331 |                 f"container declares NCCL topology file {container_declared} in {TOPO_SOURCE_LABELS[source]} but the "
+1332 |                 "file is not readable inside the container; NCCL falls back to automatic detection without a warning"
+     |                                                                                                     ^^^^^^^^^^^^^^^^^
+1333 |             )
+1334 |         else:
+     |
+
+E501 Line too long (105 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1336:101
+     |
+1334 |         else:
+1335 |             failures.append(
+1336 |                 f"host has NCCL topology file {target} but the container sets NCCL_TOPO_FILE in neither "
+     |                                                                                                     ^^^^^
+1337 |                 f"the environment nor {NCCL_CONF_PATH}, and has no readable {NCCL_DEFAULT_TOPO_FILE}; "
+1338 |                 "the file is not mounted automatically and NCCL falls back to automatic detection without a warning"
+     |
+
+E501 Line too long (103 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1337:101
+     |
+1335 |             failures.append(
+1336 |                 f"host has NCCL topology file {target} but the container sets NCCL_TOPO_FILE in neither "
+1337 |                 f"the environment nor {NCCL_CONF_PATH}, and has no readable {NCCL_DEFAULT_TOPO_FILE}; "
+     |                                                                                                     ^^^
+1338 |                 "the file is not mounted automatically and NCCL falls back to automatic detection without a warning"
+1339 |             )
+     |
+
+E501 Line too long (116 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1338:101
+     |
+1336 |                 f"host has NCCL topology file {target} but the container sets NCCL_TOPO_FILE in neither "
+1337 |                 f"the environment nor {NCCL_CONF_PATH}, and has no readable {NCCL_DEFAULT_TOPO_FILE}; "
+1338 |                 "the file is not mounted automatically and NCCL falls back to automatic detection without a warning"
+     |                                                                                                     ^^^^^^^^^^^^^^^^
+1339 |             )
+1340 |     else:
+     |
+
+E501 Line too long (108 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1349:101
+     |
+1347 |             failures.append(f"container resolves {container_declared} but the file is empty")
+1348 |         if seen.get("xml") == "bad":
+1349 |             failures.append(f"container resolves {container_declared} but its contents do not parse as XML")
+     |                                                                                                     ^^^^^^^^
+1350 |         # A topology file describes the node it was generated for, so two nodes
+1351 |         # legitimately publish different content at the same path. The container
+     |
+
+E501 Line too long (105 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1362:101
+     |
+1360 |         host_missing_digest = False
+1361 |         for host in hosts:
+1362 |             digest = ((host.get("topo_file_evidence") or {}).get(container_declared) or {}).get("sha256")
+     |                                                                                                     ^^^^^
+1363 |             if digest:
+1364 |                 host_digests.add(digest)
+     |
+
+E501 Line too long (114 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1369:101
+     |
+1367 |         detail["host_topo_file_digests"] = sorted(host_digests)
+1368 |         container_digest = seen.get("sha256")
+1369 |         if container_digest and host_digests and not host_missing_digest and container_digest not in host_digests:
+     |                                                                                                     ^^^^^^^^^^^^^^
+1370 |             failures.append(
+1371 |                 f"container resolves {container_declared} but its contents match no checked host's file at that "
+     |
+
+E501 Line too long (113 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1371:101
+     |
+1369 |         if container_digest and host_digests and not host_missing_digest and container_digest not in host_digests:
+1370 |             failures.append(
+1371 |                 f"container resolves {container_declared} but its contents match no checked host's file at that "
+     |                                                                                                     ^^^^^^^^^^^^^
+1372 |                 "path; the container sees a stale or shadowed topology file"
+1373 |             )
+     |
+
+E501 Line too long (112 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1382:101
+     |
+1380 |     detail.update(
+1381 |         status="pass",
+1382 |         message=f"container resolves NCCL topology file {container_declared} from {TOPO_SOURCE_LABELS[source]}",
+     |                                                                                                     ^^^^^^^^^^^^
+1383 |     )
+1384 |     return detail
+     |
+
+E501 Line too long (118 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1387:101
+     |
+1387 | def classify_fabric_shape(*, fabric_tiers: int, node_count: int, clos_node_threshold: int) -> tuple[bool | None, str]:
+     |                                                                                                     ^^^^^^^^^^^^^^^^^^
+1388 |     """Whether the fabric has a spine tier, and the evidence that decided it.
+     |
+
+E501 Line too long (111 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1415:101
+     |
+1413 | ) -> dict[str, Any]:
+1414 |     hosts = [report.get("nccl", {}) for report in reports]
+1415 |     qps_values = sorted({as_int(host.get("qps_per_connection"), DEFAULT_QPS_PER_CONNECTION) for host in hosts})
+     |                                                                                                     ^^^^^^^^^^^
+1416 |     qps = qps_values[0] if qps_values else DEFAULT_QPS_PER_CONNECTION
+1417 |     source = next((host.get("qps_source") for host in hosts if host.get("qps_source")), "default")
+     |
+
+E501 Line too long (111 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1419:101
+     |
+1417 |     source = next((host.get("qps_source") for host in hosts if host.get("qps_source")), "default")
+1418 |     fabrics = sorted({str(host.get("rdma", {}).get("fabric") or "none") for host in hosts})
+1419 |     rdma_devices = sorted({device for host in hosts for device in (host.get("rdma", {}).get("devices") or [])})
+     |                                                                                                     ^^^^^^^^^^^
+1420 |     # "No host has an RDMA device" is a claim about every host, so one host that
+1421 |     # could not be read withdraws it. A sibling that read a clean empty class
+     |
+
+E501 Line too long (112 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1464:101
+     |
+1462 |                 status="unknown",
+1463 |                 message=(
+1464 |                     f"/sys/class/infiniband is not readable on {unread_hosts} of {len(hosts)} checked host(s); "
+     |                                                                                                     ^^^^^^^^^^^^
+1465 |                     "RDMA device presence is unknown"
+1466 |                 ),
+     |
+
+E501 Line too long (102 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1493:101
+     |
+1491 |             status="unknown",
+1492 |             message=(
+1493 |                 f"NCCL_IB_QPS_PER_CONNECTION={qps} on a {node_count}-node {node_count_scope} with no "
+     |                                                                                                     ^^
+1494 |                 "topology data; the shape of the whole fabric is not known, so the advisory cannot be judged"
+1495 |             ),
+     |
+
+E501 Line too long (109 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1494:101
+     |
+1492 |             message=(
+1493 |                 f"NCCL_IB_QPS_PER_CONNECTION={qps} on a {node_count}-node {node_count_scope} with no "
+1494 |                 "topology data; the shape of the whole fabric is not known, so the advisory cannot be judged"
+     |                                                                                                     ^^^^^^^^^
+1495 |             ),
+1496 |         )
+     |
+
+E501 Line too long (109 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1514:101
+     |
+1512 |         detail.update(
+1513 |             status="pass",
+1514 |             message=f"NCCL_IB_QPS_PER_CONNECTION={qps} from {source} on a multi-tier Clos fabric by {basis}",
+     |                                                                                                     ^^^^^^^^^
+1515 |         )
+1516 |         return detail
+     |
+
+E501 Line too long (110 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1520:101
+     |
+1518 |     warning = (
+1519 |         f"NCCL_IB_QPS_PER_CONNECTION={qps} (the default) on a multi-tier Clos fabric by {basis}; "
+1520 |         f"one queue pair gives ECMP a single hash input, so parallel flows collide on the same spine uplink. "
+     |                                                                                                     ^^^^^^^^^^
+1521 |         f"Set it to {RECOMMENDED_QPS_PER_CONNECTION} (up to 4) identically on every rank, for example in "
+1522 |         f"{NCCL_CONF_PATH}. Sweep the value at the message sizes of the real workload before you fix it, "
+     |
+
+E501 Line too long (106 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1521:101
+     |
+1519 |         f"NCCL_IB_QPS_PER_CONNECTION={qps} (the default) on a multi-tier Clos fabric by {basis}; "
+1520 |         f"one queue pair gives ECMP a single hash input, so parallel flows collide on the same spine uplink. "
+1521 |         f"Set it to {RECOMMENDED_QPS_PER_CONNECTION} (up to 4) identically on every rank, for example in "
+     |                                                                                                     ^^^^^^
+1522 |         f"{NCCL_CONF_PATH}. Sweep the value at the message sizes of the real workload before you fix it, "
+1523 |         "because the best value depends on the fabric and adds CPU cost"
+     |
+
+E501 Line too long (106 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1522:101
+     |
+1520 |         f"one queue pair gives ECMP a single hash input, so parallel flows collide on the same spine uplink. "
+1521 |         f"Set it to {RECOMMENDED_QPS_PER_CONNECTION} (up to 4) identically on every rank, for example in "
+1522 |         f"{NCCL_CONF_PATH}. Sweep the value at the message sizes of the real workload before you fix it, "
+     |                                                                                                     ^^^^^^
+1523 |         "because the best value depends on the fabric and adds CPU cost"
+1524 |     )
+     |
+
+E501 Line too long (111 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1603:101
+     |
+1601 |     visible under ``hosts``.
+1602 |     """
+1603 |     statuses = [str(report.get("summaries", {}).get(key, {}).get("status") or "unknown") for report in reports]
+     |                                                                                                     ^^^^^^^^^^^
+1604 |     if "fail" in statuses:
+1605 |         status = "fail"
+     |
+
+E501 Line too long (111 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1674:101
+     |
+1672 |                 payload[key].update(
+1673 |                     status="unknown",
+1674 |                     message="only a stand-in host was checked; the platform of the compute nodes was not read",
+     |                                                                                                     ^^^^^^^^^^^
+1675 |                 )
+1676 |     payload["nccl_topo_file"] = summarize_nccl_topo_file(reports=reports, container=container, errors=errors)
+     |
+
+E501 Line too long (109 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1676:101
+     |
+1674 |                     message="only a stand-in host was checked; the platform of the compute nodes was not read",
+1675 |                 )
+1676 |     payload["nccl_topo_file"] = summarize_nccl_topo_file(reports=reports, container=container, errors=errors)
+     |                                                                                                     ^^^^^^^^^
+1677 |     payload["nccl_ib_qps"] = summarize_nccl_ib_qps(
+1678 |         reports=reports,
+     |
+
+E501 Line too long (101 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1868:101
+     |
+1866 |     errors: list[str] = []
+1867 |     if proc.returncode != 0:
+1868 |         errors.append(f"srun host check exited {proc.returncode}; parsing any completed host output")
+     |                                                                                                     ^
+1869 |     for value in load_fanout().parse_json_lines(proc.stdout, require_host=True):
+1870 |         reports.append(value)
+     |
+
+E501 Line too long (117 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1908:101
+     |
+1906 |                     "name": "check",
+1907 |                     "image": image,
+1908 |                     "imagePullPolicy": os.environ.get("CLUSTERMAX_AUDIT_K8S_HOST_CHECK_PULL_POLICY", "IfNotPresent"),
+     |                                                                                                     ^^^^^^^^^^^^^^^^^
+1909 |                     "command": ["sh", "-c", "sleep 600"],
+1910 |                     "env": [{"name": "NODE_NAME", "value": node["name"]}],
+     |
+
+E501 Line too long (104 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1947:101
+     |
+1945 |         apply_proc = kubectl(["apply", "-f", "-"], timeout=45, input_text=manifest)
+1946 |         if apply_proc.returncode != 0:
+1947 |             return None, f"{node['name']}: failed to create host check pod: {apply_proc.stderr.strip()}"
+     |                                                                                                     ^^^^
+1948 |
+1949 |         wait_proc = kubectl(
+     |
+
+E501 Line too long (107 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1954:101
+     |
+1952 |         )
+1953 |         if wait_proc.returncode != 0:
+1954 |             return None, f"{node['name']}: host check pod did not become Ready: {wait_proc.stderr.strip()}"
+     |                                                                                                     ^^^^^^^
+1955 |
+1956 |         check_args = [
+     |
+
+SIM105 Use `contextlib.suppress(OSError, subprocess.SubprocessError)` instead of `try`-`except`-`pass`
+    --> cmax/scripts/1-audit/checks/platform_config.py:1993:9
+     |
+1991 |           return None, f"{node['name']}: host check failed: {exc}"
+1992 |       finally:
+1993 | /         try:
+1994 | |             kubectl(["delete", "pod", pod_name, "-n", namespace, "--ignore-not-found=true", "--wait=false"], timeout=20)
+1995 | |         except (OSError, subprocess.SubprocessError):
+1996 | |             pass
+     | |________________^
+help: Replace `try`-`except`-`pass` with `with contextlib.suppress(OSError, subprocess.SubprocessError): ...`
+
+E501 Line too long (120 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:1994:101
+     |
+1992 |     finally:
+1993 |         try:
+1994 |             kubectl(["delete", "pod", pod_name, "-n", namespace, "--ignore-not-found=true", "--wait=false"], timeout=20)
+     |                                                                                                     ^^^^^^^^^^^^^^^^^^^^
+1995 |         except (OSError, subprocess.SubprocessError):
+1996 |             pass
+     |
+
+E501 Line too long (103 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:2096:101
+     |
+2094 |             report["check_scope"] = "local"
+2095 |             reports = [report]
+2096 |             errors = [*discovery_errors, "no GPU node was checked; the local host was checked instead"]
+     |                                                                                                     ^^^
+2097 |     else:
+2098 |         reports = [
+     |
+
+E501 Line too long (109 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:2143:101
+     |
+2141 |             "available": False,
+2142 |             "reason_code": "no_host_topo_file",
+2143 |             "reason": "no readable NCCL topology file on the checked hosts; the container check was skipped",
+     |                                                                                                     ^^^^^^^^^
+2144 |         }
+2145 |     threshold = as_int(os.environ.get("CLUSTERMAX_AUDIT_CLOS_NODE_THRESHOLD"), default=DEFAULT_CLOS_NODE_THRESHOLD)
+     |
+
+E501 Line too long (115 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:2145:101
+     |
+2143 |             "reason": "no readable NCCL topology file on the checked hosts; the container check was skipped",
+2144 |         }
+2145 |     threshold = as_int(os.environ.get("CLUSTERMAX_AUDIT_CLOS_NODE_THRESHOLD"), default=DEFAULT_CLOS_NODE_THRESHOLD)
+     |                                                                                                     ^^^^^^^^^^^^^^^
+2146 |     payload = build_payload(
+2147 |         reports=reports,
+     |
+
+E501 Line too long (123 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:2204:101
+     |
+2202 | def main(argv: list[str]) -> int:
+2203 |     parser = argparse.ArgumentParser(description="Shared platform configuration collection")
+2204 |     parser.add_argument("--collect-host", action="store_true", help="emit one host report instead of aggregate check JSON")
+     |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^
+2205 |     parser.add_argument("--root", default="/", help="host root path for proc/sys/etc reads")
+2206 |     parser.add_argument("--harness", default=os.environ.get("CLUSTERMAX_AUDIT_HARNESS", "standalone"))
+     |
+
+E501 Line too long (102 > 100)
+    --> cmax/scripts/1-audit/checks/platform_config.py:2206:101
+     |
+2204 |     parser.add_argument("--collect-host", action="store_true", help="emit one host report instead of aggregate check JSON")
+2205 |     parser.add_argument("--root", default="/", help="host root path for proc/sys/etc reads")
+2206 |     parser.add_argument("--harness", default=os.environ.get("CLUSTERMAX_AUDIT_HARNESS", "standalone"))
+     |                                                                                                     ^^
+2207 |     parser.add_argument(
+2208 |         "--skip-scale-out",
+     |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> cmax/scripts/1-audit/checks/system/arm-smmu-virtualization-check.py:12:1
+   |
+11 | sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+12 | from platform_config import run_named_check
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: Organize imports
+   |
+13 |
+   -
+14 | if __name__ == "__main__":
+   |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:21:1
+   |
+19 |   """
+20 |
+21 | / from __future__ import annotations
+22 | |
+23 | | import argparse
+24 | | import json
+25 | | import os
+26 | | import re
+27 | | import socket
+28 | | import subprocess
+29 | | import sys
+30 | | import uuid
+31 | | from pathlib import Path
+32 | | from typing import Any
+   | |______________________^
+help: Organize imports
+   |
+33 |
+   -
+34 | GIB_KB = 1024 * 1024
+   |
+
+E501 Line too long (125 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:145:101
+    |
+145 | def run_command(command: list[str], *, timeout: int = 30, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+146 |     return subprocess.run(
+147 |         command,
+    |
+
+UP022 Prefer `capture_output` over sending `stdout` and `stderr` to `PIPE`
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:146:12
+    |
+145 |   def run_command(command: list[str], *, timeout: int = 30, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+146 |       return subprocess.run(
+    |  ____________^
+147 | |         command,
+148 | |         input=input_text,
+149 | |         stdout=subprocess.PIPE,
+150 | |         stderr=subprocess.PIPE,
+151 | |         text=True,
+152 | |         timeout=timeout,
+153 | |     )
+    | |_____^
+help: Replace with `capture_output` keyword argument
+
+E501 Line too long (101 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:331:101
+    |
+329 |         total_gb = round(sum(as_int(node.get("mem_total_kb")) for node in hbm_nodes) / GIB_KB, 1)
+330 |         failures.append(
+331 |             f"{len(hbm_nodes)} memory-only NUMA node(s) expose {total_gb} GB that looks like GPU HBM"
+    |                                                                                                     ^
+332 |         )
+    |
+
+E501 Line too long (101 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:335:101
+    |
+334 |     if coherent_candidate and cdmm_mode != "driver":
+335 |         msg = f"coherent GPU platform is not in CDMM driver mode (CoherentGPUMemoryMode={cdmm_mode})"
+    |                                                                                                     ^
+336 |         if harness == "k8s":
+337 |             failures.append(msg)
+    |
+
+E501 Line too long (101 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:342:101
+    |
+341 |     if report.get("memory_only_numa_nodes") and not hbm_nodes:
+342 |         warnings.append("host has memory-only NUMA node(s), but they were not classified as GPU HBM")
+    |                                                                                                     ^
+343 |
+344 |     status = "pass"
+    |
+
+E501 Line too long (110 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:410:101
+    |
+408 |     gpu_count_hint: int = 0,
+409 | ) -> dict[str, Any]:
+410 |     hostname = os.environ.get("NODE_NAME") or read_text(under_root(root, "/proc/sys/kernel/hostname")).strip()
+    |                                                                                                     ^^^^^^^^^^
+411 |     if not hostname:
+412 |         hostname = socket.gethostname()
+    |
+
+E501 Line too long (103 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:416:101
+    |
+414 |     smi_gpus = query_nvidia_smi() if root == Path("/") else []
+415 |     proc_gpus = parse_gpu_information(root)
+416 |     gpu_models = [str(gpu.get("model") or gpu.get("model_name") or "") for gpu in smi_gpus + proc_gpus]
+    |                                                                                                     ^^^
+417 |     if gpu_model_hint:
+418 |         gpu_models.append(gpu_model_hint)
+    |
+
+E501 Line too long (105 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:421:101
+    |
+419 |     gpu_models = sorted({model for model in gpu_models if model})
+420 |
+421 |     gpu_memories = [as_int(gpu.get("memory_mb")) for gpu in smi_gpus if as_int(gpu.get("memory_mb")) > 0]
+    |                                                                                                     ^^^^^
+422 |     if gpu_memory_mb_hint > 0:
+423 |         gpu_memories.append(gpu_memory_mb_hint)
+    |
+
+E501 Line too long (106 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:436:101
+    |
+435 |     meminfo_total_kb = parse_memtotal_kb(read_text(under_root(root, "/proc/meminfo")))
+436 |     cpu_numa_mem_kb = sum(as_int(node.get("mem_total_kb")) for node in numa_nodes if node.get("has_cpus"))
+    |                                                                                                     ^^^^^^
+437 |     memory_only_mem_kb = sum(as_int(node.get("mem_total_kb")) for node in memory_only_nodes)
+438 |     hbm_like_mem_kb = sum(as_int(node.get("mem_total_kb")) for node in hbm_like_nodes)
+    |
+
+E501 Line too long (107 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:464:101
+    |
+462 |             "meminfo_matches_node_total": (
+463 |                 node_mem_total_kb > 0
+464 |                 and abs(meminfo_total_kb - node_mem_total_kb) <= max(int(node_mem_total_kb * 0.02), GIB_KB)
+    |                                                                                                     ^^^^^^^
+465 |             ),
+466 |             "meminfo_includes_hbm_like_memory": (
+    |
+
+E501 Line too long (104 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:467:101
+    |
+465 |             ),
+466 |             "meminfo_includes_hbm_like_memory": (
+467 |                 hbm_like_mem_kb > 0 and meminfo_total_kb >= cpu_numa_mem_kb + int(hbm_like_mem_kb * 0.8)
+    |                                                                                                     ^^^^
+468 |             ),
+469 |         },
+    |
+
+SIM114 [*] Combine `if` branches using logical `or` operator
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:496:5
+    |
+494 |       if any(status == "fail" for status in statuses):
+495 |           status = "fail"
+496 | /     elif any(status == "warning" for status in statuses):
+497 | |         status = "warning"
+498 | |     elif errors:
+499 | |         status = "warning"
+    | |__________________________^
+500 |       elif any(status == "pass" for status in statuses):
+501 |           status = "pass"
+    |
+help: Combine `if` branches
+    |
+495 |         status = "fail"
+    -     elif any(status == "warning" for status in statuses):
+    -         status = "warning"
+    -     elif errors:
+496 +     elif any(status == "warning" for status in statuses) or errors:
+497 |         status = "warning"
+    |
+
+E501 Line too long (106 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:534:101
+    |
+532 |         "warnings": warnings,
+533 |         "hosts_checked": len(reports),
+534 |         "hosts": {str(report.get("host") or f"host-{idx}"): report for idx, report in enumerate(reports)},
+    |                                                                                                     ^^^^^^
+535 |     }
+    |
+
+E501 Line too long (101 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:594:101
+    |
+592 |     errors: list[str] = []
+593 |     if proc.returncode != 0:
+594 |         errors.append(f"srun host check exited {proc.returncode}; parsing any completed host output")
+    |                                                                                                     ^
+595 |
+596 |     for line in proc.stdout.splitlines():
+    |
+
+E501 Line too long (121 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:624:101
+    |
+624 | def kubectl(command: list[str], *, timeout: int = 60, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^
+625 |     return run_command(["kubectl", *command], timeout=timeout, input_text=input_text)
+    |
+
+E501 Line too long (117 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:655:101
+    |
+653 |                     "name": "check",
+654 |                     "image": image,
+655 |                     "imagePullPolicy": os.environ.get("CLUSTERMAX_AUDIT_K8S_HOST_CHECK_PULL_POLICY", "IfNotPresent"),
+    |                                                                                                     ^^^^^^^^^^^^^^^^^
+656 |                     "command": ["sh", "-c", "sleep 600"],
+657 |                     "env": _k8s_check_env(node),
+    |
+
+E501 Line too long (105 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:662:101
+    |
+660 |                         {"name": "host-proc", "mountPath": "/host/proc", "readOnly": True},
+661 |                         {"name": "host-sys", "mountPath": "/host/sys", "readOnly": True},
+662 |                         {"name": "host-kubelet", "mountPath": "/host/var/lib/kubelet", "readOnly": True},
+    |                                                                                                     ^^^^^
+663 |                     ],
+664 |                 }
+    |
+
+E501 Line too long (117 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:675:101
+    |
+675 | def run_k8s_host_check(namespace: str, node: dict[str, Any], image: str) -> tuple[dict[str, Any] | None, str | None]:
+    |                                                                                                     ^^^^^^^^^^^^^^^^^
+676 |     suffix = uuid.uuid4().hex[:8]
+677 |     pod_name = f"clustermax-hbm-{suffix}"
+    |
+
+E501 Line too long (104 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:682:101
+    |
+680 |         apply_proc = kubectl(["apply", "-f", "-"], timeout=45, input_text=manifest)
+681 |         if apply_proc.returncode != 0:
+682 |             return None, f"{node['name']}: failed to create host check pod: {apply_proc.stderr.strip()}"
+    |                                                                                                     ^^^^
+683 |
+684 |         wait_proc = kubectl(
+    |
+
+E501 Line too long (107 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:689:101
+    |
+687 |         )
+688 |         if wait_proc.returncode != 0:
+689 |             return None, f"{node['name']}: host check pod did not become Ready: {wait_proc.stderr.strip()}"
+    |                                                                                                     ^^^^^^^
+690 |
+691 |         exec_proc = kubectl(
+    |
+
+E501 Line too long (133 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:692:101
+    |
+691 |         exec_proc = kubectl(
+692 |             ["exec", "-i", "-n", namespace, pod_name, "--", "python3", "-", "--collect-host", "--root", "/host", "--harness", "k8s"],
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+693 |             timeout=60,
+694 |             input_text=Path(__file__).read_text(),
+    |
+
+SIM105 Use `contextlib.suppress(Exception)` instead of `try`-`except`-`pass`
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:709:9
+    |
+707 |           return None, f"{node['name']}: host check failed: {exc}"
+708 |       finally:
+709 | /         try:
+710 | |             kubectl(["delete", "pod", pod_name, "-n", namespace, "--ignore-not-found=true", "--wait=false"], timeout=20)
+711 | |         except Exception:
+712 | |             pass
+    | |________________^
+help: Replace `try`-`except`-`pass` with `with contextlib.suppress(Exception): ...`
+
+E501 Line too long (120 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:710:101
+    |
+708 |     finally:
+709 |         try:
+710 |             kubectl(["delete", "pod", pod_name, "-n", namespace, "--ignore-not-found=true", "--wait=false"], timeout=20)
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^
+711 |         except Exception:
+712 |             pass
+    |
+
+E501 Line too long (103 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:740:101
+    |
+738 |     image = os.environ.get("CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE", "python:3.12-alpine")
+739 |     max_nodes = as_int(os.environ.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS"), default=len(nodes))
+740 |     return load_fanout().fan_out_k8s(_hbm_per_node(namespace, image), nodes=nodes, max_nodes=max_nodes)
+    |                                                                                                     ^^^
+
+E501 Line too long (123 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:763:101
+    |
+761 | def main(argv: list[str]) -> int:
+762 |     parser = argparse.ArgumentParser(description=__doc__)
+763 |     parser.add_argument("--collect-host", action="store_true", help="emit one host report instead of aggregate check JSON")
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^
+764 |     parser.add_argument("--root", default="/", help="host root path for proc/sys/kubelet reads")
+765 |     parser.add_argument("--harness", default=os.environ.get("CLUSTERMAX_AUDIT_HARNESS", "standalone"))
+    |
+
+E501 Line too long (102 > 100)
+   --> cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py:765:101
+    |
+763 |     parser.add_argument("--collect-host", action="store_true", help="emit one host report instead of aggregate check JSON")
+764 |     parser.add_argument("--root", default="/", help="host root path for proc/sys/kubelet reads")
+765 |     parser.add_argument("--harness", default=os.environ.get("CLUSTERMAX_AUDIT_HARNESS", "standalone"))
+    |                                                                                                     ^^
+766 |     args = parser.parse_args(argv)
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> cmax/scripts/1-audit/checks/system/vm-iommu-check.py:12:1
+   |
+11 | sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+12 | from platform_config import run_named_check
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: Organize imports
+   |
+13 |
+   -
+14 | if __name__ == "__main__":
+   |
+
+E402 Module level import not at top of file
+  --> cmax/scripts/1-audit/gpu_profiles.py:24:1
+   |
+22 |     sys.path.insert(0, WORKLOAD_DIR)
+23 |
+24 | from kubernetes_quantities import kubernetes_memory_gib
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: Move module level imports to top of file
+
+E402 Module level import not at top of file
+  --> cmax/scripts/1-audit/merge_audit.py:17:1
+   |
+15 |     sys.path.insert(0, WORKLOAD_DIR)
+16 |
+17 | from kubernetes_quantities import kubernetes_memory_gib
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+18 |
+19 | # Vendor prefixes that nvidia-smi / rocm-smi / k8s gpu.product labels prepend.
+   |
+help: Move module level imports to top of file
+
+E501 Line too long (102 > 100)
+   --> cmax/scripts/1-audit/merge_audit.py:434:101
+    |
+432 |                 _set_default(stack, "gpuMetricsJobAttribution", _truthy(gme.get("jobAttribution")))
+433 |             if gme.get("jobAttributionMethod"):
+434 |                 _set_default(stack, "gpuMetricsJobAttributionMethod", gme.get("jobAttributionMethod"))
+    |                                                                                                     ^^
+435 |             if "amdDeviceMetricsExporter" in gme:
+436 |                 amd_exp = gme.get("amdDeviceMetricsExporter")
+    |
+
+E501 Line too long (101 > 100)
+   --> cmax/scripts/1-audit/merge_audit.py:443:101
+    |
+441 |                 amd_exp = comps.get("amdDeviceMetricsExporter")
+442 |             if "nodeProblemDetector" in comps:
+443 |                 _set_default(stack, "nodeProblemDetector", _truthy(comps.get("nodeProblemDetector")))
+    |                                                                                                     ^
+444 |         if amd_exp is not None:
+445 |             _set_default(stack, "amdDeviceMetricsExporter", _truthy(amd_exp))
+    |
+
+E501 Line too long (103 > 100)
+   --> cmax/scripts/1-audit/merge_audit.py:457:101
+    |
+455 |     module_inventory = audit.get("lmod")
+456 |     module_values = (
+457 |         tuple(module_inventory.get(key) for key in ("hasCudaModule", "hasHpcxModule", "hasNcclModule"))
+    |                                                                                                     ^^^
+458 |         if isinstance(module_inventory, dict)
+459 |         else ()
+    |
+
+E501 Line too long (104 > 100)
+   --> cmax/scripts/1-audit/merge_audit.py:574:101
+    |
+572 |     inventory_nodes = as_int(nested_get(audit, "nodes", "total"), default=1)
+573 |     gpu_nodes = as_int(
+574 |         first_known(primary_profile.get("nodeCount"), nested_get(audit, "gpus", "nodeCount"), default=0)
+    |                                                                                                     ^^^^
+575 |     )
+576 |     cluster_nodes = gpu_nodes if gpu_nodes > 0 else inventory_nodes
+    |
+
+E501 Line too long (108 > 100)
+   --> cmax/scripts/1-audit/merge_audit.py:591:101
+    |
+589 |     if gpu_nodes > 0:
+590 |         total_cpus = as_int(
+591 |             first_known(primary_profile.get("totalCpus"), nested_get(audit, "gpus", "totalCpus"), default=0)
+    |                                                                                                     ^^^^^^^^
+592 |         )
+593 |         total_memory_gb = as_int(
+    |
+
+E501 Line too long (108 > 100)
+   --> cmax/scripts/1-audit/merge_audit.py:618:101
+    |
+616 |         # The raw nvidia-smi / label string stays under audit_data.gpus.model.
+617 |         "gpu_model": normalize_chip_name(
+618 |             first_known(primary_profile.get("model"), nested_get(audit, "gpus", "model"), default="unknown")
+    |                                                                                                     ^^^^^^^^
+619 |         ),
+620 |         "nodes": cluster_nodes,
+    |
+
+E501 Line too long (113 > 100)
+   --> cmax/scripts/1-audit/merge_audit.py:655:101
+    |
+655 | def print_summary(out_path: Path, values: dict[str, Any], nic_topology: dict[str, list[dict[str, Any]]]) -> None:
+    |                                                                                                     ^^^^^^^^^^^^^
+656 |     cluster = values["cluster"]
+657 |     audit = values["audit_data"]
+    |
+
+E501 Line too long (101 > 100)
+   --> cmax/scripts/1-audit/merge_audit.py:686:101
+    |
+684 |             for nic in nics:
+685 |                 by_role[nic["role"]] = by_role.get(nic["role"], 0) + 1
+686 |         print(f"  nic_topology  = {len(nic_topology)} node(s), {total_nics} NIC(s) total: {by_role}")
+    |                                                                                                     ^
+
+E501 Line too long (104 > 100)
+   --> cmax/scripts/1-audit/merge_audit.py:692:101
+    |
+690 |     if len(argv) != 6:
+691 |         print(
+692 |             "usage: merge_audit.py <audit.json> <audit.values.json> <slug> <harness> <check-data.json>",
+    |                                                                                                     ^^^^
+693 |             file=sys.stderr,
+694 |         )
+    |
+
+UP035 [*] Import from `collections.abc` instead: `Iterable`
+  --> cmax/scripts/1-audit/minimum_versions.py:26:1
+   |
+24 | from datetime import date, datetime, timedelta, timezone
+25 | from pathlib import Path
+26 | from typing import Any, Iterable
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+27 |
+28 | MINIMUMS_ENV = "CLUSTERMAX_MINIMUM_VERSIONS"
+   |
+help: Import from `collections.abc`
+   |
+25 | from pathlib import Path
+   - from typing import Any, Iterable
+26 + from typing import Any
+27 + from collections.abc import Iterable
+28 |
+   |
+
+E501 Line too long (102 > 100)
+   --> cmax/scripts/1-audit/minimum_versions.py:417:101
+    |
+415 |             if value is None:
+416 |                 return 1
+417 |             print(value if not isinstance(value, (dict, list)) else json.dumps(value, sort_keys=True))
+    |                                                                                                     ^^
+418 |         elif args.age_days:
+419 |             age = age_days(path)
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> cmax/scripts/1-audit/run_checks.py:4:1
+   |
+ 2 |   """Run audit checks and merge their JSON objects."""
+ 3 |
+ 4 | / from __future__ import annotations
+ 5 | |
+ 6 | | import json
+ 7 | | import os
+ 8 | | import re
+ 9 | | import subprocess
+10 | | import sys
+11 | | import tempfile
+12 | | from pathlib import Path
+13 | | from typing import Any
+   | |______________________^
+help: Organize imports
+   |
+14 |
+   -
+15 | CHECK_PROFILES = {
+   |
+
+UP022 Prefer `capture_output` over sending `stdout` and `stderr` to `PIPE`
+   --> cmax/scripts/1-audit/run_checks.py:230:16
+    |
+228 |               else [str(check)]
+229 |           )
+230 |           proc = subprocess.run(
+    |  ________________^
+231 | |             argv,
+232 | |             stdout=subprocess.PIPE,
+233 | |             stderr=subprocess.PIPE,
+234 | |             text=True,
+235 | |             env=env,
+236 | |         )
+    | |_________^
+237 |           if proc.stderr:
+238 |               sys.stderr.write(proc.stderr)
+    |
+help: Replace with `capture_output` keyword argument
+
+E501 Line too long (104 > 100)
+   --> cmax/scripts/1-audit/run_checks.py:267:101
+    |
+265 |                     "  vboost "
+266 |                     f"{vboost.get('status', 'unknown')}: "
+267 |                     f"{vboost.get('allowed_nodes', 0)}/{vboost.get('checked_nodes', 0)} node(s) allowed"
+    |                                                                                                     ^^^^
+268 |                 )
+    |
+
+E501 Line too long (103 > 100)
+  --> cmax/scripts/1-audit/run_legacy_audit.py:30:101
+   |
+28 |     if len(argv) != 6:
+29 |         print(
+30 |             "usage: run_legacy_audit.py <audit-root> <audit-script> <slug> <tmpdir> <audit-json-path>",
+   |                                                                                                     ^^^
+31 |             file=sys.stderr,
+32 |         )
+   |
+
+UP035 [*] Import from `collections.abc` instead: `Iterable`
+  --> cmax/scripts/1-audit/security_version_audit.py:23:1
+   |
+21 | from dataclasses import asdict, dataclass, replace
+22 | from pathlib import Path
+23 | from typing import Any, Iterable
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+24 |
+25 | WORKLOAD_DIR = str(Path(__file__).resolve().parent)
+   |
+help: Import from `collections.abc`
+   |
+22 | from pathlib import Path
+   - from typing import Any, Iterable
+23 + from typing import Any
+24 + from collections.abc import Iterable
+25 |
+   |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> cmax/scripts/1-audit/security_version_audit.py:29:1
+   |
+27 |       sys.path.insert(0, WORKLOAD_DIR)
+28 |
+29 | / import minimum_versions  # noqa: E402
+30 | | from minimum_versions import MinimumDataError  # noqa: E402
+   | |_____________________________________________^
+help: Organize imports
+   |
+31 |
+   -
+32 | UNKNOWN_VALUES = {"", "none", "not-found", "unknown", "n/a"}
+   |
+
+E501 Line too long (105 > 100)
+   --> cmax/scripts/1-audit/security_version_audit.py:581:101
+    |
+579 |             legacy[name] = retired
+580 |     if not fixed:
+581 |         raise MinimumDataError("minimum version table has no fixed release lines for virtioNetBluefield")
+    |                                                                                                     ^^^^^
+582 |     return fixed, legacy
+    |
+
+E501 Line too long (101 > 100)
+    --> cmax/scripts/1-audit/security_version_audit.py:1802:101
+     |
+1800 |     except json.JSONDecodeError:
+1801 |         return []
+1802 |     return [entry for entry in parsed if isinstance(entry, dict)] if isinstance(parsed, list) else []
+     |                                                                                                     ^
+
+E501 Line too long (110 > 100)
+  --> cmax/scripts/1-audit/validate_audit.py:74:101
+   |
+73 |     print("", file=sys.stderr)
+74 |     print(f"ERROR: audit incomplete (software.workerCheckOk={str(worker_check_ok).lower()})", file=sys.stderr)
+   |                                                                                                     ^^^^^^^^^^
+75 |     print("  GPU / driver / NCCL fields would be 'unknown' or missing.", file=sys.stderr)
+76 |     print(f"  Audit raw JSON saved at: {audit_path}", file=sys.stderr)
+   |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> cmax/security.py:1:1
+   |
+ 1 | / from __future__ import annotations
+ 2 | |
+ 3 | | import importlib.util
+ 4 | | import json
+ 5 | | import os
+ 6 | | import platform
+ 7 | | import re
+ 8 | | import shutil
+ 9 | | import subprocess
+10 | | import sys
+11 | | from dataclasses import asdict, dataclass
+12 | | from datetime import datetime, timezone
+13 | | from pathlib import Path
+14 | | from types import ModuleType
+15 | | from typing import Any, Callable
+16 | |
+17 | | from cmax import minimum_links, report_style, runtime_paths
+18 | | from cmax.yaml_support import load_yaml_module
+   | |______________________________________________^
+help: Organize imports
+   |
+19 |
+   -
+20 | PASS = "pass"
+   |
+
+F401 [*] `re` imported but unused
+ --> cmax/security.py:7:8
+  |
+5 | import os
+6 | import platform
+7 | import re
+  |        ^^
+8 | import shutil
+9 | import subprocess
+  |
+help: Remove unused import: `re`
+  |
+6 | import platform
+  - import re
+7 | import shutil
+  |
+
+F401 [*] `datetime.timezone` imported but unused
+  --> cmax/security.py:12:32
+   |
+10 | import sys
+11 | from dataclasses import asdict, dataclass
+12 | from datetime import datetime, timezone
+   |                                ^^^^^^^^
+13 | from pathlib import Path
+14 | from types import ModuleType
+   |
+help: Remove unused import: `datetime.timezone`
+   |
+11 | from dataclasses import asdict, dataclass
+   - from datetime import datetime, timezone
+12 + from datetime import datetime
+13 | from pathlib import Path
+   |
+
+UP035 [*] Import from `collections.abc` instead: `Callable`
+  --> cmax/security.py:15:1
+   |
+13 | from pathlib import Path
+14 | from types import ModuleType
+15 | from typing import Any, Callable
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+16 |
+17 | from cmax import minimum_links, report_style, runtime_paths
+   |
+help: Import from `collections.abc`
+   |
+14 | from types import ModuleType
+   - from typing import Any, Callable
+15 + from typing import Any
+16 + from collections.abc import Callable
+17 |
+   |
+
+SIM112 Use capitalized environment variable `CONTAINER` instead of `container`
+   --> cmax/security.py:115:32
+    |
+113 |         ):
+114 |             return True
+115 |     return bool(os.environ.get("container"))
+    |                                ^^^^^^^^^^^
+help: Replace `container` with `CONTAINER`
+
+SIM105 Use `contextlib.suppress(RuntimeError)` instead of `try`-`except`-`pass`
+   --> cmax/security.py:238:5
+    |
+236 |       cwd = Path.cwd().resolve()
+237 |       candidates.extend((cwd, *cwd.parents))
+238 | /     try:
+239 | |         candidates.append(runtime_paths.package_runtime_root())
+240 | |     except RuntimeError:
+241 | |         pass
+    | |____________^
+242 |
+243 |       seen: set[Path] = set()
+    |
+help: Replace `try`-`except`-`pass` with `with contextlib.suppress(RuntimeError): ...`
+
+E501 Line too long (104 > 100)
+   --> cmax/security.py:476:101
+    |
+474 |             PASS,
+475 |             f"observed versions for all {len(devices)} devices meet minimum version {minimum}",
+476 |             "Every detected ConnectX or BlueField device meets the published firmware minimum version.",
+    |                                                                                                     ^^^^
+477 |         )
+    |
+
+E501 Line too long (112 > 100)
+   --> cmax/security.py:578:101
+    |
+576 |             WARNING,
+577 |             observed,
+578 |             "The installed kernel inventory was unavailable, so a pending security reboot cannot be ruled out.",
+    |                                                                                                     ^^^^^^^^^^^^
+579 |         )
+580 |     if newer is False or str(newer).lower() == "false":
+    |
+
+E501 Line too long (108 > 100)
+   --> cmax/security.py:585:101
+    |
+583 |         WARNING,
+584 |         observed,
+585 |         "The installed kernel inventory was unavailable, so a pending security reboot cannot be ruled out.",
+    |                                                                                                     ^^^^^^^^
+586 |     )
+    |
+
+E501 Line too long (111 > 100)
+   --> cmax/security.py:610:101
+    |
+608 |             CRITICAL,
+609 |             observed,
+610 |             "The running kernel is below the distribution minimum for known local privilege-escalation fixes.",
+    |                                                                                                     ^^^^^^^^^^^
+611 |         )
+612 |     if status in {"not-applicable", "not_applicable"}:
+    |
+
+E501 Line too long (105 > 100)
+   --> cmax/security.py:664:101
+    |
+662 |         WARNING,
+663 |         observed,
+664 |         "The physical-host kernel patch state and nested virtualization boundary could not be verified.",
+    |                                                                                                     ^^^^^
+665 |     )
+    |
+
+E501 Line too long (156 > 100)
+   --> cmax/security.py:761:101
+    |
+759 | …
+760 | … not recorded",
+761 | …s, but this older artifact does not show whether the check used a privileged host-root path.",
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+762 | …
+763 | …
+    |
+
+E501 Line too long (110 > 100)
+   --> cmax/security.py:785:101
+    |
+783 |                 WARNING,
+784 |                 f"{label}=true",
+785 |                 "This isolation boundary is controlled by the physical host and needs provider verification.",
+    |                                                                                                     ^^^^^^^^^^
+786 |             )
+787 |         if value is False or str(value).lower() == "false":
+    |
+
+E501 Line too long (114 > 100)
+    --> cmax/security.py:1150:101
+     |
+1148 |         "nvidia-driver",
+1149 |         "NVIDIA driver minimum version",
+1150 |         "GPU driver vulnerabilities can expose the host kernel through device interfaces available to workloads.",
+     |                                                                                                     ^^^^^^^^^^^^^^
+1151 |         # The bulletin link comes from the minimum table (see MINIMUM_BOUND_CHECKS).
+1152 |         # It was hardcoded here, so it kept naming May 2026 and pointing at that
+     |
+
+E501 Line too long (107 > 100)
+    --> cmax/security.py:1154:101
+     |
+1152 |         # It was hardcoded here, so it kept naming May 2026 and pointing at that
+1153 |         # bulletin after a refresh moved a branch minimum to a later one.
+1154 |         "Install the fixed release for the deployed NVIDIA driver branch and reload the driver or reboot.",
+     |                                                                                                     ^^^^^^^
+1155 |         _references(
+1156 |             ("NVIDIA product security", "https://www.nvidia.com/en-us/security/"),
+     |
+
+E501 Line too long (108 > 100)
+    --> cmax/security.py:1163:101
+     |
+1161 |         "nvidia-container-toolkit",
+1162 |         "NVIDIA Container Toolkit minimum version",
+1163 |         "Affected container hooks can allow a crafted image to escape its container during initialization.",
+     |                                                                                                     ^^^^^^^^
+1164 |         # The minimum version, its bulletin, and its CVEs come from the generated
+1165 |         # minimum table at evaluation time (see MINIMUM_BOUND_CHECKS), so this text
+     |
+
+E501 Line too long (113 > 100)
+    --> cmax/security.py:1167:101
+     |
+1165 |         # minimum table at evaluation time (see MINIMUM_BOUND_CHECKS), so this text
+1166 |         # cannot drift from the minimum the audit graded against.
+1167 |         "Upgrade NVIDIA Container Toolkit to the published minimum version, then restart the container runtime.",
+     |                                                                                                     ^^^^^^^^^^^^^
+1168 |         _references(
+1169 |             ("NVIDIA product security", "https://www.nvidia.com/en-us/security/"),
+     |
+
+E501 Line too long (105 > 100)
+    --> cmax/security.py:1176:101
+     |
+1174 |         "cuda-toolkit",
+1175 |         "CUDA Toolkit minimum version",
+1176 |         "CUDA Toolkit vulnerabilities can affect compiler and runtime components used by GPU workloads.",
+     |                                                                                                     ^^^^^
+1177 |         # The minimum version, its bulletin, and its CVEs come from the minimum
+1178 |         # table at evaluation time (see MINIMUM_BOUND_CHECKS). The superseded
+     |
+
+E501 Line too long (111 > 100)
+    --> cmax/security.py:1193:101
+     |
+1191 |         "runc",
+1192 |         "runc minimum version",
+1193 |         "Affected OCI runtime releases contain container setup races that can bypass masked-path protections.",
+     |                                                                                                     ^^^^^^^^^^^
+1194 |         "Upgrade to the fixed release for the installed runc branch and restart the container runtime.",
+1195 |         # The advisory link comes from the minimum table (see MINIMUM_BOUND_CHECKS).
+     |
+
+E501 Line too long (104 > 100)
+    --> cmax/security.py:1194:101
+     |
+1192 |         "runc minimum version",
+1193 |         "Affected OCI runtime releases contain container setup races that can bypass masked-path protections.",
+1194 |         "Upgrade to the fixed release for the installed runc branch and restart the container runtime.",
+     |                                                                                                     ^^^^
+1195 |         # The advisory link comes from the minimum table (see MINIMUM_BOUND_CHECKS).
+1196 |         # These CVEs are the named masked-path race and stay as history; the
+     |
+
+E501 Line too long (106 > 100)
+    --> cmax/security.py:1223:101
+     |
+1221 |         "connectx-firmware",
+1222 |         "ConnectX and BlueField firmware minimum version",
+1223 |         "NIC firmware handles direct memory access and fabric traffic at a privileged hardware boundary.",
+     |                                                                                                     ^^^^^^
+1224 |         "Apply the fixed NVIDIA firmware release for every detected ConnectX or BlueField device.",
+1225 |         # The bulletin link comes from the minimum table (see MINIMUM_BOUND_CHECKS),
+     |
+
+E501 Line too long (107 > 100)
+    --> cmax/security.py:1270:101
+     |
+1268 |         "januscape",
+1269 |         "Januscape nested virtualization boundary",
+1270 |         "Nested virtualization exposure can let an untrusted guest attack the physical-host KVM boundary.",
+     |                                                                                                     ^^^^^^^
+1271 |         "Disable nested virtualization and remove guest access to /dev/kvm until the physical-host vendor fix is installed.",
+1272 |         _references(
+     |
+
+E501 Line too long (125 > 100)
+    --> cmax/security.py:1271:101
+     |
+1269 |         "Januscape nested virtualization boundary",
+1270 |         "Nested virtualization exposure can let an untrusted guest attack the physical-host KVM boundary.",
+1271 |         "Disable nested virtualization and remove guest access to /dev/kvm until the physical-host vendor fix is installed.",
+     |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+1272 |         _references(
+1273 |             (
+     |
+
+E501 Line too long (112 > 100)
+    --> cmax/security.py:1301:101
+     |
+1299 |         "ufm-profile",
+1300 |         "InfiniBand UFM secured profile",
+1301 |         "Unauthenticated fabric management traffic can expose neighboring tenants or enable denial of service.",
+     |                                                                                                     ^^^^^^^^^^^^
+1302 |         "Enable and verify the UFM Secured Bare Metal Cloud controls, including randomized management keys and rate limiting.",
+1303 |         _references(
+     |
+
+E501 Line too long (127 > 100)
+    --> cmax/security.py:1302:101
+     |
+1300 |         "InfiniBand UFM secured profile",
+1301 |         "Unauthenticated fabric management traffic can expose neighboring tenants or enable denial of service.",
+1302 |         "Enable and verify the UFM Secured Bare Metal Cloud controls, including randomized management keys and rate limiting.",
+     |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1303 |         _references(
+1304 |             (
+     |
+
+E501 Line too long (107 > 100)
+    --> cmax/security.py:1318:101
+     |
+1316 |         "pcie-passthrough",
+1317 |         "PCIe passthrough isolation",
+1318 |         "Passed-through accelerators depend on host IOMMU, ACS, reset isolation, and memory sanitization.",
+     |                                                                                                     ^^^^^^^
+1319 |         "Have the provider verify dedicated host IOMMU groups, DMA remapping, ACS, reset isolation, and VRAM clearing.",
+1320 |         _references(
+     |
+
+E501 Line too long (120 > 100)
+    --> cmax/security.py:1319:101
+     |
+1317 |         "PCIe passthrough isolation",
+1318 |         "Passed-through accelerators depend on host IOMMU, ACS, reset isolation, and memory sanitization.",
+1319 |         "Have the provider verify dedicated host IOMMU groups, DMA remapping, ACS, reset isolation, and VRAM clearing.",
+     |                                                                                                     ^^^^^^^^^^^^^^^^^^^^
+1320 |         _references(
+1321 |             (
+     |
+
+E501 Line too long (102 > 100)
+    --> cmax/security.py:1677:101
+     |
+1675 |     if verbosity < 3:
+1676 |         hint = {
+1677 |             1: "run with -vv for CVE and documentation links, -vvv for issue details and remediation",
+     |                                                                                                     ^^
+1678 |             2: "run with -vvv for issue details and remediation",
+1679 |         }[verbosity]
+     |
+
+Found 224 errors.
+[*] 41 fixable with the `--fix` option (13 hidden fixes can be enabled with the `--unsafe-fixes` option).

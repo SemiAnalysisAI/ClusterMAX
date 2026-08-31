@@ -1,0 +1,3955 @@
+--- cmax/audit_report.py
++++ cmax/audit_report.py
+@@ -64,18 +64,14 @@
+     "securityVersions.cudaToolkit.status": (
+         "The CUDA Toolkit meets the published security minimum."
+     ),
+-    "securityVersions.runc.status": (
+-        "The runc version meets the published security minimum."
+-    ),
++    "securityVersions.runc.status": ("The runc version meets the published security minimum."),
+     "securityVersions.docker.status": (
+         "The Docker Engine version meets the published security minimum."
+     ),
+     "securityVersions.connectxFirmware.status": (
+         "The ConnectX firmware meets the published security minimum."
+-    ),
+-    "securityVersions.dcgm.status": (
+-        "The DCGM version meets the published security minimum."
+     ),
++    "securityVersions.dcgm.status": ("The DCGM version meets the published security minimum."),
+     "securityVersions.dcgmExporter.status": (
+         "The DCGM Exporter version meets the published security minimum."
+     ),
+@@ -91,9 +87,7 @@
+     "security.fragnesia.status": (
+         "The running kernel does not match the affected Fragnesia or Dirty Frag ranges."
+     ),
+-    "containers.nvidiaContainerToolkit": (
+-        "The worker has NVIDIA Container Toolkit support."
+-    ),
++    "containers.nvidiaContainerToolkit": ("The worker has NVIDIA Container Toolkit support."),
+     "containers.workerCheckOk": (
+         "The worker container check completed, so its runtime observations are valid."
+     ),
+@@ -106,9 +100,7 @@
+     "containers.singularity": "Singularity or Apptainer is installed on the worker.",
+     "software.nccl.installed": "NCCL is installed.",
+     "software.perf.installed": "perf (Linux performance counters) is installed.",
+-    "software.perf.perfEventParanoid": (
+-        "perf_event_paranoid permits unprivileged perf profiling."
+-    ),
++    "software.perf.perfEventParanoid": ("perf_event_paranoid permits unprivileged perf profiling."),
+     "software.perf.kptrRestrict": "Kernel symbols are visible to perf.",
+     "gpus.pcieAcs.enabled": (
+         "PCIe ACS is disabled on the GPU-NIC path, so peer-to-peer traffic is not redirected."
+@@ -117,19 +109,13 @@
+         "NCCL relies on auto-configuration without an overriding /etc/nccl.conf."
+     ),
+     "healthChecks.dcgmInstalled": "DCGM is installed.",
+-    "healthChecks.dcgmSlurm": (
+-        "DCGM health checks are wired into the Slurm HealthCheckProgram."
+-    ),
++    "healthChecks.dcgmSlurm": ("DCGM health checks are wired into the Slurm HealthCheckProgram."),
+     "access.sudoAvailable": "Passwordless sudo is available to the audited user.",
+     "access.userManagement": (
+         "User and group management commands (useradd / groupadd) are usable."
+-    ),
+-    "access.sshToComputeNodes": (
+-        "Compute nodes are reachable over passwordless SSH."
+-    ),
+-    "access.externalIdp.detected": (
+-        "An external identity provider integration was detected."
+     ),
++    "access.sshToComputeNodes": ("Compute nodes are reachable over passwordless SSH."),
++    "access.externalIdp.detected": ("An external identity provider integration was detected."),
+     "access.slurmCommandsOk": (
+         "Core Slurm commands (sinfo / squeue / scontrol / sbatch / srun) are functional."
+     ),
+@@ -161,9 +147,7 @@
+     "kubelet_cpu_manager_policy.status": (
+         "Kubelet uses the static CPU Manager policy for GPU workload isolation."
+     ),
+-    "vm_iommu.status": (
+-        "GPU and RDMA devices use the expected IOMMU passthrough configuration."
+-    ),
++    "vm_iommu.status": ("GPU and RDMA devices use the expected IOMMU passthrough configuration."),
+     "arm_smmu_virtualization.status": (
+         "The Arm virtual machine exposes the required virtualization for the SMMU command queue."
+     ),
+@@ -173,9 +157,7 @@
+     "nccl_ib_qps.status": (
+         "The NCCL InfiniBand queue-pair setting is suitable for the detected fabric."
+     ),
+-    "networking.topologyConfigured": (
+-        "The scheduler has a topology configuration."
+-    ),
++    "networking.topologyConfigured": ("The scheduler has a topology configuration."),
+     "networking.hcaNamingValid": (
+         "The HCA and NIC device names use the expected naming convention."
+     ),
+@@ -228,8 +210,7 @@
+     for part in parts:
+         words.append(re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", part).replace("_", " "))
+     title = " / ".join(
+-        " ".join(token[:1].upper() + token[1:] for token in word.split())
+-        for word in words
++        " ".join(token[:1].upper() + token[1:] for token in word.split()) for word in words
+     )
+     for source, replacement in {
+         "Hbm": "HBM",
+@@ -269,12 +250,10 @@
+ 
+ _REPRODUCTION_COMMANDS = {
+     "securityVersions.nvidiaDriver.status": (
+-        "on the audited worker: `nvidia-smi --query-gpu=driver_version "
+-        "--format=csv,noheader`"
++        "on the audited worker: `nvidia-smi --query-gpu=driver_version --format=csv,noheader`"
+     ),
+     "securityVersions.nvidiaContainerToolkit.status": (
+-        "on the audited worker: `nvidia-container-toolkit --version` or "
+-        "`nvidia-ctk --version`"
++        "on the audited worker: `nvidia-container-toolkit --version` or `nvidia-ctk --version`"
+     ),
+     "securityVersions.cudaToolkit.status": (
+         "on the audited worker: `nvcc --version` (installed toolkit); "
+@@ -293,7 +272,7 @@
+     ),
+     "securityVersions.connectxFirmware.status": (
+         "on every GPU worker: `for device in /sys/class/infiniband/*; do "
+-        "printf '%s ' \"$(basename \"$device\")\"; cat \"$device/fw_ver\"; done`"
++        'printf \'%s \' "$(basename "$device")"; cat "$device/fw_ver"; done`'
+     ),
+     "securityVersions.dcgmExporter.status": (
+         "from the Kubernetes control plane: `kubectl get pods -A -o "
+@@ -320,8 +299,7 @@
+         "`lsmod | grep '^gdrdrv'` and `test -c /dev/gdrdrv`"
+     ),
+     "kubelet_cpu_manager_policy.status": (
+-        "on every GPU worker: `sudo jq -r .policyName "
+-        "/var/lib/kubelet/cpu_manager_state`"
++        "on every GPU worker: `sudo jq -r .policyName /var/lib/kubelet/cpu_manager_state`"
+     ),
+     "networking.topologyConfigured": (
+         "from the Kubernetes control plane: inspect `kubectl get nodes "
+@@ -330,7 +308,7 @@
+     ),
+     "software.cudaVisibleDevicesStatus": (
+         "in a standard CUDA pod with one GPU: `printf '%s\\n' "
+-        "\"$CUDA_VISIBLE_DEVICES\" \"$NVIDIA_VISIBLE_DEVICES\"; nvidia-smi`"
++        '"$CUDA_VISIBLE_DEVICES" "$NVIDIA_VISIBLE_DEVICES"; nvidia-smi`'
+     ),
+     "software.ncu.profilingEnabled": (
+         "in a CUDA development pod with one GPU: run `ncu --query-metrics`, "
+@@ -339,9 +317,7 @@
+     "software.perf.perfEventParanoid": (
+         "on the audited worker: `sysctl kernel.perf_event_paranoid`"
+     ),
+-    "software.perf.kptrRestrict": (
+-        "on the audited worker: `sysctl kernel.kptr_restrict`"
+-    ),
++    "software.perf.kptrRestrict": ("on the audited worker: `sysctl kernel.kptr_restrict`"),
+     "ufm-profile": (
+         "provider-side verification: export the UFM security configuration and "
+         "verify randomized management keys and rate limits for the tenant fabric"
+@@ -387,6 +363,7 @@
+     }
+ )
+ 
++
+ def _nested(data: dict[str, Any], path: str) -> Any:
+     current: Any = data
+     for part in path.split("."):
+@@ -411,9 +388,7 @@
+     }
+     mode = controller.get("platformMode") if isinstance(controller, dict) else None
+     bluefield_present = bluefield_present or str(mode).strip().lower() in {"nic", "dpu"}
+-    graded_version = (
+-        controller.get("gradedVersion") if isinstance(controller, dict) else None
+-    )
++    graded_version = controller.get("gradedVersion") if isinstance(controller, dict) else None
+     bluefield_present = bluefield_present or str(graded_version).strip().lower() not in {
+         "",
+         "none",
+@@ -470,12 +445,12 @@
+                 else:
+                     names.append(str(device))
+         return (
+-            f"valid={str(value).lower()}; "
+-            f"devices={', '.join(names) if names else 'none reported'}"
++            f"valid={str(value).lower()}; devices={', '.join(names) if names else 'none reported'}"
+         )
+     if key == "security.januscape.status":
+         januscape = _nested(audit, "security.januscape")
+         if isinstance(januscape, dict):
++
+             def display(field: str) -> str:
+                 observed = januscape.get(field, "unknown")
+                 if isinstance(observed, bool):
+@@ -503,11 +478,7 @@
+         fragnesia = _nested(audit, "security.fragnesia")
+         kernel = _nested(audit, "security.guestKernel")
+         if isinstance(fragnesia, dict):
+-            running = (
+-                kernel.get("running", "unknown")
+-                if isinstance(kernel, dict)
+-                else "unknown"
+-            )
++            running = kernel.get("running", "unknown") if isinstance(kernel, dict) else "unknown"
+             return (
+                 f"observed version {running}; minimum version "
+                 f"{fragnesia.get('ubuntuNoblePackageMinimum', 'unknown')}"
+@@ -536,9 +507,7 @@
+             return observation
+ 
+     source_path = _VERSION_SOURCE_KEYS.get(key)
+-    if source_path is None and key.startswith("securityVersions.") and key.endswith(
+-        ".status"
+-    ):
++    if source_path is None and key.startswith("securityVersions.") and key.endswith(".status"):
+         source_path = key.rsplit(".", 1)[0]
+     if source_path is None:
+         return value
+@@ -567,8 +536,7 @@
+                 for entry in devices
+                 if isinstance(entry, dict)
+                 and not (
+-                    _field(entry, "device") == "unknown"
+-                    and _field(entry, "version") == "unknown"
++                    _field(entry, "device") == "unknown" and _field(entry, "version") == "unknown"
+                 )
+             ]
+             if readings:
+@@ -608,14 +576,8 @@
+     if minimum_url:
+         references.append((minimum_links.REFERENCE_LABEL, minimum_url))
+     if finding is not None:
+-        references.extend(
+-            (cve, f"https://nvd.nist.gov/vuln/detail/{cve}")
+-            for cve in finding.cves
+-        )
+-        references.extend(
+-            findings._advisory_link(advisory)
+-            for advisory in finding.advisories
+-        )
++        references.extend((cve, f"https://nvd.nist.gov/vuln/detail/{cve}") for cve in finding.cves)
++        references.extend(findings._advisory_link(advisory) for advisory in finding.advisories)
+     references = [reference for reference in references if reference[1]]
+     return _with_criteria_reference(key, tuple(dict.fromkeys(references)))
+ 
+@@ -626,10 +588,7 @@
+     # Not-applicable values never reach this helper: `evaluate` skips them
+     # through `_is_not_applicable` before it classifies a value as passing.
+     if normalized == "unknown":
+-        return (
+-            "The collector could not verify this check. Treat this value as "
+-            "unverified."
+-        )
++        return "The collector could not verify this check. Treat this value as unverified."
+     if key == "security.januscape.status":
+         if normalized == "not_exposed":
+             return "The audit did not find Januscape exposure on this target."
+@@ -639,10 +598,7 @@
+         )
+     if key == "securityVersions.virtioNetBluefield.exposure":
+         if normalized == "none":
+-            return (
+-                "The audit did not find an active BlueField VIRTIO-Net controller "
+-                "exposure."
+-            )
++            return "The audit did not find an active BlueField VIRTIO-Net controller exposure."
+         if normalized == "live":
+             return (
+                 "The BlueField VIRTIO-Net controller is active. Its separate "
+@@ -660,9 +616,7 @@
+             paths.append("the NVIDIA open kernel modules")
+         if paths:
+             return (
+-                "The audit found a modern GPUDirect RDMA path through "
+-                + " and ".join(paths)
+-                + "."
++                "The audit found a modern GPUDirect RDMA path through " + " and ".join(paths) + "."
+             )
+     return _PASS_ASSESSMENTS.get(
+         key,
+@@ -684,6 +638,7 @@
+         normalized = normalized.replace(separator, "_")
+     return normalized
+ 
++
+ # Counter-access results that mean the NCU check never reached a verdict, as
+ # opposed to "ncu ran (or was looked for) and is not there". Mirrors
+ # audit_findings._ncu_install_verdict_available, which suppresses the
+@@ -745,9 +700,7 @@
+     "software.ncu.profilingEnabled": _DependentCheck(
+         "software.ncu.installed", _ncu_absence_is_conclusive
+     ),
+-    "software.perf.perfEventParanoid": _DependentCheck(
+-        "software.perf.installed"
+-    ),
++    "software.perf.perfEventParanoid": _DependentCheck("software.perf.installed"),
+     "software.perf.kptrRestrict": _DependentCheck("software.perf.installed"),
+     "healthChecks.dcgmSlurm": _DependentCheck(
+         "healthChecks.dcgmInstalled",
+@@ -810,11 +763,7 @@
+         if check.id not in _SECURITY_EXTENSION_IDS:
+             continue
+         harnesses = _SECURITY_EXTENSION_HARNESSES.get(check.id)
+-        if (
+-            harness is not None
+-            and harnesses is not None
+-            and harness not in harnesses
+-        ):
++        if harness is not None and harnesses is not None and harness not in harnesses:
+             checks.append(
+                 AuditCheck(
+                     check.id,
+@@ -838,10 +787,7 @@
+                     "passthrough isolation is controlled by the physical host.",
+                     references=_with_criteria_reference(
+                         check.id,
+-                        tuple(
+-                            (reference.label, reference.url)
+-                            for reference in check.references
+-                        ),
++                        tuple((reference.label, reference.url) for reference in check.references),
+                     ),
+                 )
+             )
+@@ -857,10 +803,7 @@
+                 check.remediation,
+                 _with_criteria_reference(
+                     check.id,
+-                    tuple(
+-                        (reference.label, reference.url)
+-                        for reference in check.references
+-                    ),
++                    tuple((reference.label, reference.url) for reference in check.references),
+                 ),
+                 _reproduction(check.id),
+             )
+@@ -1018,11 +961,7 @@
+             continue
+         unverified = str(effective).strip().lower() == "unknown"
+         matched = [rule for rule in rules if rule.failing(effective)]
+-        failing = [
+-            rule
+-            for rule in matched
+-            if rule.guard is None or rule.guard(audit)
+-        ]
++        failing = [rule for rule in matched if rule.guard is None or rule.guard(audit)]
+         if matched and not failing:
+             # The finding rules suppress a matched failing value for one of
+             # three reasons, and the report must not present them alike: the
+@@ -1036,9 +975,7 @@
+             # check either: an operator comparing profiles must see the same
+             # check set.
+             classify = getattr(findings, "classify_suppression", None)
+-            kind, reason = (
+-                classify(key, audit) if classify is not None else ("unverified", "")
+-            )
++            kind, reason = classify(key, audit) if classify is not None else ("unverified", "")
+             if kind == getattr(findings, "VERIFIED_KIND", "verified_ok"):
+                 checks.append(
+                     AuditCheck(
+@@ -1053,8 +990,10 @@
+                 )
+                 continue
+             if kind == getattr(findings, "NOT_APPLICABLE_KIND", "not_applicable"):
+-                assessment = f"Not applicable: {reason}" if reason else (
+-                    "Not applicable to this hardware or configuration."
++                assessment = (
++                    f"Not applicable: {reason}"
++                    if reason
++                    else ("Not applicable to this hardware or configuration.")
+                 )
+             else:
+                 assessment = reason or (
+@@ -1138,11 +1077,7 @@
+         for status in (PASS, WARNING, FAIL, SKIPPED)
+     }
+     command = command or (f"cmax audit {category}" if category else "cmax audit")
+-    title = (
+-        f"# ClusterMAX {category} audit report"
+-        if category
+-        else "# ClusterMAX audit report"
+-    )
++    title = f"# ClusterMAX {category} audit report" if category else "# ClusterMAX audit report"
+     lines = [report_style.paint(title, "bold", color=color)]
+     visible = checks
+     if visible:
+@@ -1172,17 +1107,13 @@
+                     status=check.status,
+                     assessment=assessment,
+                     details=details,
+-                    recommendation=(
+-                        check.recommendation if verbosity >= 3 else ""
+-                    ),
++                    recommendation=(check.recommendation if verbosity >= 3 else ""),
+                     references=(
+                         minimum_links.canonical_references(check.references)
+                         if verbosity >= 2
+                         else tuple(
+                             reference
+-                            for reference in minimum_links.canonical_references(
+-                                check.references
+-                            )
++                            for reference in minimum_links.canonical_references(check.references)
+                             if reference[0] == minimum_links.REFERENCE_LABEL
+                         )
+                     ),
+@@ -1197,15 +1128,12 @@
+         (
+             report_style.count(f"{counts[FAIL]} failed", FAIL, color=color),
+             report_style.count(
+-                f"{counts[WARNING]} warning"
+-                f"{'' if counts[WARNING] == 1 else 's'}",
++                f"{counts[WARNING]} warning{'' if counts[WARNING] == 1 else 's'}",
+                 WARNING,
+                 color=color,
+             ),
+             report_style.count(f"{counts[PASS]} passed", PASS, color=color),
+-            report_style.count(
+-                f"{counts[SKIPPED]} skipped", SKIPPED, color=color
+-            ),
++            report_style.count(f"{counts[SKIPPED]} skipped", SKIPPED, color=color),
+         )
+     )
+     lines.extend(("", summary))
+
+--- cmax/audit_review.py
++++ cmax/audit_review.py
+@@ -50,9 +50,7 @@
+     if path.is_file() and path.suffix.lower() != ".json":
+         candidates.append(path)
+     if values is not None:
+-        candidates.extend(
+-            (values.with_name("audit.out"), values.parent / "logs" / "audit.out")
+-        )
++        candidates.extend((values.with_name("audit.out"), values.parent / "logs" / "audit.out"))
+     if path.is_dir():
+         candidates.extend(
+             (
+@@ -71,13 +69,9 @@
+     if not source.exists():
+         raise AuditReviewError(f"audit source does not exist: {source}")
+     values = next((item for item in _values_candidates(source) if item.is_file()), None)
+-    raw = next(
+-        (item for item in _raw_candidates(source, values) if item.is_file()), None
+-    )
++    raw = next((item for item in _raw_candidates(source, values) if item.is_file()), None)
+     if values is None and raw is None:
+-        raise AuditReviewError(
+-            f"no audit.values.json or audit.out found at {source}"
+-        )
++        raise AuditReviewError(f"no audit.values.json or audit.out found at {source}")
+     return AuditArtifacts(values=values, raw=raw)
+ 
+ 
+@@ -112,8 +106,7 @@
+     files = [path.resolve() for path in candidates if path.is_file()]
+     if not files:
+         raise AuditReviewError(
+-            "no saved audit found under CLUSTERMAX_RUNS_ROOT, runs/, or "
+-            "~/.clustermax/audit"
++            "no saved audit found under CLUSTERMAX_RUNS_ROOT, runs/, or ~/.clustermax/audit"
+         )
+     # ClusterMAX timestamp directory names sort in chronological order.
+     return resolve_source(max(files, key=_timestamp_key))
+@@ -145,10 +138,7 @@
+ def _show_check(check, number: int) -> str:
+     observed = json.dumps(check.observed, indent=2, sort_keys=True, default=str)
+     return (
+-        f"{number}. {check.title}\n"
+-        f"status: {check.status}\n"
+-        f"key: {check.key}\n"
+-        f"observed: {observed}"
++        f"{number}. {check.title}\nstatus: {check.status}\nkey: {check.key}\nobserved: {observed}"
+     )
+ 
+ 
+@@ -186,9 +176,7 @@
+     if name == "summary":
+         if artifacts.values is None:
+             return "Structured audit values are unavailable. Use 'raw'.", False
+-        return audit_report.format_report(
+-            checks, color=color, command="cmax audit review"
+-        ), False
++        return audit_report.format_report(checks, color=color, command="cmax audit review"), False
+     if name == "all":
+         return _check_list(checks), False
+     if name == "passes":
+@@ -196,8 +184,7 @@
+         return _check_list(checks, selected), False
+     if name == "paths":
+         return (
+-            f"values: {artifacts.values or 'not found'}\n"
+-            f"raw: {artifacts.raw or 'not found'}"
++            f"values: {artifacts.values or 'not found'}\nraw: {artifacts.raw or 'not found'}"
+         ), False
+     if name == "show":
+         if not args:
+@@ -211,8 +198,7 @@
+         matches = [
+             i
+             for i, check in enumerate(checks)
+-            if query.lower() in check.key.lower()
+-            or query.lower() in check.title.lower()
++            if query.lower() in check.key.lower() or query.lower() in check.title.lower()
+         ]
+         if len(matches) == 1:
+             index = matches[0]
+@@ -258,10 +244,7 @@
+ ) -> int:
+     """Render one saved audit and optionally start the review prompt."""
+     output = output or sys.stdout
+-    color = bool(
+-        getattr(output, "isatty", lambda: False)()
+-        and "NO_COLOR" not in os.environ
+-    )
++    color = bool(getattr(output, "isatty", lambda: False)() and "NO_COLOR" not in os.environ)
+     checks = load_checks(artifacts, rules_root)
+     print(f"Audit review: {artifacts.source}", file=output)
+     if artifacts.values is not None:
+@@ -283,9 +266,7 @@
+             raw_text, _ = execute_command("raw", artifacts, checks, color=color)
+             print(raw_text, file=output)
+     for command in commands or []:
+-        rendered, should_exit = execute_command(
+-            command, artifacts, checks, color=color
+-        )
++        rendered, should_exit = execute_command(command, artifacts, checks, color=color)
+         if rendered:
+             print(rendered, file=output)
+         if should_exit:
+@@ -306,9 +287,7 @@
+         except (EOFError, KeyboardInterrupt):
+             print(file=output)
+             return 0
+-        rendered, should_exit = execute_command(
+-            command, artifacts, checks, color=color
+-        )
++        rendered, should_exit = execute_command(command, artifacts, checks, color=color)
+         if rendered:
+             print(rendered, file=output)
+         if should_exit:
+
+--- cmax/banner.py
++++ cmax/banner.py
+@@ -109,10 +109,7 @@
+         found: list[str] = []
+         for letter, rows in sorted(self.glyphs.items()):
+             if len(rows) != self.height:
+-                found.append(
+-                    f"{self.name} {letter}: has {len(rows)} rows, "
+-                    f"needs {self.height}"
+-                )
++                found.append(f"{self.name} {letter}: has {len(rows)} rows, needs {self.height}")
+             for index, row in enumerate(rows):
+                 if len(row) != self.width:
+                     found.append(
+@@ -134,10 +131,7 @@
+         if missing:
+             raise KeyError(f"{self.name} has no glyph for {missing!r}")
+         pad = " " * self.gap
+-        return [
+-            pad.join(self.glyphs[letter][row] for letter in word)
+-            for row in range(self.height)
+-        ]
++        return [pad.join(self.glyphs[letter][row] for letter in word) for row in range(self.height)]
+ 
+ 
+ # Solid block letterforms, six rows tall. A vertical stroke is two columns and a
+@@ -326,9 +320,7 @@
+ FONTS = (BLOCK_FONT, ASCII_FONT)
+ 
+ 
+-def select_font(
+-    *, width: int, unicode_ok: bool, word: str = WORD
+-) -> Font | None:
++def select_font(*, width: int, unicode_ok: bool, word: str = WORD) -> Font | None:
+     """The widest font this terminal can both encode and fit, or None.
+ 
+     None means every font is wider than the terminal, and the caller falls back
+@@ -354,10 +346,7 @@
+     """
+     found = logo.defects()
+     if logo.HEIGHT != BLOCK_FONT.height:
+-        found.append(
+-            f"logo is {logo.HEIGHT} rows and the block font is "
+-            f"{BLOCK_FONT.height}"
+-        )
++        found.append(f"logo is {logo.HEIGHT} rows and the block font is {BLOCK_FONT.height}")
+     return found
+ 
+ 
+@@ -413,20 +402,14 @@
+     if font is None:
+         return [resolved.paint(word, *GOLD.codes(shade))]
+ 
+-    with_logo = (
+-        font is BLOCK_FONT
+-        and resolved.unicode
+-        and width >= full_width(word)
+-    )
++    with_logo = font is BLOCK_FONT and resolved.unicode and width >= full_width(word)
+     art_width = full_width(word) if with_logo else font.measure(word)
+     margin = " " * ((width - art_width) // 2)
+ 
+     lines = []
+     for index, row in enumerate(font.compose(word)):
+         trimmed = row.rstrip()
+-        painted = (
+-            resolved.paint(trimmed, *GOLD.codes(shade)) if trimmed else ""
+-        )
++        painted = resolved.paint(trimmed, *GOLD.codes(shade)) if trimmed else ""
+         if with_logo:
+             mark = logo.paint_row(logo.ROWS[index], resolved, shade)
+             line = (margin + mark + " " * LOGO_GAP + painted).rstrip()
+
+--- cmax/cli.py
++++ cmax/cli.py
+@@ -73,9 +73,7 @@
+     )
+ 
+ 
+-def _add_full_audit_profile_options(
+-    parser: argparse.ArgumentParser, *, allow_target: bool
+-) -> None:
++def _add_full_audit_profile_options(parser: argparse.ArgumentParser, *, allow_target: bool) -> None:
+     parser.add_argument(
+         "-s",
+         "--show",
+@@ -129,9 +127,7 @@
+         help=AUDIT_COMMAND_HELP,
+         description=AUDIT_COMMAND_HELP,
+     )
+-    audit_commands = audit.add_subparsers(
+-        dest="profile", title="audit profiles and targets"
+-    )
++    audit_commands = audit.add_subparsers(dest="profile", title="audit profiles and targets")
+     security = audit_commands.add_parser(
+         "security",
+         help="Run the focused, read-only security report.",
+@@ -170,8 +166,7 @@
+         nargs="?",
+         metavar="PATH",
+         help=(
+-            "Audit directory, audit.values.json, or audit.out. "
+-            "Defaults to the newest saved audit."
++            "Audit directory, audit.values.json, or audit.out. Defaults to the newest saved audit."
+         ),
+     )
+     review.add_argument(
+@@ -455,9 +450,7 @@
+         artifacts = (
+             audit_review.resolve_source(Path(args.review_source))
+             if args.review_source
+-            else audit_review.find_latest(
+-                [Path.cwd(), *Path.cwd().parents, rules_root]
+-            )
++            else audit_review.find_latest([Path.cwd(), *Path.cwd().parents, rules_root])
+         )
+         return audit_review.run(
+             artifacts,
+
+--- cmax/criteria_links.py
++++ cmax/criteria_links.py
+@@ -12,12 +12,9 @@
+     "firmware-and-host-packages"
+ )
+ _SECURITY_CONTAINER_TOOLKIT = (
+-    "security-updated-nvidia-container-toolkit-preventing-cve-2024-0132-and-"
+-    "related-vulnerabilities"
+-)
+-_SECURITY_ESCALATION = (
+-    "security-protection-against-container-escalation-vulnerabilities"
++    "security-updated-nvidia-container-toolkit-preventing-cve-2024-0132-and-related-vulnerabilities"
+ )
++_SECURITY_ESCALATION = "security-protection-against-container-escalation-vulnerabilities"
+ _SECURITY_ISOLATION = (
+     "security-strong-isolation-between-tenants-not-namespaces-or-container-"
+     "only-isolation-i-e-use-vcluster-private-nodes-instead-of-vcluster-shared-"
+@@ -28,21 +25,13 @@
+     "providing-a-comprehensive-set-of-security-features-required-for-secure-"
+     "multi-tenant-cloud-environments"
+ )
+-_LIFECYCLE_GPU_DIRECT = (
+-    "lifecycle-out-of-the-box-gpudirect-rdma-between-nic-and-gpu-setup"
+-)
+-_LIFECYCLE_DRIVERS = (
+-    "lifecycle-out-of-the-box-ib-rocev2-and-nvidia-drivers-configuration"
+-)
++_LIFECYCLE_GPU_DIRECT = "lifecycle-out-of-the-box-gpudirect-rdma-between-nic-and-gpu-setup"
++_LIFECYCLE_DRIVERS = "lifecycle-out-of-the-box-ib-rocev2-and-nvidia-drivers-configuration"
+ _ORCHESTRATION_USERS = "orchestration-easy-process-for-adding-new-cluster-users"
+ _ORCHESTRATION_RBAC = "orchestration-rbac-and-sso-implementation"
+ _ORCHESTRATION_SSH = "orchestration-no-ssh-key-copying-required"
+-_ORCHESTRATION_CUDA = (
+-    "orchestration-cuda-visible-devices-properly-configured"
+-)
+-_ORCHESTRATION_TOPOLOGY = (
+-    "orchestration-out-of-the-box-slurm-topology-configuration"
+-)
++_ORCHESTRATION_CUDA = "orchestration-cuda-visible-devices-properly-configured"
++_ORCHESTRATION_TOPOLOGY = "orchestration-out-of-the-box-slurm-topology-configuration"
+ _ORCHESTRATION_MODULES = "orchestration-slurm-modules-availability"
+ _ORCHESTRATION_PYXIS = "orchestration-pyxis-container-plugin-support"
+ _STORAGE_RWX = (
+@@ -51,18 +40,13 @@
+ )
+ _NETWORKING_TOPOLOGY = "networking-out-of-the-box-slurm-topology-configuration"
+ _NETWORKING_NCCL_AUTOCONFIG = (
+-    "networking-nccl-min-nchannels-nccl-proto-nccl-algo-not-set-auto-"
+-    "configuration"
++    "networking-nccl-min-nchannels-nccl-proto-nccl-algo-not-set-auto-configuration"
+ )
+ _MONITORING_NCU = "monitoring-ncu-profiling-available-for-all-users"
+ _MONITORING_HEALTH = "monitoring-automated-active-and-passive-health-checks"
+ _MONITORING_GRAFANA = "monitoring-out-of-the-box-detailed-managed-grafana"
+-_MONITORING_DCGM = (
+-    "monitoring-dcgm-health-checks-plugged-into-the-slurm-healthcheckprogram"
+-)
+-_MONITORING_SACCT = (
+-    "monitoring-sacct-integration-for-job-accounting-and-resource-utilization"
+-)
++_MONITORING_DCGM = "monitoring-dcgm-health-checks-plugged-into-the-slurm-healthcheckprogram"
++_MONITORING_SACCT = "monitoring-sacct-integration-for-job-accounting-and-resource-utilization"
+ 
+ 
+ # Some release checks are more granular than the public requirements. Those
+
+--- cmax/minimum_refresh.py
++++ cmax/minimum_refresh.py
+@@ -90,8 +90,7 @@
+ )
+ DOCKER_RELEASE_NOTES_PAGE = "https://docs.docker.com/engine/release-notes/{major}/"
+ DOCKER_DOCS_CONTENTS = (
+-    "https://api.github.com/repos/docker/docs/contents"
+-    "/content/manuals/engine/release-notes"
++    "https://api.github.com/repos/docker/docs/contents/content/manuals/engine/release-notes"
+ )
+ NVHPC_RELEASES_PAGE = "https://developer.nvidia.com/hpc-sdk/releases"
+ NVHPC_RELEASE_RE = re.compile(r"\bHPC SDK\s+([0-9]{2}\.[0-9]{1,2})\b", re.IGNORECASE)
+@@ -199,9 +198,7 @@
+ # OSV pages large result sets. Follow every page, and stop rather than build a
+ # ladder from a truncated advisory set.
+ OSV_MAX_PAGES = 20
+-RUNC_ADVISORY = (
+-    "https://github.com/opencontainers/runc/security/advisories/GHSA-9493-h29p-rfm2"
+-)
++RUNC_ADVISORY = "https://github.com/opencontainers/runc/security/advisories/GHSA-9493-h29p-rfm2"
+ 
+ NVIDIA_DRIVER_RELEASE_REPO = "NVIDIA/open-gpu-kernel-modules"
+ NVIDIA_CONTAINER_TOOLKIT_RELEASE_REPO = "NVIDIA/nvidia-container-toolkit"
+@@ -233,9 +230,7 @@
+ # One release on a Docker release-note page: a `## X.Y.Z` heading, a
+ # release-date shortcode below it, and a `### Security` subsection when the
+ # release ships a security fix.
+-DOCKER_RELEASE_HEADING = re.compile(
+-    r"^## +(\d+\.\d+\.\d+(?:-rc\.?\d+)?)\s*$", re.MULTILINE
+-)
++DOCKER_RELEASE_HEADING = re.compile(r"^## +(\d+\.\d+\.\d+(?:-rc\.?\d+)?)\s*$", re.MULTILINE)
+ DOCKER_RELEASE_DATE = re.compile(r'release-date\s+date="(\d{4}-\d{2}-\d{2})"')
+ DOCKER_SECURITY_HEADING = re.compile(r"^### +Security\s*$", re.MULTILINE)
+ DOCKER_NEXT_HEADING = re.compile(r"^#{2,3} ", re.MULTILINE)
+@@ -252,9 +247,7 @@
+ # above a minimum this series forces.
+ AMD_FEED = "amd-security-bulletin"
+ AMD_SECURITY_INDEX = "https://www.amd.com/en/resources/product-security.html"
+-AMD_BULLETIN_PAGE = (
+-    "https://www.amd.com/en/resources/product-security/bulletin/{sb_id}.html"
+-)
++AMD_BULLETIN_PAGE = "https://www.amd.com/en/resources/product-security/bulletin/{sb_id}.html"
+ AMD_BULLETINS: tuple[str, ...] = ("amd-sb-6018", "amd-sb-6024", "amd-sb-6027")
+ 
+ # An index row whose title matches this pattern concerns GPUs, so
+@@ -288,73 +281,48 @@
+ # AMD_BULLETINS forces, so tracking it cannot move any minimum up.
+ AMD_DEFERRED_BULLETINS: dict[str, str] = {
+     "amd-sb-1000": (
+-        "Windows 10 graphics driver bulletin for client GPUs. It names no "
+-        "ROCm release."
++        "Windows 10 graphics driver bulletin for client GPUs. It names no ROCm release."
+     ),
+     "amd-sb-1029": (
+-        "Client graphics driver bulletin from November 2022. It names no "
+-        "ROCm release."
++        "Client graphics driver bulletin from November 2022. It names no ROCm release."
+     ),
+     "amd-sb-6003": (
+-        "Client graphics driver bulletin from November 2023. It names no "
+-        "ROCm release."
++        "Client graphics driver bulletin from November 2023. It names no ROCm release."
+     ),
+     "amd-sb-6005": (
+         "Consolidated bulletin from August 2024 in the older transposed "
+         "table format. Its highest ROCm release is 6.3.2, below the tracked "
+         "minimums."
+     ),
+-    "amd-sb-6007": (
+-        "Radeon Software Crimson bulletin for client GPUs. It names no ROCm "
+-        "release."
+-    ),
+-    "amd-sb-6008": (
+-        "Consolidated bulletin from February 2025. It names no ROCm release."
+-    ),
+-    "amd-sb-6009": (
+-        "Radeon kernel driver bulletin for client GPUs. It names no ROCm "
+-        "release."
+-    ),
++    "amd-sb-6007": ("Radeon Software Crimson bulletin for client GPUs. It names no ROCm release."),
++    "amd-sb-6008": ("Consolidated bulletin from February 2025. It names no ROCm release."),
++    "amd-sb-6009": ("Radeon kernel driver bulletin for client GPUs. It names no ROCm release."),
+     "amd-sb-6010": (
+         "GPU memory leak bulletin in the older per-environment table format. "
+         "Its highest ROCm release is 6.3.1, below the tracked minimums."
+-    ),
+-    "amd-sb-6011": (
+-        "WebGPU browser side-channel note. It names no ROCm release."
+     ),
+-    "amd-sb-6012": (
+-        "Radeon DirectX 11 shader bulletin for client GPUs. It names no ROCm "
+-        "release."
+-    ),
++    "amd-sb-6011": ("WebGPU browser side-channel note. It names no ROCm release."),
++    "amd-sb-6012": ("Radeon DirectX 11 shader bulletin for client GPUs. It names no ROCm release."),
+     "amd-sb-6013": (
+         "Uninitialized GPU register bulletin in the older per-environment "
+         "table format. Its highest ROCm release is 6.3.1, below the tracked "
+         "minimums."
+     ),
+     "amd-sb-6015": (
+-        "Graphics driver installer bulletin for client GPUs. It names no "
+-        "ROCm release."
+-    ),
+-    "amd-sb-6016": (
+-        "Client GPU bulletin. It names no ROCm release."
+-    ),
+-    "amd-sb-6019": (
+-        "Cross-process GPU memory disclosure note. It names no ROCm release."
++        "Graphics driver installer bulletin for client GPUs. It names no ROCm release."
+     ),
++    "amd-sb-6016": ("Client GPU bulletin. It names no ROCm release."),
++    "amd-sb-6019": ("Cross-process GPU memory disclosure note. It names no ROCm release."),
+     "amd-sb-6021": (
+         "Linux graphics driver bulletin in the older format. Its highest "
+         "ROCm release is 6.2, below the tracked minimums."
+     ),
+-    "amd-sb-6026": (
+-        "GPU timing side-channel research note. It names no ROCm release."
+-    ),
++    "amd-sb-6026": ("GPU timing side-channel research note. It names no ROCm release."),
+     "amd-sb-6031": (
+         "Device Metrics Exporter bulletin. The fix is an exporter release, "
+         "and the audit does not grade the exporter version."
+     ),
+-    "amd-sb-7049": (
+-        "GPUHammer research note. It names no ROCm release."
+-    ),
++    "amd-sb-7049": ("GPUHammer research note. It names no ROCm release."),
+ }
+ 
+ DEFAULT_RELATIVE_PATH = runtime_paths.MINIMUMS_TABLE_RELATIVE
+@@ -716,8 +684,7 @@
+         "feed": "nvidia-csaf",
+         "aId": a_id,
+         "title": doc["document"]["title"],
+-        "released": tracking.get("initial_release_date")
+-        or tracking["current_release_date"],
++        "released": tracking.get("initial_release_date") or tracking["current_release_date"],
+         "url": bulletin_blob_url(year, a_id),
+     }
+ 
+@@ -868,8 +835,7 @@
+         "kind": "releaseLines",
+         "lines": lines,
+         "floorAvailability": {
+-            line: {**availability, "version": entry["fixed"]}
+-            for line, entry in lines.items()
++            line: {**availability, "version": entry["fixed"]} for line, entry in lines.items()
+         },
+         "cves": [item["cve"] for item in doc.get("vulnerabilities", []) if item.get("cve")],
+         "advisory": NVIDIA_ADVISORY.format(a_id=a_id),
+@@ -965,9 +931,7 @@
+     return blocks
+ 
+ 
+-def osv_package_vulns(
+-    package: str, ecosystem: str, fetch: Fetcher | None = None
+-) -> list[dict]:
++def osv_package_vulns(package: str, ecosystem: str, fetch: Fetcher | None = None) -> list[dict]:
+     """Return every OSV advisory for a package, across every page.
+ 
+     The query carries no version. A version-scoped query returns only the
+@@ -1264,7 +1228,7 @@
+     heading = DOCKER_SECURITY_HEADING.search(body)
+     if not heading:
+         return None
+-    rest = body[heading.end():]
++    rest = body[heading.end() :]
+     next_heading = DOCKER_NEXT_HEADING.search(rest)
+     return rest[: next_heading.start()] if next_heading else rest
+ 
+@@ -1282,7 +1246,7 @@
+     headings = list(DOCKER_RELEASE_HEADING.finditer(text))
+     for index, match in enumerate(headings):
+         end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
+-        body = text[match.end():end]
++        body = text[match.end() : end]
+         date_match = DOCKER_RELEASE_DATE.search(body)
+         security = _docker_security_section(body)
+         releases.append(
+@@ -1393,9 +1357,7 @@
+     that moving policy reproducible for every audit that consumes it.
+     """
+     text = _fetcher(fetch).get_text(NVHPC_RELEASES_PAGE)
+-    releases = sorted(
+-        set(NVHPC_RELEASE_RE.findall(text)), key=version_key, reverse=True
+-    )
++    releases = sorted(set(NVHPC_RELEASE_RE.findall(text)), key=version_key, reverse=True)
+     if len(releases) < 2:
+         raise MinimumRefreshError(
+             f"nvhpc: found fewer than two HPC SDK releases on {NVHPC_RELEASES_PAGE}; "
+@@ -1573,8 +1535,7 @@
+             other_tables.append(" ".join(" ".join(row) for row in table))
+     if not rows:
+         raise MinimumRefreshError(
+-            f"rocm: found no dated mitigation table on {url}; "
+-            f"the table format probably changed"
++            f"rocm: found no dated mitigation table on {url}; the table format probably changed"
+         )
+     for body in other_tables:
+         if AMD_ROCM_STRAY.search(AMD_TRADEMARKS.sub(" ", body)):
+@@ -1625,8 +1586,7 @@
+         for row in parsed["rows"]:
+             if len(row) < 4:
+                 raise MinimumRefreshError(
+-                    f"rocm: a mitigation row on {url} has fewer than four "
+-                    f"cells: {row!r}"
++                    f"rocm: a mitigation row on {url} has fewer than four cells: {row!r}"
+                 )
+             program_cell, cve_cell, mitigation_cell, date_cell = row[:4]
+             mitigation = " ".join(AMD_TRADEMARKS.sub(" ", mitigation_cell).split())
+@@ -1691,9 +1651,7 @@
+         "kind": "programMap",
+         "programs": {program: records[program]["version"] for program in ordered},
+         "programSources": {program: records[program]["aId"] for program in ordered},
+-        "programCves": {
+-            program: sorted(records[program]["cves"]) for program in ordered
+-        },
++        "programCves": {program: sorted(records[program]["cves"]) for program in ordered},
+         "floorAvailability": {
+             program: {
+                 "aId": records[program]["aId"],
+@@ -1776,9 +1734,7 @@
+             continue
+         if kind == "distroPackages":
+             for selector, package in (block.get("packages") or {}).items():
+-                availability = (
+-                    package.get("fixAvailability") if isinstance(package, dict) else None
+-                )
++                availability = package.get("fixAvailability") if isinstance(package, dict) else None
+                 released = _minimum_bulletin_released(block, str(selector))
+                 if isinstance(availability, dict) and released:
+                     availability["bulletinReleased"] = released
+@@ -1808,7 +1764,7 @@
+     conservative availability date. A later editorial revision must not restart
+     the vendor window for an unchanged minimum.
+     """
+-    old_components = ((existing or {}).get("components") or {})
++    old_components = (existing or {}).get("components") or {}
+     for name, block in (doc.get("components") or {}).items():
+         old = old_components.get(name) or {}
+         kind = block.get("kind")
+@@ -1816,9 +1772,7 @@
+             if block.get("minimum") == old.get("minimum") and _confirmed_availability(
+                 old.get("fixAvailability")
+             ):
+-                block["fixAvailability"] = _preserved_availability(
+-                    old["fixAvailability"], old
+-                )
++                block["fixAvailability"] = _preserved_availability(old["fixAvailability"], old)
+             continue
+         keyed_fields = {
+             "branchMap": "branches",
+@@ -1840,9 +1794,7 @@
+                     if kind == "releaseLines" and isinstance(minimum, dict)
+                     else minimum == old_minimum
+                 )
+-                if same_minimum and _confirmed_availability(
+-                    old_availability.get(key)
+-                ):
++                if same_minimum and _confirmed_availability(old_availability.get(key)):
+                     current_availability[key] = _preserved_availability(
+                         old_availability[key], old, str(key)
+                     )
+@@ -1996,7 +1948,7 @@
+     release lines) and the single-value `minimum` components.
+     """
+     problems: list[str] = []
+-    old_components = ((existing or {}).get("components") or {})
++    old_components = (existing or {}).get("components") or {}
+     for name, block in doc.get("components", {}).items():
+         payload = _payload(block)
+         old_block = old_components.get(name) or {}
+@@ -2008,27 +1960,19 @@
+             continue
+         kind = block.get("kind")
+         if kind == "minimum":
+-            problems.extend(
+-                _availability_problems(name, block.get("fixAvailability"))
+-            )
++            problems.extend(_availability_problems(name, block.get("fixAvailability")))
+         elif kind in {"branchMap", "trainMap", "programMap", "ladder", "releaseLines"}:
+             availability = block.get("floorAvailability") or {}
+             for key in payload:
+-                problems.extend(
+-                    _availability_problems(f"{name}.{key}", availability.get(str(key)))
+-                )
++                problems.extend(_availability_problems(f"{name}.{key}", availability.get(str(key))))
+         elif kind == "distroPackages":
+             for key, entry in payload.items():
+                 if entry.get("fixed"):
+                     problems.extend(
+-                        _availability_problems(
+-                            f"{name}.{key}", entry.get("fixAvailability")
+-                        )
++                        _availability_problems(f"{name}.{key}", entry.get("fixAvailability"))
+                     )
+         if kind == "branchMap":
+-            problems.extend(
+-                _minimum_downgrades(name, "branch", payload, old_block.get("branches"))
+-            )
++            problems.extend(_minimum_downgrades(name, "branch", payload, old_block.get("branches")))
+             continue
+         if kind == "trainMap":
+             problems.extend(
+@@ -2057,9 +2001,7 @@
+             current = block.get("current")
+             minimum = block.get("minimum")
+             if not current or version_key(str(current)) < version_key(str(minimum)):
+-                problems.append(
+-                    f"{name}: current release {current!r} is below minimum {minimum!r}"
+-                )
++                problems.append(f"{name}: current release {current!r} is below minimum {minimum!r}")
+             old_minimum = old_block.get("minimum")
+             if old_minimum and version_key(str(minimum)) < version_key(str(old_minimum)):
+                 problems.append(
+@@ -2071,9 +2013,7 @@
+             old_lines = old_block.get("lines") or {}
+             for key, entry in payload.items():
+                 if not entry.get("fixed"):
+-                    problems.append(
+-                        f"{name}.{key}: no fixed release from {_source_url(block)}"
+-                    )
++                    problems.append(f"{name}.{key}: no fixed release from {_source_url(block)}")
+             problems.extend(
+                 _minimum_downgrades(
+                     name,
+@@ -2326,9 +2266,7 @@
+                 "reason": reason,
+             }
+         )
+-    return sorted(
+-        found, key=lambda item: (item["status"], item["year"], str(item["id"]))
+-    )
++    return sorted(found, key=lambda item: (item["status"], item["year"], str(item["id"])))
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -2405,9 +2343,7 @@
+             if new:
+                 print("Untracked bulletins that match a graded product line:")
+                 for item in new:
+-                    print(
+-                        f"  {item['id']}  {item['product']}: {item['title']}  {item['url']}"
+-                    )
++                    print(f"  {item['id']}  {item['product']}: {item['title']}  {item['url']}")
+                 print(
+                     f"{len(new)} unknown bulletin(s) match a graded product line. "
+                     "Track each NVIDIA bulletin in BULLETINS in "
+
+--- cmax/minimum_sync.py
++++ cmax/minimum_sync.py
+@@ -127,9 +127,7 @@
+     if not isinstance(data, dict) or data.get("url") != published_url():
+         return {}
+     return {
+-        key: str(value)
+-        for key, value in data.items()
+-        if key in {"etag", "lastModified"} and value
++        key: str(value) for key, value in data.items() if key in {"etag", "lastModified"} and value
+     }
+ 
+ 
+@@ -182,8 +180,7 @@
+         raise MinimumSyncError("the published table carries no components")
+     if parse_stamp(table.get("generated")) is None:
+         raise MinimumSyncError(
+-            f"the published table has no usable generated timestamp: "
+-            f"{table.get('generated')!r}"
++            f"the published table has no usable generated timestamp: {table.get('generated')!r}"
+         )
+     return table
+ 
+@@ -217,9 +214,7 @@
+             # authenticated. Check the address the body actually came from.
+             final = response.geturl()
+             if not final.lower().startswith("https://"):
+-                raise MinimumSyncError(
+-                    f"{url} redirected to an address that is not https: {final}"
+-                )
++                raise MinimumSyncError(f"{url} redirected to an address that is not https: {final}")
+             body = response.read(MAX_BYTES + 1)
+             fresh = {
+                 key: value
+@@ -237,8 +232,7 @@
+         raise MinimumSyncError(f"{url} could not be read: {exc}") from exc
+     if len(body) > MAX_BYTES:
+         raise MinimumSyncError(
+-            f"{url} returned more than {MAX_BYTES} bytes, so it is not the "
+-            f"minimum table"
++            f"{url} returned more than {MAX_BYTES} bytes, so it is not the minimum table"
+         )
+     return body, fresh
+ 
+@@ -353,8 +347,7 @@
+         True,
+         path,
+         str(table.get("generated")),
+-        f"fetched the published minimum table (generated {table.get('generated')}) "
+-        f"to {path}.",
++        f"fetched the published minimum table (generated {table.get('generated')}) to {path}.",
+     )
+ 
+ 
+
+--- cmax/progress.py
++++ cmax/progress.py
+@@ -74,9 +74,7 @@
+ # helpers are called at the start of a line, sometimes indented inside a
+ # conditional branch, and a label that itself contains a double quote is passed
+ # in single quotes.
+-_CALL_SITE = re.compile(
+-    r"""^[ \t]*print_(header|section)[ \t]+(?:"([^"]*)"|'([^']*)')""", re.M
+-)
++_CALL_SITE = re.compile(r"""^[ \t]*print_(header|section)[ \t]+(?:"([^"]*)"|'([^']*)')""", re.M)
+ 
+ # The same two helpers as they appear in the collector's output: print_header
+ # frames its title between two rules of box characters, print_section wraps its
+@@ -168,9 +166,7 @@
+     return rendered
+ 
+ 
+-def _terminal_hyperlink(
+-    text: str, url: str, *, prompt_toolkit: bool = False
+-) -> str:
++def _terminal_hyperlink(text: str, url: str, *, prompt_toolkit: bool = False) -> str:
+     opening = f"\x1b]8;;{url}\x1b\\"
+     closing = "\x1b]8;;\x1b\\"
+     if prompt_toolkit:
+@@ -187,12 +183,7 @@
+         return _PROMPT_TOOLKIT_LINK_CLOSE + " " if prompt_toolkit else text
+     if "\x1b]8;;" in text:
+         if prompt_toolkit:
+-            return (
+-                _PROMPT_TOOLKIT_LINK_CLOSE
+-                + text
+-                + _PROMPT_TOOLKIT_LINK_CLOSE
+-                + " "
+-            )
++            return _PROMPT_TOOLKIT_LINK_CLOSE + text + _PROMPT_TOOLKIT_LINK_CLOSE + " "
+         return text
+ 
+     rendered = _CVE_LINK.sub(
+@@ -239,12 +230,7 @@
+         # prompt-toolkit can omit a zero-width escape at the end of a row
+         # because no terminal cell owns it. Put the close before a real space,
+         # and close again at column zero so a malformed prior row cannot leak.
+-        return (
+-            _PROMPT_TOOLKIT_LINK_CLOSE
+-            + rendered
+-            + _PROMPT_TOOLKIT_LINK_CLOSE
+-            + " "
+-        )
++        return _PROMPT_TOOLKIT_LINK_CLOSE + rendered + _PROMPT_TOOLKIT_LINK_CLOSE + " "
+     return rendered
+ 
+ 
+@@ -325,9 +311,7 @@
+     # Standalone and Kubernetes use thin wrappers that select the harness and
+     # exec the shared focused security collector. Follow that local target for
+     # planning so their progress bars have the same real phases as Slurm.
+-    wrapper = re.search(
+-        r'exec\s+bash\s+"\$WORKLOAD_DIR/([^"/]+\.sh)"', text
+-    )
++    wrapper = re.search(r'exec\s+bash\s+"\$WORKLOAD_DIR/([^"/]+\.sh)"', text)
+     if wrapper is not None:
+         target = script.parent / wrapper.group(1)
+         if target.is_file() and target != script:
+@@ -340,9 +324,7 @@
+         if kind == "header":
+             group = label
+             continue
+-        steps.append(
+-            Step(group=group, label=_display_label(label), pattern=_label_pattern(label))
+-        )
++        steps.append(Step(group=group, label=_display_label(label), pattern=_label_pattern(label)))
+     return steps
+ 
+ 
+@@ -710,9 +692,7 @@
+         # tests from more than one group at the same time, and an operator who
+         # can see only one of them cannot tell what the allocation is doing.
+         expanded = {
+-            title
+-            for title, steps in groups
+-            if any(step.state == RUNNING for step in steps)
++            title for title, steps in groups if any(step.state == RUNNING for step in steps)
+         }
+         if not expanded and progress.current_group:
+             expanded = {progress.current_group}
+@@ -781,10 +761,7 @@
+                 {
+                     "kind": "note",
+                     "lines": [
+-                        "  "
+-                        + theme.paint(
+-                            f"{theme.ellipsis} {hidden} more group(s) to run", "90"
+-                        )
++                        "  " + theme.paint(f"{theme.ellipsis} {hidden} more group(s) to run", "90")
+                     ],
+                 }
+             )
+@@ -842,10 +819,7 @@
+         the characters that are about to be written.
+         """
+         theme = self.theme
+-        return [
+-            _clip(theme.encodable(line), self.width, theme.ellipsis)
+-            for line in lines
+-        ]
++        return [_clip(theme.encodable(line), self.width, theme.ellipsis) for line in lines]
+ 
+     # -- pieces -----------------------------------------------------------
+ 
+@@ -901,9 +875,8 @@
+                 parts.append(theme.paint(f"{not_run} not run", "90"))
+             tail = ", ".join(parts)
+         elif state == DONE and skipped:
+-            tail = (
+-                theme.paint(f"{passed}/{total} passed, ", "90")
+-                + theme.paint(f"{skipped} skipped", "33")
++            tail = theme.paint(f"{passed}/{total} passed, ", "90") + theme.paint(
++                f"{skipped} skipped", "33"
+             )
+         else:
+             duration = format_duration(_group_duration(steps, now))
+@@ -923,17 +896,11 @@
+         # Only steps that actually ran are worth a line. A group whose plan holds
+         # conditional checks would otherwise fill the window with the branches
+         # this cluster never took.
+-        finished = [
+-            step
+-            for step in steps[:first_running]
+-            if step.state in {DONE, FAILED}
+-        ]
++        finished = [step for step in steps[:first_running] if step.state in {DONE, FAILED}]
+         visible = finished[-2:] + [steps[index] for index in running]
+         lines: list[str] = []
+         for step in visible:
+-            duration = (
+-                format_duration(step.duration(now)) if step.state == RUNNING else ""
+-            )
++            duration = format_duration(step.duration(now)) if step.state == RUNNING else ""
+             if step.state == RUNNING and step.ceiling:
+                 duration = f"{duration} / {format_duration(step.ceiling)}"
+             title = step.title
+@@ -942,9 +909,7 @@
+             style = ("36",) if step.state == RUNNING else ("90",)
+             column = max(24, self.width - 22)
+             title = _fit_text(title, column - 9, theme.ellipsis)
+-            body = (
+-                "      " + theme.glyph(step.state, tick) + " " + theme.paint(title, *style)
+-            )
++            body = "      " + theme.glyph(step.state, tick) + " " + theme.paint(title, *style)
+             lines.append(_pad(body, column) + theme.paint(duration, "90"))
+         return lines
+ 
+@@ -967,9 +932,7 @@
+         # Output collection and input handling run on different threads. Never
+         # wait for the producer's lock here: retain the last complete snapshot
+         # if it is busy, and keep that snapshot stable while the user scrolls.
+-        if not self.display._scroll_input_active() and self.display._lock.acquire(
+-            blocking=False
+-        ):
++        if not self.display._scroll_input_active() and self.display._lock.acquire(blocking=False):
+             try:
+                 dirty_from = self.display._timeline_dirty_from
+                 if dirty_from is not None:
+@@ -979,17 +942,11 @@
+                     # or the appended rows before dirty_from are skipped.
+                     sync_from = min(dirty_from, len(self._render_lines))
+                     del self._render_lines[sync_from:]
+-                    self._render_lines.extend(
+-                        self.display._timeline_rendered[sync_from:]
+-                    )
++                    self._render_lines.extend(self.display._timeline_rendered[sync_from:])
+                     self.display._timeline_dirty_from = None
+-                elif len(self._render_lines) < len(
+-                    self.display._timeline_rendered
+-                ):
++                elif len(self._render_lines) < len(self.display._timeline_rendered):
+                     start = len(self._render_lines)
+-                    self._render_lines.extend(
+-                        self.display._timeline_rendered[start:]
+-                    )
++                    self._render_lines.extend(self.display._timeline_rendered[start:])
+                 elif len(self._render_lines) > len(self.display._timeline_rendered):
+                     self._render_lines[:] = self.display._timeline_rendered
+             finally:
+@@ -1159,10 +1116,7 @@
+         except (AttributeError, OSError, ValueError):
+             pass
+         self._dedicated_tui_input = (
+-            terminal
+-            and os.name == "posix"
+-            and termios is not None
+-            and tty is not None
++            terminal and os.name == "posix" and termios is not None and tty is not None
+         )
+         self._tui = terminal
+         # After close() the final checklist owns the screen. A sweep's worker
+@@ -1183,21 +1137,15 @@
+         self._started = True
+         if self._tui:
+             self._enter_tui()
+-            self._thread = threading.Thread(
+-                target=self._run_tui, name="cmax-progress", daemon=True
+-            )
++            self._thread = threading.Thread(target=self._run_tui, name="cmax-progress", daemon=True)
+             self._thread.start()
+             self._tui_ready.wait(timeout=2.0)
+             if self._tui_error is not None:
+-                raise RuntimeError(
+-                    "prompt-toolkit display failed to start"
+-                ) from self._tui_error
++                raise RuntimeError("prompt-toolkit display failed to start") from self._tui_error
+         else:
+             self.stream.write("\x1b[?25l")
+             self.stream.flush()
+-            self._thread = threading.Thread(
+-                target=self._loop, name="cmax-progress", daemon=True
+-            )
++            self._thread = threading.Thread(target=self._loop, name="cmax-progress", daemon=True)
+             self._thread.start()
+ 
+     def feed(self, line: str) -> None:
+@@ -1292,9 +1240,7 @@
+                 self.stream.write(rendered + "\n")
+                 self.stream.flush()
+                 return
+-            self._capture_locked(
+-                owner or self._current_owner(), text, transient=transient
+-            )
++            self._capture_locked(owner or self._current_owner(), text, transient=transient)
+ 
+     def activate_output(self, owner: str) -> None:
+         """Select the lower-pane owner when a runner stage starts."""
+@@ -1384,9 +1330,7 @@
+             (step.duration(now) or 0.0 for step in self.progress.running_steps()),
+             default=0.0,
+         )
+-        self._next_interval = (
+-            self.slow_interval if longest >= self.slow_after_s else self.interval
+-        )
++        self._next_interval = self.slow_interval if longest >= self.slow_after_s else self.interval
+ 
+     def _erase(self) -> None:
+         if not self._painted:
+@@ -1446,9 +1390,7 @@
+             ):
+                 self._mark_timeline_dirty_locked(len(self._timeline) - 1)
+                 self._timeline[-1] = ("output", lines[-1])
+-                self._timeline_rendered[-1] = self._render_timeline_entry(
+-                    self._timeline[-1]
+-                )
++                self._timeline_rendered[-1] = self._render_timeline_entry(self._timeline[-1])
+             else:
+                 self._append_timeline_locked([("output", lines[-1])])
+                 self._tail_transient_owner = owner
+@@ -1469,9 +1411,7 @@
+     def _append_timeline_locked(self, entries: Iterable[tuple[str, str]]) -> None:
+         pending = list(entries)
+         self._timeline.extend(pending)
+-        self._timeline_rendered.extend(
+-            self._render_timeline_entry(entry) for entry in pending
+-        )
++        self._timeline_rendered.extend(self._render_timeline_entry(entry) for entry in pending)
+ 
+     def _render_timeline_entry(self, entry: tuple[str, str]) -> list:
+         return to_formatted_text(ANSI(self._timeline_line(entry)))
+@@ -1518,9 +1458,7 @@
+             (Keys.Home, "home"),
+             (Keys.End, "end"),
+         ):
+-            bindings.add(key)(
+-                lambda event, selected=action: self._scroll_tui(selected)
+-            )
++            bindings.add(key)(lambda event, selected=action: self._scroll_tui(selected))
+ 
+         @bindings.add("c-c")
+         def interrupt(_event: object) -> None:
+@@ -1777,9 +1715,7 @@
+             top_height = self._tui_top_capacity()
+             self._tick += 1
+             now = self._clock()
+-            lines = self.renderer.live(
+-                self.progress, now, self._tick, top_height + 2
+-            )[:top_height]
++            lines = self.renderer.live(self.progress, now, self._tick, top_height + 2)[:top_height]
+             longest = max(
+                 (step.duration(now) or 0.0 for step in self.progress.running_steps()),
+                 default=0.0,
+@@ -1797,25 +1733,17 @@
+             return self._tui_header_cache
+         try:
+             owner = self._active_owner or self._current_owner()
+-            self._tui_header_cache = ANSI(
+-                self.theme_line(f" RUNNING · {owner} ", "36")
+-            )
++            self._tui_header_cache = ANSI(self.theme_line(f" RUNNING · {owner} ", "36"))
+             return self._tui_header_cache
+         finally:
+             self._lock.release()
+ 
+     def theme_line(self, text: str, *codes: str) -> str:
+-        return self.renderer.theme.paint(
+-            self.renderer.theme.encodable(text), *codes
+-        )
++        return self.renderer.theme.paint(self.renderer.theme.encodable(text), *codes)
+ 
+-    def _safe_line(
+-        self, text: str, *, color: bool, prompt_toolkit: bool = False
+-    ) -> str:
++    def _safe_line(self, text: str, *, color: bool, prompt_toolkit: bool = False) -> str:
+         rendered = self.renderer.theme.encodable(text.replace("\r", ""))
+-        rendered = color_status_text(
+-            rendered, color=color and self.renderer.theme.color
+-        )
++        rendered = color_status_text(rendered, color=color and self.renderer.theme.color)
+         return linkify_report_text(rendered, prompt_toolkit=prompt_toolkit)
+ 
+     def _timeline_line(self, entry: tuple[str, str]) -> str:
+@@ -1843,9 +1771,7 @@
+                 for line in lines
+             )
+             if owner not in _UNLABELED_OUTPUT_OWNERS and not owns_heading:
+-                self.stream.write(
+-                    self.theme_line(f"── {owner} ──", "36", "1") + "\n"
+-                )
++                self.stream.write(self.theme_line(f"── {owner} ──", "36", "1") + "\n")
+             for line in lines:
+                 self.stream.write(self._safe_line(line, color=True) + "\n")
+ 
+@@ -1876,9 +1802,7 @@
+             return
+         self._last = step
+         index = self.progress.completed + 1
+-        self.stream.write(
+-            f"[{index:>3}/{self.progress.total}] {step.group} / {step.title}\n"
+-        )
++        self.stream.write(f"[{index:>3}/{self.progress.total}] {step.group} / {step.title}\n")
+         self.stream.flush()
+ 
+     def close(self, ok: bool = True) -> None:
+@@ -1979,9 +1903,7 @@
+         proc.wait()
+         raise
+     display.update(
+-        lambda tracker: getattr(tracker, "finish_collector", lambda _ok: None)(
+-            returncode == 0
+-        )
++        lambda tracker: getattr(tracker, "finish_collector", lambda _ok: None)(returncode == 0)
+     )
+     return returncode, "".join(chunks)
+ 
+@@ -1995,9 +1917,7 @@
+     """
+     target = stream if stream is not None else sys.stdout
+     lines = output.splitlines()
+-    color = bool(getattr(target, "isatty", lambda: False)()) and (
+-        "NO_COLOR" not in os.environ
+-    )
++    color = bool(getattr(target, "isatty", lambda: False)()) and ("NO_COLOR" not in os.environ)
+     for index, line in enumerate(lines):
+         if marker in strip_ansi(line):
+             for tail in lines[index:]:
+@@ -2010,9 +1930,7 @@
+     return False
+ 
+ 
+-def print_failure_tail(
+-    output: str, stream: TextIO | None = None, lines: int = 40
+-) -> None:
++def print_failure_tail(output: str, stream: TextIO | None = None, lines: int = 40) -> None:
+     """Show the end of a failed run, which the display otherwise swallowed."""
+     target = stream if stream is not None else sys.stdout
+     captured = output.splitlines()
+
+--- cmax/report_style.py
++++ cmax/report_style.py
+@@ -71,20 +71,12 @@
+     if assessment:
+         lines.append(f"         {assessment}")
+     for name, value in details:
+-        lines.append(
+-            f"         {paint(name + ':', 'bold', color=color)} {value}"
+-        )
++        lines.append(f"         {paint(name + ':', 'bold', color=color)} {value}")
+     if recommendation:
+-        lines.append(
+-            f"         {paint('Recommendation:', 'bold', color=color)} "
+-            f"{recommendation}"
+-        )
++        lines.append(f"         {paint('Recommendation:', 'bold', color=color)} {recommendation}")
+     refs = list(references)
+     if refs:
+         lines.append(f"         {paint('References:', 'bold', color=color)}")
+         for index, (reference_label, url) in enumerate(refs, start=1):
+-            lines.append(
+-                f"           [{index}] "
+-                f"{hyperlink(reference_label, url, color=color)}"
+-            )
++            lines.append(f"           [{index}] {hyperlink(reference_label, url, color=color)}")
+     return lines
+
+--- cmax/scripts/1-audit/audit_findings.py
++++ cmax/scripts/1-audit/audit_findings.py
+@@ -153,7 +153,9 @@
+     nvidia runtime; in either case there is nothing left for the provider to
+     attest, so the worker-check attestation note should stay silent.
+     """
+-    return _is_true(nested_get(audit, "containers", "nvidiaContainerToolkit")) or _nvidia_runtime_configured(audit)
++    return _is_true(
++        nested_get(audit, "containers", "nvidiaContainerToolkit")
++    ) or _nvidia_runtime_configured(audit)
+ 
+ 
+ def _numeric_above(threshold: float) -> Callable[[Any], bool]:
+@@ -374,9 +376,8 @@
+     unproven one.
+     """
+     status = nested_get(audit, "securityVersions", "virtioNetBluefield", "floorStatus")
+-    return (
+-        str(status).strip().lower() == "fail"
+-        and not _minimum_grace_active(audit, "virtioNetBluefield")
++    return str(status).strip().lower() == "fail" and not _minimum_grace_active(
++        audit, "virtioNetBluefield"
+     )
+ 
+ 
+@@ -500,10 +501,7 @@
+     """True only when a completed inventory found no BlueField device."""
+     isolation = nested_get(audit, "securityVersions", "dpuHostIsolation")
+     if isinstance(isolation, dict):
+-        if (
+-            isolation.get("scanComplete") is True
+-            and isolation.get("bluefieldPresent") is False
+-        ):
++        if isolation.get("scanComplete") is True and isolation.get("bluefieldPresent") is False:
+             return True
+     controller = nested_get(audit, "securityVersions", "virtioNetBluefield")
+     if isinstance(controller, dict):
+@@ -680,8 +678,7 @@
+         "ClusterMAX fault and needs no provider action (CVE-2026-65094)",
+         CONFIG,
+         _status_is("latent"),
+-        guard=lambda audit: _virtio_minimums_unavailable(audit)
+-        and _virtio_latent_exposure(audit),
++        guard=lambda audit: _virtio_minimums_unavailable(audit) and _virtio_latent_exposure(audit),
+         harnesses=SCALE_OUT_HARNESSES,
+     ),
+     Rule(
+@@ -698,9 +695,11 @@
+         # attestation note below: a provider asked to attest a version the audit
+         # already holds, for a fault on our side. An attestation cannot be
+         # graded until the table is repaired.
+-        guard=lambda audit: _virtio_minimums_unavailable(audit)
+-        and not _virtio_latent_exposure(audit)
+-        and not _bluefield_absence_proven(audit),
++        guard=lambda audit: (
++            _virtio_minimums_unavailable(audit)
++            and not _virtio_latent_exposure(audit)
++            and not _bluefield_absence_proven(audit)
++        ),
+         harnesses=SCALE_OUT_HARNESSES,
+     ),
+     Rule(
+@@ -714,9 +713,11 @@
+         # above owns and which is not a question for the provider at all. This
+         # note owns every remaining unknown: an unreadable version on a DPU-mode
+         # or unknown-mode card, and a fleet a coverage gap left uncleared.
+-        guard=lambda audit: not _virtio_latent_exposure(audit)
+-        and not _virtio_minimums_unavailable(audit)
+-        and not _bluefield_absence_proven(audit),
++        guard=lambda audit: (
++            not _virtio_latent_exposure(audit)
++            and not _virtio_minimums_unavailable(audit)
++            and not _bluefield_absence_proven(audit)
++        ),
+         harnesses=SCALE_OUT_HARNESSES,
+     ),
+     Rule(
+@@ -777,9 +778,11 @@
+         "NVIDIA Container Toolkit not installed",
+         MISSING,
+         _is_false,
+-        guard=lambda audit: _not_amd_gpu(audit)
+-        and not _container_check_unavailable(audit)
+-        and not _nvidia_runtime_configured(audit),
++        guard=lambda audit: (
++            _not_amd_gpu(audit)
++            and not _container_check_unavailable(audit)
++            and not _nvidia_runtime_configured(audit)
++        ),
+     ),
+     Rule(
+         "containers.workerCheckOk",
+@@ -816,8 +819,9 @@
+         "Nsight Compute profiling is not enabled for the audited user",
+         CONFIG,
+         _is_false,
+-        guard=lambda audit: _not_amd_gpu(audit)
+-        and _is_true(nested_get(audit, "software", "ncu", "installed")),
++        guard=lambda audit: (
++            _not_amd_gpu(audit) and _is_true(nested_get(audit, "software", "ncu", "installed"))
++        ),
+     ),
+     Rule(
+         "software.lmod.modulesStatus",
+@@ -860,8 +864,7 @@
+         # nvidia-open is also present, the driver and consumers (e.g. NCCL)
+         # select dma_buf automatically, so a loaded nvidia_peermem module is
+         # harmless and may still serve legacy verbs consumers.
+-        guard=lambda audit: _not_amd_gpu(audit)
+-        and not _modern_gpudirect_path_present(audit),
++        guard=lambda audit: _not_amd_gpu(audit) and not _modern_gpudirect_path_present(audit),
+         harnesses=SCALE_OUT_HARNESSES,
+     ),
+     # --- GPU controls -----------------------------------------------------
+@@ -870,9 +873,11 @@
+         "Vboost not enabled / not allowed",
+         CONFIG,
+         _is_false,
+-        guard=lambda audit: _not_amd_gpu(audit)
+-        and not _vboost_check_unavailable(audit)
+-        and not _vboost_unsupported_gpu(audit),
++        guard=lambda audit: (
++            _not_amd_gpu(audit)
++            and not _vboost_check_unavailable(audit)
++            and not _vboost_unsupported_gpu(audit)
++        ),
+     ),
+     # --- GPU HBM memory exposure -------------------------------------------
+     # The Tier-0 hbm_memory_exposure check (see tests/AUDIT-CRITERIA.md) applies
+@@ -1158,15 +1163,13 @@
+ _AMD_HARDWARE = GuardReason(
+     _is_amd_gpu,
+     NOT_APPLICABLE_KIND,
+-    "An AMD GPU is present, so this NVIDIA-specific check does not apply to "
+-    "this hardware.",
++    "An AMD GPU is present, so this NVIDIA-specific check does not apply to this hardware.",
+ )
+ 
+ _NO_BLUEFIELD = GuardReason(
+     _bluefield_absence_proven,
+     NOT_APPLICABLE_KIND,
+-    "No BlueField DPU was observed, so this check does not apply to this "
+-    "configuration.",
++    "No BlueField DPU was observed, so this check does not apply to this configuration.",
+ )
+ 
+ # Ordered suppression reasons for every guarded rule key. Kept beside RULES so
+@@ -1240,9 +1243,7 @@
+             "not apply; the separate installation check reports that gap.",
+         ),
+         GuardReason(
+-            lambda audit: not _is_true(
+-                nested_get(audit, "software", "ncu", "installed")
+-            ),
++            lambda audit: not _is_true(nested_get(audit, "software", "ncu", "installed")),
+             UNVERIFIED_KIND,
+             "The NCU check ended without an installation verdict, so whether "
+             "profiling permissions apply is unverified rather than evidence "
+@@ -1298,8 +1299,6 @@
+     return UNVERIFIED_KIND, ""
+ 
+ 
+-
+-
+ # Check-key -> dashboard criterion id (dashboard/src/data/audit-criteria.ts on
+ # master, vendored as criteria-checks.json next to this file). Several check
+ # keys can serve one criterion. None marks a CLI-only check with no criteria
+@@ -1440,9 +1439,7 @@
+     return ""
+ 
+ 
+-def _version_context(
+-    audit: dict[str, Any], key: str
+-) -> tuple[str, Any, Any]:
++def _version_context(audit: dict[str, Any], key: str) -> tuple[str, Any, Any]:
+     component = _finding_component(key)
+     if key.startswith("securityVersions.") and component:
+         block = nested_get(audit, "securityVersions", component, default={})
+@@ -1491,10 +1488,7 @@
+             "Disable nested virtualization and remove guest access to /dev/kvm "
+             "until the provider confirms the physical-host patch."
+         )
+-    elif (
+-        rule.key == "securityVersions.docker.status"
+-        and str(value).strip().lower() == "unknown"
+-    ):
++    elif rule.key == "securityVersions.docker.status" and str(value).strip().lower() == "unknown":
+         client_version = nested_get(audit, "containers", "dockerVersion")
+         detected = "The Docker Engine server version could not be read."
+         if not _missing_string(client_version):
+@@ -1509,18 +1503,12 @@
+         rule.key == "securityVersions.dpuHostIsolation.status"
+         and str(value).strip().lower() == "fail"
+     ):
+-        isolation = nested_get(
+-            audit, "securityVersions", "dpuHostIsolation", default={}
+-        )
++        isolation = nested_get(audit, "securityVersions", "dpuHostIsolation", default={})
+         detected = (
+-            str(isolation.get("detail") or "").strip()
+-            if isinstance(isolation, dict)
+-            else ""
++            str(isolation.get("detail") or "").strip() if isinstance(isolation, dict) else ""
+         ) or "The host side can reach the BlueField DPU control plane."
+         remediation = (
+-            str(isolation.get("remediation") or "").strip()
+-            if isinstance(isolation, dict)
+-            else ""
++            str(isolation.get("remediation") or "").strip() if isinstance(isolation, dict) else ""
+         ) or (
+             "mlxprivhost -d <device> r --disable_rshim --disable_tracer "
+             "--disable_counter_rd --disable_port_owner"
+@@ -1534,18 +1522,11 @@
+         rule.key == "securityVersions.dpuHostIsolation.status"
+         and str(value).strip().lower() == "unknown"
+     ):
+-        isolation = nested_get(
+-            audit, "securityVersions", "dpuHostIsolation", default={}
+-        )
++        isolation = nested_get(audit, "securityVersions", "dpuHostIsolation", default={})
+         if _bluefield_observed(audit):
+             detected = (
+-                str(isolation.get("detail") or "").strip()
+-                if isinstance(isolation, dict)
+-                else ""
+-            ) or (
+-                "The audit found a BlueField device, but it could not verify "
+-                "DPU host isolation."
+-            )
++                str(isolation.get("detail") or "").strip() if isinstance(isolation, dict) else ""
++            ) or ("The audit found a BlueField device, but it could not verify DPU host isolation.")
+             recommendation = (
+                 "Attest the isolation posture for every detected BlueField device. "
+                 "Verify that RShim is restricted and that /dev/rshim0 and "
+@@ -1566,9 +1547,7 @@
+         and str(value).strip().lower() == "unknown"
+     ):
+         if _bluefield_observed(audit):
+-            mode = nested_get(
+-                audit, "securityVersions", "virtioNetBluefield", "platformMode"
+-            )
++            mode = nested_get(audit, "securityVersions", "virtioNetBluefield", "platformMode")
+             mode_text = str(mode).strip().upper()
+             mode_detail = f" in {mode_text} mode" if mode_text in {"NIC", "DPU"} else ""
+             detected = (
+@@ -1593,9 +1572,7 @@
+     elif rule.key == "kubelet_cpu_manager_policy.status":
+         policy = nested_get(audit, "kubelet_cpu_manager_policy", default={})
+         detected = (
+-            str(policy.get("message") or "").strip()
+-            if isinstance(policy, dict)
+-            else ""
++            str(policy.get("message") or "").strip() if isinstance(policy, dict) else ""
+         ) or str(value).capitalize()
+         recommendation = (
+             "Set the kubelet CPU Manager policy to static on GPU workers. Drain "
+@@ -1630,7 +1607,10 @@
+     elif isinstance(value, bool) and value is False:
+         if rule.severity == MISSING or "not installed" in rule.title.lower():
+             detected = "Not installed"
+-        elif any(word in rule.key.lower() for word in ("allowed", "configured")) or "enabled" in rule.title.lower():
++        elif (
++            any(word in rule.key.lower() for word in ("allowed", "configured"))
++            or "enabled" in rule.title.lower()
++        ):
+             detected = "Disabled"
+         else:
+             detected = "Check failed"
+@@ -1649,10 +1629,7 @@
+         else:
+             recommendation = "Enable the required configuration, and run the audit again."
+     elif str(value).strip().lower() == "unknown":
+-        detected = (
+-            "The collector could not verify this check. Treat this value as "
+-            "unverified."
+-        )
++        detected = "The collector could not verify this check. Treat this value as unverified."
+         subject = component_name or rule.title.split(" requires", 1)[0]
+         recommendation = (
+             _sentence(f"{subject} {minimum} or later.")
+@@ -1662,7 +1639,9 @@
+     else:
+         detected = str(value).replace("_", " ").capitalize()
+         if "reboot required" in rule.title.lower():
+-            recommendation = "Reboot the affected worker, and confirm that it runs the newer kernel."
++            recommendation = (
++                "Reboot the affected worker, and confirm that it runs the newer kernel."
++            )
+         elif "attestation" in rule.title.lower() or "could not be verified" in rule.title.lower():
+             recommendation = "Ask the provider to attest this state with host evidence."
+         elif "nvidia_peermem" in rule.title.lower():
+@@ -1713,9 +1692,7 @@
+     audit = _audit_data(values)
+     cluster = values.get("cluster")
+     harness = (
+-        str(cluster.get("orchestrator") or "").strip().lower()
+-        if isinstance(cluster, dict)
+-        else ""
++        str(cluster.get("orchestrator") or "").strip().lower() if isinstance(cluster, dict) else ""
+     )
+     findings: list[Finding] = []
+     for rule in RULES:
+@@ -1775,11 +1752,7 @@
+     Terminals with hyperlink support show only `text` and make it clickable;
+     the URL itself never appears in the output.
+     """
+-    return (
+-        f"\x1b]8;;{url}\x1b\\"
+-        f"\x1b[4m{text}\x1b[24m"
+-        "\x1b]8;;\x1b\\"
+-    )
++    return f"\x1b]8;;{url}\x1b\\\x1b[4m{text}\x1b[24m\x1b]8;;\x1b\\"
+ 
+ 
+ def _cve_label(cve: str, *, hyperlinks: bool) -> str:
+@@ -1830,9 +1803,7 @@
+     ]
+ 
+ 
+-def format_report(
+-    findings: list[Finding], *, source: str = "", hyperlinks: bool = False
+-) -> str:
++def format_report(findings: list[Finding], *, source: str = "", hyperlinks: bool = False) -> str:
+     """Render actionable findings without exposing internal evidence paths."""
+     bar = "=" * _HEADER_WIDTH
+     lines: list[str] = [bar]
+@@ -1855,9 +1826,7 @@
+             cves = ", ".join(_cve_label(cve, hyperlinks=hyperlinks) for cve in finding.cves)
+             lines.append(f"            CVEs: {cves}")
+         if finding.advisories:
+-            advisories = _advisory_labels(
+-                finding.advisories, hyperlinks=hyperlinks
+-            )
++            advisories = _advisory_labels(finding.advisories, hyperlinks=hyperlinks)
+             lines.append(f"            Advisories: {', '.join(advisories)}")
+     lines.append(bar)
+     return "\n".join(lines)
+
+--- cmax/scripts/1-audit/checks/fabric/nic-topology-check.py
++++ cmax/scripts/1-audit/checks/fabric/nic-topology-check.py
+@@ -106,6 +106,7 @@
+     if _FANOUT is None:
+         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+         import _fanout
++
+         _FANOUT = _fanout
+     return _FANOUT
+ 
+@@ -163,15 +164,19 @@
+                 header_idx = i
+                 break
+         if header:
+-            for l in lines[header_idx + 1:]:
++            for l in lines[header_idx + 1 :]:
+                 toks = l.split()
+                 if not toks:
+                     continue
+                 row = toks[0]
+-                if not (row.startswith("NIC") or row.startswith("mlx") or
+-                        row.startswith("ibp") or row.startswith("roce")):
++                if not (
++                    row.startswith("NIC")
++                    or row.startswith("mlx")
++                    or row.startswith("ibp")
++                    or row.startswith("roce")
++                ):
+                     continue
+-                cells = toks[1:1 + len(header)]
++                cells = toks[1 : 1 + len(header)]
+                 aff = "far"
+                 for h, c in zip(header, cells):
+                     if h.startswith("GPU") and c in ("PIX", "PXB", "PHB"):
+@@ -214,17 +219,16 @@
+         return "bond" not in name and state == "ACTIVE" and rate >= 100
+ 
+     rails = [
+-        name for name, rate, layer, state in hcas
+-        if "rail" in name and eligible(name, rate, state)
++        name for name, rate, layer, state in hcas if "rail" in name and eligible(name, rate, state)
+     ]
+     if rails:
+         return {
+-            name: "rail-named RDMA HCA; no GPU-affinity signal on this platform"
+-            for name in rails
++            name: "rail-named RDMA HCA; no GPU-affinity signal on this platform" for name in rails
+         }
+ 
+     ib = [
+-        (name, rate) for name, rate, layer, state in hcas
++        (name, rate)
++        for name, rate, layer, state in hcas
+         if layer == "InfiniBand" and rate >= 200 and eligible(name, rate, state)
+     ]
+     if not ib:
+@@ -276,25 +280,29 @@
+         role, reason = first_pass[name]
+         if name in promoted:
+             role, reason = "fabric", promoted[name]
+-        nics.append({
+-            "name": name,
+-            "role": role,
+-            "rate_gbps": int(rate),
+-            "layer": layer,
+-            "state": state,
+-            "reason": reason,
+-        })
++        nics.append(
++            {
++                "name": name,
++                "role": role,
++                "rate_gbps": int(rate),
++                "layer": layer,
++                "state": state,
++                "reason": reason,
++            }
++        )
+ 
+     # Non-RDMA netdevs - frontend by definition.
+     for name, speed_mbps in netdevs:
+-        nics.append({
+-            "name": name,
+-            "role": "frontend",
+-            "rate_gbps": speed_mbps // 1000 if speed_mbps > 0 else 0,
+-            "layer": "ethernet",
+-            "state": "?",
+-            "reason": "no infiniband sysfs link",
+-        })
++        nics.append(
++            {
++                "name": name,
++                "role": "frontend",
++                "rate_gbps": speed_mbps // 1000 if speed_mbps > 0 else 0,
++                "layer": "ethernet",
++                "state": "?",
++                "reason": "no infiniband sysfs link",
++            }
++        )
+     return nics
+ 
+ 
+@@ -408,7 +416,13 @@
+         "--collect-host",
+     ]
+     try:
+-        proc = runner(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=SLURM_TIMEOUT_S)
++        proc = runner(
++            command,
++            stdout=subprocess.PIPE,
++            stderr=subprocess.PIPE,
++            text=True,
++            timeout=SLURM_TIMEOUT_S,
++        )
+     except (OSError, subprocess.TimeoutExpired) as exc:
+         return [gather()], [f"srun NIC check failed; local host only: {exc}"]
+ 
+@@ -466,7 +480,16 @@
+ def k8s_driver_pod(namespace: str, node: str, *, runner: Runner) -> dict[str, Any] | None:
+     try:
+         proc = kubectl(
+-            ["get", "pods", "-n", namespace, "--field-selector", f"spec.nodeName={node}", "-o", "json"],
++            [
++                "get",
++                "pods",
++                "-n",
++                namespace,
++                "--field-selector",
++                f"spec.nodeName={node}",
++                "-o",
++                "json",
++            ],
+             runner=runner,
+             timeout=45,
+         )
+@@ -515,7 +538,7 @@
+ # classify_nics() needs (topo text + per-HCA rate/layer/state + frontend
+ # netdevs), tab-delimited, and the orchestrator (which has python3) parses and
+ # classifies them. Mirrors the local sysfs reads in _collect_*_local().
+-K8S_COLLECTOR_SH = r'''
++K8S_COLLECTOR_SH = r"""
+ echo @@TOPO_BEGIN@@
+ nvidia-smi topo -m 2>/dev/null
+ echo @@TOPO_END@@
+@@ -536,7 +559,7 @@
+   sp=$(cat "$p/speed" 2>/dev/null)
+   printf '@@NET@@\t%s\t%s\n' "$n" "$sp"
+ done
+-'''
++"""
+ 
+ 
+ def _parse_k8s_collector(text: str) -> tuple[str, list, list]:
+@@ -562,7 +585,11 @@
+                 rate = parse_rate(parts[2])
+                 layer = parts[3].strip() or "?"
+                 state_raw = parts[4]
+-                state = state_raw.split(":")[1].split()[0] if ":" in state_raw else (state_raw.strip() or "?")
++                state = (
++                    state_raw.split(":")[1].split()[0]
++                    if ":" in state_raw
++                    else (state_raw.strip() or "?")
++                )
+                 hcas.append((name, rate, layer, state))
+         elif line.startswith("@@NET@@\t"):
+             parts = line.split("\t")
+@@ -573,10 +600,15 @@
+     return "\n".join(topo_lines), hcas, netdevs
+ 
+ 
+-def run_k8s_node_check(namespace: str, node: str, *, runner: Runner) -> tuple[dict[str, Any] | None, str | None]:
++def run_k8s_node_check(
++    namespace: str, node: str, *, runner: Runner
++) -> tuple[dict[str, Any] | None, str | None]:
+     access = k8s_driver_pod(namespace, node, runner=runner)
+     if not access:
+-        return None, f"{node}: no running nvidia-smi-capable GPU Operator pod for NIC classification"
++        return (
++            None,
++            f"{node}: no running nvidia-smi-capable GPU Operator pod for NIC classification",
++        )
+     exec_args = ["exec", "-i", "-n", namespace, access["name"]]
+     if access["container"]:
+         exec_args.extend(["-c", access["container"]])
+@@ -633,14 +665,18 @@
+ 
+     namespace = k8s_gpu_namespace(env=env, runner=runner)
+     if not namespace:
+-        return [], ["no NVIDIA GPU Operator namespace found; cannot reach a driver pod for NIC classification"]
++        return [], [
++            "no NVIDIA GPU Operator namespace found; cannot reach a driver pod for NIC classification"
++        ]
+ 
+     try:
+         max_nodes = int(str(env.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS")))
+     except (TypeError, ValueError):
+         max_nodes = len(nodes)
+ 
+-    return load_fanout().fan_out_k8s(_nic_per_node(namespace, runner=runner), nodes=nodes, max_nodes=max_nodes)
++    return load_fanout().fan_out_k8s(
++        _nic_per_node(namespace, runner=runner), nodes=nodes, max_nodes=max_nodes
++    )
+ 
+ 
+ def build_check_payload(
+@@ -675,8 +711,17 @@
+ 
+ def main(argv: list[str]) -> int:
+     parser = argparse.ArgumentParser(description="NIC topology check")
+-    parser.add_argument("--collect-host", action="store_true", help="emit one host record instead of the aggregate check object")
+-    parser.add_argument("--harness", default=os.environ.get("CLUSTERMAX_AUDIT_HARNESS") or os.environ.get("CLUSTERMAX_HARNESS") or "")
++    parser.add_argument(
++        "--collect-host",
++        action="store_true",
++        help="emit one host record instead of the aggregate check object",
++    )
++    parser.add_argument(
++        "--harness",
++        default=os.environ.get("CLUSTERMAX_AUDIT_HARNESS")
++        or os.environ.get("CLUSTERMAX_HARNESS")
++        or "",
++    )
+     args = parser.parse_args(argv)
+ 
+     if args.collect_host:
+
+--- cmax/scripts/1-audit/checks/fabric/virtio-net-check.py
++++ cmax/scripts/1-audit/checks/fabric/virtio-net-check.py
+@@ -482,9 +482,7 @@
+     *, runner: Runner = subprocess.run, env: dict[str, str] = os.environ
+ ) -> dict[str, Any]:
+     text, error = run_tool(["lspci", "-Dnn"], runner=runner)
+-    return pci_scan_result(
+-        text, error, empty_bus_confirmed=sysfs_pci_bus_empty(env)
+-    )
++    return pci_scan_result(text, error, empty_bus_confirmed=sysfs_pci_bus_empty(env))
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -917,12 +915,8 @@
+         # root caller, or on a container with no sudo, would put a false
+         # statement in evidence an operator pastes into provider feedback.
+         privilege = {
+-            ESCALATION_SUDO: (
+-                "mlxconfig needs root and the sudo -n retry did not answer either"
+-            ),
+-            ESCALATION_UNAVAILABLE: (
+-                "mlxconfig needs root and no sudo is installed to retry with"
+-            ),
++            ESCALATION_SUDO: ("mlxconfig needs root and the sudo -n retry did not answer either"),
++            ESCALATION_UNAVAILABLE: ("mlxconfig needs root and no sudo is installed to retry with"),
+             ESCALATION_ROOT: "mlxconfig ran with root rights and still reported no mode",
+         }.get(str(record.get("modeEscalation")), "mlxconfig needs root")
+         return (
+@@ -958,7 +952,11 @@
+ ) -> dict[str, Any]:
+     pci = collect_pci(runner=runner, env=env)
+     devices = pci["devices"]
+-    mode = collect_mode(devices, runner=runner) if devices else {"mode": "unknown", "values": {}, "error": None}
++    mode = (
++        collect_mode(devices, runner=runner)
++        if devices
++        else {"mode": "unknown", "values": {}, "error": None}
++    )
+     rshim = collect_rshim(mode.get("values") or {}, env=env)
+     version = collect_version(rshim, env=env, runner=runner)
+ 
+@@ -1132,11 +1130,17 @@
+         (record for record in records if record.get("version") == oldest and oldest is not None),
+         None,
+     )
+-    source = str(oldest_record["versionSource"]) if oldest_record and oldest_record.get("versionSource") else None
++    source = (
++        str(oldest_record["versionSource"])
++        if oldest_record and oldest_record.get("versionSource")
++        else None
++    )
+     # Only the line that belongs to the version being reported. A line read off
+     # a different node would grade this version against the wrong minimum.
+     line = str(oldest_record["line"]) if oldest_record and oldest_record.get("line") else None
+-    reasons = sorted({str(record.get("reason") or "") for record in records if record.get("state") == state})
++    reasons = sorted(
++        {str(record.get("reason") or "") for record in records if record.get("state") == state}
++    )
+ 
+     # Cluster mode, worst case first: one node still in DPU mode keeps the
+     # bulletin in scope for the cluster. "absent" is claimed only when every
+@@ -1146,7 +1150,9 @@
+         cluster_mode = "dpu"
+     elif "nic" in modes:
+         cluster_mode = "nic"
+-    elif all(record.get("scanComplete") and not record.get("bluefield3Present") for record in records):
++    elif all(
++        record.get("scanComplete") and not record.get("bluefield3Present") for record in records
++    ):
+         cluster_mode = "absent"
+     else:
+         cluster_mode = None
+@@ -1376,9 +1382,17 @@
+         "--collect-host",
+     ]
+     try:
+-        proc = runner(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=SLURM_TIMEOUT_S)
++        proc = runner(
++            command,
++            stdout=subprocess.PIPE,
++            stderr=subprocess.PIPE,
++            text=True,
++            timeout=SLURM_TIMEOUT_S,
++        )
+     except (OSError, subprocess.TimeoutExpired) as exc:
+-        return [gather(env=env, runner=runner)], [f"srun virtio-net check failed; local host only: {exc}"]
++        return [gather(env=env, runner=runner)], [
++            f"srun virtio-net check failed; local host only: {exc}"
++        ]
+     records = load_fanout().parse_json_lines(proc.stdout, require_host=True)
+     if not records:
+         return [gather(env=env, runner=runner)], [
+@@ -1395,20 +1409,16 @@
+     except (TypeError, ValueError):
+         wanted = len(hosts)
+     if len(hosts) < wanted:
+-        errors.append(
+-            f"srun virtio-net check returned {len(hosts)} of {wanted} host records"
+-        )
++        errors.append(f"srun virtio-net check returned {len(hosts)} of {wanted} host records")
+     if proc.returncode != 0:
+-        errors.append(
+-            f"srun virtio-net check exited {proc.returncode}: {proc.stderr.strip()}"
+-        )
++        errors.append(f"srun virtio-net check exited {proc.returncode}: {proc.stderr.strip()}")
+     return records, errors
+ 
+ 
+ # The driver daemonset image has no python3, so the per-node worker is POSIX sh
+ # emitting tagged lines that this orchestrator parses. It reads only; it never
+ # runs mlxprivhost and never writes to the RShim console.
+-K8S_COLLECTOR_SH = r'''
++K8S_COLLECTOR_SH = r"""
+ if command -v lspci >/dev/null 2>&1; then
+   echo @@LSPCI_BEGIN@@
+   lspci -Dnn 2>/dev/null
+@@ -1433,7 +1443,7 @@
+   virtnet version 2>/dev/null
+   echo @@VIRTNET_END@@
+ fi
+-'''
++"""
+ 
+ 
+ def parse_k8s_collector(text: str) -> dict[str, Any]:
+@@ -1492,7 +1502,9 @@
+         "rshimDeviceNode": "device" in parsed["rshim"],
+         "tmfifoNet0": "tmfifo" in parsed["rshim"],
+         "internalCpuRshim": mode_values.get("INTERNAL_CPU_RSHIM", "unknown"),
+-        "rshimRestricted": {"0": False, "1": True}.get(mode_values.get("INTERNAL_CPU_RSHIM", ""), None),
++        "rshimRestricted": {"0": False, "1": True}.get(
++            mode_values.get("INTERNAL_CPU_RSHIM", ""), None
++        ),
+         "dpuReachedFromHost": None,
+     }
+     version = parse_virtnet_version(parsed["virtnet"])
+@@ -1522,8 +1534,16 @@
+     return record
+ 
+ 
+-def kubectl(args: list[str], *, runner: Runner, timeout: int = KUBECTL_TIMEOUT_S) -> subprocess.CompletedProcess:
+-    return runner(["kubectl", *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
++def kubectl(
++    args: list[str], *, runner: Runner, timeout: int = KUBECTL_TIMEOUT_S
++) -> subprocess.CompletedProcess:
++    return runner(
++        ["kubectl", *args],
++        stdout=subprocess.PIPE,
++        stderr=subprocess.PIPE,
++        text=True,
++        timeout=timeout,
++    )
+ 
+ 
+ def k8s_namespace(*, env: dict[str, str], runner: Runner) -> str | None:
+@@ -1555,7 +1575,16 @@
+ def k8s_driver_pod(namespace: str, node: str, *, runner: Runner) -> dict[str, Any] | None:
+     try:
+         proc = kubectl(
+-            ["get", "pods", "-n", namespace, "--field-selector", f"spec.nodeName={node}", "-o", "json"],
++            [
++                "get",
++                "pods",
++                "-n",
++                namespace,
++                "--field-selector",
++                f"spec.nodeName={node}",
++                "-o",
++                "json",
++            ],
+             runner=runner,
+             timeout=45,
+         )
+@@ -1593,7 +1622,9 @@
+     return {"name": name, "container": container, "hostRoot": host_root}
+ 
+ 
+-def run_k8s_node_check(namespace: str, node: str, *, runner: Runner) -> tuple[dict[str, Any] | None, str | None]:
++def run_k8s_node_check(
++    namespace: str, node: str, *, runner: Runner
++) -> tuple[dict[str, Any] | None, str | None]:
+     access = k8s_driver_pod(namespace, node, runner=runner)
+     if not access:
+         return None, f"{node}: no running nvidia-driver pod for the virtio-net check"
+@@ -1637,7 +1668,9 @@
+         return [], ["no Kubernetes nodes advertise nvidia.com/gpu capacity"]
+     namespace = k8s_namespace(env=env, runner=runner)
+     if not namespace:
+-        return [], ["no NVIDIA GPU Operator namespace found; cannot reach a driver pod for the virtio-net check"]
++        return [], [
++            "no NVIDIA GPU Operator namespace found; cannot reach a driver pod for the virtio-net check"
++        ]
+     try:
+         max_nodes = int(str(env.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS")))
+     except (TypeError, ValueError):
+@@ -1666,7 +1699,10 @@
+         print(f"  WARNING: virtio_net_bluefield: {error}", file=sys.stderr)
+     return {
+         "virtio_net_bluefield": {
+-            "hosts": {str(record.get("host") or f"host-{index}"): record for index, record in enumerate(records)},
++            "hosts": {
++                str(record.get("host") or f"host-{index}"): record
++                for index, record in enumerate(records)
++            },
+             "summary": summary,
+         }
+     }
+@@ -1741,18 +1777,14 @@
+     }
+ 
+ 
+-def load_or_build_payload(
+-    *, harness: str, env: dict[str, str] = os.environ
+-) -> dict[str, Any]:
++def load_or_build_payload(*, harness: str, env: dict[str, str] = os.environ) -> dict[str, Any]:
+     """Reuse this run's full fleet result across collector and final checks."""
+     cache_value = str(env.get(CHECK_CACHE_ENV) or "").strip()
+     cache_path = Path(cache_value) if cache_value else None
+     if cache_path is not None:
+         try:
+             cached = json.loads(cache_path.read_text())
+-            if isinstance(cached, dict) and isinstance(
+-                cached.get("virtio_net_bluefield"), dict
+-            ):
++            if isinstance(cached, dict) and isinstance(cached.get("virtio_net_bluefield"), dict):
+                 return cached
+         except (OSError, json.JSONDecodeError):
+             pass
+@@ -1770,15 +1802,19 @@
+ 
+ def main(argv: list[str]) -> int:
+     parser = argparse.ArgumentParser(description="BlueField VIRTIO-Net controller check")
+-    parser.add_argument("--collect-host", action="store_true", help="emit one host record instead of the aggregate")
+     parser.add_argument(
++        "--collect-host", action="store_true", help="emit one host record instead of the aggregate"
++    )
++    parser.add_argument(
+         "--summary",
+         action="store_true",
+         help="emit only the collector-facing rollup (virtioNet / virtioNetLine)",
+     )
+     parser.add_argument(
+         "--harness",
+-        default=os.environ.get("CLUSTERMAX_AUDIT_HARNESS") or os.environ.get("CLUSTERMAX_HARNESS") or "",
++        default=os.environ.get("CLUSTERMAX_AUDIT_HARNESS")
++        or os.environ.get("CLUSTERMAX_HARNESS")
++        or "",
+     )
+     args = parser.parse_args(argv)
+ 
+
+--- cmax/scripts/1-audit/checks/gpu/vboost.py
++++ cmax/scripts/1-audit/checks/gpu/vboost.py
+@@ -50,6 +50,7 @@
+     if _FANOUT is None:
+         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+         import _fanout
++
+         _FANOUT = _fanout
+     return _FANOUT
+ 
+@@ -73,7 +74,9 @@
+     return bool(_VBOOST_UNSUPPORTED_GPU_RE.search(model))
+ 
+ 
+-def vboost_command(which: Which = shutil.which, euid: Callable[[], int] = os.geteuid) -> tuple[list[str] | None, str]:
++def vboost_command(
++    which: Which = shutil.which, euid: Callable[[], int] = os.geteuid
++) -> tuple[list[str] | None, str]:
+     nvidia_smi = which("nvidia-smi")
+     if not nvidia_smi:
+         return None, "nvidia_smi_missing"
+@@ -234,7 +237,16 @@
+ def k8s_driver_pod(namespace: str, node: str, *, runner: Runner) -> str | None:
+     try:
+         proc = kubectl(
+-            ["get", "pods", "-n", namespace, "--field-selector", f"spec.nodeName={node}", "-o", "json"],
++            [
++                "get",
++                "pods",
++                "-n",
++                namespace,
++                "--field-selector",
++                f"spec.nodeName={node}",
++                "-o",
++                "json",
++            ],
+             runner=runner,
+             timeout=45,
+         )
+@@ -261,7 +273,9 @@
+     return min(candidates)[1] if candidates else None
+ 
+ 
+-def k8s_vboost_node(namespace: str, node: str, *, runner: Runner) -> tuple[dict[str, Any] | None, str | None]:
++def k8s_vboost_node(
++    namespace: str, node: str, *, runner: Runner
++) -> tuple[dict[str, Any] | None, str | None]:
+     """Try to set vboost from inside the node's nvidia-driver daemonset pod.
+ 
+     The driver pod runs privileged with nvidia-smi on PATH, so this exercises
+@@ -327,7 +341,9 @@
+ 
+     namespace = k8s_gpu_namespace(env=env, runner=runner)
+     if not namespace:
+-        return [], ["no NVIDIA GPU Operator namespace found; cannot reach a driver pod to test vboost"]
++        return [], [
++            "no NVIDIA GPU Operator namespace found; cannot reach a driver pod to test vboost"
++        ]
+ 
+     try:
+         max_nodes = int(str(env.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS")))
+@@ -429,7 +445,9 @@
+         print(json.dumps(local_vboost_result(), sort_keys=True))
+         return 0
+ 
+-    harness = os.environ.get("CLUSTERMAX_AUDIT_HARNESS") or os.environ.get("CLUSTERMAX_HARNESS") or ""
++    harness = (
++        os.environ.get("CLUSTERMAX_AUDIT_HARNESS") or os.environ.get("CLUSTERMAX_HARNESS") or ""
++    )
+     print(json.dumps(build_check_payload(harness=harness), sort_keys=True))
+     return 0
+ 
+
+--- cmax/scripts/1-audit/checks/platform_config.py
++++ cmax/scripts/1-audit/checks/platform_config.py
+@@ -412,7 +412,10 @@
+ 
+ 
+ def iommu_disabled_requested(params: dict[str, str]) -> bool:
+-    return any(params.get(key, "").lower() in {"off", "disabled"} for key in ("iommu", "intel_iommu", "amd_iommu"))
++    return any(
++        params.get(key, "").lower() in {"off", "disabled"}
++        for key in ("iommu", "intel_iommu", "amd_iommu")
++    )
+ 
+ 
+ def classify_iommu_mode(
+@@ -464,7 +467,9 @@
+     return "other"
+ 
+ 
+-def collect_pci_devices(root: Path, *, include_rdma: bool = True) -> tuple[list[dict[str, Any]], bool]:
++def collect_pci_devices(
++    root: Path, *, include_rdma: bool = True
++) -> tuple[list[dict[str, Any]], bool]:
+     """Selected GPU and RDMA NIC PCI functions with their IOMMU group.
+ 
+     ``iommu_group`` is a symlink into ``/sys/kernel/iommu_groups/<n>``; an empty
+@@ -660,7 +665,8 @@
+                 sorted(
+                     entry.name
+                     for entry in under_root(root, path).iterdir()
+-                    if entry.is_symlink() and not entry.name.startswith(("bind", "uevent", "unbind", "module"))
++                    if entry.is_symlink()
++                    and not entry.name.startswith(("bind", "uevent", "unbind", "module"))
+                 )
+             )
+         except OSError:
+@@ -670,7 +676,11 @@
+     devicetree = devicetree_has_cmdqv(root)
+     # Anything that names the CMDQV driver or node is itself proof of Grace, so
+     # the platform markers only have to answer for a host that exposes neither.
+-    grace = bool(driver_dirs or bound_devices or devicetree) or devicetree_names_grace(root) or dmi_names_grace(root)
++    grace = (
++        bool(driver_dirs or bound_devices or devicetree)
++        or devicetree_names_grace(root)
++        or dmi_names_grace(root)
++    )
+ 
+     return {
+         "machine": machine,
+@@ -738,7 +748,9 @@
+                 "Arm virtual machine guest uses SMMUv3 without CMDQV / VCMDQ; "
+                 "guest invalidations serialize through one host command queue"
+             ),
+-            warnings=[f"SMMUv3 unit(s) {', '.join(smmu.get('smmuv3_units') or [])} with no tegra241-cmdqv evidence"],
++            warnings=[
++                f"SMMUv3 unit(s) {', '.join(smmu.get('smmuv3_units') or [])} with no tegra241-cmdqv evidence"
++            ],
+             evidence=evidence,
+         )
+     return summary(
+@@ -769,7 +781,12 @@
+     """Enroot files that could bind-mount the topology file into the container."""
+     paths: list[str] = []
+     mentions_topology: list[str] = []
+-    for relative in ("/etc/enroot/enroot.conf", "/etc/enroot/enroot.conf.d", "/etc/enroot/hooks.d", "/etc/enroot/mounts.d"):
++    for relative in (
++        "/etc/enroot/enroot.conf",
++        "/etc/enroot/enroot.conf.d",
++        "/etc/enroot/hooks.d",
++        "/etc/enroot/mounts.d",
++    ):
+         entry = under_root(root, relative)
+         # pathlib's recursive glob swallows PermissionError, but not the rest of
+         # OSError, and neither do exists() and is_dir(). This scan runs before
+@@ -828,7 +845,9 @@
+         "devices": devices,
+         "sysfs_read": sysfs_read,
+         "link_layers": unique_layers,
+-        "fabric": unique_layers[0] if len(unique_layers) == 1 else ("mixed" if unique_layers else "none"),
++        "fabric": unique_layers[0]
++        if len(unique_layers) == 1
++        else ("mixed" if unique_layers else "none"),
+     }
+ 
+ 
+@@ -847,7 +866,9 @@
+     # ``is not False`` keeps an entry the stat could not answer for. Dropping it
+     # would let an unreadable entry stand for an absent file, which is the
+     # asserted absence this check must never make.
+-    return [f"{TOPO_FILE_GLOB_DIR}/{entry.name}" for entry in entries if file_state(entry) is not False]
++    return [
++        f"{TOPO_FILE_GLOB_DIR}/{entry.name}" for entry in entries if file_state(entry) is not False
++    ]
+ 
+ 
+ def describe_topo_file(path: Path) -> dict[str, Any]:
+@@ -916,7 +937,9 @@
+         "topo_file_conf": conf_topo,
+         "topo_file_declared": declared,
+         "topo_files_readable": readable,
+-        "topo_file_evidence": {path: describe_topo_file(under_root(root, path)) for path in readable},
++        "topo_file_evidence": {
++            path: describe_topo_file(under_root(root, path)) for path in readable
++        },
+         "topo_candidates_unreachable": unreachable,
+         "declared_topo_file_readable": bool(declared) and declared in readable,
+         "nccl_conf_present": bool(conf_text),
+@@ -978,7 +1001,7 @@
+     conf = safe_candidates([conf_path])
+     loop = ""
+     if quoted:
+-        loop = f"for candidate in {quoted}; do\n" '  report "$candidate"\n' "done\n"
++        loop = f'for candidate in {quoted}; do\n  report "$candidate"\ndone\n'
+     # NCCL reads /etc/nccl.conf as well as the environment, so a container that
+     # ships the conf resolves the topology file with no variable set. The sed
+     # pair strips a trailing comment, surrounding whitespace, and one balanced
+@@ -1100,7 +1123,9 @@
+     )
+ 
+ 
+-def run_container_check(*, harness: str, env: dict[str, str], candidates: list[str], runner=run_command) -> dict[str, Any]:
++def run_container_check(
++    *, harness: str, env: dict[str, str], candidates: list[str], runner=run_command
++) -> dict[str, Any]:
+     """Read NCCL_TOPO_FILE from inside a container started by the same launcher.
+ 
+     Only slurm/pyxis gives the audit a container that the site's own launcher
+@@ -1192,7 +1217,12 @@
+             "stderr": stderr,
+             **attestation,
+         }
+-    return {"available": True, "stdout": (proc.stdout or "").strip()[:8000], **attestation, **parsed}
++    return {
++        "available": True,
++        "stdout": (proc.stdout or "").strip()[:8000],
++        **attestation,
++        **parsed,
++    }
+ 
+ 
+ def vantage_is_local_only(reports: list[dict[str, Any]]) -> bool:
+@@ -1216,10 +1246,20 @@
+     errors: list[str],
+ ) -> dict[str, Any]:
+     hosts = [report.get("nccl", {}) for report in reports]
+-    declared = next((host.get("topo_file_declared") for host in hosts if host.get("topo_file_declared")), "")
++    declared = next(
++        (host.get("topo_file_declared") for host in hosts if host.get("topo_file_declared")), ""
++    )
+     host_env = next((host.get("topo_file_env") for host in hosts if host.get("topo_file_env")), "")
+-    host_files = sorted({path for host in hosts for path in (host.get("topo_files_readable") or [])})
+-    enroot_hooks = sorted({path for host in hosts for path in (host.get("enroot", {}).get("files_mentioning_topology") or [])})
++    host_files = sorted(
++        {path for host in hosts for path in (host.get("topo_files_readable") or [])}
++    )
++    enroot_hooks = sorted(
++        {
++            path
++            for host in hosts
++            for path in (host.get("enroot", {}).get("files_mentioning_topology") or [])
++        }
++    )
+     host_evidence: dict[str, Any] = {}
+     for host in hosts:
+         host_evidence.update(host.get("topo_file_evidence") or {})
+@@ -1251,7 +1291,9 @@
+         # A declaration is not a file. A stale NCCL_TOPO_FILE or nccl.conf entry
+         # pointing at a path that holds nothing leaves nothing to mount, so the
+         # check has no subject and must not hard-fail on a missing mount.
+-        unreachable = sorted({path for host in hosts for path in (host.get("topo_candidates_unreachable") or [])})
++        unreachable = sorted(
++            {path for host in hosts for path in (host.get("topo_candidates_unreachable") or [])}
++        )
+         if unreachable:
+             # A path the vantage cannot reach is not a path with no file on it.
+             detail["unreachable_topo_candidates"] = unreachable
+@@ -1346,7 +1388,9 @@
+         if seen.get("size") == 0:
+             failures.append(f"container resolves {container_declared} but the file is empty")
+         if seen.get("xml") == "bad":
+-            failures.append(f"container resolves {container_declared} but its contents do not parse as XML")
++            failures.append(
++                f"container resolves {container_declared} but its contents do not parse as XML"
++            )
+         # A topology file describes the node it was generated for, so two nodes
+         # legitimately publish different content at the same path. The container
+         # runs on one node of the allocation and these reports cover the
+@@ -1359,14 +1403,21 @@
+         host_digests: set[str] = set()
+         host_missing_digest = False
+         for host in hosts:
+-            digest = ((host.get("topo_file_evidence") or {}).get(container_declared) or {}).get("sha256")
++            digest = ((host.get("topo_file_evidence") or {}).get(container_declared) or {}).get(
++                "sha256"
++            )
+             if digest:
+                 host_digests.add(digest)
+             else:
+                 host_missing_digest = True
+         detail["host_topo_file_digests"] = sorted(host_digests)
+         container_digest = seen.get("sha256")
+-        if container_digest and host_digests and not host_missing_digest and container_digest not in host_digests:
++        if (
++            container_digest
++            and host_digests
++            and not host_missing_digest
++            and container_digest not in host_digests
++        ):
+             failures.append(
+                 f"container resolves {container_declared} but its contents match no checked host's file at that "
+                 "path; the container sees a stale or shadowed topology file"
+@@ -1384,7 +1435,9 @@
+     return detail
+ 
+ 
+-def classify_fabric_shape(*, fabric_tiers: int, node_count: int, clos_node_threshold: int) -> tuple[bool | None, str]:
++def classify_fabric_shape(
++    *, fabric_tiers: int, node_count: int, clos_node_threshold: int
++) -> tuple[bool | None, str]:
+     """Whether the fabric has a spine tier, and the evidence that decided it.
+ 
+     An exact tier count wins. Without one the GPU node count stands in, because
+@@ -1412,11 +1465,15 @@
+     errors: list[str],
+ ) -> dict[str, Any]:
+     hosts = [report.get("nccl", {}) for report in reports]
+-    qps_values = sorted({as_int(host.get("qps_per_connection"), DEFAULT_QPS_PER_CONNECTION) for host in hosts})
++    qps_values = sorted(
++        {as_int(host.get("qps_per_connection"), DEFAULT_QPS_PER_CONNECTION) for host in hosts}
++    )
+     qps = qps_values[0] if qps_values else DEFAULT_QPS_PER_CONNECTION
+     source = next((host.get("qps_source") for host in hosts if host.get("qps_source")), "default")
+     fabrics = sorted({str(host.get("rdma", {}).get("fabric") or "none") for host in hosts})
+-    rdma_devices = sorted({device for host in hosts for device in (host.get("rdma", {}).get("devices") or [])})
++    rdma_devices = sorted(
++        {device for host in hosts for device in (host.get("rdma", {}).get("devices") or [])}
++    )
+     # "No host has an RDMA device" is a claim about every host, so one host that
+     # could not be read withdraws it. A sibling that read a clean empty class
+     # says nothing about the host nobody could read.
+@@ -1600,7 +1657,10 @@
+     the hosts that were read actually have, and every per-host status stays
+     visible under ``hosts``.
+     """
+-    statuses = [str(report.get("summaries", {}).get(key, {}).get("status") or "unknown") for report in reports]
++    statuses = [
++        str(report.get("summaries", {}).get(key, {}).get("status") or "unknown")
++        for report in reports
++    ]
+     if "fail" in statuses:
+         status = "fail"
+     elif "warning" in statuses:
+@@ -1673,7 +1733,9 @@
+                     status="unknown",
+                     message="only a stand-in host was checked; the platform of the compute nodes was not read",
+                 )
+-    payload["nccl_topo_file"] = summarize_nccl_topo_file(reports=reports, container=container, errors=errors)
++    payload["nccl_topo_file"] = summarize_nccl_topo_file(
++        reports=reports, container=container, errors=errors
++    )
+     payload["nccl_ib_qps"] = summarize_nccl_ib_qps(
+         reports=reports,
+         node_count=node_count,
+@@ -1865,7 +1927,9 @@
+     reports: list[dict[str, Any]] = []
+     errors: list[str] = []
+     if proc.returncode != 0:
+-        errors.append(f"srun host check exited {proc.returncode}; parsing any completed host output")
++        errors.append(
++            f"srun host check exited {proc.returncode}; parsing any completed host output"
++        )
+     for value in load_fanout().parse_json_lines(proc.stdout, require_host=True):
+         reports.append(value)
+     if proc.stderr and (proc.returncode != 0 or not reports):
+@@ -1905,7 +1969,9 @@
+                 {
+                     "name": "check",
+                     "image": image,
+-                    "imagePullPolicy": os.environ.get("CLUSTERMAX_AUDIT_K8S_HOST_CHECK_PULL_POLICY", "IfNotPresent"),
++                    "imagePullPolicy": os.environ.get(
++                        "CLUSTERMAX_AUDIT_K8S_HOST_CHECK_PULL_POLICY", "IfNotPresent"
++                    ),
+                     "command": ["sh", "-c", "sleep 600"],
+                     "env": [{"name": "NODE_NAME", "value": node["name"]}],
+                     "securityContext": {"privileged": True, "runAsUser": 0},
+@@ -1944,14 +2010,20 @@
+     try:
+         apply_proc = kubectl(["apply", "-f", "-"], timeout=45, input_text=manifest)
+         if apply_proc.returncode != 0:
+-            return None, f"{node['name']}: failed to create host check pod: {apply_proc.stderr.strip()}"
++            return (
++                None,
++                f"{node['name']}: failed to create host check pod: {apply_proc.stderr.strip()}",
++            )
+ 
+         wait_proc = kubectl(
+             ["wait", f"pod/{pod_name}", "-n", namespace, "--for=condition=Ready", "--timeout=90s"],
+             timeout=100,
+         )
+         if wait_proc.returncode != 0:
+-            return None, f"{node['name']}: host check pod did not become Ready: {wait_proc.stderr.strip()}"
++            return (
++                None,
++                f"{node['name']}: host check pod did not become Ready: {wait_proc.stderr.strip()}",
++            )
+ 
+         check_args = [
+             "exec",
+@@ -1991,7 +2063,18 @@
+         return None, f"{node['name']}: host check failed: {exc}"
+     finally:
+         try:
+-            kubectl(["delete", "pod", pod_name, "-n", namespace, "--ignore-not-found=true", "--wait=false"], timeout=20)
++            kubectl(
++                [
++                    "delete",
++                    "pod",
++                    pod_name,
++                    "-n",
++                    namespace,
++                    "--ignore-not-found=true",
++                    "--wait=false",
++                ],
++                timeout=20,
++            )
+         except (OSError, subprocess.SubprocessError):
+             pass
+ 
+@@ -2035,18 +2118,12 @@
+     )
+ 
+ 
+-def run_default_check(
+-    harness: str, requested_keys: set[str] | None = None
+-) -> dict[str, Any]:
++def run_default_check(harness: str, requested_keys: set[str] | None = None) -> dict[str, Any]:
+     requested = set(ALL_CHECK_KEYS if requested_keys is None else requested_keys)
+     unknown = requested.difference(ALL_CHECK_KEYS)
+     if unknown:
+-        raise ValueError(
+-            f"unknown platform configuration check(s): {', '.join(sorted(unknown))}"
+-        )
+-    include_scale_out = bool(
+-        requested.intersection({"nccl_topo_file", "nccl_ib_qps"})
+-    )
++        raise ValueError(f"unknown platform configuration check(s): {', '.join(sorted(unknown))}")
++    include_scale_out = bool(requested.intersection({"nccl_topo_file", "nccl_ib_qps"}))
+     include_rdma_iommu = "vm_iommu" in requested and harness != "standalone"
+     errors: list[str] = []
+     node_count = 1
+@@ -2093,7 +2170,10 @@
+             )
+             report["check_scope"] = "local"
+             reports = [report]
+-            errors = [*discovery_errors, "no GPU node was checked; the local host was checked instead"]
++            errors = [
++                *discovery_errors,
++                "no GPU node was checked; the local host was checked instead",
++            ]
+     else:
+         reports = [
+             collect_host(
+@@ -2107,15 +2187,17 @@
+     # Only a file a host actually holds gives the container arm a subject. A
+     # declaration pointing at nothing grades not_applicable whatever the
+     # container says, so it must not start one.
+-    host_topo_files = sorted(
+-        {
+-            path
+-            for report in reports
+-            for path in (
+-                report.get("nccl", {}).get("topo_files_readable") or []
+-            )
+-        }
+-    ) if "nccl_topo_file" in requested else []
++    host_topo_files = (
++        sorted(
++            {
++                path
++                for report in reports
++                for path in (report.get("nccl", {}).get("topo_files_readable") or [])
++            }
++        )
++        if "nccl_topo_file" in requested
++        else []
++    )
+     topo_candidates = sorted(
+         {
+             path
+@@ -2142,7 +2224,9 @@
+             "reason_code": "no_host_topo_file",
+             "reason": "no readable NCCL topology file on the checked hosts; the container check was skipped",
+         }
+-    threshold = as_int(os.environ.get("CLUSTERMAX_AUDIT_CLOS_NODE_THRESHOLD"), default=DEFAULT_CLOS_NODE_THRESHOLD)
++    threshold = as_int(
++        os.environ.get("CLUSTERMAX_AUDIT_CLOS_NODE_THRESHOLD"), default=DEFAULT_CLOS_NODE_THRESHOLD
++    )
+     payload = build_payload(
+         reports=reports,
+         errors=errors,
+@@ -2181,11 +2265,9 @@
+ 
+     if payload is None:
+         requested_value = os.environ.get(REQUESTED_CHECKS_ENV, "")
+-        requested = {
+-            key.strip()
+-            for key in requested_value.split(",")
+-            if key.strip()
+-        } or {check_key}
++        requested = {key.strip() for key in requested_value.split(",") if key.strip()} or {
++            check_key
++        }
+         payload = run_default_check(harness, requested)
+         if cache_path is not None:
+             cache_path.parent.mkdir(parents=True, exist_ok=True)
+@@ -2201,10 +2283,16 @@
+ 
+ def main(argv: list[str]) -> int:
+     parser = argparse.ArgumentParser(description="Shared platform configuration collection")
+-    parser.add_argument("--collect-host", action="store_true", help="emit one host report instead of aggregate check JSON")
++    parser.add_argument(
++        "--collect-host",
++        action="store_true",
++        help="emit one host report instead of aggregate check JSON",
++    )
+     parser.add_argument("--root", default="/", help="host root path for proc/sys/etc reads")
+-    parser.add_argument("--harness", default=os.environ.get("CLUSTERMAX_AUDIT_HARNESS", "standalone"))
+     parser.add_argument(
++        "--harness", default=os.environ.get("CLUSTERMAX_AUDIT_HARNESS", "standalone")
++    )
++    parser.add_argument(
+         "--skip-scale-out",
+         action="store_true",
+         help="omit NCCL and RDMA host collection",
+
+--- cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py
++++ cmax/scripts/1-audit/checks/system/hbm_memory_exposure.py
+@@ -62,6 +62,7 @@
+     if _FANOUT is None:
+         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+         import _fanout
++
+         _FANOUT = _fanout
+     return _FANOUT
+ 
+@@ -142,7 +143,9 @@
+     return gpus
+ 
+ 
+-def run_command(command: list[str], *, timeout: int = 30, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
++def run_command(
++    command: list[str], *, timeout: int = 30, input_text: str | None = None
++) -> subprocess.CompletedProcess[str]:
+     return subprocess.run(
+         command,
+         input=input_text,
+@@ -332,14 +335,18 @@
+         )
+ 
+     if coherent_candidate and cdmm_mode != "driver":
+-        msg = f"coherent GPU platform is not in CDMM driver mode (CoherentGPUMemoryMode={cdmm_mode})"
++        msg = (
++            f"coherent GPU platform is not in CDMM driver mode (CoherentGPUMemoryMode={cdmm_mode})"
++        )
+         if harness == "k8s":
+             failures.append(msg)
+         else:
+             warnings.append(msg)
+ 
+     if report.get("memory_only_numa_nodes") and not hbm_nodes:
+-        warnings.append("host has memory-only NUMA node(s), but they were not classified as GPU HBM")
++        warnings.append(
++            "host has memory-only NUMA node(s), but they were not classified as GPU HBM"
++        )
+ 
+     status = "pass"
+     if failures:
+@@ -407,18 +414,25 @@
+     gpu_memory_mb_hint: int = 0,
+     gpu_count_hint: int = 0,
+ ) -> dict[str, Any]:
+-    hostname = os.environ.get("NODE_NAME") or read_text(under_root(root, "/proc/sys/kernel/hostname")).strip()
++    hostname = (
++        os.environ.get("NODE_NAME")
++        or read_text(under_root(root, "/proc/sys/kernel/hostname")).strip()
++    )
+     if not hostname:
+         hostname = socket.gethostname()
+ 
+     smi_gpus = query_nvidia_smi() if root == Path("/") else []
+     proc_gpus = parse_gpu_information(root)
+-    gpu_models = [str(gpu.get("model") or gpu.get("model_name") or "") for gpu in smi_gpus + proc_gpus]
++    gpu_models = [
++        str(gpu.get("model") or gpu.get("model_name") or "") for gpu in smi_gpus + proc_gpus
++    ]
+     if gpu_model_hint:
+         gpu_models.append(gpu_model_hint)
+     gpu_models = sorted({model for model in gpu_models if model})
+ 
+-    gpu_memories = [as_int(gpu.get("memory_mb")) for gpu in smi_gpus if as_int(gpu.get("memory_mb")) > 0]
++    gpu_memories = [
++        as_int(gpu.get("memory_mb")) for gpu in smi_gpus if as_int(gpu.get("memory_mb")) > 0
++    ]
+     if gpu_memory_mb_hint > 0:
+         gpu_memories.append(gpu_memory_mb_hint)
+     gpu_memory_mb = max(gpu_memories) if gpu_memories else 0
+@@ -433,7 +447,9 @@
+     )
+ 
+     meminfo_total_kb = parse_memtotal_kb(read_text(under_root(root, "/proc/meminfo")))
+-    cpu_numa_mem_kb = sum(as_int(node.get("mem_total_kb")) for node in numa_nodes if node.get("has_cpus"))
++    cpu_numa_mem_kb = sum(
++        as_int(node.get("mem_total_kb")) for node in numa_nodes if node.get("has_cpus")
++    )
+     memory_only_mem_kb = sum(as_int(node.get("mem_total_kb")) for node in memory_only_nodes)
+     hbm_like_mem_kb = sum(as_int(node.get("mem_total_kb")) for node in hbm_like_nodes)
+     node_mem_total_kb = sum(as_int(node.get("mem_total_kb")) for node in numa_nodes)
+@@ -461,10 +477,12 @@
+             "node_memory_total_kb": node_mem_total_kb,
+             "meminfo_matches_node_total": (
+                 node_mem_total_kb > 0
+-                and abs(meminfo_total_kb - node_mem_total_kb) <= max(int(node_mem_total_kb * 0.02), GIB_KB)
++                and abs(meminfo_total_kb - node_mem_total_kb)
++                <= max(int(node_mem_total_kb * 0.02), GIB_KB)
+             ),
+             "meminfo_includes_hbm_like_memory": (
+-                hbm_like_mem_kb > 0 and meminfo_total_kb >= cpu_numa_mem_kb + int(hbm_like_mem_kb * 0.8)
++                hbm_like_mem_kb > 0
++                and meminfo_total_kb >= cpu_numa_mem_kb + int(hbm_like_mem_kb * 0.8)
+             ),
+         },
+         "memory_only_numa_nodes": memory_only_nodes,
+@@ -531,7 +549,9 @@
+         "failures": failures,
+         "warnings": warnings,
+         "hosts_checked": len(reports),
+-        "hosts": {str(report.get("host") or f"host-{idx}"): report for idx, report in enumerate(reports)},
++        "hosts": {
++            str(report.get("host") or f"host-{idx}"): report for idx, report in enumerate(reports)
++        },
+     }
+ 
+ 
+@@ -591,7 +611,9 @@
+     reports: list[dict[str, Any]] = []
+     errors: list[str] = []
+     if proc.returncode != 0:
+-        errors.append(f"srun host check exited {proc.returncode}; parsing any completed host output")
++        errors.append(
++            f"srun host check exited {proc.returncode}; parsing any completed host output"
++        )
+ 
+     for line in proc.stdout.splitlines():
+         line = line.strip()
+@@ -621,7 +643,9 @@
+     return reports, errors
+ 
+ 
+-def kubectl(command: list[str], *, timeout: int = 60, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
++def kubectl(
++    command: list[str], *, timeout: int = 60, input_text: str | None = None
++) -> subprocess.CompletedProcess[str]:
+     return run_command(["kubectl", *command], timeout=timeout, input_text=input_text)
+ 
+ 
+@@ -652,14 +676,20 @@
+                 {
+                     "name": "check",
+                     "image": image,
+-                    "imagePullPolicy": os.environ.get("CLUSTERMAX_AUDIT_K8S_HOST_CHECK_PULL_POLICY", "IfNotPresent"),
++                    "imagePullPolicy": os.environ.get(
++                        "CLUSTERMAX_AUDIT_K8S_HOST_CHECK_PULL_POLICY", "IfNotPresent"
++                    ),
+                     "command": ["sh", "-c", "sleep 600"],
+                     "env": _k8s_check_env(node),
+                     "securityContext": {"privileged": True, "runAsUser": 0},
+                     "volumeMounts": [
+                         {"name": "host-proc", "mountPath": "/host/proc", "readOnly": True},
+                         {"name": "host-sys", "mountPath": "/host/sys", "readOnly": True},
+-                        {"name": "host-kubelet", "mountPath": "/host/var/lib/kubelet", "readOnly": True},
++                        {
++                            "name": "host-kubelet",
++                            "mountPath": "/host/var/lib/kubelet",
++                            "readOnly": True,
++                        },
+                     ],
+                 }
+             ],
+@@ -672,24 +702,46 @@
+     }
+ 
+ 
+-def run_k8s_host_check(namespace: str, node: dict[str, Any], image: str) -> tuple[dict[str, Any] | None, str | None]:
++def run_k8s_host_check(
++    namespace: str, node: dict[str, Any], image: str
++) -> tuple[dict[str, Any] | None, str | None]:
+     suffix = uuid.uuid4().hex[:8]
+     pod_name = f"clustermax-hbm-{suffix}"
+     manifest = json.dumps(pod_manifest(namespace, node, image, pod_name))
+     try:
+         apply_proc = kubectl(["apply", "-f", "-"], timeout=45, input_text=manifest)
+         if apply_proc.returncode != 0:
+-            return None, f"{node['name']}: failed to create host check pod: {apply_proc.stderr.strip()}"
++            return (
++                None,
++                f"{node['name']}: failed to create host check pod: {apply_proc.stderr.strip()}",
++            )
+ 
+         wait_proc = kubectl(
+             ["wait", f"pod/{pod_name}", "-n", namespace, "--for=condition=Ready", "--timeout=90s"],
+             timeout=100,
+         )
+         if wait_proc.returncode != 0:
+-            return None, f"{node['name']}: host check pod did not become Ready: {wait_proc.stderr.strip()}"
++            return (
++                None,
++                f"{node['name']}: host check pod did not become Ready: {wait_proc.stderr.strip()}",
++            )
+ 
+         exec_proc = kubectl(
+-            ["exec", "-i", "-n", namespace, pod_name, "--", "python3", "-", "--collect-host", "--root", "/host", "--harness", "k8s"],
++            [
++                "exec",
++                "-i",
++                "-n",
++                namespace,
++                pod_name,
++                "--",
++                "python3",
++                "-",
++                "--collect-host",
++                "--root",
++                "/host",
++                "--harness",
++                "k8s",
++            ],
+             timeout=60,
+             input_text=Path(__file__).read_text(),
+         )
+@@ -707,7 +759,18 @@
+         return None, f"{node['name']}: host check failed: {exc}"
+     finally:
+         try:
+-            kubectl(["delete", "pod", pod_name, "-n", namespace, "--ignore-not-found=true", "--wait=false"], timeout=20)
++            kubectl(
++                [
++                    "delete",
++                    "pod",
++                    pod_name,
++                    "-n",
++                    namespace,
++                    "--ignore-not-found=true",
++                    "--wait=false",
++                ],
++                timeout=20,
++            )
+         except Exception:
+             pass
+ 
+@@ -737,7 +800,9 @@
+     namespace = os.environ.get("CLUSTERMAX_AUDIT_K8S_NAMESPACE", "default")
+     image = os.environ.get("CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE", "python:3.12-alpine")
+     max_nodes = as_int(os.environ.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS"), default=len(nodes))
+-    return load_fanout().fan_out_k8s(_hbm_per_node(namespace, image), nodes=nodes, max_nodes=max_nodes)
++    return load_fanout().fan_out_k8s(
++        _hbm_per_node(namespace, image), nodes=nodes, max_nodes=max_nodes
++    )
+ 
+ 
+ def run_default_check(harness: str) -> dict[str, Any]:
+@@ -752,17 +817,21 @@
+         "hbm_memory_exposure": aggregate_reports(reports, errors),
+     }
+     if harness == "k8s":
+-        result["kubelet_cpu_manager_policy"] = aggregate_cpu_manager_reports(
+-            reports, errors
+-        )
++        result["kubelet_cpu_manager_policy"] = aggregate_cpu_manager_reports(reports, errors)
+     return result
+ 
+ 
+ def main(argv: list[str]) -> int:
+     parser = argparse.ArgumentParser(description=__doc__)
+-    parser.add_argument("--collect-host", action="store_true", help="emit one host report instead of aggregate check JSON")
++    parser.add_argument(
++        "--collect-host",
++        action="store_true",
++        help="emit one host report instead of aggregate check JSON",
++    )
+     parser.add_argument("--root", default="/", help="host root path for proc/sys/kubelet reads")
+-    parser.add_argument("--harness", default=os.environ.get("CLUSTERMAX_AUDIT_HARNESS", "standalone"))
++    parser.add_argument(
++        "--harness", default=os.environ.get("CLUSTERMAX_AUDIT_HARNESS", "standalone")
++    )
+     args = parser.parse_args(argv)
+ 
+     if args.collect_host:
+
+--- cmax/scripts/1-audit/merge_audit.py
++++ cmax/scripts/1-audit/merge_audit.py
+@@ -291,16 +291,16 @@
+     # --- GDRCopy (library present + gdrdrv module) ---
+     gdr_lib = check.get("WORKER_GDRCOPY_LIB")
+     gdrdrv_loaded = (
+-        _truthy(check.get("WORKER_GDRCOPY_GDRDRV"))
+-        if "WORKER_GDRCOPY_GDRDRV" in check
+-        else None
++        _truthy(check.get("WORKER_GDRCOPY_GDRDRV")) if "WORKER_GDRCOPY_GDRDRV" in check else None
+     )
+     if gdr_lib is not None or gdrdrv_loaded is not None:
+         gdrcopy = _ensure_dict(gpus, "gdrcopy")
+-        lib_present = (
+-            gdr_lib is not None
+-            and str(gdr_lib).strip().lower() not in {"", "not-found", "none", "unknown"}
+-        )
++        lib_present = gdr_lib is not None and str(gdr_lib).strip().lower() not in {
++            "",
++            "not-found",
++            "none",
++            "unknown",
++        }
+         # The libgdrapi file lives in the node image; on k8s the check can run in
+         # a container whose root lacks it even though gdrdrv is loaded on the
+         # host. The gdrdrv kernel module is host-global (/proc/modules is not
+@@ -379,9 +379,7 @@
+         for check_key, canonical_key in _MEM_KEY_MAP:
+             if check_key in check:
+                 _set_default(memory, canonical_key, str(check.get(check_key)))
+-        _set_default(
+-            memory, "source", str(check.get("WORKER_MEM_SOURCE", "unknown"))
+-        )
++        _set_default(memory, "source", str(check.get("WORKER_MEM_SOURCE", "unknown")))
+ 
+     # --- BMC / IPMI exposure (mirror the slurm security.bmcIpmi fold) ---
+     user_access = check.get("WORKER_IPMI_USER_ACCESS")
+@@ -431,7 +429,9 @@
+             if "jobAttribution" in gme:
+                 _set_default(stack, "gpuMetricsJobAttribution", _truthy(gme.get("jobAttribution")))
+             if gme.get("jobAttributionMethod"):
+-                _set_default(stack, "gpuMetricsJobAttributionMethod", gme.get("jobAttributionMethod"))
++                _set_default(
++                    stack, "gpuMetricsJobAttributionMethod", gme.get("jobAttributionMethod")
++                )
+             if "amdDeviceMetricsExporter" in gme:
+                 amd_exp = gme.get("amdDeviceMetricsExporter")
+         if isinstance(comps, dict):
+@@ -440,7 +440,9 @@
+             if amd_exp is None and "amdDeviceMetricsExporter" in comps:
+                 amd_exp = comps.get("amdDeviceMetricsExporter")
+             if "nodeProblemDetector" in comps:
+-                _set_default(stack, "nodeProblemDetector", _truthy(comps.get("nodeProblemDetector")))
++                _set_default(
++                    stack, "nodeProblemDetector", _truthy(comps.get("nodeProblemDetector"))
++                )
+         if amd_exp is not None:
+             _set_default(stack, "amdDeviceMetricsExporter", _truthy(amd_exp))
+ 
+@@ -454,7 +456,9 @@
+         lmod["installed"] = bool(str(check.get("WORKER_LMOD_PATH") or "").strip())
+     module_inventory = audit.get("lmod")
+     module_values = (
+-        tuple(module_inventory.get(key) for key in ("hasCudaModule", "hasHpcxModule", "hasNcclModule"))
++        tuple(
++            module_inventory.get(key) for key in ("hasCudaModule", "hasHpcxModule", "hasNcclModule")
++        )
+         if isinstance(module_inventory, dict)
+         else ()
+     )
+@@ -523,14 +527,18 @@
+         return
+     layers = {
+         str(nic.get("layer", "")).lower()
+-        for nics in nic_topology.values() if isinstance(nics, list)
+-        for nic in nics if isinstance(nic, dict) and nic.get("role") == "fabric"
++        for nics in nic_topology.values()
++        if isinstance(nics, list)
++        for nic in nics
++        if isinstance(nic, dict) and nic.get("role") == "fabric"
+     }
+     if not layers:  # fall back to all NICs if none were tagged "fabric"
+         layers = {
+             str(nic.get("layer", "")).lower()
+-            for nics in nic_topology.values() if isinstance(nics, list)
+-            for nic in nics if isinstance(nic, dict)
++            for nics in nic_topology.values()
++            if isinstance(nics, list)
++            for nic in nics
++            if isinstance(nic, dict)
+         }
+     if "infiniband" in layers:
+         networking["rdmaType"] = "infiniband"
+@@ -571,7 +579,9 @@
+     total_gpus = as_int(nested_get(audit, "gpus", "total"))
+     inventory_nodes = as_int(nested_get(audit, "nodes", "total"), default=1)
+     gpu_nodes = as_int(
+-        first_known(primary_profile.get("nodeCount"), nested_get(audit, "gpus", "nodeCount"), default=0)
++        first_known(
++            primary_profile.get("nodeCount"), nested_get(audit, "gpus", "nodeCount"), default=0
++        )
+     )
+     cluster_nodes = gpu_nodes if gpu_nodes > 0 else inventory_nodes
+     # Prefer the audited per-node GPU count (from node labels/capacity). Dividing
+@@ -588,7 +598,9 @@
+         gpus_per_node = 0
+     if gpu_nodes > 0:
+         total_cpus = as_int(
+-            first_known(primary_profile.get("totalCpus"), nested_get(audit, "gpus", "totalCpus"), default=0)
++            first_known(
++                primary_profile.get("totalCpus"), nested_get(audit, "gpus", "totalCpus"), default=0
++            )
+         )
+         total_memory_gb = as_int(
+             first_known(
+@@ -606,16 +618,16 @@
+     if total_cpus <= 0:
+         total_cpus = as_int(nested_get(audit, "nodes", "sampleCpu")) * cluster_nodes
+     if total_memory_gb <= 0:
+-        sample_memory_gib = kubernetes_memory_gib(
+-            nested_get(audit, "nodes", "sampleMemory")
+-        )
++        sample_memory_gib = kubernetes_memory_gib(nested_get(audit, "nodes", "sampleMemory"))
+         total_memory_gb = int(sample_memory_gib * cluster_nodes)
+ 
+     cluster: dict[str, Any] = {
+         # Record the bare accelerator name (B300, GB300, H100, MI300X, ...).
+         # The raw nvidia-smi / label string stays under audit_data.gpus.model.
+         "gpu_model": normalize_chip_name(
+-            first_known(primary_profile.get("model"), nested_get(audit, "gpus", "model"), default="unknown")
++            first_known(
++                primary_profile.get("model"), nested_get(audit, "gpus", "model"), default="unknown"
++            )
+         ),
+         "nodes": cluster_nodes,
+         "gpus_per_node": gpus_per_node,
+@@ -652,7 +664,9 @@
+     }
+ 
+ 
+-def print_summary(out_path: Path, values: dict[str, Any], nic_topology: dict[str, list[dict[str, Any]]]) -> None:
++def print_summary(
++    out_path: Path, values: dict[str, Any], nic_topology: dict[str, list[dict[str, Any]]]
++) -> None:
+     cluster = values["cluster"]
+     audit = values["audit_data"]
+     print(f"Wrote {out_path}")
+@@ -683,7 +697,9 @@
+         for nics in nic_topology.values():
+             for nic in nics:
+                 by_role[nic["role"]] = by_role.get(nic["role"], 0) + 1
+-        print(f"  nic_topology  = {len(nic_topology)} node(s), {total_nics} NIC(s) total: {by_role}")
++        print(
++            f"  nic_topology  = {len(nic_topology)} node(s), {total_nics} NIC(s) total: {by_role}"
++        )
+ 
+ 
+ def main(argv: list[str]) -> int:
+
+--- cmax/scripts/1-audit/minimum_versions.py
++++ cmax/scripts/1-audit/minimum_versions.py
+@@ -31,12 +31,8 @@
+ DEFAULT_GRACE_PERIOD_DAYS = 3
+ GRACE_REMINDER = "(passes as bulletin released within past 3 days)"
+ FIX_GRACE_REMINDER = "(passes as fix became available within past 3 days)"
+-FIX_UNCONFIRMED_REMINDER = (
+-    "(passes because fixed release availability is not yet confirmed)"
+-)
+-MINIMUM_NOT_EFFECTIVE_REMINDER = (
+-    "(passes because the minimum version is not yet effective)"
+-)
++FIX_UNCONFIRMED_REMINDER = "(passes because fixed release availability is not yet confirmed)"
++MINIMUM_NOT_EFFECTIVE_REMINDER = "(passes because the minimum version is not yet effective)"
+ 
+ _CACHE: dict[str, Any] | None = None
+ 
+@@ -226,9 +222,7 @@
+     bulletin_stamps = [stamp for stamp in bulletins if stamp is not None]
+     reference = today or datetime.now(timezone.utc).date()
+     days = grace_period_days(path)
+-    availability_records = [
+-        minimum_fix_availability(name, value, path) for value in selectors
+-    ]
++    availability_records = [minimum_fix_availability(name, value, path) for value in selectors]
+     parsed_availability = [
+         _parse_timestamp((availability or {}).get("available"))
+         for availability in availability_records
+@@ -261,14 +255,10 @@
+ 
+     candidates = [
+         (bulletin, available)
+-        for bulletin, available in zip(
+-            bulletin_stamps, parsed_availability, strict=True
+-        )
++        for bulletin, available in zip(bulletin_stamps, parsed_availability, strict=True)
+         if available is not None
+     ]
+-    bulletin_released, available = max(
+-        candidates, key=lambda item: max(item[0], item[1])
+-    )
++    bulletin_released, available = max(candidates, key=lambda item: max(item[0], item[1]))
+     grace_started = max(bulletin_released, available)
+     grace_date = grace_started.astimezone(timezone.utc).date()
+     elapsed = (reference - grace_date).days
+@@ -295,9 +285,7 @@
+         "gracePeriodDays": days,
+         "graceStart": grace_started.isoformat().replace("+00:00", "Z"),
+         "enforcementDate": (grace_date + timedelta(days=days + 1)).isoformat(),
+-        "message": (
+-            FIX_GRACE_REMINDER if available > bulletin_released else GRACE_REMINDER
+-        ),
++        "message": (FIX_GRACE_REMINDER if available > bulletin_released else GRACE_REMINDER),
+     }
+ 
+ 
+@@ -331,9 +319,7 @@
+         audit_dir = parent / "cmax" / "scripts" / "1-audit"
+         if (parent / ".git").exists() and audit_dir.is_dir():
+             return "Run `git pull` to get the current minimums"
+-    return (
+-        "Run `cmax audit security` to fetch the published minimums"
+-    )
++    return "Run `cmax audit security` to fetch the published minimums"
+ 
+ 
+ def staleness_message(path: Path | None = None, *, now: datetime | None = None) -> str | None:
+@@ -414,7 +400,9 @@
+             value = get(args.get, path)
+             if value is None:
+                 return 1
+-            print(value if not isinstance(value, (dict, list)) else json.dumps(value, sort_keys=True))
++            print(
++                value if not isinstance(value, (dict, list)) else json.dumps(value, sort_keys=True)
++            )
+         elif args.age_days:
+             age = age_days(path)
+             print(f"{age:.2f}" if age is not None else "unknown")
+
+--- cmax/scripts/1-audit/plan_audit.py
++++ cmax/scripts/1-audit/plan_audit.py
+@@ -16,18 +16,18 @@
+ 
+ 
+ def command_ok(command: list[str]) -> bool:
+-    return subprocess.run(
+-        command,
+-        stdout=subprocess.DEVNULL,
+-        stderr=subprocess.DEVNULL,
+-    ).returncode == 0
++    return (
++        subprocess.run(
++            command,
++            stdout=subprocess.DEVNULL,
++            stderr=subprocess.DEVNULL,
++        ).returncode
++        == 0
++    )
+ 
+ 
+ def detect_harness() -> str:
+-    override = (
+-        os.environ.get("CLUSTERMAX_AUDIT_HARNESS")
+-        or os.environ.get("CLUSTERMAX_HARNESS")
+-    )
++    override = os.environ.get("CLUSTERMAX_AUDIT_HARNESS") or os.environ.get("CLUSTERMAX_HARNESS")
+     if override:
+         return override
+ 
+@@ -117,9 +117,7 @@
+     run_results_dir = os.environ.get("RUN_RESULTS_DIR")
+     if run_results_dir:
+         out_dir = Path(run_results_dir)
+-        slug = os.environ.get("CLUSTER_SLUG") or slug_from_results_dir(
+-            repo_root, out_dir
+-        )
++        slug = os.environ.get("CLUSTER_SLUG") or slug_from_results_dir(repo_root, out_dir)
+     else:
+         slug = cluster_slug()
+         out_dir = repo_root / "runs" / slug / now_ts() / "audit"
+
+--- cmax/scripts/1-audit/run_checks.py
++++ cmax/scripts/1-audit/run_checks.py
+@@ -16,12 +16,8 @@
+ CHECK_PROFILES = {
+     "fabric/nccl-ib-qps-check.py": frozenset({"networking"}),
+     "fabric/nccl-topology-file-check.py": frozenset({"networking"}),
+-    "fabric/nic-topology-check.py": frozenset(
+-        {"security", "versions", "isolation", "networking"}
+-    ),
+-    "fabric/virtio-net-check.py": frozenset(
+-        {"security", "versions", "isolation"}
+-    ),
++    "fabric/nic-topology-check.py": frozenset({"security", "versions", "isolation", "networking"}),
++    "fabric/virtio-net-check.py": frozenset({"security", "versions", "isolation"}),
+     "gpu/vboost.py": frozenset({"hardware"}),
+     "system/arm-smmu-virtualization-check.py": frozenset({"hardware"}),
+     "system/hbm_memory_exposure.py": frozenset({"hardware", "orchestration"}),
+@@ -33,9 +29,7 @@
+     "fabric/nic-topology-check.py": frozenset({"slurm", "k8s"}),
+     "fabric/virtio-net-check.py": frozenset({"slurm", "k8s"}),
+     "gpu/vboost.py": frozenset({"standalone", "slurm", "k8s"}),
+-    "system/arm-smmu-virtualization-check.py": frozenset(
+-        {"standalone", "slurm", "k8s"}
+-    ),
++    "system/arm-smmu-virtualization-check.py": frozenset({"standalone", "slurm", "k8s"}),
+     "system/hbm_memory_exposure.py": frozenset({"standalone", "slurm", "k8s"}),
+     "system/vm-iommu-check.py": frozenset({"standalone", "slurm", "k8s"}),
+ }
+@@ -88,8 +82,7 @@
+         and os.access(path, os.X_OK)
+         and "__pycache__" not in path.parts
+         and not path.name.startswith(".")
+-        and harness
+-        in CHECK_HARNESSES.get(str(path.relative_to(root)), VALID_HARNESSES)
++        and harness in CHECK_HARNESSES.get(str(path.relative_to(root)), VALID_HARNESSES)
+     ]
+     if profile == "full":
+         return checks
+@@ -202,10 +195,8 @@
+         PLATFORM_CHECK_KEYS[relative]
+         for check in checks
+         if (relative := str(check.relative_to(check_root))) in PLATFORM_CHECK_KEYS
+-    )
+-    gpu_operator_namespace = (
+-        discover_gpu_operator_namespace() if harness == "k8s" else None
+     )
++    gpu_operator_namespace = discover_gpu_operator_namespace() if harness == "k8s" else None
+     if checks:
+         print("")
+     for check in checks:
+@@ -222,11 +213,7 @@
+         # A checkout shared from Windows can carry CRLF even when the Git blob
+         # uses LF. Launch Python checks through this interpreter so Linux never
+         # asks /usr/bin/env to resolve the shebang as the invalid `python3\r`.
+-        argv = (
+-            [sys.executable, str(check)]
+-            if check.suffix == ".py"
+-            else [str(check)]
+-        )
++        argv = [sys.executable, str(check)] if check.suffix == ".py" else [str(check)]
+         proc = subprocess.run(
+             argv,
+             stdout=subprocess.PIPE,
+
+--- cmax/scripts/1-audit/security_version_audit.py
++++ cmax/scripts/1-audit/security_version_audit.py
+@@ -217,10 +217,7 @@
+     for vuln_id, entries in sorted(ranges.items()):
+         if not isinstance(entries, list):
+             continue
+-        if not any(
+-            isinstance(entry, dict) and _version_in_range(key, entry)
+-            for entry in entries
+-        ):
++        if not any(isinstance(entry, dict) and _version_in_range(key, entry) for entry in entries):
+             continue
+         fixes = [
+             str(entry["fixed"])
+@@ -491,9 +488,7 @@
+         return _minimums_unavailable(version, MinimumDataError(str(exc)))
+ 
+     advisory = _advisory(block)
+-    listed = " or ".join(
+-        branches[branch] for branch in sorted(branches, reverse=True)
+-    )
++    listed = " or ".join(branches[branch] for branch in sorted(branches, reverse=True))
+     if version.strip().lower() in NOT_INSTALLED_VALUES:
+         return _not_installed(version, listed, advisory, "runc")
+     parsed = numeric_version(version)
+@@ -578,7 +573,9 @@
+         if isinstance(retired, str) and numeric_version(retired, parts=3):
+             legacy[name] = retired
+     if not fixed:
+-        raise MinimumDataError("minimum version table has no fixed release lines for virtioNetBluefield")
++        raise MinimumDataError(
++            "minimum version table has no fixed release lines for virtioNetBluefield"
++        )
+     return fixed, legacy
+ 
+ 
+@@ -619,9 +616,7 @@
+         return candidates
+     return tuple(
+         sorted(
+-            name
+-            for name, value in fixed.items()
+-            if numeric_version(value, parts=3)[0] == parsed[0]
++            name for name, value in fixed.items() if numeric_version(value, parts=3)[0] == parsed[0]
+         )
+     )
+ 
+@@ -1019,13 +1014,11 @@
+     from one host's reading, so "no controller installed" or "could not be read"
+     on that host says nothing at all about the hosts that never answered.
+     """
+-    return _weigh_coverage_gap(
+-        verdict, withdraw=("pass", "unknown", "not_applicable")
+-    )
++    return _weigh_coverage_gap(verdict, withdraw=("pass", "unknown", "not_applicable"))
+ 
+ 
+ def _worst_observed_verdict(
+-    entries: Iterable[dict[str, Any]]
++    entries: Iterable[dict[str, Any]],
+ ) -> tuple[Verdict, dict[str, Any]] | None:
+     """Grade every host reading and return the worst, with the reading behind it.
+ 
+@@ -1062,18 +1055,18 @@
+         if numeric_version(version, parts=3) is None:
+             continue
+         mode = str(entry.get("mode") or "").strip().lower()
+-        verdict = virtio_net_verdict(
+-            version, line=entry.get("line"), mode=entry.get("mode")
+-        )
++        verdict = virtio_net_verdict(version, line=entry.get("line"), mode=entry.get("mode"))
+         minimum = _virtio_running_verdict(version, line=entry.get("line")).status
+-        ranked.append((
+-            _VIRTIO_SEVERITY.get(verdict.status, 2),
+-            _VIRTIO_MINIMUM_SEVERITY.get(minimum, 1),
+-            _VIRTIO_MODE_SEVERITY.get(mode, 1),
+-            -index,
+-            verdict,
+-            entry,
+-        ))
++        ranked.append(
++            (
++                _VIRTIO_SEVERITY.get(verdict.status, 2),
++                _VIRTIO_MINIMUM_SEVERITY.get(minimum, 1),
++                _VIRTIO_MODE_SEVERITY.get(mode, 1),
++                -index,
++                verdict,
++                entry,
++            )
++        )
+     if not ranked:
+         return None
+     _, _, _, _, verdict, entry = max(ranked, key=lambda item: item[:4])
+@@ -1249,9 +1242,7 @@
+     running = {"dpu": True, "nic": False, "absent": False}.get(normalized)
+     graded = numeric_version(graded_version, parts=3) is not None
+     grace_component = (
+-        "virtioNetBluefield"
+-        if coverage_complete and every_bluefield_host_read
+-        else None
++        "virtioNetBluefield" if coverage_complete and every_bluefield_host_read else None
+     )
+     grace_selectors = _virtio_minimum_selectors(graded_version, graded_line)
+     grace_selector: str | tuple[str, ...] | None = None
+@@ -1386,9 +1377,7 @@
+     device_node = rshim.get("rshimDeviceNode")
+     tmfifo = rshim.get("tmfifoNet0")
+     reachable = [
+-        name
+-        for name, seen in (("/dev/rshim0", device_node), ("tmfifo_net0", tmfifo))
+-        if seen
++        name for name, seen in (("/dev/rshim0", device_node), ("tmfifo_net0", tmfifo)) if seen
+     ]
+ 
+     # The reachability proof is read before the scan gate below, because the two
+@@ -1497,9 +1486,7 @@
+         # Hosts the check could not assess. Recorded so a fail carries its
+         # coverage gap as structured data that a consumer can filter on.
+         "unassessedHosts": [
+-            str(host).strip()
+-            for host in (facts.get("unassessedHosts") or [])
+-            if str(host).strip()
++            str(host).strip() for host in (facts.get("unassessedHosts") or []) if str(host).strip()
+         ],
+         "remediation": MLXPRIVHOST_REMEDIATION,
+     }
+@@ -1615,9 +1602,7 @@
+         None,
+     )
+     if minimum_record is None:
+-        minimum_record = _verdict_record(
+-            connectx_firmware_verdict("unknown"), "connectxFirmware"
+-        )
++        minimum_record = _verdict_record(connectx_firmware_verdict("unknown"), "connectxFirmware")
+     result: dict[str, object] = {
+         "status": status,
+         "minimum": minimum_record["minimum"],
+@@ -1748,13 +1733,9 @@
+             driver_result,
+             "nvidiaDriver",
+             str(driver_parsed[0]) if driver_parsed else None,
+-        ),
+-        "nvidiaContainerToolkit": _verdict_record(
+-            nct_result, "nvidiaContainerToolkit"
+-        ),
+-        "cudaToolkit": _verdict_record(
+-            cuda_toolkit_verdict(cuda), "cudaToolkit"
+         ),
++        "nvidiaContainerToolkit": _verdict_record(nct_result, "nvidiaContainerToolkit"),
++        "cudaToolkit": _verdict_record(cuda_toolkit_verdict(cuda), "cudaToolkit"),
+         "docker": _verdict_record(docker_verdict(docker), "docker"),
+         "runc": _verdict_record(
+             runc_verdict(runc),
+@@ -1764,14 +1745,10 @@
+         "connectxFirmware": aggregate_connectx(
+             connectx_firmware, inventory_complete=connectx_inventory_complete
+         ),
+-        "virtioNetBluefield": explain_unreadable_virtio_version(
+-            virtio_record, isolation_record
+-        ),
++        "virtioNetBluefield": explain_unreadable_virtio_version(virtio_record, isolation_record),
+         "dpuHostIsolation": isolation_record,
+         "dcgm": _verdict_record(dcgm_result, "dcgm"),
+-        "dcgmExporter": _verdict_record(
+-            dcgm_exporter_result, "dcgmExporter"
+-        ),
++        "dcgmExporter": _verdict_record(dcgm_exporter_result, "dcgmExporter"),
+         "floorsMetadata": minimums_metadata(),
+     }
+ 
+@@ -1799,7 +1776,9 @@
+         parsed = json.loads(raw)
+     except json.JSONDecodeError:
+         return []
+-    return [entry for entry in parsed if isinstance(entry, dict)] if isinstance(parsed, list) else []
++    return (
++        [entry for entry in parsed if isinstance(entry, dict)] if isinstance(parsed, list) else []
++    )
+ 
+ 
+ def main() -> int:
+
+--- cmax/scripts/1-audit/validate_audit.py
++++ cmax/scripts/1-audit/validate_audit.py
+@@ -71,7 +71,10 @@
+         return True
+ 
+     print("", file=sys.stderr)
+-    print(f"ERROR: audit incomplete (software.workerCheckOk={str(worker_check_ok).lower()})", file=sys.stderr)
++    print(
++        f"ERROR: audit incomplete (software.workerCheckOk={str(worker_check_ok).lower()})",
++        file=sys.stderr,
++    )
+     print("  GPU / driver / NCCL fields would be 'unknown' or missing.", file=sys.stderr)
+     print(f"  Audit raw JSON saved at: {audit_path}", file=sys.stderr)
+     print("  Investigate worker reachability and re-run; not publishing.", file=sys.stderr)
+
+--- cmax/security.py
++++ cmax/security.py
+@@ -107,10 +107,7 @@
+             value = path.read_text(errors="replace").lower()
+         except OSError:
+             continue
+-        if any(
+-            token in value
+-            for token in ("docker", "containerd", "kubepods", "libpod", "lxc")
+-        ):
++        if any(token in value for token in ("docker", "containerd", "kubepods", "libpod", "lxc")):
+             return True
+     return bool(os.environ.get("container"))
+ 
+@@ -156,9 +153,7 @@
+     )
+     for path in dmi_paths:
+         try:
+-            if any(
+-                marker in path.read_text(errors="replace").lower() for marker in markers
+-            ):
++            if any(marker in path.read_text(errors="replace").lower() for marker in markers):
+                 return True
+         except OSError:
+             continue
+@@ -262,9 +257,7 @@
+     try:
+         config = yaml.safe_load(config_path.read_text()) or {}
+     except OSError as exc:
+-        raise SecurityAuditError(
+-            f"security audit configuration not found: {config_path}"
+-        ) from exc
++        raise SecurityAuditError(f"security audit configuration not found: {config_path}") from exc
+     except yaml.YAMLError as exc:
+         raise SecurityAuditError(
+             f"invalid security audit configuration: {config_path}: {exc}"
+@@ -321,9 +314,7 @@
+     }
+ 
+ 
+-def format_security_plan_yaml(
+-    target: SecurityTarget, *, repo: str | None = None
+-) -> str:
++def format_security_plan_yaml(target: SecurityTarget, *, repo: str | None = None) -> str:
+     runtime_root = find_runtime_root(repo)
+     yaml = load_yaml_module(runtime_root)
+     plan = build_security_plan(runtime_root, target)
+@@ -383,9 +374,7 @@
+                 detail or "The component is not applicable to this host.",
+             )
+         if status == "pass":
+-            suffix = detail or (
+-                "The observed version meets the minimum version."
+-            )
++            suffix = detail or ("The observed version meets the minimum version.")
+             return PASS, observed, suffix
+         if status == "fail":
+             return (
+@@ -396,8 +385,7 @@
+         return (
+             WARNING,
+             observed,
+-            detail
+-            or "The host version could not be verified, so exposure cannot be ruled out.",
++            detail or "The host version could not be verified, so exposure cannot be ruled out.",
+         )
+ 
+     return evaluate
+@@ -421,8 +409,7 @@
+         return [
+             f"{_display(device.get('device'))}={_display(device.get('version'))}"
+             for device in devices
+-            if isinstance(device, dict)
+-            and str(device.get("status") or "unknown").lower() in wanted
++            if isinstance(device, dict) and str(device.get("status") or "unknown").lower() in wanted
+         ]
+ 
+     if status in {"not_applicable", "not-applicable"}:
+@@ -509,9 +496,7 @@
+         observed = _display(value)
+         if isinstance(parent, dict):
+             fields = [
+-                (name, item)
+-                for name, item in parent.items()
+-                if not isinstance(item, (dict, list))
++                (name, item) for name, item in parent.items() if not isinstance(item, (dict, list))
+             ]
+             fields.sort(key=lambda item: (item[0] != "status", item[0]))
+             observed = "; ".join(f"{name}={_display(item)}" for name, item in fields)
+@@ -699,9 +684,7 @@
+     )
+ 
+ 
+-def _boolean_exposure(
+-    path: str, label: str
+-) -> Callable[[dict[str, Any]], tuple[str, str, str]]:
++def _boolean_exposure(path: str, label: str) -> Callable[[dict[str, Any]], tuple[str, str, str]]:
+     def evaluate(audit: dict[str, Any]) -> tuple[str, str, str]:
+         value = _get(audit, path)
+         if value is True or str(value).lower() == "true":
+@@ -773,9 +756,7 @@
+     )
+ 
+ 
+-def _manual_boundary(
+-    path: str, label: str
+-) -> Callable[[dict[str, Any]], tuple[str, str, str]]:
++def _manual_boundary(path: str, label: str) -> Callable[[dict[str, Any]], tuple[str, str, str]]:
+     def evaluate(audit: dict[str, Any]) -> tuple[str, str, str]:
+         value = _get(audit, path)
+         if value is True or str(value).lower() == "true":
+@@ -1083,9 +1064,7 @@
+     return block if isinstance(block, dict) else {}
+ 
+ 
+-def minimum_freshness(
+-    *, repo: str | None = None, now: datetime | None = None
+-) -> dict[str, Any]:
++def minimum_freshness(*, repo: str | None = None, now: datetime | None = None) -> dict[str, Any]:
+     """Report the age of the generated minimum table this report graded against.
+ 
+     Freshness is a statement about this tool rather than about the cluster, so
+@@ -1418,8 +1397,7 @@
+     ),
+     "cuda-toolkit": (
+         "cudaToolkit",
+-        "Upgrade the CUDA Toolkit to {minimum} or a newer vendor-supported "
+-        "release.",
++        "Upgrade the CUDA Toolkit to {minimum} or a newer vendor-supported release.",
+         "NVIDIA CUDA Toolkit bulletin",
+     ),
+     "runc": (
+@@ -1438,8 +1416,7 @@
+     "connectx-firmware": (
+         "connectxFirmware",
+         # Per firmware train, so no single minimum to name.
+-        "Apply the fixed NVIDIA firmware release for every detected ConnectX "
+-        "or BlueField device.",
++        "Apply the fixed NVIDIA firmware release for every detected ConnectX or BlueField device.",
+         "NVIDIA networking security bulletin",
+     ),
+     "virtio-net-bluefield": (
+@@ -1472,18 +1449,12 @@
+     if isinstance(advisory, str) and advisory:
+         references.append(SecurityReference(bulletin_label, advisory))
+     for cve in block.get("cves") or ():
+-        references.append(
+-            SecurityReference(str(cve), f"https://nvd.nist.gov/vuln/detail/{cve}")
+-        )
++        references.append(SecurityReference(str(cve), f"https://nvd.nist.gov/vuln/detail/{cve}"))
+     return remediation, (*references, *spec.references)
+ 
+ 
+ def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
+-    audit = (
+-        values.get("audit_data")
+-        if isinstance(values.get("audit_data"), dict)
+-        else values
+-    )
++    audit = values.get("audit_data") if isinstance(values.get("audit_data"), dict) else values
+     checks: list[SecurityCheck] = []
+     grace_paths = {
+         "nvidia-driver": "securityVersions.nvidiaDriver",
+@@ -1589,9 +1560,7 @@
+             assessment = check.observed
+             if verbosity >= 3:
+                 assessment = check.assessment
+-                details.extend(
+-                    (("Observed", check.observed), ("Why", check.importance))
+-                )
++                details.extend((("Observed", check.observed), ("Why", check.importance)))
+             # Remediation is for a check that found something to fix. A pass
+             # has nothing, and neither does a criterion for hardware this
+             # machine does not have: printing "apply the zero-trust host
+@@ -1603,8 +1572,7 @@
+             elif verbosity >= 3 and check.status not in (PASS, NOT_APPLICABLE):
+                 recommendation = check.remediation
+             all_references = tuple(
+-                (reference.label, reference.url)
+-                for reference in check.references
++                (reference.label, reference.url) for reference in check.references
+             )
+             references = minimum_links.canonical_references(all_references)
+             if verbosity < 2 and (
+@@ -1626,12 +1594,9 @@
+ 
+     summary = ", ".join(
+         (
++            report_style.count(f"{total[CRITICAL]} failed", CRITICAL, color=color),
+             report_style.count(
+-                f"{total[CRITICAL]} failed", CRITICAL, color=color
+-            ),
+-            report_style.count(
+-                f"{total[WARNING]} warning"
+-                f"{'' if total[WARNING] == 1 else 's'}",
++                f"{total[WARNING]} warning{'' if total[WARNING] == 1 else 's'}",
+                 WARNING,
+                 color=color,
+             ),
+@@ -1657,9 +1622,7 @@
+             "host or provider verification."
+         )
+     else:
+-        lines.append(
+-            _paint("No known critical exposure detected.", "green", color=color)
+-        )
++        lines.append(_paint("No known critical exposure detected.", "green", color=color))
+ 
+     # Minimum-data staleness sits next to the summary, at every verbosity level:
+     # an operator who reads only the last few lines must still see that the
+@@ -1669,9 +1632,7 @@
+     if notice:
+         lines.append(f"{_paint('Minimum data:', 'yellow', color=color)} {notice}")
+ 
+-    lines.append(
+-        _paint(f"report saved to {log_dir / 'security-report.log'}", "dim", color=color)
+-    )
++    lines.append(_paint(f"report saved to {log_dir / 'security-report.log'}", "dim", color=color))
+     if verbosity < 3:
+         hint = {
+             1: "run with -vv for CVE and documentation links, -vvv for issue details and remediation",
+@@ -1681,9 +1642,7 @@
+     return "\n".join(lines)
+ 
+ 
+-def write_reports(
+-    checks: list[SecurityCheck], target: SecurityTarget, log_dir: Path
+-) -> None:
++def write_reports(checks: list[SecurityCheck], target: SecurityTarget, log_dir: Path) -> None:
+     payload = {
+         "schema_version": 1,
+         "target": asdict(target),
+@@ -1773,9 +1732,7 @@
+     installed_path: Path | None = None
+     try:
+         installed_path = minimum_table_path(repo)
+-        installed_generated = str(
+-            json.loads(installed_path.read_text()).get("generated") or ""
+-        )
++        installed_generated = str(json.loads(installed_path.read_text()).get("generated") or "")
+     except (SecurityAuditError, OSError, json.JSONDecodeError, AttributeError):
+         # The installed table is missing or unreadable. The fetch is then the
+         # only path to a usable table, so it continues with no age minimum.
+@@ -1805,9 +1762,7 @@
+                     flush=True,
+                 )
+                 return True
+-        suffix = (
+-            f" (generated {installed_generated})" if installed_generated else ""
+-        )
++        suffix = f" (generated {installed_generated})" if installed_generated else ""
+         print(
+             f"minimum fetch warning: could not update the minimum table. "
+             f"Grading against the installed table{suffix}.",
+@@ -1858,9 +1813,7 @@
+             flush=True,
+         )
+         return False
+-    writable = (
+-        os.access(path, os.W_OK) if path.exists() else os.access(path.parent, os.W_OK)
+-    )
++    writable = os.access(path, os.W_OK) if path.exists() else os.access(path.parent, os.W_OK)
+     if not writable:
+         print(
+             f"minimum refresh could not write {path}: the installed minimum table is "
+@@ -1879,8 +1832,7 @@
+         table = minimum_refresh.build_minimums(existing=existing or None)
+     except (Exception, SystemExit) as exc:  # network, parse, or fail-closed abort
+         print(
+-            f"minimum refresh failed: {exc}. Continuing with the committed minimum "
+-            f"table {path}.",
++            f"minimum refresh failed: {exc}. Continuing with the committed minimum table {path}.",
+             flush=True,
+         )
+         return False
+
+--- cmax/target_selection.py
++++ cmax/target_selection.py
+@@ -90,9 +90,7 @@
+     if not context and environ.get("KUBERNETES_SERVICE_HOST"):
+         context = "in-cluster service account"
+     if not context:
+-        raise TargetSelectionError(
+-            "Kubernetes was selected, but kubectl has no current context."
+-        )
++        raise TargetSelectionError("Kubernetes was selected, but kubectl has no current context.")
+ 
+     access = _run(
+         [kubectl, "--request-timeout=8s", "cluster-info"],
+@@ -242,9 +240,7 @@
+             environ=environ,
+         )
+         contexts = list(
+-            dict.fromkeys(
+-                line.strip() for line in listed.stdout.splitlines() if line.strip()
+-            )
++            dict.fromkeys(line.strip() for line in listed.stdout.splitlines() if line.strip())
+         )
+         if listed.returncode != 0 or not contexts:
+             raise TargetSelectionError(
+
+23 files would be reformatted, 16 files already formatted

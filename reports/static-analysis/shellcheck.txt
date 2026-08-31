@@ -1,0 +1,1435 @@
+
+In cmax/scripts/1-audit/audit-common.sh line 1:
+# audit-common.sh - shared helpers sourced by the per-harness audit collectors
+^-- SC2148 (error): Tips depend on target shell and yours is unknown. Add a shebang or a 'shell' directive.
+
+
+In cmax/scripts/1-audit/audit-common.sh line 361:
+' $VIRTIO_NET_SUMMARY_KEYS 2>/dev/null) || return 0
+  ^----------------------^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+' "$VIRTIO_NET_SUMMARY_KEYS" 2>/dev/null) || return 0
+
+
+In cmax/scripts/1-audit/audit-common.sh line 1041:
+    "model": "${GPU_MODEL}",
+              ^----------^ SC2153 (info): Possible misspelling: GPU_MODEL may not be assigned. Did you mean gpu_model?
+
+
+In cmax/scripts/1-audit/audit-common.sh line 1223:
+    "rdmaType": "${RDMA_TYPE}",
+                 ^----------^ SC2153 (info): Possible misspelling: RDMA_TYPE may not be assigned. Did you mean rdma_type?
+
+
+In cmax/scripts/1-audit/cluster-audit-k8s.sh line 1118:
+FIRST_GPU_NODE=$(head -n 1 <<< "$GPU_NODE_NAMES")
+^------------^ SC2034 (warning): FIRST_GPU_NODE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-k8s.sh line 1459:
+    NCU_TEST_SCRIPT='
+                    ^-- SC2016 (info): Expressions don't expand in single quotes, use double quotes for that.
+
+
+In cmax/scripts/1-audit/cluster-audit-k8s.sh line 2071:
+        *"nginx"*|*"ingress-nginx"*)
+        ^-------^ SC2221 (warning): This pattern always overrides a later one on line 2071.
+                  ^---------------^ SC2222 (warning): This pattern never matches because of a previous pattern on line 2071.
+
+
+In cmax/scripts/1-audit/cluster-audit-k8s.sh line 2349:
+    STORAGE_CHECK_SCRIPT='
+                         ^-- SC2016 (info): Expressions don't expand in single quotes, use double quotes for that.
+
+
+In cmax/scripts/1-audit/cluster-audit-k8s.sh line 2491:
+[[ "$MPI_OPERATOR" == "true" ]] && print_info "MPI Operator: Installed" || print_warn "MPI Operator: Not installed"
+                                ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-k8s.sh line 2492:
+[[ "$KUEUE" == "true" ]] && print_info "Kueue: Installed" || print_warn "Kueue: Not installed"
+                         ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-k8s.sh line 2493:
+[[ "$VOLCANO" == "true" ]] && print_info "Volcano: Installed" || print_warn "Volcano: Not installed"
+                           ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-k8s.sh line 2494:
+[[ "$TRAINING_OPERATOR" == "true" ]] && print_info "Training Operator: Installed" || print_warn "Training Operator: Not installed"
+                                     ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-k8s.sh line 2631:
+    local script='
+                 ^-- SC2016 (info): Expressions don't expand in single quotes, use double quotes for that.
+
+
+In cmax/scripts/1-audit/cluster-audit-k8s.sh line 2722:
+    outcome=$(check_deadline 30 kubectl exec -n "$ns" "$pod" -- chroot /host bash -c '
+                                                                                     ^-- SC2016 (info): Expressions don't expand in single quotes, use double quotes for that.
+
+
+In cmax/scripts/1-audit/cluster-audit-k8s.sh line 3412:
+    DCGM_EXPORTER_IMAGE=$(printf '%s' "$MONITORING_JSON" \
+    ^-----------------^ SC2034 (warning): DCGM_EXPORTER_IMAGE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm-security.sh line 15:
+RED='\033[0;31m'
+^-^ SC2034 (warning): RED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm-security.sh line 16:
+GREEN='\033[0;32m'
+^---^ SC2034 (warning): GREEN appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm-security.sh line 17:
+YELLOW='\033[1;33m'
+^----^ SC2034 (warning): YELLOW appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm-security.sh line 18:
+BLUE='\033[0;34m'
+^--^ SC2034 (warning): BLUE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm-security.sh line 19:
+CYAN='\033[0;36m'
+^--^ SC2034 (warning): CYAN appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm-security.sh line 20:
+BOLD='\033[1m'
+^--^ SC2034 (warning): BOLD appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm-security.sh line 21:
+NC='\033[0m'
+^-- SC2034 (warning): NC appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm-security.sh line 107:
+    K8S_SECURITY_NODES_JSON="$nodes_json"
+    ^---------------------^ SC2034 (warning): K8S_SECURITY_NODES_JSON appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm-security.sh line 484:
+        DCGM_EXPORTER_PRESENT=unknown
+        ^-------------------^ SC2034 (warning): DCGM_EXPORTER_PRESENT appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 32:
+RED='\033[0;31m'
+^-^ SC2034 (warning): RED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 33:
+GREEN='\033[0;32m'
+^---^ SC2034 (warning): GREEN appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 34:
+YELLOW='\033[1;33m'
+^----^ SC2034 (warning): YELLOW appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 35:
+BLUE='\033[0;34m'
+^--^ SC2034 (warning): BLUE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 36:
+CYAN='\033[0;36m'
+^--^ SC2034 (warning): CYAN appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 37:
+BOLD='\033[1m'
+^--^ SC2034 (warning): BOLD appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 38:
+NC='\033[0m' # No Color
+^-- SC2034 (warning): NC appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 140:
+AUDIT_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+^-------------^ SC2034 (warning): AUDIT_TIMESTAMP appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 190:
+[[ "$SLURMD_RUNNING" == "true" ]] && print_info "slurmd: Running" || print_detail "slurmd: Not running (head node may not be compute)"
+                                  ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 276:
+    GPU_TOTAL_CPUS=$(echo "$GPU_NODE_SUMMARY" | jq -r '.totalCpus // 0')
+    ^------------^ SC2034 (warning): GPU_TOTAL_CPUS appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 277:
+    GPU_TOTAL_MEMORY_GB=$(echo "$GPU_NODE_SUMMARY" | jq -r '.totalMemoryGB // 0')
+    ^-----------------^ SC2034 (warning): GPU_TOTAL_MEMORY_GB appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 297:
+[[ "$DOWN_NODES" -gt 0 ]] && print_warn "Down/Drained: ${DOWN_NODES}" || print_info "Down/Drained: ${DOWN_NODES}"
+                          ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 320:
+        [[ "$default" == "YES" ]] && print_info "${name} (DEFAULT): ${nodes} nodes, max ${max_time}" || print_info "${name}: ${nodes} nodes, max ${max_time}"
+                                  ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 393:
+WORKER_PEERMEM="false"
+^------------^ SC2034 (warning): WORKER_PEERMEM appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 458:
+WORKER_BOOT_SIZE="unknown"
+^--------------^ SC2034 (warning): WORKER_BOOT_SIZE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 825:
+ACS_BRIDGES="${WORKER_ACS_BRIDGES:-0}"
+^---------^ SC2034 (warning): ACS_BRIDGES appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 826:
+ACS_ENABLED_COUNT="${WORKER_ACS_ENABLED_COUNT:-0}"
+^---------------^ SC2034 (warning): ACS_ENABLED_COUNT appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 827:
+ACS_TOTAL_BRIDGES="${WORKER_ACS_TOTAL_BRIDGES:-0}"
+^---------------^ SC2034 (warning): ACS_TOTAL_BRIDGES appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 829:
+ACS_METHOD="${WORKER_ACS_METHOD:-config}"
+^--------^ SC2034 (warning): ACS_METHOD appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 835:
+    ACS_SCOPED="true"; ACS_SUPPORTED="true"
+    ^--------^ SC2034 (warning): ACS_SCOPED appears unused. Verify use (or export if used externally).
+                       ^-----------^ SC2034 (warning): ACS_SUPPORTED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 891:
+    ACS_ENABLED="unknown"
+    ^---------^ SC2034 (warning): ACS_ENABLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 916:
+    [[ "$WORKER_GDRCOPY_DEV" == "true" ]] && print_info "/dev/gdrdrv: present" || print_detail "/dev/gdrdrv: missing (gdrdrv not loaded or no permissions)"
+                                          ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 943:
+        ROCM_SMI_AVAILABLE="true"
+        ^----------------^ SC2034 (warning): ROCM_SMI_AVAILABLE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 949:
+        AMD_SMI_AVAILABLE="true"
+        ^---------------^ SC2034 (warning): AMD_SMI_AVAILABLE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 981:
+        AMD_PEERMEM_LOADED="false"
+        ^----------------^ SC2034 (warning): AMD_PEERMEM_LOADED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 985:
+        ROCM_CONTAINER_TOOLKIT="true"
+        ^--------------------^ SC2034 (warning): ROCM_CONTAINER_TOOLKIT appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 991:
+        RDC_INSTALLED="true"
+        ^-----------^ SC2034 (warning): RDC_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1002:
+        ROCM_BANDWIDTH_TEST_INSTALLED="true"
+        ^---------------------------^ SC2034 (warning): ROCM_BANDWIDTH_TEST_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1010:
+        ROCPROF_INSTALLED="true"
+        ^---------------^ SC2034 (warning): ROCPROF_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1033:
+        RVS_INSTALLED="true"
+        ^-----------^ SC2034 (warning): RVS_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1039:
+        TRANSFERBENCH_INSTALLED="true"
+        ^---------------------^ SC2034 (warning): TRANSFERBENCH_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1198:
+        NCU_PROFILING_CONF_FOUND="true"
+        ^----------------------^ SC2034 (warning): NCU_PROFILING_CONF_FOUND appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1396:
+        NVCC_IN_PATH="true"
+        ^----------^ SC2034 (warning): NVCC_IN_PATH appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1451:
+        NVHPC_STATUS="fail"
+        ^----------^ SC2034 (warning): NVHPC_STATUS appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1507:
+        NCCL_INSTALLED="true"
+        ^------------^ SC2034 (warning): NCCL_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1532:
+            NCCL_CONF_OVERRIDES="true"
+            ^-----------------^ SC2034 (warning): NCCL_CONF_OVERRIDES appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1575:
+        MPI_INSTALLED="true"
+        ^-----------^ SC2034 (warning): MPI_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1631:
+        SRUN_MPI_PMIX="true"
+        ^-----------^ SC2034 (warning): SRUN_MPI_PMIX appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1674:
+        HAS_CUDA_MODULE="true"
+        ^-------------^ SC2034 (warning): HAS_CUDA_MODULE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1681:
+        HAS_HPCX_MODULE="true"
+        ^-------------^ SC2034 (warning): HAS_HPCX_MODULE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1688:
+        HAS_NCCL_MODULE="true"
+        ^-------------^ SC2034 (warning): HAS_NCCL_MODULE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1751:
+    PYXIS_CLI_AVAILABLE="true"
+    ^-----------------^ SC2034 (warning): PYXIS_CLI_AVAILABLE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1753:
+    PYXIS_RUNTIME_WORKS="true"
+    ^-----------------^ SC2034 (warning): PYXIS_RUNTIME_WORKS appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1843:
+        DOCKER_NVIDIA_RUNTIME_CONFIGURED="${WORKER_CONTAINER_NVIDIA_RUNTIME_CONFIGURED:-false}"
+        ^-- SC2034 (warning): DOCKER_NVIDIA_RUNTIME_CONFIGURED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1844:
+        RUNC_INSTALLED="${WORKER_CONTAINER_RUNC_INSTALLED:-false}"
+        ^------------^ SC2034 (warning): RUNC_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1845:
+        RUNC_VERSION="${WORKER_CONTAINER_RUNC_VERSION:-unknown}"
+        ^----------^ SC2034 (warning): RUNC_VERSION appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1855:
+        version_meets_minimum "$DOCKER_VERSION" "$DOCKER_RECOMMENDED_MIN" && DOCKER_VERSION_OK="true"
+                                                                             ^---------------^ SC2034 (warning): DOCKER_VERSION_OK appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1856:
+        version_meets_minimum "$NVIDIA_CT_VERSION" "$NVIDIA_CT_RECOMMENDED_MIN" && NVIDIA_CT_VERSION_OK="true"
+                                                                                   ^------------------^ SC2034 (warning): NVIDIA_CT_VERSION_OK appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1858:
+        [[ "${WORKER_CONTAINER_ENROOT_IMPORT:-}" == "pass" ]] && ENROOT_IMPORT_WORKS="true"
+                                                                 ^-----------------^ SC2034 (warning): ENROOT_IMPORT_WORKS appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1868:
+        [[ "$NVIDIA_CONTAINER_TOOLKIT" == "true" ]] && print_info "NVIDIA Container Toolkit: ${NVIDIA_CT_VERSION}" || print_warn "NVIDIA Container Toolkit: not found on worker"
+                                                    ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1869:
+        [[ "$ENROOT_INSTALLED" == "true" ]] && print_info "Enroot: ${ENROOT_VERSION}; import=${WORKER_CONTAINER_ENROOT_IMPORT}" || print_warn "Enroot: not found on worker"
+                                            ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1870:
+        [[ "$SINGULARITY_INSTALLED" == "true" ]] && print_info "Singularity/Apptainer: ${SINGULARITY_VERSION}" || print_warn "Singularity/Apptainer: not found on worker"
+                                                 ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1945:
+    MOFED_FLAVOR="${WORKER_MOFED_FLAVOR:-none}"
+    ^----------^ SC2034 (warning): MOFED_FLAVOR appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1987:
+            IB_INSTALLED="true"
+            ^----------^ SC2034 (warning): IB_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 1994:
+            HCA_DEVICES_JSON=$(printf '%s\n' "${HCA_DEVICES_LIST[@]}" | jq -R . | jq -s .)
+            ^--------------^ SC2034 (warning): HCA_DEVICES_JSON appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2068:
+    [[ "$IB_PKEYS_CONFIGURED" == "true" ]] && print_info "IB PKeys: Configured" || print_warn "IB PKeys: No valid partition keys found"
+                                           ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2187:
+            NIC_HAS_OTHER="true"
+            ^-----------^ SC2034 (warning): NIC_HAS_OTHER appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2258:
+    NIC_FABRIC_JSON="[]"
+    ^-------------^ SC2034 (warning): NIC_FABRIC_JSON appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2270:
+NETWORK_UTILITIES_JSON="{$(IFS=,; echo "${NETUTILS_JSON_ENTRIES[*]}")}"
+^--------------------^ SC2034 (warning): NETWORK_UTILITIES_JSON appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2310:
+        IB_TENANT_ISOLATION="pass"
+        ^-----------------^ SC2034 (warning): IB_TENANT_ISOLATION appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2317:
+SAQUERY_OUT=$(sudo -n saquery NodeRecord 2>/dev/null | grep NodeDescription | wc -l | tr -d '[:space:]' || echo "0")
+                                                       ^------------------^ SC2126 (style): Consider using 'grep -c' instead of 'grep|wc -l'.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2346:
+        IB_SM_KEY_CONFIGURED="true"
+        ^------------------^ SC2034 (warning): IB_SM_KEY_CONFIGURED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2366:
+        SHARP_AVAILABLE="true"
+        ^-------------^ SC2034 (warning): SHARP_AVAILABLE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2373:
+        SHARP_AM_KEY_CONFIGURED="true"
+        ^---------------------^ SC2034 (warning): SHARP_AM_KEY_CONFIGURED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2739:
+        [[ "$DCGM_INSTALLED" == "true" ]] && print_warn "DCGM binary found but service NOT active on compute node" \
+                                          ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2745:
+        DCGM_HEALTH_WATCHES_ENABLED="true"
+        ^-------------------------^ SC2034 (warning): DCGM_HEALTH_WATCHES_ENABLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2773:
+            && print_info "DCGM service: Active on head node" \
+            ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2805:
+[[ -n "$PROLOG" && "$PROLOG" != "(null)" ]] && print_info "Prolog: ${PROLOG}" || print_detail "Prolog: Not configured"
+                                            ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2806:
+[[ -n "$EPILOG" && "$EPILOG" != "(null)" ]] && print_info "Epilog: ${EPILOG}" || print_detail "Epilog: Not configured"
+                                            ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2867:
+    NHC_PATH=$(ls /usr/sbin/nhc /usr/local/sbin/nhc 2>/dev/null | head -1)
+               ^-- SC2012 (info): Use find instead of ls to better handle non-alphanumeric filenames.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2916:
+[[ "$PROMETHEUS_DETECTED"   == "true" ]] && print_info "Prometheus: detected (port 9090 or systemd active)"     || print_detail "Prometheus: not detected"
+                                         ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2917:
+[[ "$DCGM_EXPORTER_DETECTED" == "true" ]] && print_info "dcgm-exporter: detected (port 9400 or systemd active)" || print_detail "dcgm-exporter: not detected"
+                                          ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2918:
+[[ "$NODE_EXPORTER_DETECTED" == "true" ]] && print_info "node-exporter: detected (port 9100 or systemd active)" || print_detail "node-exporter: not detected"
+                                          ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2919:
+[[ "$GRAFANA_DETECTED"      == "true" ]] && print_info "Grafana: detected (port 3000 or systemd active)"        || print_detail "Grafana: not detected"
+                                         ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2945:
+[[ -n "$UNKILLABLE_STEP" && "$UNKILLABLE_STEP" != "(null)" ]] && \
+                                                              ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 2961:
+        PASSWORDLESS_SSH="enabled"
+        ^--------------^ SC2034 (warning): PASSWORDLESS_SSH appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 3007:
+        SACCT_AVAILABLE="true"
+        ^-------------^ SC2034 (warning): SACCT_AVAILABLE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 3041:
+ESSENTIAL_TOOLS_JSON="{$(IFS=,; echo "${TOOLS_JSON_ENTRIES[*]}")}"
+^------------------^ SC2034 (warning): ESSENTIAL_TOOLS_JSON appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 3049:
+    IPMITOOL_INSTALLED="true"
+    ^----------------^ SC2034 (warning): IPMITOOL_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 3071:
+        IPMI_EXPOSED="true"
+        ^----------^ SC2034 (warning): IPMI_EXPOSED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 3089:
+    SUDO_AVAILABLE="true"
+    ^------------^ SC2034 (warning): SUDO_AVAILABLE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 3103:
+        SLURM_CMD_AVAIL[$cmd]="false"
+        ^-------------------^ SC2034 (warning): SLURM_CMD_AVAIL appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 3104:
+        SLURM_CMDS_OK="false"
+        ^-----------^ SC2034 (warning): SLURM_CMDS_OK appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 3116:
+[[ "$USERADD_AVAILABLE"  == "true" ]] && print_info "useradd: $(command -v useradd)"   || print_warn "useradd: not found"
+                                      ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 3117:
+[[ "$GROUPADD_AVAILABLE" == "true" ]] && print_info "groupadd: $(command -v groupadd)" || print_warn "groupadd: not found"
+                                      ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 3283:
+        [[ -n "$PART_DEF_MEM" ]] && print_info "  DefMemPerNode: ${PART_DEF_MEM} MB" || print_detail "  DefMemPerNode: Not set (using cluster default)"
+                                 ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 3285:
+        [[ -n "$PART_MAX_CPUS" ]] && print_info "  MaxCPUsPerNode: ${PART_MAX_CPUS}" || print_detail "  MaxCPUsPerNode: Unlimited"
+                                  ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 3375:
+SECURITY_VERSION_AUDIT_JSON=$(build_security_version_audit \
+^-------------------------^ SC2034 (warning): SECURITY_VERSION_AUDIT_JSON appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-slurm.sh line 3387:
+AUDIT_TYPE="slurm"
+^--------^ SC2034 (warning): AUDIT_TYPE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 42:
+RED='\033[0;31m'
+^-^ SC2034 (warning): RED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 43:
+GREEN='\033[0;32m'
+^---^ SC2034 (warning): GREEN appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 44:
+YELLOW='\033[1;33m'
+^----^ SC2034 (warning): YELLOW appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 45:
+BLUE='\033[0;34m'
+^--^ SC2034 (warning): BLUE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 46:
+CYAN='\033[0;36m'
+^--^ SC2034 (warning): CYAN appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 47:
+BOLD='\033[1m'
+^--^ SC2034 (warning): BOLD appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 48:
+NC='\033[0m' # No Color
+^-- SC2034 (warning): NC appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 89:
+AUDIT_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+^-------------^ SC2034 (warning): AUDIT_TIMESTAMP appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 100:
+SLURM_VERSION="n/a (standalone)"
+^-----------^ SC2034 (warning): SLURM_VERSION appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 101:
+SLURM_VERSION_NUM="0.0.0"
+^---------------^ SC2034 (warning): SLURM_VERSION_NUM appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 103:
+CONTROL_MACHINE="n/a"
+^-------------^ SC2034 (warning): CONTROL_MACHINE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 104:
+SLURM_USER="n/a"
+^--------^ SC2034 (warning): SLURM_USER appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 105:
+SLURMCTLD_RUNNING="false"
+^---------------^ SC2034 (warning): SLURMCTLD_RUNNING appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 106:
+SLURMD_RUNNING="false"
+^------------^ SC2034 (warning): SLURMD_RUNNING appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 107:
+SLURMDBD_RUNNING="false"
+^--------------^ SC2034 (warning): SLURMDBD_RUNNING appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 150:
+IDLE_NODES=1
+^--------^ SC2034 (warning): IDLE_NODES appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 151:
+ALLOCATED_NODES=0
+^-------------^ SC2034 (warning): ALLOCATED_NODES appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 152:
+DOWN_NODES=0
+^--------^ SC2034 (warning): DOWN_NODES appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 157:
+NODES_JSON=$(cat <<EOF
+^--------^ SC2034 (warning): NODES_JSON appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 163:
+PARTITIONS_JSON='[]'
+^-------------^ SC2034 (warning): PARTITIONS_JSON appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 164:
+DEFAULT_PARTITION="n/a"
+^---------------^ SC2034 (warning): DEFAULT_PARTITION appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 165:
+GPU_PARTITION="standalone"  # non-empty so Section 2.5 enters the check branch
+^-----------^ SC2034 (warning): GPU_PARTITION appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 190:
+WORKER_PEERMEM="false"
+^------------^ SC2034 (warning): WORKER_PEERMEM appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 235:
+WORKER_MPIRUN_PATH=""
+^----------------^ SC2034 (warning): WORKER_MPIRUN_PATH appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 236:
+WORKER_MPIRUN_VERSION="unknown"
+^-------------------^ SC2034 (warning): WORKER_MPIRUN_VERSION appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 237:
+WORKER_HPCX_DETECTED="false"
+^------------------^ SC2034 (warning): WORKER_HPCX_DETECTED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 240:
+WORKER_NCCL_CONF_OVERRIDES="false"
+^------------------------^ SC2034 (warning): WORKER_NCCL_CONF_OVERRIDES appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 250:
+WORKER_BOOT_SIZE="unknown"
+^--------------^ SC2034 (warning): WORKER_BOOT_SIZE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 627:
+    GPUDIRECT_RDMA=false
+    ^------------^ SC2034 (warning): GPUDIRECT_RDMA appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 628:
+    ACS_ENABLED=unknown
+    ^---------^ SC2034 (warning): ACS_ENABLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 629:
+    ACS_SUPPORTED=false
+    ^-----------^ SC2034 (warning): ACS_SUPPORTED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 630:
+    ACS_BRIDGES=0
+    ^---------^ SC2034 (warning): ACS_BRIDGES appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 631:
+    ACS_ENABLED_COUNT=0
+    ^---------------^ SC2034 (warning): ACS_ENABLED_COUNT appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 632:
+    ACS_TOTAL_BRIDGES=0
+    ^---------------^ SC2034 (warning): ACS_TOTAL_BRIDGES appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 633:
+    ACS_SCOPED=false
+    ^--------^ SC2034 (warning): ACS_SCOPED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 634:
+    ACS_METHOD=skipped
+    ^--------^ SC2034 (warning): ACS_METHOD appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 661:
+    [[ "$WORKER_GDRCOPY_DEV" == "true" ]] && print_info "/dev/gdrdrv: present" || print_detail "/dev/gdrdrv: missing (gdrdrv not loaded or no permissions)"
+                                          ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 688:
+        ROCM_SMI_AVAILABLE="true"
+        ^----------------^ SC2034 (warning): ROCM_SMI_AVAILABLE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 694:
+        AMD_SMI_AVAILABLE="true"
+        ^---------------^ SC2034 (warning): AMD_SMI_AVAILABLE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 728:
+        AMD_PEERMEM_LOADED="false"
+        ^----------------^ SC2034 (warning): AMD_PEERMEM_LOADED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 732:
+        ROCM_CONTAINER_TOOLKIT="true"
+        ^--------------------^ SC2034 (warning): ROCM_CONTAINER_TOOLKIT appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 738:
+        RDC_INSTALLED="true"
+        ^-----------^ SC2034 (warning): RDC_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 749:
+        ROCM_BANDWIDTH_TEST_INSTALLED="true"
+        ^---------------------------^ SC2034 (warning): ROCM_BANDWIDTH_TEST_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 757:
+        ROCPROF_INSTALLED="true"
+        ^---------------^ SC2034 (warning): ROCPROF_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 780:
+        RVS_INSTALLED="true"
+        ^-----------^ SC2034 (warning): RVS_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 786:
+        TRANSFERBENCH_INSTALLED="true"
+        ^---------------------^ SC2034 (warning): TRANSFERBENCH_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 825:
+GPU_ERROR_NODES_TOTAL=1
+^-------------------^ SC2034 (warning): GPU_ERROR_NODES_TOTAL appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 915:
+                NCU_PROFILING_CONF_FOUND="true"
+                ^----------------------^ SC2034 (warning): NCU_PROFILING_CONF_FOUND appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1105:
+        NVCC_IN_PATH="true"
+        ^----------^ SC2034 (warning): NVCC_IN_PATH appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1136:
+        NVHPC_VERSIONS=$(ls "$NVHPC_ARCH_DIR/" 2>/dev/null | tr '\n' ',' | sed 's/,$//' || echo "unknown")
+                         ^-- SC2012 (info): Use find instead of ls to better handle non-alphanumeric filenames.
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1145:
+        NVHPC_INSTALLED="true"
+        ^-------------^ SC2034 (warning): NVHPC_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1186:
+        NCCL_INSTALLED="true"
+        ^------------^ SC2034 (warning): NCCL_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1196:
+NCCL_CONF="/etc/nccl.conf"
+^-------^ SC2034 (warning): NCCL_CONF appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1197:
+NCCL_CONF_OVERRIDES="false"
+^-----------------^ SC2034 (warning): NCCL_CONF_OVERRIDES appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1198:
+MPIRUN_PATH=""
+^---------^ SC2034 (warning): MPIRUN_PATH appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1199:
+MPI_INSTALLED="false"
+^-----------^ SC2034 (warning): MPI_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1200:
+HPCX_IN_PATH="false"
+^----------^ SC2034 (warning): HPCX_IN_PATH appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1201:
+HPCX_PATH=""
+^-------^ SC2034 (warning): HPCX_PATH appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1202:
+SRUN_MPI_PMIX="false"
+^-----------^ SC2034 (warning): SRUN_MPI_PMIX appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1209:
+LMOD_INSTALLED="false"
+^------------^ SC2034 (warning): LMOD_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1210:
+LMOD_VERSION="n/a"
+^----------^ SC2034 (warning): LMOD_VERSION appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1211:
+HAS_CUDA_MODULE="false"
+^-------------^ SC2034 (warning): HAS_CUDA_MODULE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1212:
+HAS_HPCX_MODULE="false"
+^-------------^ SC2034 (warning): HAS_HPCX_MODULE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1213:
+HAS_NCCL_MODULE="false"
+^-------------^ SC2034 (warning): HAS_NCCL_MODULE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1222:
+PYXIS_INSTALLED="false"
+^-------------^ SC2034 (warning): PYXIS_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1255:
+        ENROOT_IMPORT_WORKS="true"
+        ^-----------------^ SC2034 (warning): ENROOT_IMPORT_WORKS appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1280:
+CONTAINER_WORKER_CHECK_OK="true"
+^-----------------------^ SC2034 (warning): CONTAINER_WORKER_CHECK_OK appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1281:
+CONTAINER_WORKER_NODE=$(hostname 2>/dev/null || echo "localhost")
+^-------------------^ SC2034 (warning): CONTAINER_WORKER_NODE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1312:
+        DOCKER_VERSION_OK="true"
+        ^---------------^ SC2034 (warning): DOCKER_VERSION_OK appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1323:
+        DOCKER_NVIDIA_RUNTIME_CONFIGURED="true"
+        ^-- SC2034 (warning): DOCKER_NVIDIA_RUNTIME_CONFIGURED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1331:
+DOCKER_ON_HEAD="$DOCKER_INSTALLED"
+^------------^ SC2034 (warning): DOCKER_ON_HEAD appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1360:
+                NVIDIA_CT_VERSION_OK="true"
+                ^------------------^ SC2034 (warning): NVIDIA_CT_VERSION_OK appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1389:
+    CONTAINER_RUNTIME_SCOPE="host"
+    ^---------------------^ SC2034 (warning): CONTAINER_RUNTIME_SCOPE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1404:
+DOCKER_ON_WORKERS="$DOCKER_INSTALLED"
+^---------------^ SC2034 (warning): DOCKER_ON_WORKERS appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1415:
+    SINGULARITY_INSTALLED="true"
+    ^-------------------^ SC2034 (warning): SINGULARITY_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1556:
+    [[ "$IB_PKEYS_CONFIGURED" == "true" ]] && print_info "IB PKeys: Configured" || print_warn "IB PKeys: No valid partition keys found"
+                                           ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1569:
+                    print_detail "  $(basename $pf): ${pv} (default partition)"
+                                               ^-^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+                    print_detail "  $(basename "$pf"): ${pv} (default partition)"
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1573:
+                    print_detail "  $(basename $pf): ${pv}"
+                                               ^-^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+                    print_detail "  $(basename "$pf"): ${pv}"
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1801:
+SAQUERY_OUT=$(sudo -n saquery NodeRecord 2>/dev/null | grep NodeDescription | wc -l | tr -d '[:space:]' || echo "0")
+                                                       ^------------------^ SC2126 (style): Consider using 'grep -c' instead of 'grep|wc -l'.
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1872:
+    IB_INSTALLED=false
+    ^----------^ SC2034 (warning): IB_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1875:
+    HCA_DEVICES_JSON="[]"
+    ^--------------^ SC2034 (warning): HCA_DEVICES_JSON appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1878:
+    HCA_NAMING_VALID=false
+    ^--------------^ SC2034 (warning): HCA_NAMING_VALID appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1882:
+    NIC_FABRIC_JSON="[]"
+    ^-------------^ SC2034 (warning): NIC_FABRIC_JSON appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1890:
+    NIC_HAS_OTHER=false
+    ^-----------^ SC2034 (warning): NIC_HAS_OTHER appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1891:
+    NETWORK_UTILITIES_JSON="{}"
+    ^--------------------^ SC2034 (warning): NETWORK_UTILITIES_JSON appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1892:
+    NCCL_GID_INDEX_VALUE=unset
+    ^------------------^ SC2209 (warning): Use var=$(command) to assign output (or quote to assign string).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1893:
+    IB_TENANT_ISOLATION=not_applicable
+    ^-----------------^ SC2034 (warning): IB_TENANT_ISOLATION appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1894:
+    IB_SM_KEY_CONFIGURED=false
+    ^------------------^ SC2034 (warning): IB_SM_KEY_CONFIGURED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1895:
+    SHARP_AVAILABLE=false
+    ^-------------^ SC2034 (warning): SHARP_AVAILABLE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1896:
+    SHARP_AM_KEY_CONFIGURED=false
+    ^---------------------^ SC2034 (warning): SHARP_AM_KEY_CONFIGURED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1897:
+    UFM_SECURED_PROFILE_JSON='{"applicable":false,"status":"not_applicable","profile":"Secured Bare Metal Cloud","verification":"not applicable to standalone","requiredControls":[]}'
+    ^----------------------^ SC2034 (warning): UFM_SECURED_PROFILE_JSON appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 1903:
+TOPOLOGY_CONF=""
+^-----------^ SC2034 (warning): TOPOLOGY_CONF appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2070:
+HEALTH_CHECK_PROGRAM=""
+^------------------^ SC2034 (warning): HEALTH_CHECK_PROGRAM appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2071:
+HEALTH_CHECK_INTERVAL=""
+^-------------------^ SC2034 (warning): HEALTH_CHECK_INTERVAL appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2072:
+HEALTH_CHECK_CONFIGURED="false"
+^---------------------^ SC2034 (warning): HEALTH_CHECK_CONFIGURED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2073:
+DCGM_SLURM="false"
+^--------^ SC2034 (warning): DCGM_SLURM appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2074:
+PROLOG_RUNTIME_SEC="n/a"
+^----------------^ SC2034 (warning): PROLOG_RUNTIME_SEC appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2075:
+PROLOG_FAST="n/a"
+^---------^ SC2034 (warning): PROLOG_FAST appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2076:
+NHC_INSTALLED="false"
+^-----------^ SC2034 (warning): NHC_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2077:
+AUTO_REMEDIATION_CONFIGURED="false"
+^-------------------------^ SC2034 (warning): AUTO_REMEDIATION_CONFIGURED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2101:
+        [[ "$DCGM_INSTALLED" == "true" ]] && print_warn "DCGM binary found but service NOT active on compute node" \
+                                          ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2107:
+        DCGM_HEALTH_WATCHES_ENABLED="true"
+        ^-------------------------^ SC2034 (warning): DCGM_HEALTH_WATCHES_ENABLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2135:
+            && print_info "DCGM service: Active on head node" \
+            ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2179:
+[[ "$PROMETHEUS_DETECTED"   == "true" ]] && print_info "Prometheus: detected (port 9090 or systemd active)"     || print_detail "Prometheus: not detected"
+                                         ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2180:
+[[ "$DCGM_EXPORTER_DETECTED" == "true" ]] && print_info "dcgm-exporter: detected (port 9400 or systemd active)" || print_detail "dcgm-exporter: not detected"
+                                          ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2181:
+[[ "$NODE_EXPORTER_DETECTED" == "true" ]] && print_info "node-exporter: detected (port 9100 or systemd active)" || print_detail "node-exporter: not detected"
+                                          ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2182:
+[[ "$GRAFANA_DETECTED"      == "true" ]] && print_info "Grafana: detected (port 3000 or systemd active)"        || print_detail "Grafana: not detected"
+                                         ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2195:
+        PASSWORDLESS_SSH="enabled"
+        ^--------------^ SC2034 (warning): PASSWORDLESS_SSH appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2205:
+SSH_TO_COMPUTE="false"
+^------------^ SC2034 (warning): SSH_TO_COMPUTE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2206:
+FIRST_COMPUTE_NODE="$(hostname)"
+^----------------^ SC2034 (warning): FIRST_COMPUTE_NODE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2209:
+ACCOUNTING_STORAGE="none"
+^----------------^ SC2034 (warning): ACCOUNTING_STORAGE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2210:
+SACCT_AVAILABLE="false"
+^-------------^ SC2034 (warning): SACCT_AVAILABLE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2238:
+ESSENTIAL_TOOLS_JSON="{$(IFS=,; echo "${TOOLS_JSON_ENTRIES[*]}")}"
+^------------------^ SC2034 (warning): ESSENTIAL_TOOLS_JSON appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2246:
+    IPMITOOL_INSTALLED="true"
+    ^----------------^ SC2034 (warning): IPMITOOL_INSTALLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2268:
+        IPMI_EXPOSED="true"
+        ^----------^ SC2034 (warning): IPMI_EXPOSED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2286:
+    SUDO_AVAILABLE="true"
+    ^------------^ SC2034 (warning): SUDO_AVAILABLE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2292:
+SLURM_CMDS_OK="false"
+^-----------^ SC2034 (warning): SLURM_CMDS_OK appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2293:
+declare -A SLURM_CMD_AVAIL=()
+           ^-------------^ SC2034 (warning): SLURM_CMD_AVAIL appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2302:
+[[ "$USERADD_AVAILABLE"  == "true" ]] && print_info "useradd: $(command -v useradd)"   || print_warn "useradd: not found"
+                                      ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2303:
+[[ "$GROUPADD_AVAILABLE" == "true" ]] && print_info "groupadd: $(command -v groupadd)" || print_warn "groupadd: not found"
+                                      ^-- SC2015 (info): Note that A && B || C is not if-then-else. C may run when A is true.
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2332:
+DEF_CPUS_PER_TASK="1"
+^---------------^ SC2034 (warning): DEF_CPUS_PER_TASK appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2333:
+DEF_MEM_PER_CPU=0
+^-------------^ SC2034 (warning): DEF_MEM_PER_CPU appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2334:
+DEF_MEM_PER_GPU=0
+^-------------^ SC2034 (warning): DEF_MEM_PER_GPU appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2335:
+DEF_MEM_PER_NODE=0
+^--------------^ SC2034 (warning): DEF_MEM_PER_NODE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2336:
+MAX_MEM_PER_CPU=0
+^-------------^ SC2034 (warning): MAX_MEM_PER_CPU appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2337:
+MAX_MEM_PER_NODE=0
+^--------------^ SC2034 (warning): MAX_MEM_PER_NODE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2338:
+CPU_FREQ_DEF=""
+^----------^ SC2034 (warning): CPU_FREQ_DEF appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2339:
+CPU_FREQ_GOV=""
+^----------^ SC2034 (warning): CPU_FREQ_GOV appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2340:
+TASK_PLUGIN="n/a"
+^---------^ SC2034 (warning): TASK_PLUGIN appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2341:
+PROCTRACK_TYPE="n/a"
+^------------^ SC2034 (warning): PROCTRACK_TYPE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2426:
+DCGM_EXPORTER_PRESENT="${DCGM_EXPORTER_DETECTED:-unknown}"
+^-------------------^ SC2034 (warning): DCGM_EXPORTER_PRESENT appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2427:
+SECURITY_VERSION_AUDIT_JSON=$(build_security_version_audit \
+^-------------------------^ SC2034 (warning): SECURITY_VERSION_AUDIT_JSON appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/cluster-audit-standalone.sh line 2440:
+AUDIT_TYPE="standalone"
+^--------^ SC2034 (warning): AUDIT_TYPE appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/container-check.sh line 43:
+    if [[ $? -eq 0 ]]; then
+          ^-- SC2181 (style): Check exit code directly with e.g. 'if mycmd;', not indirectly with $?.
+
+
+In cmax/scripts/1-audit/host-check.sh line 16:
+    . /etc/os-release
+      ^-------------^ SC1091 (info): Not following: /etc/os-release: openBinaryFile: does not exist (No such file or directory)
+
+
+In cmax/scripts/1-audit/host-check.sh line 461:
+    WORKER_VIRT_DETECTION=cpuinfo-hypervisor
+                          ^----------------^ SC2100 (warning): Use $((..)) for arithmetics, e.g. i=$((i - 2))
+
+
+In cmax/scripts/1-audit/host-check.sh line 933:
+            acs_nicmap[${BASH_REMATCH[1]}]="${BASH_REMATCH[2]}"
+                       ^----------------^ SC2004 (style): $/${} is unnecessary on arithmetic variables.
+
+
+In cmax/scripts/1-audit/host-check.sh line 971:
+            $acs_tmo ib_write_bw -d "$acs_dev" -p 18796 $1 -s 65536 -n 100 -F >"$sl" 2>&1 &
+                                                        ^-- SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+            $acs_tmo ib_write_bw -d "$acs_dev" -p 18796 "$1" -s 65536 -n 100 -F >"$sl" 2>&1 &
+
+
+In cmax/scripts/1-audit/host-check.sh line 973:
+            $acs_tmo ib_write_bw -d "$acs_dev" -p 18796 $1 -s 65536 -n 100 -F 127.0.0.1 >"$cl" 2>&1
+                                                        ^-- SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+            $acs_tmo ib_write_bw -d "$acs_dev" -p 18796 "$1" -s 65536 -n 100 -F 127.0.0.1 >"$cl" 2>&1
+
+
+In cmax/scripts/1-audit/host-check.sh line 1092:
+    echo "WORKER_RDMA_DRIVERS=$(echo $_rdma_drivers | tr ' ' '\n' | grep . | sort -u | paste -sd, -)"
+                                     ^------------^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+    echo "WORKER_RDMA_DRIVERS=$(echo "$_rdma_drivers" | tr ' ' '\n' | grep . | sort -u | paste -sd, -)"
+
+
+In cmax/scripts/1-audit/host-check.sh line 1093:
+    echo "WORKER_RDMA_LINK_LAYERS=$(echo $_rdma_layers | tr ' ' '\n' | grep . | sort -u | paste -sd, -)"
+                                         ^-----------^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+    echo "WORKER_RDMA_LINK_LAYERS=$(echo "$_rdma_layers" | tr ' ' '\n' | grep . | sort -u | paste -sd, -)"
+
+
+In cmax/scripts/1-audit/host-check.sh line 1190:
+    ROCM_DIR=$(ls -d /opt/rocm-* /opt/rocm 2>/dev/null | head -1)
+               ^-- SC2012 (info): Use find instead of ls to better handle non-alphanumeric filenames.
+
+
+In cmax/scripts/1-audit/host-check.sh line 1304:
+_render_node=$(ls /dev/dri/renderD* 2>/dev/null | head -1)
+               ^-- SC2012 (info): Use find instead of ls to better handle non-alphanumeric filenames.
+
+
+In cmax/scripts/1-audit/host-check.sh line 1324:
+    _rvs_conf=$(ls -d /opt/rocm*/share/rocm-validation-suite/conf 2>/dev/null | head -1)
+                ^-- SC2012 (info): Use find instead of ls to better handle non-alphanumeric filenames.
+
+
+In cmax/scripts/1-audit/host-check.sh line 1878:
+    WORKER_NHC_PATH=$(ls /usr/sbin/nhc /usr/local/sbin/nhc 2>/dev/null | head -1)
+                      ^-- SC2012 (info): Use find instead of ls to better handle non-alphanumeric filenames.
+
+
+In cmax/scripts/1-audit/host-check.sh line 1983:
+IB_DEVS=$(ls /sys/class/infiniband/ 2>/dev/null | grep -v bond | tr '\n' ',' | sed 's/,$//')
+          ^-- SC2010 (warning): Don't use ls | grep. Use a glob or a for loop with a condition to allow non-alphanumeric filenames.
+
+
+In cmax/scripts/1-audit/host-check.sh line 1986:
+for dev in $(ls /sys/class/infiniband/ 2>/dev/null | grep -v bond); do
+             ^-- SC2010 (warning): Don't use ls | grep. Use a glob or a for loop with a condition to allow non-alphanumeric filenames.
+
+
+In cmax/scripts/1-audit/host-check.sh line 1987:
+    rate=$(cat /sys/class/infiniband/${dev}/ports/1/rate 2>/dev/null || echo unknown)
+                                     ^----^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+    rate=$(cat /sys/class/infiniband/"${dev}"/ports/1/rate 2>/dev/null || echo unknown)
+
+
+In cmax/scripts/1-audit/host-check.sh line 1988:
+    state=$(cat /sys/class/infiniband/${dev}/ports/1/state 2>/dev/null | grep -oP '\d+: \K\w+' || echo unknown)
+                                      ^----^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+    state=$(cat /sys/class/infiniband/"${dev}"/ports/1/state 2>/dev/null | grep -oP '\d+: \K\w+' || echo unknown)
+
+
+In cmax/scripts/1-audit/host-check.sh line 1989:
+    link_layer=$(cat /sys/class/infiniband/${dev}/ports/1/link_layer 2>/dev/null || echo unknown)
+                                           ^----^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+    link_layer=$(cat /sys/class/infiniband/"${dev}"/ports/1/link_layer 2>/dev/null || echo unknown)
+
+
+In cmax/scripts/1-audit/host-check.sh line 1990:
+    pci_vendor=$(cat /sys/class/infiniband/${dev}/device/vendor 2>/dev/null || echo unknown)
+                                           ^----^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+    pci_vendor=$(cat /sys/class/infiniband/"${dev}"/device/vendor 2>/dev/null || echo unknown)
+
+
+In cmax/scripts/1-audit/host-check.sh line 1991:
+    pci_device=$(cat /sys/class/infiniband/${dev}/device/device 2>/dev/null || echo unknown)
+                                           ^----^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+    pci_device=$(cat /sys/class/infiniband/"${dev}"/device/device 2>/dev/null || echo unknown)
+
+
+In cmax/scripts/1-audit/host-check.sh line 1992:
+    hca_type=$(cat /sys/class/infiniband/${dev}/hca_type 2>/dev/null || echo unknown)
+                                         ^----^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+    hca_type=$(cat /sys/class/infiniband/"${dev}"/hca_type 2>/dev/null || echo unknown)
+
+
+In cmax/scripts/1-audit/host-check.sh line 1993:
+    fw_ver=$(cat /sys/class/infiniband/${dev}/fw_ver 2>/dev/null || echo unknown)
+                                       ^----^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+    fw_ver=$(cat /sys/class/infiniband/"${dev}"/fw_ver 2>/dev/null || echo unknown)
+
+
+In cmax/scripts/1-audit/host-check.sh line 2009:
+        for pf in /sys/class/infiniband/${dev}/ports/1/pkeys/*; do
+                                        ^----^ SC2231 (info): Quote expansions in this for loop glob to prevent wordsplitting, e.g. "$dir"/*.txt .
+
+
+In cmax/scripts/1-audit/host-check.sh line 2022:
+    if grep -rl "RoCE v2\|roce_v2\|RoCEv2" /sys/class/infiniband/${dev}/ports/1/gid_attrs/types/ 2>/dev/null | grep -q .; then
+                                                                 ^----^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+    if grep -rl "RoCE v2\|roce_v2\|RoCEv2" /sys/class/infiniband/"${dev}"/ports/1/gid_attrs/types/ 2>/dev/null | grep -q .; then
+
+
+In cmax/scripts/1-audit/host-check.sh line 2167:
+        echo "WORKER_BLKDEV_${NAME}=${TYPE}|${SIZE}|${MOUNTPOINT}|${FSTYPE}|${TRAN}"
+                            ^-----^ SC2153 (info): Possible misspelling: NAME may not be assigned. Did you mean name?
+                                                                  ^-------^ SC2153 (info): Possible misspelling: FSTYPE may not be assigned. Did you mean fstype?
+
+
+In cmax/scripts/1-audit/k8s-control.sh line 9:
+    RUNNER_NAME="${1:?runner name required}"
+    ^---------^ SC2034 (warning): RUNNER_NAME appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/k8s-control.sh line 1806:
+    local rdma_claim_template="$(k8s_detect_dra_rdma_claim_template)"
+          ^-----------------^ SC2155 (warning): Declare and assign separately to avoid masking return values.
+
+
+In cmax/scripts/1-audit/monitoring-k8s.sh line 395:
+    PROM_PODS=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | grep -E "prometheus-[^k]" | wc -l | tr -d ' ')
+                                                                     ^-----------------------^ SC2126 (style): Consider using 'grep -c' instead of 'grep|wc -l'.
+
+
+In cmax/scripts/1-audit/monitoring-k8s.sh line 723:
+    GFD_LABELS="true"
+    ^--------^ SC2034 (warning): GFD_LABELS appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/monitoring-k8s.sh line 778:
+        DCGM_HEALTH_ENABLED="true"
+        ^-----------------^ SC2034 (warning): DCGM_HEALTH_ENABLED appears unused. Verify use (or export if used externally).
+
+
+In cmax/scripts/1-audit/run.sh line 43:
+echo "Audit script: ${AUDIT_SCRIPT#$REPO_ROOT/}"
+                                   ^--------^ SC2295 (info): Expansions inside ${..} need to be quoted separately, otherwise they match as patterns.
+
+Did you mean:
+echo "Audit script: ${AUDIT_SCRIPT#"$REPO_ROOT"/}"
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2148 -- Tips depend on target shell and y...
+  https://www.shellcheck.net/wiki/SC2010 -- Don't use ls | grep. Use a glob o...
+  https://www.shellcheck.net/wiki/SC2034 -- ACCOUNTING_STORAGE appears unused...

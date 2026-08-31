@@ -1,0 +1,8 @@
+ClusterMAX static-analysis summary (report-only)
+
+analysis-bandit        exit=1 lines=499
+analysis-mypy          exit=1 lines=81
+analysis-ruff          exit=1 lines=2515
+analysis-ruff-format   exit=1 lines=3932
+analysis-shellcheck    exit=123 lines=867
+

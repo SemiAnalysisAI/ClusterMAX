@@ -1,0 +1,3 @@
+# Captured static-analysis reports are verbatim tool output. Keep them exactly
+# as produced (aligned columns, diff blank lines) — exempt from whitespace checks.
+reports/static-analysis/*.txt -whitespace
