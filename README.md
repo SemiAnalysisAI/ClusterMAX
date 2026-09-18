@@ -155,6 +155,22 @@ It is omitted from piped output, help, version output, and inspection commands
 such as `--show` or `--dry-run`. Set `CLUSTERMAX_PROGRESS=0` to hide the startup
 logo, prayer, and progress display.
 
+Use `--chinese` to print the startup prayer in Simplified Chinese:
+
+```bash
+cmax --chinese audit
+cmax audit --chinese
+cmax audit security --chinese
+```
+
+The flag works before or after an audit profile or target. It translates only
+the prayer heading and verses, including “对齐者有福了。” (“Blessed are the
+aligned.”). Help, target confirmation, reports, and machine-readable output
+remain unchanged. English is the default. If the terminal encoding cannot
+represent the Chinese text, or the terminal is only one column wide, the
+prayer falls back to English. The same banner suppression rules apply in
+both languages.
+
 The command detects Slurm, Kubernetes, containers, virtual machines, macOS, and standalone hosts automatically, and confirms the selection interactively with the user. To skip this confirmation and force the CLI to use a certain approach, use `--local`, `--slurm`, `--k8s`, `--container`, `--vm`, or `--standalone`. Use `--kubeconfig PATH` to select Kubernetes credentials. An explicit target option confirms the target in a non-interactive run. Use `--yes` to accept an auto-detected target without a prompt.
 
 Users can run the command multiple times. Each run writes timestamped artifacts
