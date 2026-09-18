@@ -489,10 +489,13 @@ add_kubectl_auth_check() {
     local resource="$3"
     local scope="${4:-}"
     local result allowed
+    # can-i reports a denial twice, on stdout and through exit status 1, so the
+    # fallback appends a second line rather than supplying a missing one. Keep
+    # the first line: the value is spliced into a JSON string literal below.
     if [[ -n "$scope" ]]; then
-        result=$(kubectl auth can-i "$verb" "$resource" "$scope" 2>/dev/null || echo "no")
+        result=$({ kubectl auth can-i "$verb" "$resource" "$scope" 2>/dev/null || echo "no"; } | head -1)
     else
-        result=$(kubectl auth can-i "$verb" "$resource" 2>/dev/null || echo "no")
+        result=$({ kubectl auth can-i "$verb" "$resource" 2>/dev/null || echo "no"; } | head -1)
     fi
     allowed="false"
     if [[ "$result" == "yes" ]]; then
