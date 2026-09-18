@@ -49,7 +49,7 @@ STARTUP_PRAYER = (
     "O Lord of the GPUs, bless this cluster before we begin.",
     "May our clocks stay high and our NCCL never hang.",
     "Deliver us from Xid errors, and lead us not into silent data corruption.",
-    "Blessed be the aligned.",
+    "Blessed are the aligned.",
     "Amen.",
 )
 
