@@ -36,6 +36,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import textwrap
 from dataclasses import dataclass
 from typing import Sequence, TextIO
 
@@ -44,6 +45,13 @@ from cmax.logo import BASIC, PALETTE256, TRUECOLOR, Ink, color_depth
 from cmax.progress import Theme, progress_enabled
 
 WORD = "CLUSTERMAX"
+STARTUP_PRAYER = (
+    "O Lord of the GPUs, bless this cluster before we begin.",
+    "May our clocks stay high and our NCCL never hang.",
+    "Deliver us from Xid errors, and lead us not into silent data corruption.",
+    "Blessed are the aligned.",
+    "Amen.",
+)
 
 # The SemiAnalysis brand gold. `dashboard/STYLING-STACK.md` names it SA Amber,
 # and `dashboard/src/app/globals.css` sets the same value as the dashboard
@@ -467,6 +475,11 @@ def print_banner(stream: TextIO | None = None, *, word: str = WORD) -> bool:
     lines: Sequence[str] = render(width=width, theme=theme, word=word)
     if not lines:
         return False
-    target.write("\n".join(lines) + "\n\n")
+    prayer = [
+        wrapped
+        for line in ("A prayer for the cluster", *STARTUP_PRAYER)
+        for wrapped in textwrap.wrap(line, width=max(1, width))
+    ]
+    target.write("\n".join(lines) + "\n\n" + "\n".join(prayer) + "\n\n")
     target.flush()
     return True
