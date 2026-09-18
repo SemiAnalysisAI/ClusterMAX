@@ -90,6 +90,8 @@ def test_prayer_follows_the_logo_once() -> None:
     assert output.index("█") < output.index("A prayer for the cluster")
     for line in banner.STARTUP_PRAYER:
         assert output.count(line) == 1
+    assert output.count("Blessed be the aligned.") == 1
+    assert "Blessed be the aligned.\nAmen.\n\n" in output
     assert output.endswith("Amen.\n\n")
     assert "\x1b" not in output
 
