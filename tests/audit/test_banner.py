@@ -66,7 +66,7 @@ def test_banner_prints_only_to_an_interactive_terminal() -> None:
 def test_cli_wires_banner_to_live_audits_only() -> None:
     with mock.patch.object(banner, "print_banner") as rendered:
         cli._show_banner(argparse.Namespace(command="audit", show=False))
-    rendered.assert_called_once_with()
+    rendered.assert_called_once_with(chinese=False)
 
     for fields in (
         {"command": "audit", "show": True},
