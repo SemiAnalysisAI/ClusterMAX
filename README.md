@@ -149,6 +149,12 @@ cmax audit security -vvv
 
 ## Notes on usage
 
+Interactive audits print a short cluster prayer below the startup logo.
+The prayer is decorative and does not change GPU settings or audit results.
+It is omitted from piped output, help, version output, and inspection commands
+such as `--show` or `--dry-run`. Set `CLUSTERMAX_PROGRESS=0` to hide the startup
+logo, prayer, and progress display.
+
 The command detects Slurm, Kubernetes, containers, virtual machines, macOS, and standalone hosts automatically, and confirms the selection interactively with the user. To skip this confirmation and force the CLI to use a certain approach, use `--local`, `--slurm`, `--k8s`, `--container`, `--vm`, or `--standalone`. Use `--kubeconfig PATH` to select Kubernetes credentials. An explicit target option confirms the target in a non-interactive run. Use `--yes` to accept an auto-detected target without a prompt.
 
 Users can run the command multiple times. Each run writes timestamped artifacts
