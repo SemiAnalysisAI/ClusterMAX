@@ -36,7 +36,8 @@ fault.
 Environment variables:
 
 * ``CLUSTERMAX_AUDIT_K8S_NAMESPACE`` (default ``default``)
-* ``CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE`` (default ``python:3.12-alpine``)
+* ``CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE`` (default: digest-pinned
+  ``python:3.12-alpine``; use a digest-pinned mirror for air-gapped clusters)
 * ``CLUSTERMAX_AUDIT_K8S_HOST_CHECK_PULL_POLICY`` (default ``IfNotPresent``)
 * ``CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS`` (default: all GPU nodes)
 * ``CLUSTERMAX_PYXIS_CHECK_IMAGE`` - container the mount check launches.
@@ -68,6 +69,11 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_VERSION = 1
+# Pin the multi-architecture index so both x86 and Arm hosts use fixed images.
+DEFAULT_K8S_HOST_CHECK_IMAGE = (
+    "python:3.12-alpine@"
+    "sha256:c4634f578a412db396771b61b064c6e546c9d6414c7fb5b1b05d5871f1885f7b"
+)
 CHECK_KEYS = ("vm_iommu", "arm_smmu_virtualization")
 ALL_CHECK_KEYS = (*CHECK_KEYS, "nccl_topo_file", "nccl_ib_qps")
 CACHE_PATH_ENV = "CLUSTERMAX_PLATFORM_CHECK_CACHE"
@@ -2020,7 +2026,7 @@ def run_k8s_check(
     include_rdma_iommu: bool = True,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     namespace = os.environ.get("CLUSTERMAX_AUDIT_K8S_NAMESPACE", "default")
-    image = os.environ.get("CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE", "python:3.12-alpine")
+    image = os.environ.get("CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE", DEFAULT_K8S_HOST_CHECK_IMAGE)
     max_nodes = as_int(os.environ.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS"), default=len(nodes))
     return load_fanout().fan_out_k8s(
         lambda node: run_k8s_host_check(
