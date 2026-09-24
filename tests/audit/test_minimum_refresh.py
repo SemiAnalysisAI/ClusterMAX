@@ -763,7 +763,32 @@ class DockerMinimumTest(unittest.TestCase):
             fr.docker_minimums(fetch=self.stub)
         self.assertIn("Security subsection", str(caught.exception))
 
-    def test_a_security_release_without_identifiers_fails_closed(self) -> None:
+    def test_a_hardening_only_security_release_does_not_move_the_minimum(self) -> None:
+        # Docker 29.8.0 shipped a Security subsection that only added AppArmor
+        # and SELinux policy rules and named no CVE or GHSA. It fixes no tracked
+        # vulnerability, so the minimum stays at the newest release that does,
+        # and the refresh keeps running.
+        page = (
+            '## 29.8.0\n\n{{< release-date date="2026-09-03" >}}\n\n'
+            "### Security\n\n"
+            "- Add daemon support for configuring the default container AppArmor "
+            "profile template. [moby/moby#52771](https://github.com/moby/moby/pull/52771)\n"
+            "- Prevent containers from using the 32-bit `socketcall(2)` path to "
+            "create `AF_VSOCK` sockets by adding AppArmor and SELinux policy rules. "
+            "[moby/moby#53551](https://github.com/moby/moby/pull/53551)\n\n"
+            "### Networking\n\n- Fix a Swarm lookup.\n\n"
+            + self.docker_page()
+        )
+        self.stub.text_by_url[fr.docker_release_notes_url(29)] = page
+        block = fr.docker_minimums(fetch=self.stub)
+        self.assertEqual(block["minimum"], "29.7.0")
+        self.assertEqual(block["cves"], ["CVE-2026-17106"])
+
+    def test_a_page_where_no_security_release_names_an_identifier_fails_closed(self) -> None:
+        # Hardening-only releases are skipped, but a page on which every
+        # Security subsection lacks an identifier means the wording changed and
+        # the extractor is reading nothing. Fail closed rather than publish a
+        # minimum from a page it no longer understands.
         page = (
             '## 29.9.0\n\n{{< release-date date="2026-09-01" >}}\n\n'
             "### Security\n\n- Hardening only, identifiers withheld.\n"
@@ -772,6 +797,7 @@ class DockerMinimumTest(unittest.TestCase):
         with self.assertRaises(fr.MinimumRefreshError) as caught:
             fr.docker_minimums(fetch=self.stub)
         self.assertIn("names no CVE or GHSA identifier", str(caught.exception))
+        self.assertIn("29.9.0", str(caught.exception))
 
     def test_a_security_release_without_a_date_fails_closed(self) -> None:
         page = (
