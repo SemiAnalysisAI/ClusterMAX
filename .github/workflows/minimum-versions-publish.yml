@@ -1,0 +1,362 @@
+name: minimum-versions-publish
+
+# Publish the audit minimum version table
+# (cmax/scripts/1-audit/minimum-versions.json) to the public website.
+# A "minimum" is the lowest version of a component that has no known applicable
+# vulnerability.
+#
+# The website repository is SemiAnalysisAI/clustermax-web. This job writes the
+# table to `data/minimum-versions.json` there. The site serves those bytes at
+# https://www.clustermax.ai/minimum-versions.json, and its /minimum-versions
+# page refetches that address on load.
+#
+# Why this job exists:
+#   - `cmax audit security` fetches that public address on startup. A pip
+#     installation carries a read-only table inside the installed package, so
+#     the public copy is the one way it gets current minimums.
+#   - The table in this repository stays the single source of truth. This job
+#     copies it. It never edits a minimum and it never runs the generator.
+#   - The publish happens after a merge, never before review. The public copy
+#     is therefore always equal to a reviewed state of master.
+#
+# What the published copy adds, and why:
+#   - `refreshed`: when the daily `minimum-versions-refresh` job last completed
+#     successfully, so the website can say when the upstream feeds were last
+#     checked. The table's own `generated` stamp moves only when a minimum
+#     changes or the table nears its `maxAgeDays` limit, so it cannot say this.
+#   - `updated`: when a minimum value last changed in the published copy. The
+#     job compares the minimum values (not the metadata) against the copy the
+#     website already carries and moves this stamp only on a real change.
+#   Both are top-level metadata. Every component block is copied byte for byte,
+#   and the command line ignores keys it does not read.
+#
+# What this job does not do:
+#   - It does not open a pull request on the website repository. The table is
+#     generated data with its own review gate in this repository, and a daily
+#     manual merge on the website would hold the public copy behind.
+#   - It does not touch any other file in the website repository.
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      # Only a change to the table can change the published copy.
+      - cmax/scripts/1-audit/minimum-versions.json
+      # A change to this job must be able to publish with the new logic.
+      - .github/workflows/minimum-versions-publish.yml
+  schedule:
+    # 08:43 UTC each day, after the 07:17 UTC refresh.
+    #   - The push event above publishes each merged table on the same day.
+    #   - The daily run carries the `refreshed` stamp forward after a refresh
+    #     that moved no minimum, and repairs a missed publish: a failed website
+    #     deploy, a revoked token, or a job cancelled mid-push each leave the
+    #     public copy behind master.
+    - cron: '43 8 * * *'
+  workflow_dispatch:
+
+# Least privilege. This job reads this repository and its workflow runs, and
+# writes to the website repository with a separate token.
+permissions:
+  contents: read
+  actions: read
+
+# One publish at a time. A scheduled run must not race a push run, because both
+# push the same branch of the website repository.
+concurrency:
+  group: minimum-versions-publish
+  cancel-in-progress: false
+
+env:
+  MINIMUMS_PATH: cmax/scripts/1-audit/minimum-versions.json
+  REFRESH_WORKFLOW: minimum-versions-refresh.yml
+  WEB_REPO: SemiAnalysisAI/clustermax-web
+  WEB_PATH: data/minimum-versions.json
+  # The route file that serves the public path. The publish stops when it is
+  # absent, because the address would answer 404 and every fetch would fail.
+  WEB_ROUTE: app/minimum-versions.json/route.ts
+  PUBLIC_URL: https://www.clustermax.ai/minimum-versions.json
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # The work is one shallow clone, one file write, and one push. 10 minutes
+    # covers the deployment check and still kills a hung connection quickly.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # This job never pushes to this repository. Keep no token in Git
+          # configuration.
+          persist-credentials: false
+
+      - name: Check that the publish token is present
+        env:
+          WEB_TOKEN: ${{ secrets.CLUSTERMAX_WEB_TOKEN }}
+        # Fail loudly. A silent skip lets the public table age out, and the
+        # command line then reads minimums that no longer match this repository.
+        run: |
+          set -uo pipefail
+          if [ -z "$WEB_TOKEN" ]; then
+            echo "::error::the repository secret CLUSTERMAX_WEB_TOKEN is empty. Add a token with write access to $WEB_REPO, then run this job again."
+            exit 1
+          fi
+          echo "the publish token is present"
+
+      - name: Check that the table is complete
+        # The public copy feeds an audit that grades a provider. An empty or
+        # partial table must never reach the website. This repeats the gate in
+        # `minimum-versions-refresh`, because a merge can also arrive by hand.
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          from datetime import datetime
+
+          path = os.environ["MINIMUMS_PATH"]
+          with open(path, encoding="utf-8") as handle:
+              data = json.load(handle)
+
+          if data.get("schemaVersion") != 1:
+              sys.exit(f"::error::{path} declares schema version {data.get('schemaVersion')}. The reader understands 1.")
+
+          components = data.get("components") or {}
+          if not components:
+              sys.exit(f"::error::{path} has no components. Refuse to publish it.")
+
+          stamp = str(data.get("generated") or "")
+          try:
+              datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+          except ValueError:
+              sys.exit(f"::error::{path} carries no usable generated timestamp: {stamp!r}")
+
+          # Each kind keeps its minimums under its own key. Name the metadata keys
+          # instead, so a new kind with a new value key needs no edit here. This
+          # list matches the gate in `minimum-versions-refresh`.
+          metadata_keys = {
+              "advisory", "advisories", "advisoryRanges", "branchSources",
+              "cves", "floorSources", "fixAvailability", "floorAvailability",
+              "kind", "policy", "programCves", "programSources", "release",
+              "source", "sources",
+          }
+          empty = sorted(
+              name for name, component in components.items()
+              if not any(
+                  value for key, value in component.items()
+                  if key not in metadata_keys
+              )
+          )
+          if empty:
+              sys.exit(f"::error::these components carry no minimum value: {', '.join(empty)}")
+
+          print(f"{len(components)} components carry minimum values, generated {stamp}")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as out:
+              out.write(f"MINIMUMS_GENERATED={stamp}\n")
+          PY
+
+      - name: Find when the upstream feeds were last checked
+        id: refreshed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # The latest successful `minimum-versions-refresh` run is the last time
+        # the feeds were read end to end. A run that opened a pull request and a
+        # run that found nothing both count; a failed run does not, so a broken
+        # refresh shows on the website as an aging stamp rather than a fresh one.
+        # This step never fails the job: the stamp is informational, and the
+        # publish below keeps the previous value when this lookup fails.
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          stamp="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/${REFRESH_WORKFLOW}/runs?status=success&per_page=1" \
+            --jq '.workflow_runs[0].updated_at // empty')"
+          if [ -z "$stamp" ]; then
+            echo "::warning::no successful ${REFRESH_WORKFLOW} run found. The published refreshed stamp keeps its previous value."
+          else
+            echo "the upstream feeds were last checked at $stamp"
+          fi
+          echo "stamp=$stamp" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the table to the website repository
+        id: publish
+        env:
+          WEB_TOKEN: ${{ secrets.CLUSTERMAX_WEB_TOKEN }}
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          REFRESHED: ${{ steps.refreshed.outputs.stamp }}
+        run: |
+          set -uo pipefail
+          # Keep the token out of the log and out of the remote URL that Git
+          # writes into the clone configuration.
+          checkout="$RUNNER_TEMP/clustermax-web"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$WEB_TOKEN" | base64 -w0)" \
+            clone --depth 1 --no-tags "https://github.com/${WEB_REPO}.git" "$checkout" || {
+              echo "::error::the clone of $WEB_REPO failed. Check that CLUSTERMAX_WEB_TOKEN has read access."
+              exit 1
+            }
+
+          if [ ! -f "$checkout/$WEB_ROUTE" ]; then
+            echo "::error::$WEB_REPO carries no $WEB_ROUTE, so $PUBLIC_URL would answer 404. Merge the website pull request that adds the route, then run this job again."
+            exit 1
+          fi
+
+          # Write the published copy: this repository's table plus the two
+          # website-only stamps. The component blocks are copied unchanged.
+          WEB_FILE="$checkout/$WEB_PATH" python3 - <<'PY'
+          import json
+          import os
+
+          metadata_keys = {
+              "advisory", "advisories", "advisoryRanges", "branchSources",
+              "cves", "floorSources", "fixAvailability", "floorAvailability",
+              "kind", "policy", "programCves", "programSources", "release",
+              "source", "sources",
+          }
+
+          def minimums(table):
+              # The minimum values alone, without bulletin metadata and without
+              # the timestamps, so `updated` moves only when a version moves.
+              return {
+                  name: {key: value for key, value in block.items() if key not in metadata_keys}
+                  for name, block in (table.get("components") or {}).items()
+              }
+
+          with open(os.environ["MINIMUMS_PATH"], encoding="utf-8") as handle:
+              upstream = json.load(handle)
+
+          web_file = os.environ["WEB_FILE"]
+          previous = {}
+          if os.path.exists(web_file):
+              with open(web_file, encoding="utf-8") as handle:
+                  try:
+                      previous = json.load(handle)
+                  except ValueError:
+                      previous = {}
+
+          published = dict(upstream)
+
+          if minimums(previous) != minimums(upstream) or not previous.get("updated"):
+              # A minimum moved, or the website carries no `updated` stamp yet.
+              # The table's own timestamp is the moment the generator recorded
+              # the change, so use it rather than the publish time.
+              published["updated"] = upstream["generated"]
+              changed = True
+          else:
+              published["updated"] = previous["updated"]
+              changed = False
+
+          refreshed = os.environ.get("REFRESHED", "") or previous.get("refreshed") or upstream["generated"]
+          published["refreshed"] = refreshed
+
+          os.makedirs(os.path.dirname(web_file), exist_ok=True)
+          with open(web_file, "w", encoding="utf-8") as handle:
+              # Same rendering as the generator: sorted keys, two-space indent,
+              # trailing newline, so the diff on the website is only what moved.
+              handle.write(json.dumps(published, indent=2, sort_keys=True) + "\n")
+
+          summary = (
+              f"minimums changed, updated={published['updated']}" if changed
+              else f"no minimum moved, updated stays {published['updated']}"
+          )
+          print(f"{summary}; refreshed={refreshed}")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as out:
+              out.write(f"MINIMUMS_UPDATED={published['updated']}\n")
+              out.write(f"MINIMUMS_REFRESHED={refreshed}\n")
+          PY
+
+          cd "$checkout"
+          # Stage first, then compare the index against HEAD. `git diff` alone
+          # reports no change for a file the website repository does not carry
+          # yet, because an untracked file is in neither the index nor HEAD, so
+          # the first publish would skip and the address would stay a 404.
+          git add -- "$WEB_PATH"
+          if git diff --cached --quiet -- "$WEB_PATH"; then
+            echo "the published table already matches this repository. Nothing to push."
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config user.name 'clustermax-minimums[bot]'
+          git config user.email 'clustermax-minimums@users.noreply.github.com'
+          # Build the message in a file. A quoted multi-line argument would
+          # carry this file's indentation into the commit message.
+          message="$RUNNER_TEMP/commit-message.txt"
+          {
+            echo 'chore(security): publish the minimum version table'
+            echo
+            echo "Generated ${MINIMUMS_GENERATED}."
+            echo "Minimums last changed ${MINIMUMS_UPDATED}; feeds last checked ${MINIMUMS_REFRESHED}."
+            echo "Source: ${SOURCE_REPO}@${SOURCE_SHA}."
+            echo
+            echo 'This file is generated. Do not hand-edit it.'
+          } > "$message"
+          git commit -q -F "$message" || {
+              echo "::error::the commit failed."
+              exit 1
+            }
+
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$WEB_TOKEN" | base64 -w0)" \
+            push origin HEAD || {
+              echo "::error::the push to $WEB_REPO failed. A branch protection rule can reject it, and CLUSTERMAX_WEB_TOKEN needs write access to the default branch."
+              exit 1
+            }
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          echo "published the table generated ${MINIMUMS_GENERATED}"
+
+      - name: Check the public address
+        # The website deploys on its own queue, so a fresh copy takes a few
+        # minutes to serve. This step reports what the address serves now. It
+        # never fails the job:
+        #   - A slow deployment is normal and is not a defect.
+        #   - A stale public copy cannot produce a wrong verdict. The command
+        #     line refuses a fetched table that is older than the installed
+        #     table, so a stale copy degrades to no update.
+        #   - The scheduled run checks the address again the next day.
+        if: steps.publish.outcome == 'success' && steps.publish.outputs.pushed == 'true'
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.request
+
+          url = os.environ["PUBLIC_URL"]
+          want = os.environ.get("MINIMUMS_GENERATED", "")
+          want_refreshed = os.environ.get("MINIMUMS_REFRESHED", "")
+          served = None
+          served_refreshed = None
+          for attempt in range(1, 7):
+              try:
+                  # Ask the CDN for a fresh copy, not the cached response.
+                  request = urllib.request.Request(url, headers={"Cache-Control": "no-cache"})
+                  with urllib.request.urlopen(request, timeout=15) as answer:
+                      table = json.loads(answer.read(4_000_000).decode("utf-8"))
+                      served = table.get("generated")
+                      served_refreshed = table.get("refreshed")
+              except (urllib.error.URLError, ValueError, OSError) as exc:
+                  print(f"attempt {attempt}: {url} could not be read ({exc})")
+              else:
+                  print(f"attempt {attempt}: {url} serves the table generated {served}, refreshed {served_refreshed}")
+                  if served == want and served_refreshed == want_refreshed:
+                      break
+              if attempt < 6:
+                  time.sleep(30)
+
+          if served == want and served_refreshed == want_refreshed:
+              summary = f"`{url}` serves the table generated {want}, refreshed {want_refreshed}."
+          elif served:
+              summary = (
+                  f"`{url}` still serves the table generated {served} (refreshed {served_refreshed}), "
+                  f"and this run published {want} (refreshed {want_refreshed}). The website "
+                  "deployment is probably still in its queue."
+              )
+              print(f"::warning::{summary}")
+          else:
+              summary = f"`{url}` could not be read. Check the website deployment."
+              print(f"::warning::{summary}")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(f"### Minimum versions publish\n\n{summary}\n")
+          PY
