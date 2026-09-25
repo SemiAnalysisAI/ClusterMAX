@@ -1,5 +1,160 @@
 {
   "components": {
+    "amdDriver": {
+      "advisory": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6034.html",
+      "cves": [
+        "CVE-2026-43603"
+      ],
+      "floorAvailability": {
+        "MI210": {
+          "aId": "AMD-SB-6034",
+          "available": "2026-07-15T00:00:00Z",
+          "bulletinReleased": "2026-09-08T00:00:00Z",
+          "feed": "amd-security-bulletin",
+          "status": "confirmed",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6034.html",
+          "version": "31.40"
+        },
+        "MI250": {
+          "aId": "AMD-SB-6034",
+          "available": "2026-07-15T00:00:00Z",
+          "bulletinReleased": "2026-09-08T00:00:00Z",
+          "feed": "amd-security-bulletin",
+          "status": "confirmed",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6034.html",
+          "version": "31.40"
+        },
+        "MI250X": {
+          "aId": "AMD-SB-6034",
+          "available": "2026-07-15T00:00:00Z",
+          "bulletinReleased": "2026-09-08T00:00:00Z",
+          "feed": "amd-security-bulletin",
+          "status": "confirmed",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6034.html",
+          "version": "31.40"
+        },
+        "MI300A": {
+          "aId": "AMD-SB-6034",
+          "available": "2026-07-15T00:00:00Z",
+          "bulletinReleased": "2026-09-08T00:00:00Z",
+          "feed": "amd-security-bulletin",
+          "status": "confirmed",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6034.html",
+          "version": "31.40"
+        },
+        "MI300X": {
+          "aId": "AMD-SB-6034",
+          "available": "2026-07-15T00:00:00Z",
+          "bulletinReleased": "2026-09-08T00:00:00Z",
+          "feed": "amd-security-bulletin",
+          "status": "confirmed",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6034.html",
+          "version": "31.40"
+        },
+        "MI308X": {
+          "aId": "AMD-SB-6034",
+          "available": "2026-07-15T00:00:00Z",
+          "bulletinReleased": "2026-09-08T00:00:00Z",
+          "feed": "amd-security-bulletin",
+          "status": "confirmed",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6034.html",
+          "version": "31.40"
+        },
+        "MI325X": {
+          "aId": "AMD-SB-6034",
+          "available": "2026-07-15T00:00:00Z",
+          "bulletinReleased": "2026-09-08T00:00:00Z",
+          "feed": "amd-security-bulletin",
+          "status": "confirmed",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6034.html",
+          "version": "31.40"
+        },
+        "MI350X": {
+          "aId": "AMD-SB-6034",
+          "available": "2026-07-15T00:00:00Z",
+          "bulletinReleased": "2026-09-08T00:00:00Z",
+          "feed": "amd-security-bulletin",
+          "status": "confirmed",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6034.html",
+          "version": "31.40"
+        },
+        "MI355X": {
+          "aId": "AMD-SB-6034",
+          "available": "2026-07-15T00:00:00Z",
+          "bulletinReleased": "2026-09-08T00:00:00Z",
+          "feed": "amd-security-bulletin",
+          "status": "confirmed",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6034.html",
+          "version": "31.40"
+        }
+      },
+      "kind": "programMap",
+      "programCves": {
+        "MI210": [
+          "CVE-2026-43603"
+        ],
+        "MI250": [
+          "CVE-2026-43603"
+        ],
+        "MI250X": [
+          "CVE-2026-43603"
+        ],
+        "MI300A": [
+          "CVE-2026-43603"
+        ],
+        "MI300X": [
+          "CVE-2026-43603"
+        ],
+        "MI308X": [
+          "CVE-2026-43603"
+        ],
+        "MI325X": [
+          "CVE-2026-43603"
+        ],
+        "MI350X": [
+          "CVE-2026-43603"
+        ],
+        "MI355X": [
+          "CVE-2026-43603"
+        ]
+      },
+      "programSources": {
+        "MI210": "AMD-SB-6034",
+        "MI250": "AMD-SB-6034",
+        "MI250X": "AMD-SB-6034",
+        "MI300A": "AMD-SB-6034",
+        "MI300X": "AMD-SB-6034",
+        "MI308X": "AMD-SB-6034",
+        "MI325X": "AMD-SB-6034",
+        "MI350X": "AMD-SB-6034",
+        "MI355X": "AMD-SB-6034"
+      },
+      "programs": {
+        "MI210": "31.40",
+        "MI250": "31.40",
+        "MI250X": "31.40",
+        "MI300A": "31.40",
+        "MI300X": "31.40",
+        "MI308X": "31.40",
+        "MI325X": "31.40",
+        "MI350X": "31.40",
+        "MI355X": "31.40"
+      },
+      "source": {
+        "aId": "AMD-SB-6034",
+        "feed": "amd-security-bulletin",
+        "released": "2026-09-08T00:00:00Z",
+        "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6034.html"
+      },
+      "sources": [
+        {
+          "aId": "AMD-SB-6034",
+          "feed": "amd-security-bulletin",
+          "released": "2026-09-08T00:00:00Z",
+          "url": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6034.html"
+        }
+      ]
+    },
     "connectxFirmware": {
       "advisory": "https://nvidia.custhelp.com/app/answers/detail/a_id/5699/",
       "floorAvailability": {

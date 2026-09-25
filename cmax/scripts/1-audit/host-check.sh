@@ -1175,6 +1175,91 @@ if [[ -z "$_amd_drv" ]]; then
     [[ -z "$_amd_drv" ]] && _amd_drv=$(modinfo amdgpu 2>/dev/null | awk -F': +' '/^version:/{print $2; exit}')
 fi
 echo "WORKER_AMD_DRIVER_VERSION=${_amd_drv:-unknown}"
+# Keep this collector inline: remote workers receive host-check.sh on stdin.
+# Read-only Debian/Ubuntu provenance. Unsupported package layouts remain unknown.
+collect_amd_driver_evidence() {
+    python3 - <<'PY'
+import glob
+import json
+import os
+import re
+import subprocess
+from pathlib import Path
+
+def run(*args):
+    try:
+        return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL,
+                                       timeout=5, env={**os.environ, "LC_ALL": "C"}).strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+def read(path):
+    try:
+        return Path(path).read_text().strip()
+    except OSError:
+        return ""
+
+root = os.environ.get("CLUSTERMAX_AUDIT_ROOT", "")
+e = {
+    "loadedVersion": read(root + "/sys/module/amdgpu/version"),
+    "loadedSrcversion": read(root + "/sys/module/amdgpu/srcversion"),
+    "installedVersion": run("modinfo", "-F", "version", "amdgpu"),
+    "installedSrcversion": run("modinfo", "-F", "srcversion", "amdgpu"),
+    "modulePath": run("modinfo", "-F", "filename", "amdgpu"),
+    "packageBoundToModule": False,
+}
+package = ""
+if e["loadedSrcversion"] and e["loadedSrcversion"] == e["installedSrcversion"]:
+    owner = run("dpkg-query", "-S", e["modulePath"])
+    # Prebuilt vendor module package owns the exact module on disk.
+    if owner and ": " in owner and "\n" not in owner:
+        package = owner.split(": ", 1)[0]
+    elif "/updates/dkms/" in e["modulePath"]:
+        # DKMS output is not package-owned. Bind it through the packaged source
+        # and the built module for this exact kernel, not the installer package.
+        kernel = run("uname", "-r")
+        for line in run("dkms", "status", "-m", "amdgpu").splitlines():
+            m = re.fullmatch(r"amdgpu/([^,]+), ([^,]+), ([^:]+): installed", line)
+            if not m or m[2] != kernel:
+                continue
+            owner = run("dpkg-query", "-S", f"/usr/src/amdgpu-{m[1]}/dkms.conf")
+            if not re.fullmatch(r"amdgpu-dkms(?::[a-z0-9]+)?: .+", owner):
+                continue
+            built = glob.glob(root + f"/var/lib/dkms/amdgpu/{m[1]}/{kernel}/{m[3]}/module/amdgpu.ko*")
+            if len(built) == 1 and run("modinfo", "-F", "srcversion", built[0]) == e["loadedSrcversion"]:
+                package = owner.split(": ", 1)[0]
+                break
+if package:
+    info = run("dpkg-query", "-W", "-f=${Status}\t${Version}", package).split("\t")
+    if len(info) == 2 and info[0] == "install ok installed":
+        e["package"] = package
+        e["packageVersion"] = info[1]
+        # Only origins of the *installed* version count. Candidate/newer
+        # repository versions must never clear an older loaded driver.
+        active = False
+        origins = []
+        for line in run("apt-cache", "policy", package).splitlines():
+            header = re.fullmatch(r"\s*(?:\*\*\*\s+)?(\S+)\s+\d+\s*", line)
+            if header:
+                active = header[1] == info[1]
+            elif active:
+                origin = re.search(r"https?://\S+", line)
+                if origin:
+                    origins.append(origin[0])
+        origins = sorted(set(origins))
+        if len(origins) == 1:
+            match = re.fullmatch(r"https://repo\.radeon\.com/amdgpu/(\d+\.\d+(?:\.\d+)?)/ubuntu/?", origins[0])
+            if match:
+                e.update(packageOrigin=origins[0], packageRelease=match[1],
+                         packageBoundToModule=True)
+print(json.dumps(e, separators=(",", ":")))
+PY
+}
+if [[ -d /sys/module/amdgpu ]]; then
+    _amd_evidence=$(collect_amd_driver_evidence 2>/dev/null) || _amd_evidence='{}'
+    [[ -n "$_amd_evidence" ]] || _amd_evidence='{}'
+    echo "WORKER_AMD_DRIVER_EVIDENCE=$_amd_evidence"
+fi
 if ! security_checks_only; then
 if command -v amd-smi &>/dev/null; then
     echo "WORKER_AMD_SMI_PATH=$(which amd-smi)"

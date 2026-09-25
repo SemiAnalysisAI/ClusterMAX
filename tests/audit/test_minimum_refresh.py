@@ -159,7 +159,7 @@ class StubFetcher(fr.Fetcher):
                 FIXTURES / "amd-product-security-index.html"
             ).read_text(),
         }
-        for sb_id in fr.AMD_BULLETINS:
+        for sb_id in (*fr.AMD_BULLETINS, *fr.AMD_DRIVER_BULLETINS):
             self.text_by_url[fr.amd_bulletin_page(sb_id)] = (
                 FIXTURES / f"{sb_id}.html"
             ).read_text()
