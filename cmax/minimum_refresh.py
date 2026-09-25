@@ -1304,12 +1304,16 @@ def docker_minimums(
 ) -> dict:
     """Derive the Docker Engine minimum from the official release notes.
 
-    The minimum is the highest stable release whose notes carry a `### Security`
-    subsection. A release without one ships no security fix, so it does not
-    move the minimum. A release candidate never becomes the minimum. The notes are
-    a text convention, so a page that yields no releases, a page that yields
-    no security release, or a security release that names no CVE or GHSA
-    identifier stops the refresh instead of publishing a weakened minimum.
+    The minimum is the highest stable release whose `### Security` subsection
+    names a CVE or GHSA identifier. A release without a Security subsection
+    ships no security fix, so it does not move the minimum. A Security
+    subsection that names no identifier is a hardening-only release (Docker
+    29.8.0 added AppArmor and SELinux policy rules this way); it fixes no
+    tracked vulnerability, so it does not move the minimum either. A release
+    candidate never becomes the minimum. The notes are a text convention, so a
+    page that yields no releases, a page that yields no security release, or a
+    page on which no security release names an identifier stops the refresh
+    instead of publishing a weakened minimum.
 
     The `existing` table is not read here. The shared checks in `verify()`
     compare the rebuild against it and reject any lowered minimum.
@@ -1319,6 +1323,7 @@ def docker_minimums(
     if majors is None:
         majors = DOCKER_ENGINE_MAJORS
     candidates: list[tuple[tuple, int, dict]] = []
+    hardening_only: list[str] = []
     for major in majors:
         url = docker_release_notes_url(major)
         releases = parse_docker_release_notes(client.get_text(url))
@@ -1332,20 +1337,32 @@ def docker_minimums(
                 continue
             if not release["security"]:
                 continue
+            if not release["cves"] and not release["advisories"]:
+                # A Security subsection with no identifier is hardening, not a
+                # fix for a tracked vulnerability. It cannot move the minimum,
+                # and it must not stop the refresh either: Docker 29.8.0 held
+                # the daily job red for weeks this way while the real minimum
+                # sat unchanged one release below it.
+                hardening_only.append(release["version"])
+                continue
             candidates.append((version_key(release["version"]), major, release))
     if not candidates:
+        pages = ", ".join(docker_release_notes_url(major) for major in majors)
+        if hardening_only:
+            raise MinimumRefreshError(
+                "docker: every Security subsection on "
+                + pages
+                + " names no CVE or GHSA identifier ("
+                + ", ".join(hardening_only)
+                + "); the wording probably changed"
+            )
         raise MinimumRefreshError(
             "docker: no release carries a Security subsection on "
-            + ", ".join(docker_release_notes_url(major) for major in majors)
+            + pages
             + "; the heading convention probably changed"
         )
     _, major, release = max(candidates, key=lambda item: item[0])
     version = release["version"]
-    if not release["cves"] and not release["advisories"]:
-        raise MinimumRefreshError(
-            f"docker: release {version} carries a Security subsection that "
-            f"names no CVE or GHSA identifier; the wording probably changed"
-        )
     if not release["date"]:
         raise MinimumRefreshError(
             f"docker: release {version} carries no release-date shortcode; "
