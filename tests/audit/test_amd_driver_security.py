@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import shlex
 import sys
+from datetime import date
 from pathlib import Path
 from unittest import mock
 
@@ -126,6 +127,47 @@ def test_nvidia_unaffected_and_missing_amd_evidence_unknown(fixture_policy):
 def test_missing_table_cannot_pass():
     with unreadable_minimum_table():
         assert security.amd_driver_verdict("MI300X", evidence()).status == "unknown"
+
+
+@pytest.mark.parametrize("model", ["MI300X", "MI300X MI999X", "MI300X MI355X"])
+def test_serialized_below_minimum_stays_failed_after_grace(fixture_policy, model):
+    real_grace = security.minimum_versions.active_grace_period
+    with mock.patch.object(
+        security.minimum_versions, "active_grace_period",
+        side_effect=lambda *a, **kw: real_grace(*a, **kw, today=date(2026, 9, 25)),
+    ):
+        result = security.evaluate(
+            driver="unknown", nct="unknown", runc="unknown", connectx_firmware=[],
+            gpu_vendor="amd", amd_model=model, amd_driver_evidence=evidence("31.30"),
+        )["amdDriver"]
+    assert result["status"] == "fail"
+    assert "gracePeriod" not in result
+
+
+@pytest.mark.parametrize("day,status", [(8, "pass"), (11, "pass"), (12, "fail")])
+def test_program_grace_uses_bulletin_date_and_expires(fixture_policy, day, status):
+    real_grace = security.minimum_versions.active_grace_period
+    with mock.patch.object(
+        security.minimum_versions, "active_grace_period",
+        side_effect=lambda *a, **kw: real_grace(*a, **kw, today=date(2026, 9, day)),
+    ):
+        result = security.amd_driver_record("MI300X", evidence("31.30"), gpu_vendor="amd")
+    assert result["status"] == status
+    if status == "pass":
+        assert result["gracePeriod"]["enforcementDate"] == "2026-09-12"
+
+
+def test_new_fix_for_one_product_cannot_hide_an_enforced_failure(driver_block):
+    driver_block["floorAvailability"]["MI355X"]["available"] = "2026-09-25T00:00:00Z"
+    real_grace = security.minimum_versions.active_grace_period
+    with mock.patch.object(security.minimum_versions, "component", return_value=driver_block):
+        with mock.patch.object(
+            security.minimum_versions, "active_grace_period",
+            side_effect=lambda *a, **kw: real_grace(*a, **kw, today=date(2026, 9, 25)),
+        ):
+            result = security.amd_driver_record(
+                "MI300X MI355X", evidence("31.30"), gpu_vendor="amd")
+    assert result["status"] == "fail"
 
 
 def test_committed_component_contract():

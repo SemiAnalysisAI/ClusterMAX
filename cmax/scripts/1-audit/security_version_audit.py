@@ -1698,6 +1698,31 @@ def amd_driver_verdict(
                    + ("; driver is below the minimum" if below else "; driver meets the minimum"))
 
 
+def amd_driver_record(
+    model: str, evidence: dict[str, Any] | None, *, gpu_vendor: str
+) -> dict[str, object]:
+    verdict = amd_driver_verdict(model, evidence, gpu_vendor=gpu_vendor)
+    record = asdict(verdict)
+    if verdict.status == "fail":
+        # Each known vulnerable product has its own enforcement date.
+        # An unassessed model, or a newly announced fix for another model,
+        # cannot grant grace to an already-enforced failing product.
+        floors = minimum_versions.component("amdDriver").get("programs") or {}
+        failed = [
+            program for program in sorted(set(re.findall(r"\bMI\d+[A-Z]*\b", model.upper())))
+            if program in floors
+            and numeric_version(verdict.version) < numeric_version(floors[program])
+        ]
+        records = [_verdict_record(verdict, "amdDriver", program) for program in failed]
+        if records:
+            record = next((item for item in records if item["status"] == "fail"), records[-1])
+    return {
+        **record,
+        "evidence": evidence or {},
+        "scope": "inspected host; not fleet-wide attestation",
+    }
+
+
 def evaluate(
     *,
     driver: str,
@@ -1803,15 +1828,9 @@ def evaluate(
     driver_parsed = numeric_version(driver, parts=1)
     runc_parsed = numeric_version(runc, parts=2)
     return {
-        "amdDriver": {
-            **_verdict_record(
-                amd_driver_verdict(amd_model, amd_driver_evidence, gpu_vendor=gpu_vendor),
-                "amdDriver",
-                re.findall(r"\bMI\d+[A-Z]*\b", amd_model.upper()),
-            ),
-            "evidence": amd_driver_evidence or {},
-            "scope": "inspected host; not fleet-wide attestation",
-        },
+        "amdDriver": amd_driver_record(
+            amd_model, amd_driver_evidence, gpu_vendor=gpu_vendor
+        ),
         "nvidiaDriver": _verdict_record(
             driver_result,
             "nvidiaDriver",
