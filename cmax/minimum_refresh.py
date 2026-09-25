@@ -66,6 +66,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -1232,8 +1233,7 @@ def ubuntu_minimums(
     specs: Sequence[dict] = UBUNTU_PACKAGES,
     fetch: Fetcher | None = None,
 ) -> dict:
-    packages: dict[str, dict] = {}
-    for spec in specs:
+    def resolve(spec: dict) -> tuple[str, dict]:
         entry = ubuntu_entry(spec["cve"], spec["package"], codename, fetch=fetch)
         if spec.get("relatedCves"):
             entry["relatedCves"] = list(spec["relatedCves"])
@@ -1241,7 +1241,13 @@ def ubuntu_minimums(
             abi = kernel_abi(entry.get("fixed"))
             if abi is not None:
                 entry["abi"] = abi
-        packages[spec["key"]] = entry
+        return spec["key"], entry
+
+    # Independent package lookups must not add every slow Ubuntu response to
+    # the refresh's wall time. map preserves the input order and propagates
+    # failures: no partial package table is returned.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        packages = dict(pool.map(resolve, specs))
     return {
         "kind": "distroPackages",
         "release": codename,

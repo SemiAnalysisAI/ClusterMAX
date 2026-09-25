@@ -260,8 +260,13 @@ jobs:
           report="$RUNNER_TEMP/new-bulletins.txt"
           rc=1
           for attempt in 1 2 3; do
-            python3 -u -m cmax.minimum_refresh --verbose --detect-new-bulletins > "$report" 2>&1
-            rc=$?
+            # GitHub invokes bash with -e. Capture expected exit 3 inside an
+            # if statement so it reaches found=true instead of exiting early.
+            if python3 -u -m cmax.minimum_refresh --detect-new-bulletins > "$report" 2>&1; then
+              rc=0
+            else
+              rc=$?
+            fi
             if [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ]; then
               break
             fi
