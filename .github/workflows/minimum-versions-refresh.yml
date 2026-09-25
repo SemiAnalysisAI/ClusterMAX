@@ -106,7 +106,7 @@ jobs:
           # deterministic: it fails every attempt, the generator writes nothing,
           # and the final exit below makes the job red.
           for attempt in 1 2 3; do
-            if python3 -m cmax.minimum_refresh --write "$MINIMUMS_PATH" --generated "$generated"; then
+            if python3 -u -m cmax.minimum_refresh --verbose --write "$MINIMUMS_PATH" --generated "$generated"; then
               exit 0
             fi
             echo "::warning::the minimum refresh failed on attempt ${attempt}"
@@ -260,7 +260,7 @@ jobs:
           report="$RUNNER_TEMP/new-bulletins.txt"
           rc=1
           for attempt in 1 2 3; do
-            python3 -m cmax.minimum_refresh --detect-new-bulletins > "$report" 2>&1
+            python3 -u -m cmax.minimum_refresh --verbose --detect-new-bulletins > "$report" 2>&1
             rc=$?
             if [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ]; then
               break

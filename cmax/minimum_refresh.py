@@ -58,12 +58,15 @@ import argparse
 import copy
 import difflib
 import json
+import logging
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -415,6 +418,20 @@ class Fetcher:
 
     timeout: int = 60
 
+    @contextmanager
+    def _open(self, request):
+        """Log request progress without printing headers or credentials."""
+        logger = logging.getLogger(__name__)
+        started = time.monotonic()
+        logger.info("fetch %s %s", request.get_method(), request.full_url)
+        try:
+            with SAFE_OPENER.open(request, timeout=self.timeout) as response:
+                yield response
+        finally:
+            logger.info(
+                "finished %s after %.1fs", request.full_url, time.monotonic() - started
+            )
+
     def _headers(self, url: str, **extra: str) -> dict[str, str]:
         headers = {"User-Agent": USER_AGENT, **extra}
         token = os.environ.get("GITHUB_TOKEN")
@@ -425,7 +442,7 @@ class Fetcher:
     def get_json(self, url: str) -> Any:
         request = urllib.request.Request(url, headers=self._headers(url))
         try:
-            with SAFE_OPENER.open(request, timeout=self.timeout) as response:
+            with self._open(request) as response:
                 return json.load(response)
         except (urllib.error.URLError, OSError, ValueError) as exc:
             raise MinimumRefreshError(f"cannot read {url}: {exc}") from exc
@@ -440,7 +457,7 @@ class Fetcher:
         """
         request = urllib.request.Request(url, headers=self._headers(url))
         try:
-            with SAFE_OPENER.open(request, timeout=self.timeout) as response:
+            with self._open(request) as response:
                 return json.load(response)
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
@@ -456,7 +473,7 @@ class Fetcher:
             headers=self._headers(url, **{"Content-Type": "application/json"}),
         )
         try:
-            with SAFE_OPENER.open(request, timeout=self.timeout) as response:
+            with self._open(request) as response:
                 return json.load(response)
         except (urllib.error.URLError, OSError, ValueError) as exc:
             raise MinimumRefreshError(f"cannot query {url}: {exc}") from exc
@@ -472,7 +489,7 @@ class Fetcher:
             headers=self._headers(url, Range=f"bytes=0-{max_bytes - 1}"),
         )
         try:
-            with SAFE_OPENER.open(request, timeout=self.timeout) as response:
+            with self._open(request) as response:
                 if response.status not in (200, 206):
                     return None
                 return response.read(max_bytes).decode("utf-8", "replace")
@@ -488,7 +505,7 @@ class Fetcher:
         """
         request = urllib.request.Request(url, headers=self._headers(url))
         try:
-            with SAFE_OPENER.open(request, timeout=self.timeout) as response:
+            with self._open(request) as response:
                 return response.read().decode("utf-8", "replace")
         except (urllib.error.URLError, OSError) as exc:
             raise MinimumRefreshError(f"cannot read {url}: {exc}") from exc
@@ -2404,7 +2421,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--generated", metavar="ISO8601", help="pin the generated timestamp")
     parser.add_argument("--existing", metavar="PATH", help="read the existing table from PATH")
+    parser.add_argument("--verbose", action="store_true", help="log feed requests to stderr")
     args = parser.parse_args(argv)
+
+    if args.verbose:
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
     try:
         if args.detect_new_bulletins:
