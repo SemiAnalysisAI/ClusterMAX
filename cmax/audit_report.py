@@ -55,6 +55,9 @@ def _harness_not_applicable(harness: str) -> str:
 
 
 _PASS_ASSESSMENTS = {
+    "securityVersions.amdDriver.status": (
+        "The loaded AMD driver on the inspected host meets the published security minimum."
+    ),
     "securityVersions.nvidiaDriver.status": (
         "The NVIDIA driver meets the published security minimum."
     ),
@@ -268,6 +271,11 @@ _VERSION_SOURCE_KEYS: dict[str, str] = {
 }
 
 _REPRODUCTION_COMMANDS = {
+    "securityVersions.amdDriver.status": (
+        "on the audited worker: compare `/sys/module/amdgpu/{version,srcversion}` "
+        "with `modinfo amdgpu`; verify the owning package and its installed-version "
+        "origin with `dpkg-query` and `apt-cache policy`"
+    ),
     "securityVersions.nvidiaDriver.status": (
         "on the audited worker: `nvidia-smi --query-gpu=driver_version "
         "--format=csv,noheader`"

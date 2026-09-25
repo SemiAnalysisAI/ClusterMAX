@@ -22,6 +22,7 @@ AUDIT_CATEGORIES = (
         "Show component versions and their required minimums.",
         keys=frozenset(
             {
+                "securityVersions.amdDriver.status",
                 "securityVersions.nvidiaDriver.status",
                 "securityVersions.nvidiaContainerToolkit.status",
                 "securityVersions.cudaToolkit.status",
