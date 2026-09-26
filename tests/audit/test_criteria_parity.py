@@ -111,6 +111,7 @@ class CriteriaParityTests(unittest.TestCase):
         rule_keys = {rule.key for rule in audit_findings.RULES}
         extension_ids = {
             "bmc-ipmi",
+            "kubernetes-nodes-proxy",
             "nvlink-boundary",
             "pcie-passthrough",
             "ufm-profile",

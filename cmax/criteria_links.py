@@ -125,6 +125,7 @@ _CHECK_ANCHORS = {
     "access.slurmCommandsOk": "orchestration",
     "slurm.accounting.sacctAvailable": _MONITORING_SACCT,
     "bmc-ipmi": _SECURITY_ISOLATION,
+    "kubernetes-nodes-proxy": _SECURITY_ISOLATION,
     "ufm-profile": _SECURITY_UFM,
     "pcie-passthrough": _SECURITY_ISOLATION,
     "nvlink-boundary": _SECURITY_ISOLATION,

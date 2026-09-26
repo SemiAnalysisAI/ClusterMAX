@@ -88,12 +88,12 @@ class AuditReportTests(unittest.TestCase):
     def test_real_rules_have_one_category_and_stable_counts(self) -> None:
         checks = audit_report.list_check_specs(RUNTIME_ROOT)
 
-        self.assertEqual(len(checks), 59)
+        self.assertEqual(len(checks), 60)
         self.assertEqual(
             Counter(check.category for check in checks),
             {
                 "versions": 9,
-                "isolation": 9,
+                "isolation": 10,
                 "hardware": 8,
                 "software": 9,
                 "containers": 5,
@@ -971,7 +971,7 @@ class AuditReportTests(unittest.TestCase):
             "Observed: observed version 580.126.09; minimum version 580.126.09",
             report,
         )
-        self.assertIn("1 failed, 5 warnings, 2 passed, 0 skipped", report)
+        self.assertIn("1 failed, 6 warnings, 2 passed, 0 skipped", report)
         self.assertIn("run 'cmax audit -vv'", report)
 
     def test_guarded_inconclusive_value_is_not_counted_as_pass(self) -> None:

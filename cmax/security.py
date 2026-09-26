@@ -310,7 +310,7 @@ def build_security_plan(runtime_root: Path, target: SecurityTarget) -> dict[str,
                 "checks": {
                     "fabric": True,
                     "gpu": False,
-                    "system": False,
+                    "system": target.harness == "k8s",
                 },
                 "general_findings_report": False,
                 "standard_report": True,
@@ -770,6 +770,98 @@ def _bmc_ipmi(audit: dict[str, Any]) -> tuple[str, str, str]:
         WARNING,
         f"BMC/IPMI={_display(exposed)}",
         "Local BMC and IPMI access could not be verified.",
+    )
+
+
+def _kubernetes_nodes_proxy(audit: dict[str, Any]) -> tuple[str, str, str]:
+    value = _get(audit, "kubernetes_nodes_proxy")
+    if not isinstance(value, dict):
+        return (
+            WARNING,
+            "not collected",
+            "The Kubernetes RBAC nodes/proxy permission inventory is missing.",
+        )
+
+    status = value.get("status")
+    grants = value.get("grants")
+    errors = value.get("errors")
+    grant_list = grants if isinstance(grants, list) else []
+    error_list = errors if isinstance(errors, list) else []
+    evidence: list[str] = []
+    valid_grants = 0
+    for grant in grant_list:
+        if not isinstance(grant, dict):
+            continue
+        subject = grant.get("subject")
+        if not isinstance(subject, dict):
+            continue
+        subject_kind = subject.get("kind")
+        subject_name = subject.get("name")
+        resource_names = grant.get("resourceNames")
+        if (
+            not isinstance(grant.get("role"), str)
+            or not grant["role"]
+            or not isinstance(grant.get("binding"), str)
+            or not grant["binding"]
+            or subject_kind not in {"User", "Group", "ServiceAccount"}
+            or not isinstance(subject_name, str)
+            or not subject_name
+            or not isinstance(resource_names, list)
+            or any(not isinstance(name, str) for name in resource_names)
+            or (
+                subject_kind == "ServiceAccount"
+                and (
+                    not isinstance(subject.get("namespace"), str)
+                    or not subject["namespace"]
+                )
+            )
+        ):
+            continue
+        valid_grants += 1
+        if len(evidence) == 10:
+            continue
+        identity = f"{subject_kind} {subject_name}"
+        if subject_kind == "ServiceAccount":
+            identity = f"ServiceAccount {subject['namespace']}/{subject_name}"
+        scope = ",".join(resource_names)
+        evidence.append(
+            f"{identity} through {grant.get('binding', 'unknown')} and "
+            f"{grant.get('role', 'unknown')} (node names {scope or 'all'})"
+        )
+    if valid_grants > len(evidence):
+        evidence.append(f"{valid_grants - len(evidence)} additional grant(s)")
+    observed = "; ".join(evidence) or "no matching grants"
+    if error_list:
+        observed = f"{observed}; errors: " + "; ".join(
+            str(error) for error in error_list[:5]
+        )
+
+    if status == "fail" and valid_grants:
+        return (
+            CRITICAL,
+            observed,
+            "The listed subjects have Kubernetes RBAC permission for GET requests "
+            "to nodes/proxy. This result does not prove endpoint reachability or "
+            "that commands were executed. Administrative grants can be intentional.",
+        )
+    if (
+        status == "pass"
+        and isinstance(grants, list)
+        and not grants
+        and isinstance(errors, list)
+        and not errors
+    ):
+        return (
+            PASS,
+            observed,
+            "The completed Kubernetes RBAC inventory found no nodes/proxy GET permission grant.",
+        )
+    return (
+        WARNING,
+        observed
+        if observed != "no matching grants"
+        else str(value.get("message") or "incomplete evidence"),
+        "The audit could not prove that Kubernetes RBAC nodes/proxy GET permission is absent.",
     )
 
 
@@ -1294,6 +1386,27 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
             ),
         ),
         _bmc_ipmi,
+    ),
+    CheckSpec(
+        "kubernetes-nodes-proxy",
+        "Kubernetes nodes/proxy GET permission",
+        "GET permission on nodes/proxy can authorize command execution through the kubelet API.",
+        "Remove the matching RBAC grant or restrict it to the required subjects and node names.",
+        _references(
+            (
+                "Kubernetes kubelet authentication and authorization",
+                "https://kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/",
+            ),
+            (
+                "Kubernetes RBAC good practices",
+                "https://kubernetes.io/docs/concepts/security/rbac-good-practices/",
+            ),
+            (
+                "Original nodes/proxy security writeup",
+                "https://grahamhelton.com/blog/nodes-proxy-rce",
+            ),
+        ),
+        _kubernetes_nodes_proxy,
     ),
     CheckSpec(
         "ufm-profile",

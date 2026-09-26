@@ -26,10 +26,17 @@ FAIL = "fail"
 SKIPPED = "skipped"
 _STATUS_ORDER = {PASS: 0, SKIPPED: 1, WARNING: 2, FAIL: 3}
 _SECURITY_EXTENSION_IDS = frozenset(
-    {"bmc-ipmi", "ufm-profile", "pcie-passthrough", "nvlink-boundary"}
+    {
+        "bmc-ipmi",
+        "ufm-profile",
+        "pcie-passthrough",
+        "nvlink-boundary",
+        "kubernetes-nodes-proxy",
+    }
 )
 _SECURITY_EXTENSION_HARNESSES = {
     "ufm-profile": frozenset({"slurm", "k8s"}),
+    "kubernetes-nodes-proxy": frozenset({"k8s"}),
 }
 
 
@@ -356,6 +363,10 @@ _REPRODUCTION_COMMANDS = {
         "on the physical host: inspect `find /sys/kernel/iommu_groups -type l` "
         "and `lspci -vv`; then verify reset isolation and VRAM clearing with "
         "provider host evidence"
+    ),
+    "kubernetes-nodes-proxy": (
+        "with the selected Kubernetes context: review ClusterRoles and "
+        "ClusterRoleBindings that grant `get` on the core `nodes/proxy` resource"
     ),
 }
 
