@@ -3,10 +3,14 @@
 
 from __future__ import annotations
 
+import importlib.util
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest import mock
 
+import pytest
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -28,6 +32,36 @@ UBUNTU_IMAGE = (
     "ubuntu:24.04@"
     "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea"
 )
+PYTHON_IMAGE = (
+    "python:3.12-alpine@"
+    "sha256:c4634f578a412db396771b61b064c6e546c9d6414c7fb5b1b05d5871f1885f7b"
+)
+
+
+@pytest.mark.parametrize("check_path", ["platform_config.py", "system/hbm_memory_exposure.py"])
+@pytest.mark.parametrize("override", [None, "registry.example/python@" + PYTHON_IMAGE.split("@")[1]])
+def test_python_host_checks_use_pinned_default_and_preserve_override(check_path, override):
+    spec = importlib.util.spec_from_file_location("host_check", SCRIPT.parent / "checks" / check_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    node = {"name": "gpu-0"}
+    fanout = mock.Mock()
+    fanout.k8s_gpu_nodes.return_value = [node]
+    fanout.fan_out_k8s.side_effect = lambda worker, **kwargs: worker(node)
+    env = {} if override is None else {"CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE": override}
+    with (
+        mock.patch.dict(module.os.environ, env, clear=True),
+        mock.patch.object(module, "load_fanout", return_value=fanout),
+        mock.patch.object(module, "kubectl", return_value=subprocess.CompletedProcess([], 0, "{}")),
+        mock.patch.object(module, "run_k8s_host_check") as run_host,
+    ):
+        if check_path == "platform_config.py":
+            module.run_k8s_check([node])
+        else:
+            module.run_k8s_check()
+    namespace, selected_node, image = run_host.call_args.args
+    manifest = module.pod_manifest(namespace, selected_node, image, "test-pod")
+    assert manifest["spec"]["containers"][0]["image"] == (override or PYTHON_IMAGE)
 
 
 def _applied_manifest(function_name: str, setup: str) -> dict:
