@@ -42,6 +42,7 @@ AUDIT_CATEGORIES = (
         keys=frozenset(
             {
                 "bmc-ipmi",
+                "kubernetes-nodes-proxy",
                 "nvlink-boundary",
                 "pcie-passthrough",
                 "ufm-profile",

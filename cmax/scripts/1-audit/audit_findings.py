@@ -1367,6 +1367,7 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "slurm.accounting.sacctAvailable": "sacct-accounting",
     # Security extension checks merged by audit_report._security_extension_checks.
     "bmc-ipmi": "security-bmc-ipmi",
+    "kubernetes-nodes-proxy": None,
     "ufm-profile": "ufm-secured-bare-metal-cloud",
     "pcie-passthrough": "security-pcie-passthrough",
     "nvlink-boundary": "security-nvlink-boundary",
