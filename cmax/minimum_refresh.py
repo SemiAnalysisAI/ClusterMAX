@@ -58,12 +58,16 @@ import argparse
 import copy
 import difflib
 import json
+import logging
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -415,6 +419,20 @@ class Fetcher:
 
     timeout: int = 60
 
+    @contextmanager
+    def _open(self, request):
+        """Log request progress without printing headers or credentials."""
+        logger = logging.getLogger(__name__)
+        started = time.monotonic()
+        logger.info("fetch %s %s", request.get_method(), request.full_url)
+        try:
+            with SAFE_OPENER.open(request, timeout=self.timeout) as response:
+                yield response
+        finally:
+            logger.info(
+                "finished %s after %.1fs", request.full_url, time.monotonic() - started
+            )
+
     def _headers(self, url: str, **extra: str) -> dict[str, str]:
         headers = {"User-Agent": USER_AGENT, **extra}
         token = os.environ.get("GITHUB_TOKEN")
@@ -425,7 +443,7 @@ class Fetcher:
     def get_json(self, url: str) -> Any:
         request = urllib.request.Request(url, headers=self._headers(url))
         try:
-            with SAFE_OPENER.open(request, timeout=self.timeout) as response:
+            with self._open(request) as response:
                 return json.load(response)
         except (urllib.error.URLError, OSError, ValueError) as exc:
             raise MinimumRefreshError(f"cannot read {url}: {exc}") from exc
@@ -440,7 +458,7 @@ class Fetcher:
         """
         request = urllib.request.Request(url, headers=self._headers(url))
         try:
-            with SAFE_OPENER.open(request, timeout=self.timeout) as response:
+            with self._open(request) as response:
                 return json.load(response)
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
@@ -456,7 +474,7 @@ class Fetcher:
             headers=self._headers(url, **{"Content-Type": "application/json"}),
         )
         try:
-            with SAFE_OPENER.open(request, timeout=self.timeout) as response:
+            with self._open(request) as response:
                 return json.load(response)
         except (urllib.error.URLError, OSError, ValueError) as exc:
             raise MinimumRefreshError(f"cannot query {url}: {exc}") from exc
@@ -472,7 +490,7 @@ class Fetcher:
             headers=self._headers(url, Range=f"bytes=0-{max_bytes - 1}"),
         )
         try:
-            with SAFE_OPENER.open(request, timeout=self.timeout) as response:
+            with self._open(request) as response:
                 if response.status not in (200, 206):
                     return None
                 return response.read(max_bytes).decode("utf-8", "replace")
@@ -488,7 +506,7 @@ class Fetcher:
         """
         request = urllib.request.Request(url, headers=self._headers(url))
         try:
-            with SAFE_OPENER.open(request, timeout=self.timeout) as response:
+            with self._open(request) as response:
                 return response.read().decode("utf-8", "replace")
         except (urllib.error.URLError, OSError) as exc:
             raise MinimumRefreshError(f"cannot read {url}: {exc}") from exc
@@ -1215,8 +1233,7 @@ def ubuntu_minimums(
     specs: Sequence[dict] = UBUNTU_PACKAGES,
     fetch: Fetcher | None = None,
 ) -> dict:
-    packages: dict[str, dict] = {}
-    for spec in specs:
+    def resolve(spec: dict) -> tuple[str, dict]:
         entry = ubuntu_entry(spec["cve"], spec["package"], codename, fetch=fetch)
         if spec.get("relatedCves"):
             entry["relatedCves"] = list(spec["relatedCves"])
@@ -1224,7 +1241,13 @@ def ubuntu_minimums(
             abi = kernel_abi(entry.get("fixed"))
             if abi is not None:
                 entry["abi"] = abi
-        packages[spec["key"]] = entry
+        return spec["key"], entry
+
+    # Independent package lookups must not add every slow Ubuntu response to
+    # the refresh's wall time. map preserves the input order and propagates
+    # failures: no partial package table is returned.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        packages = dict(pool.map(resolve, specs))
     return {
         "kind": "distroPackages",
         "release": codename,
@@ -1304,12 +1327,16 @@ def docker_minimums(
 ) -> dict:
     """Derive the Docker Engine minimum from the official release notes.
 
-    The minimum is the highest stable release whose notes carry a `### Security`
-    subsection. A release without one ships no security fix, so it does not
-    move the minimum. A release candidate never becomes the minimum. The notes are
-    a text convention, so a page that yields no releases, a page that yields
-    no security release, or a security release that names no CVE or GHSA
-    identifier stops the refresh instead of publishing a weakened minimum.
+    The minimum is the highest stable release whose `### Security` subsection
+    names a CVE or GHSA identifier. A release without a Security subsection
+    ships no security fix, so it does not move the minimum. A Security
+    subsection that names no identifier is a hardening-only release (Docker
+    29.8.0 added AppArmor and SELinux policy rules this way); it fixes no
+    tracked vulnerability, so it does not move the minimum either. A release
+    candidate never becomes the minimum. The notes are a text convention, so a
+    page that yields no releases, a page that yields no security release, or a
+    page on which no security release names an identifier stops the refresh
+    instead of publishing a weakened minimum.
 
     The `existing` table is not read here. The shared checks in `verify()`
     compare the rebuild against it and reject any lowered minimum.
@@ -1319,6 +1346,7 @@ def docker_minimums(
     if majors is None:
         majors = DOCKER_ENGINE_MAJORS
     candidates: list[tuple[tuple, int, dict]] = []
+    hardening_only: list[str] = []
     for major in majors:
         url = docker_release_notes_url(major)
         releases = parse_docker_release_notes(client.get_text(url))
@@ -1332,20 +1360,32 @@ def docker_minimums(
                 continue
             if not release["security"]:
                 continue
+            if not release["cves"] and not release["advisories"]:
+                # A Security subsection with no identifier is hardening, not a
+                # fix for a tracked vulnerability. It cannot move the minimum,
+                # and it must not stop the refresh either: Docker 29.8.0 held
+                # the daily job red for weeks this way while the real minimum
+                # sat unchanged one release below it.
+                hardening_only.append(release["version"])
+                continue
             candidates.append((version_key(release["version"]), major, release))
     if not candidates:
+        pages = ", ".join(docker_release_notes_url(major) for major in majors)
+        if hardening_only:
+            raise MinimumRefreshError(
+                "docker: every Security subsection on "
+                + pages
+                + " names no CVE or GHSA identifier ("
+                + ", ".join(hardening_only)
+                + "); the wording probably changed"
+            )
         raise MinimumRefreshError(
             "docker: no release carries a Security subsection on "
-            + ", ".join(docker_release_notes_url(major) for major in majors)
+            + pages
             + "; the heading convention probably changed"
         )
     _, major, release = max(candidates, key=lambda item: item[0])
     version = release["version"]
-    if not release["cves"] and not release["advisories"]:
-        raise MinimumRefreshError(
-            f"docker: release {version} carries a Security subsection that "
-            f"names no CVE or GHSA identifier; the wording probably changed"
-        )
     if not release["date"]:
         raise MinimumRefreshError(
             f"docker: release {version} carries no release-date shortcode; "
@@ -2387,7 +2427,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--generated", metavar="ISO8601", help="pin the generated timestamp")
     parser.add_argument("--existing", metavar="PATH", help="read the existing table from PATH")
+    parser.add_argument("--verbose", action="store_true", help="log feed requests to stderr")
     args = parser.parse_args(argv)
+
+    if args.verbose:
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
     try:
         if args.detect_new_bulletins:
