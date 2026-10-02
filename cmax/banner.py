@@ -40,6 +40,8 @@ import textwrap
 from dataclasses import dataclass
 from typing import Sequence, TextIO
 
+from prompt_toolkit.utils import get_cwidth
+
 from cmax import logo
 from cmax.logo import BASIC, PALETTE256, TRUECOLOR, Ink, color_depth
 from cmax.progress import Theme, progress_enabled
@@ -51,6 +53,13 @@ STARTUP_PRAYER = (
     "Deliver us from Xid errors, and lead us not into silent data corruption.",
     "Blessed are the aligned.",
     "Amen.",
+)
+CHINESE_PRAYER = (
+    "GPU 之主啊，请在启程之前赐福这座集群。",
+    "愿我们的时钟频率常高，愿我们的 NCCL 永不挂起。",
+    "求你使我们免于 Xid 错误，远离静默数据损坏。",
+    "对齐者有福了。",
+    "阿门。",
 )
 
 # The SemiAnalysis brand gold. `dashboard/STYLING-STACK.md` names it SA Amber,
@@ -457,7 +466,29 @@ def should_show(stream: TextIO) -> bool:
     return bool(getattr(stream, "isatty", lambda: False)())
 
 
-def print_banner(stream: TextIO | None = None, *, word: str = WORD) -> bool:
+def _wrap_prayer_line(line: str, width: int) -> list[str]:
+    """Wrap Chinese by display cells, while preserving English word wrapping."""
+    if line.isascii():
+        return textwrap.wrap(line, width=width)
+    rows = []
+    row = ""
+    cells = 0
+    for char in line:
+        char_cells = get_cwidth(char)
+        if row and cells + char_cells > width:
+            rows.append(row.rstrip())
+            row = ""
+            cells = 0
+        row += char
+        cells += char_cells
+    if row:
+        rows.append(row.rstrip())
+    return rows
+
+
+def print_banner(
+    stream: TextIO | None = None, *, word: str = WORD, chinese: bool = False
+) -> bool:
     """Draw the banner and report whether it was drawn.
 
     The return value lets a caller decide its own spacing without repeating the
@@ -475,10 +506,20 @@ def print_banner(stream: TextIO | None = None, *, word: str = WORD) -> bool:
     lines: Sequence[str] = render(width=width, theme=theme, word=word)
     if not lines:
         return False
+    title, verses = "A prayer for the cluster", STARTUP_PRAYER
+    if chinese and width >= 2:
+        # Check the actual stream encoding, including GB18030 terminals.
+        # A decorative prayer must not make an otherwise valid audit fail.
+        try:
+            ("为集群祈祷" + "".join(CHINESE_PRAYER)).encode(encoding or "ascii")
+        except (UnicodeEncodeError, LookupError):
+            pass
+        else:
+            title, verses = "为集群祈祷", CHINESE_PRAYER
     prayer = [
         wrapped
-        for line in ("A prayer for the cluster", *STARTUP_PRAYER)
-        for wrapped in textwrap.wrap(line, width=max(1, width))
+        for line in (title, *verses)
+        for wrapped in _wrap_prayer_line(line, max(1, width))
     ]
     target.write("\n".join(lines) + "\n\n" + "\n".join(prayer) + "\n\n")
     target.flush()

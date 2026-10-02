@@ -95,6 +95,15 @@ def _add_full_audit_profile_options(
         _add_target_options(parser, dest="profile_target", suppress_default=True)
 
 
+def _add_chinese_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--chinese",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print the startup prayer in Simplified Chinese (other output is unchanged).",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = _TopLevelArgumentParser(
         prog="cmax",
@@ -104,6 +113,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=f"commands:\n  audit  {AUDIT_COMMAND_HELP}",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.set_defaults(chinese=False)
+    _add_chinese_option(parser)
     parser.add_argument("-h", "--help", action="help", help=argparse.SUPPRESS)
     parser.add_argument(
         "--repo",
@@ -129,6 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=AUDIT_COMMAND_HELP,
         description=AUDIT_COMMAND_HELP,
     )
+    _add_chinese_option(audit)
     audit_commands = audit.add_subparsers(
         dest="profile", title="audit profiles and targets"
     )
@@ -138,6 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run the focused, read-only security report.",
     )
     security.set_defaults(audit_category="security")
+    _add_chinese_option(security)
     for category in AUDIT_CATEGORIES:
         category_parser = audit_commands.add_parser(
             category.name,
@@ -148,6 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
             ),
         )
         category_parser.set_defaults(audit_category=category.name)
+        _add_chinese_option(category_parser)
         _add_full_audit_profile_options(category_parser, allow_target=True)
 
     for target_name, target_help in AUDIT_TARGETS:
@@ -157,6 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
             description=target_help,
         )
         target_parser.set_defaults(profile_target=target_name)
+        _add_chinese_option(target_parser)
         _add_full_audit_profile_options(target_parser, allow_target=False)
 
     review = audit_commands.add_parser(
@@ -164,6 +179,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Review a saved audit without running checks.",
         description="Review a saved ClusterMAX audit without running checks.",
     )
+    _add_chinese_option(review)
 
     review.add_argument(
         "review_source",
@@ -494,7 +510,7 @@ def _show_banner(args: argparse.Namespace) -> None:
         return
     from cmax import banner
 
-    banner.print_banner()
+    banner.print_banner(chinese=getattr(args, "chinese", False))
 
 
 def main(argv: list[str] | None = None) -> int:
