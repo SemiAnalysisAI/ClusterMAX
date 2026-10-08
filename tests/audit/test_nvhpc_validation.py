@@ -34,8 +34,10 @@ VERSION_GE = bashtest.extract_function(AUDIT_COMMON, "version_ge")
 
 
 class NvhpcCollectorTests(unittest.TestCase):
-    def _sdk_tree(self, root: Path, version: str = "26.5") -> Path:
-        release = root / "Linux_x86_64" / version
+    def _sdk_tree(
+        self, root: Path, version: str = "26.5", machine: str = "x86_64"
+    ) -> Path:
+        release = root / f"Linux_{machine}" / version
         compiler_bin = release / "compilers" / "bin"
         compiler_bin.mkdir(parents=True)
         for compiler in ("nvc", "nvc++", "nvfortran"):
@@ -45,7 +47,7 @@ class NvhpcCollectorTests(unittest.TestCase):
 
         components = release / "component-fixtures"
         components.mkdir()
-        for name in (
+        names = [
             "libnccl.so.2",
             "libnvshmem_host.so.3",
             "libcublas.so.13",
@@ -54,11 +56,20 @@ class NvhpcCollectorTests(unittest.TestCase):
             "libcusolver.so.12",
             "libcusparse.so.12",
             "libcutensor.so.2",
-            "libopenblas.so.0",
             "libscalapack.so.2",
             "nsys",
             "cuda-gdb",
-        ):
+        ]
+        if machine == "aarch64":
+            # The aarch64 SDK ships NVPL for BLAS and LAPACK. Of OpenBLAS it
+            # keeps only the headers and the licence.
+            names += ["libnvpl_blas_lp64_gomp.so.0", "libnvpl_lapack_lp64_gomp.so.0"]
+            headers = release / "compilers" / "include" / "openblas" / "lp64"
+            headers.mkdir(parents=True)
+            (headers / "openblas_config.h").touch()
+        else:
+            names.append("libopenblas.so.0")
+        for name in names:
             (components / name).touch()
         # Executable payloads are commonly symlinks inside an SDK release.
         (components / "ncu-target").touch()
@@ -67,9 +78,16 @@ class NvhpcCollectorTests(unittest.TestCase):
             (components / name).mkdir()
         return release
 
-    def _collect(self, root: Path) -> bashtest.BashRun:
+    def _collect(self, root: Path, machine: str = "x86_64") -> bashtest.BashRun:
+        # Pin the architecture, so the result does not depend on the test host.
         return bashtest.run_bash(
             COLLECTOR,
+            stubs={
+                "uname": (
+                    f'if [ "$1" = "-m" ]; then echo {machine}; '
+                    'else exec /bin/uname "$@"; fi'
+                )
+            },
             env={"CLUSTERMAX_NVHPC_ROOT": str(root)},
         )
 
@@ -95,6 +113,39 @@ class NvhpcCollectorTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("WORKER_NVHPC_COMPONENTS_OK=false", run.stdout)
         self.assertIn("WORKER_NVHPC_COMPONENTS_MISSING=hpcx", run.stdout)
+
+    def test_aarch64_bundle_with_nvpl_and_no_openblas_is_complete(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp) / "hpc_sdk"
+            self._sdk_tree(root, machine="aarch64")
+            run = self._collect(root, machine="aarch64")
+
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("WORKER_NVHPC_COMPONENTS_OK=true", run.stdout)
+        self.assertIn("WORKER_NVHPC_COMPONENTS_MISSING=none", run.stdout)
+
+    def test_aarch64_bundle_without_nvpl_names_nvpl(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp) / "hpc_sdk"
+            release = self._sdk_tree(root, machine="aarch64")
+            for lib in (release / "component-fixtures").glob("libnvpl*"):
+                lib.unlink()
+            run = self._collect(root, machine="aarch64")
+
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("WORKER_NVHPC_COMPONENTS_OK=false", run.stdout)
+        self.assertIn("WORKER_NVHPC_COMPONENTS_MISSING=nvpl", run.stdout)
+
+    def test_x86_64_bundle_without_openblas_names_openblas(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp) / "hpc_sdk"
+            release = self._sdk_tree(root)
+            (release / "component-fixtures" / "libopenblas.so.0").unlink()
+            run = self._collect(root)
+
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("WORKER_NVHPC_COMPONENTS_OK=false", run.stdout)
+        self.assertIn("WORKER_NVHPC_COMPONENTS_MISSING=openblas", run.stdout)
 
 
 class NvhpcGradingTests(unittest.TestCase):

@@ -1773,10 +1773,15 @@ if [[ -n "$WORKER_NVHPC_PATH" ]]; then
         nvhpc_require_file cuda-gdb cuda-gdb
         nvhpc_require_dir thrust thrust
         nvhpc_require_dir cub cub
-        nvhpc_require_file openblas 'libopenblas.so*'
         nvhpc_require_file scalapack 'libscalapack.so*'
+        # BLAS and LAPACK. The aarch64 SDK ships NVIDIA Performance Libraries
+        # in place of OpenBLAS: compilers/lib/libblas.so and liblapack.so link
+        # to NVPL, and only the OpenBLAS headers and licence remain. Require
+        # NVPL on aarch64 and OpenBLAS on other architectures.
         if [[ "$(uname -m 2>/dev/null)" == aarch64 ]]; then
             nvhpc_require_file nvpl 'libnvpl*.so*'
+        else
+            nvhpc_require_file openblas 'libopenblas.so*'
         fi
         if [[ ${#NVHPC_MISSING[@]} -eq 0 ]]; then
             WORKER_NVHPC_COMPONENTS_OK=true
