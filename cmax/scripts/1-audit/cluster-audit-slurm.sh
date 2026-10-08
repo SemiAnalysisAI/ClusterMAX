@@ -2912,9 +2912,29 @@ if systemctl is-active node-exporter prometheus-node-exporter &>/dev/null; then 
 # and unprivileged `ss -p` may hide process details. The executable comm name
 # remains visible through procfs.
 if pgrep -x grafana &>/dev/null || pgrep -x grafana-server &>/dev/null; then GRAFANA_DETECTED="true"; fi
+# Slurm on Kubernetes runs the head node as a pod. The GPU Operator runs
+# dcgm-exporter as a DaemonSet in other pods on the GPU nodes, so this pod has
+# no listener on :9400 and no systemd unit. Query the exporter Service and
+# count it only when it serves DCGM metrics. Cluster search domains in
+# resolv.conf identify a pod: `su -` login shells drop KUBERNETES_SERVICE_HOST.
+# CLUSTERMAX_DCGM_EXPORTER_URL sets the URL for other namespaces or exporters.
+DCGM_EXPORTER_EVIDENCE="port 9400 or systemd active"
+if [[ "$DCGM_EXPORTER_DETECTED" != "true" ]] && command -v curl &>/dev/null; then
+    DCGM_EXPORTER_URL="${CLUSTERMAX_DCGM_EXPORTER_URL:-}"
+    if [[ -z "$DCGM_EXPORTER_URL" ]] \
+        && grep -qE '^search[[:space:]].*\.svc\.' "${CLUSTERMAX_RESOLV_CONF:-/etc/resolv.conf}" 2>/dev/null; then
+        DCGM_EXPORTER_URL="http://nvidia-dcgm-exporter.gpu-operator.svc:9400/metrics"
+    fi
+    if [[ -n "$DCGM_EXPORTER_URL" ]] \
+        && DCGM_EXPORTER_METRICS=$(curl -fsS --max-time 5 "$DCGM_EXPORTER_URL" 2>/dev/null) \
+        && grep -q '^DCGM_FI_' <<<"$DCGM_EXPORTER_METRICS"; then
+        DCGM_EXPORTER_DETECTED="true"
+        DCGM_EXPORTER_EVIDENCE="DCGM metrics at $DCGM_EXPORTER_URL"
+    fi
+fi
 
 [[ "$PROMETHEUS_DETECTED"   == "true" ]] && print_info "Prometheus: detected (port 9090 or systemd active)"     || print_detail "Prometheus: not detected"
-[[ "$DCGM_EXPORTER_DETECTED" == "true" ]] && print_info "dcgm-exporter: detected (port 9400 or systemd active)" || print_detail "dcgm-exporter: not detected"
+[[ "$DCGM_EXPORTER_DETECTED" == "true" ]] && print_info "dcgm-exporter: detected ($DCGM_EXPORTER_EVIDENCE)" || print_detail "dcgm-exporter: not detected"
 [[ "$NODE_EXPORTER_DETECTED" == "true" ]] && print_info "node-exporter: detected (port 9100 or systemd active)" || print_detail "node-exporter: not detected"
 [[ "$GRAFANA_DETECTED"      == "true" ]] && print_info "Grafana: detected (port 3000 or systemd active)"        || print_detail "Grafana: not detected"
 if [[ "$SLURM_EXPORTER_DETECTED" == "maybe" ]]; then
