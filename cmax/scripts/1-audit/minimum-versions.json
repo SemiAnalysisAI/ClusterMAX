@@ -182,9 +182,9 @@
       }
     },
     "nvhpc": {
-      "current": "26.5",
+      "current": "26.9",
       "kind": "releaseWindow",
-      "minimum": "26.3",
+      "minimum": "26.5",
       "policy": "current-or-previous",
       "source": {
         "feed": "nvidia-hpc-sdk-releases",
@@ -974,7 +974,7 @@
       }
     }
   },
-  "generated": "2026-08-30T07:24:57Z",
+  "generated": "2026-09-25T04:03:23Z",
   "gracePeriodDays": 3,
   "maxAgeDays": 10,
   "schemaVersion": 1

@@ -10,9 +10,9 @@ Use a separate destructive memory test for the active DRAM-to-HBM spill repro.
 Kubernetes harness environment variables:
 
 * ``CLUSTERMAX_AUDIT_K8S_NAMESPACE`` (default ``default``)
-* ``CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE`` (default
-  ``python:3.12-alpine``) - must be reachable from GPU nodes; override
-  for air-gapped clusters.
+* ``CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE`` (default: digest-pinned
+  ``python:3.12-alpine``) - must be reachable from GPU nodes; use a
+  digest-pinned mirror for air-gapped clusters.
 * ``CLUSTERMAX_AUDIT_K8S_HOST_CHECK_PULL_POLICY`` (default
   ``IfNotPresent``)
 * ``CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS`` (default: all GPU nodes)
@@ -33,6 +33,11 @@ from typing import Any
 
 
 GIB_KB = 1024 * 1024
+# Pin the multi-architecture index so both x86 and Arm hosts use fixed images.
+DEFAULT_K8S_HOST_CHECK_IMAGE = (
+    "python:3.12-alpine@"
+    "sha256:c4634f578a412db396771b61b064c6e546c9d6414c7fb5b1b05d5871f1885f7b"
+)
 # Lower bound for what counts as an HBM-sized memory-only NUMA node. 64 GiB
 # catches every coherent NVIDIA platform shipping today (GH200 96 GiB, GB200
 # 192 GiB per GPU, GB300 288 GiB per GPU, H100 SXM 80 GiB if ever exposed
@@ -735,7 +740,7 @@ def run_k8s_check() -> tuple[list[dict[str, Any]], list[str]]:
         return [], [NO_K8S_GPU_NODES]
 
     namespace = os.environ.get("CLUSTERMAX_AUDIT_K8S_NAMESPACE", "default")
-    image = os.environ.get("CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE", "python:3.12-alpine")
+    image = os.environ.get("CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE", DEFAULT_K8S_HOST_CHECK_IMAGE)
     max_nodes = as_int(os.environ.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS"), default=len(nodes))
     return load_fanout().fan_out_k8s(_hbm_per_node(namespace, image), nodes=nodes, max_nodes=max_nodes)
 
