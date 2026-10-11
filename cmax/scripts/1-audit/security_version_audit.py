@@ -1641,6 +1641,88 @@ def minimums_metadata() -> dict[str, object]:
         return {"error": str(exc)}
 
 
+def amd_driver_verdict(
+    model: str, evidence: dict[str, Any] | None = None, *, gpu_vendor: str = "amd"
+) -> Verdict:
+    """Grade only a vendor release bound to the loaded host module.
+
+    Raw amdgpu 6.x, ROCm versions, installer versions, and installed-but-not-
+    loaded packages are not comparable with AMD's packaged driver releases.
+    Distribution backports require separate provider evidence, never a pass
+    inferred from the distribution kernel number.
+    """
+    evidence = evidence or {}
+    version = str(evidence.get("packageRelease") or "unknown")
+    if gpu_vendor.lower() == "nvidia":
+        return Verdict(version, "not_applicable", "AMD Instinct only", "",
+                       "AMD host-driver policy does not apply to NVIDIA GPUs")
+    try:
+        block = minimum_versions.component("amdDriver")
+    except MinimumDataError as exc:
+        return _minimums_unavailable(version, exc)
+    advisory = _advisory(block)
+    programs = set(re.findall(r"\bMI\d+[A-Z]*\b", model.upper()))
+    floors = block.get("programs") or {}
+    affected = programs.intersection(floors)
+    if not affected:
+        # An unlisted product is not proof of no AMD hardware, nor proof that
+        # a future product is unaffected. Keep this an explicit coverage gap.
+        return _unknown(version, "affected Instinct product required", advisory,
+                        "No assessed AMD Instinct model was identified; verify hardware scope")
+    minimum = max((floors[p] for p in affected), key=lambda v: numeric_version(v))
+    detail = _cve_detail(block, "AMD host-driver security bulletin")
+    required = (
+        evidence.get("packageBoundToModule") is True
+        and evidence.get("loadedSrcversion")
+        and evidence.get("loadedSrcversion") == evidence.get("installedSrcversion")
+        and evidence.get("loadedVersion")
+        and evidence.get("loadedVersion") == evidence.get("installedVersion")
+        and re.fullmatch(r"https://repo\.radeon\.com/amdgpu/\d+\.\d+(?:\.\d+)?/ubuntu/?",
+                         str(evidence.get("packageOrigin", "")))
+        and re.fullmatch(r"\d+\.\d+(?:\.\d+)?", version)
+        and f"/amdgpu/{version}/" in str(evidence.get("packageOrigin", ""))
+        and evidence.get("packageVersion")
+    )
+    if not required:
+        return _unknown(version, minimum, advisory,
+                        f"{detail}. Loaded host driver and vendor package provenance "
+                        "could not be matched. Obtain provider or distribution patch evidence; "
+                        "ROCm and raw module versions do not establish remediation")
+    # A mixed inventory with any proven vulnerable GPU must still fail.
+    below = numeric_version(version) < numeric_version(minimum)
+    if not below and programs.difference(floors):
+        return _unknown(version, minimum, advisory,
+                        f"{detail}. Inventory includes an unassessed AMD model")
+    return Verdict(version, "fail" if below else "pass", minimum, advisory,
+                   f"{detail}. Vendor package matched the loaded module on the inspected host"
+                   + ("; driver is below the minimum" if below else "; driver meets the minimum"))
+
+
+def amd_driver_record(
+    model: str, evidence: dict[str, Any] | None, *, gpu_vendor: str
+) -> dict[str, object]:
+    verdict = amd_driver_verdict(model, evidence, gpu_vendor=gpu_vendor)
+    record = asdict(verdict)
+    if verdict.status == "fail":
+        # Each known vulnerable product has its own enforcement date.
+        # An unassessed model, or a newly announced fix for another model,
+        # cannot grant grace to an already-enforced failing product.
+        floors = minimum_versions.component("amdDriver").get("programs") or {}
+        failed = [
+            program for program in sorted(set(re.findall(r"\bMI\d+[A-Z]*\b", model.upper())))
+            if program in floors
+            and numeric_version(verdict.version) < numeric_version(floors[program])
+        ]
+        records = [_verdict_record(verdict, "amdDriver", program) for program in failed]
+        if records:
+            record = next((item for item in records if item["status"] == "fail"), records[-1])
+    return {
+        **record,
+        "evidence": evidence or {},
+        "scope": "inspected host; not fleet-wide attestation",
+    }
+
+
 def evaluate(
     *,
     driver: str,
@@ -1666,6 +1748,8 @@ def evaluate(
     virtio_net_observed: Iterable[dict[str, Any]] | None = None,
     virtio_net_state: str | None = None,
     nvidia_gpu_present: bool | None = None,
+    amd_model: str = "unknown",
+    amd_driver_evidence: dict[str, Any] | None = None,
 ) -> dict[str, object]:
     if gpu_vendor.lower() == "nvidia":
         driver_result = nvidia_driver_verdict(driver)
@@ -1744,6 +1828,9 @@ def evaluate(
     driver_parsed = numeric_version(driver, parts=1)
     runc_parsed = numeric_version(runc, parts=2)
     return {
+        "amdDriver": amd_driver_record(
+            amd_model, amd_driver_evidence, gpu_vendor=gpu_vendor
+        ),
         "nvidiaDriver": _verdict_record(
             driver_result,
             "nvidiaDriver",
@@ -1804,6 +1891,8 @@ def _parse_observed_json(raw: str | None) -> list[dict[str, Any]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--amd-model", default="unknown")
+    parser.add_argument("--amd-driver-evidence", default="{}")
     parser.add_argument("--driver", default="unknown")
     parser.add_argument("--nct", default="unknown")
     parser.add_argument("--runc", default="unknown")
@@ -1873,6 +1962,8 @@ def main() -> int:
                 runc=args.runc,
                 connectx_firmware=args.connectx_firmware,
                 gpu_vendor=args.gpu_vendor,
+                amd_model=args.amd_model,
+                amd_driver_evidence=_parse_isolation_json(args.amd_driver_evidence),
                 docker=args.docker,
                 cuda=args.cuda,
                 connectx_inventory_complete=args.connectx_inventory_complete,

@@ -515,6 +515,18 @@ def _bluefield_absence_proven(audit: dict[str, Any]) -> bool:
 # Declarative rule set. To add a check, append a Rule. Keys are dotted paths into
 # the audit_data blob (see runs/<slug>/<ts>/audit/audit.values.json).
 RULES: tuple[Rule, ...] = (
+    Rule(
+        "securityVersions.amdDriver.status",
+        "AMD host driver below security minimum",
+        VERSION,
+        _status_is("fail"),
+    ),
+    Rule(
+        "securityVersions.amdDriver.status",
+        "AMD host driver patch requires provider or distribution evidence",
+        CONFIG,
+        _status_is("unknown"),
+    ),
     # --- Advisory-backed host security versions -------------------------
     Rule(
         "securityVersions.nvidiaDriver.status",
@@ -1310,6 +1322,8 @@ def classify_suppression(key: str, audit: dict[str, Any]) -> tuple[str, str]:
 # key and security extension id appears here and that every mapped id exists
 # in the vendored catalog.
 CHECK_CRITERIA: dict[str, str | None] = {
+    # CLI-only until the criteria catalog has an AMD host-driver criterion.
+    "securityVersions.amdDriver.status": None,
     "securityVersions.nvidiaDriver.status": "security-nvidia-driver",
     "securityVersions.nvidiaContainerToolkit.status": "security-nvidia-container-toolkit",
     "securityVersions.cudaToolkit.status": "cuda-toolkit-security",
