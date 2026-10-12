@@ -2602,14 +2602,19 @@ run_host_check_on_node() {
     printf '%s\n' "$outcome"
 }
 
-# merge_host_check_facts DRIVER_POD_OUT HOST_ROOT_OUT - WORKER_* facts, taking the host root's value
-# wherever it reported one; an nvidia-driver pod sees its own image, not host tools like perf.
+# Host-tool facts an nvidia-driver pod cannot see (it reads its own image, not the host's PATH).
+# GPU, driver and CUDA facts are deliberately absent: on GPU Operator nodes only the driver pod has nvidia-smi.
+HOST_ROOT_FACT_KEYS='^WORKER_(PERF_[A-Z_]+|KPTR_RESTRICT|NCU_PATH|NCU_VERSION|NVCC_PATH|NVCC_VERSION|MPIRUN_PATH|MPIRUN_VERSION|HPCX_[A-Z_]+|NHC_[A-Z_]+|SHARP_[A-Z_]+|NETUTIL_[A-Z0-9_]+|IPMITOOL_PATH)$'
+
+# merge_host_check_facts DRIVER_POD_OUT HOST_ROOT_OUT - driver-pod WORKER_* facts, with the host root's
+# value for HOST_ROOT_FACT_KEYS wherever the host reported one.
 merge_host_check_facts() {
-    awk '
+    awk -v allow="$HOST_ROOT_FACT_KEYS" '
         !/^WORKER_[A-Za-z0-9_]+=/ { next }
         { key = substr($0, 1, index($0, "=") - 1); value = substr($0, index($0, "=") + 1) }
         FNR == NR {
-            if (value != "" && value != "unknown" && !(key in host)) { host[key] = value; order[++n] = key }
+            absent = (value == "" || value == "unknown" || value == "none" || value == "not-found" || value == "n/a")
+            if (key ~ allow && !absent && !(key in host)) { host[key] = value; order[++n] = key }
             next
         }
         key in seen { next }
