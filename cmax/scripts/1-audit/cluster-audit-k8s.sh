@@ -2602,6 +2602,26 @@ run_host_check_on_node() {
     printf '%s\n' "$outcome"
 }
 
+# Families of host-tool facts; the driver image ships none of these tools, so the host root is authoritative
+# for every key in them. GPU, driver and CUDA facts are excluded: on GPU Operator nodes only the driver pod has nvidia-smi.
+HOST_ROOT_FACT_KEYS='^WORKER_(PERF_|KPTR_RESTRICT$|NCU_|NVCC_|MPIRUN_|HPCX_|NHC_|SHARP_|NETUTIL_|IPMITOOL_|IPMI_|NVHPC_|NCCL_)'
+
+# merge_host_check_facts DRIVER_POD_OUT HOST_ROOT_OUT - driver-pod WORKER_* facts, with every
+# HOST_ROOT_FACT_KEYS fact the host root reported taken from the host root, sentinels included.
+merge_host_check_facts() {
+    awk -v allow="$HOST_ROOT_FACT_KEYS" '
+        !/^WORKER_[A-Za-z0-9_]+=/ { next }
+        { key = substr($0, 1, index($0, "=") - 1); value = substr($0, index($0, "=") + 1) }
+        FNR == NR {
+            if (key ~ allow && !(key in host)) { host[key] = value; order[++n] = key }
+            next
+        }
+        key in seen { next }
+        { seen[key] = 1; print (key in host) ? key "=" host[key] : $0 }
+        END { for (i = 1; i <= n; i++) if (!(order[i] in seen)) print order[i] "=" host[order[i]] }
+    ' <(printf '%s\n' "$2") <(printf '%s\n' "$1")
+}
+
 run_gpu_error_check_on_node() {
     local node="$1" pod="" outcome=""
     pod=$(apply_privileged_host_check_pod "$node" || true)
@@ -2958,6 +2978,15 @@ if [[ -f "$WORKLOAD_DIR/host-check.sh" ]]; then
             < <(host_check_stdin) 2>/dev/null | grep '^WORKER_' || true)
         if [[ -n "$HOST_CHECK_OUT" ]]; then
             print_info "Host check via ${HOST_CHECK_POD}: $(printf '%s\n' "$HOST_CHECK_OUT" | grep -c '^WORKER_') facts"
+            # The driver pod keeps the driver facts; the host root on the same node supplies host tools.
+            HOST_CHECK_NODE=$(kubectl get pod -n "$GPU_NS" "$HOST_CHECK_POD" -o jsonpath='{.spec.nodeName}' 2>/dev/null || true)
+            if [[ -n "$HOST_CHECK_NODE" ]]; then
+                _hr_out=$(run_host_check_on_node "$HOST_CHECK_NODE")
+                if [[ -n "$_hr_out" ]]; then
+                    HOST_CHECK_OUT=$(merge_host_check_facts "$HOST_CHECK_OUT" "$_hr_out")
+                    print_info "Host check: host-root facts from ${HOST_CHECK_NODE} merged over the driver container's"
+                fi
+            fi
         else
             print_warn "Host check: no WORKER_ facts returned from driver daemonset pod"
         fi
