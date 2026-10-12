@@ -1,3 +1,4 @@
+import re
 import sys
 from pathlib import Path
 
@@ -12,12 +13,15 @@ SCRIPT = (
     / "cluster-audit-k8s.sh"
 )
 
-# Facts as an nvidia-driver daemonset pod reports them: the driver is visible,
-# host-installed tools are not.
+# Facts as an nvidia-driver daemonset pod reports them: the driver and GPUs are
+# visible, host-installed tools are not.
 DRIVER_POD_OUT = "\n".join(
     [
         "WORKER_HOSTNAME=nvidia-driver-daemonset-2hhjv",
         "WORKER_DRIVER_VERSION=580.173.02",
+        "WORKER_GPU_COUNT=4",
+        "WORKER_GPU_MODEL=NVIDIA GB300",
+        "WORKER_CUDA_VERSION=13.0",
         "WORKER_PERF_EVENT_PARANOID=4",
         "WORKER_PERF_PATH=",
         "WORKER_PERF_STAT_ACCESS=no-perf",
@@ -26,22 +30,30 @@ DRIVER_POD_OUT = "\n".join(
 )
 
 # Facts as the privileged host pod reports them from chroot /host on a GPU
-# Operator node: host tools are visible, nvidia-smi is not.
+# Operator node: host tools are visible, nvidia-smi is not, so the GPU facts
+# carry absence sentinels.
 HOST_ROOT_OUT = "\n".join(
     [
         "WORKER_HOSTNAME=gpu080023",
         "WORKER_DRIVER_VERSION=unknown",
+        "WORKER_GPU_COUNT=0",
+        "WORKER_GPU_MODEL=no-nvidia-smi",
+        "WORKER_CUDA_VERSION=not-found",
         "WORKER_PERF_EVENT_PARANOID=4",
         "WORKER_PERF_PATH=/usr/bin/perf",
         "WORKER_PERF_STAT_ACCESS=granted",
         "WORKER_IPMITOOL_PATH=",
-        "WORKER_LSPCI_ONLY_ON_HOST=/usr/bin/lspci",
+        "WORKER_NETUTIL_LSPCI_PATH=/usr/bin/lspci",
+        "WORKER_SOMETHING_HOST_ONLY=1",
     ]
 )
 
 
 def merge(driver_out: str, host_out: str) -> dict[str, str]:
-    block = bashtest.extract_function(SCRIPT, "merge_host_check_facts")
+    text = SCRIPT.read_text(encoding="utf-8")
+    allow = re.search(r"^HOST_ROOT_FACT_KEYS=.*$", text, re.M)
+    assert allow, "HOST_ROOT_FACT_KEYS assignment not found"
+    block = allow.group(0) + "\n" + bashtest.extract_function(SCRIPT, "merge_host_check_facts")
     run = bashtest.run_bash(
         block + '\nmerge_host_check_facts "$DRIVER_OUT" "$HOST_OUT"',
         env={"DRIVER_OUT": driver_out, "HOST_OUT": host_out},
@@ -59,12 +71,20 @@ def test_host_root_supplies_host_installed_tools():
     facts = merge(DRIVER_POD_OUT, HOST_ROOT_OUT)
     assert facts["WORKER_PERF_PATH"] == "/usr/bin/perf"
     assert facts["WORKER_PERF_STAT_ACCESS"] == "granted"
-    assert facts["WORKER_HOSTNAME"] == "gpu080023"
 
 
-def test_driver_pod_keeps_facts_the_host_root_cannot_report():
+def test_host_sentinels_do_not_replace_driver_pod_gpu_facts():
     facts = merge(DRIVER_POD_OUT, HOST_ROOT_OUT)
     assert facts["WORKER_DRIVER_VERSION"] == "580.173.02"
+    assert facts["WORKER_GPU_COUNT"] == "4"
+    assert facts["WORKER_GPU_MODEL"] == "NVIDIA GB300"
+    assert facts["WORKER_CUDA_VERSION"] == "13.0"
+    assert facts["WORKER_HOSTNAME"] == "nvidia-driver-daemonset-2hhjv"
+
+
+def test_absence_sentinels_never_override_host_tool_facts():
+    facts = merge("WORKER_PERF_PATH=/opt/perf", "WORKER_PERF_PATH=not-found")
+    assert facts["WORKER_PERF_PATH"] == "/opt/perf"
 
 
 def test_empty_on_both_sides_stays_empty():
@@ -72,9 +92,10 @@ def test_empty_on_both_sides_stays_empty():
     assert facts["WORKER_IPMITOOL_PATH"] == ""
 
 
-def test_host_only_facts_are_kept():
+def test_only_allowlisted_host_only_facts_are_added():
     facts = merge(DRIVER_POD_OUT, HOST_ROOT_OUT)
-    assert facts["WORKER_LSPCI_ONLY_ON_HOST"] == "/usr/bin/lspci"
+    assert facts["WORKER_NETUTIL_LSPCI_PATH"] == "/usr/bin/lspci"
+    assert "WORKER_SOMETHING_HOST_ONLY" not in facts
 
 
 def test_no_host_root_output_leaves_driver_facts_unchanged():
@@ -83,5 +104,5 @@ def test_no_host_root_output_leaves_driver_facts_unchanged():
 
 
 def test_values_containing_equals_signs_survive():
-    facts = merge("WORKER_X=a=b", "WORKER_Y=c=d")
-    assert facts == {"WORKER_X": "a=b", "WORKER_Y": "c=d"}
+    facts = merge("WORKER_PERF_PATH=a=b", "WORKER_NCU_PATH=c=d")
+    assert facts == {"WORKER_PERF_PATH": "a=b", "WORKER_NCU_PATH": "c=d"}
