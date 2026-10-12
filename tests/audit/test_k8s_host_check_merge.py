@@ -26,6 +26,12 @@ DRIVER_POD_OUT = "\n".join(
         "WORKER_PERF_PATH=",
         "WORKER_PERF_STAT_ACCESS=no-perf",
         "WORKER_IPMITOOL_PATH=",
+        "WORKER_IPMI_USER_ACCESS=not-installed",
+        "WORKER_NCU_PATH=",
+        "WORKER_NCU_COUNTER_ACCESS=no-ncu",
+        "WORKER_NVHPC_INSTALLED=false",
+        "WORKER_NVHPC_COMPONENTS_MISSING=not-checked",
+        "WORKER_NCCL_VERSION=not-found",
     ]
 )
 
@@ -43,6 +49,12 @@ HOST_ROOT_OUT = "\n".join(
         "WORKER_PERF_PATH=/usr/bin/perf",
         "WORKER_PERF_STAT_ACCESS=granted",
         "WORKER_IPMITOOL_PATH=",
+        "WORKER_IPMI_USER_ACCESS=blocked",
+        "WORKER_NCU_PATH=/usr/local/cuda/bin/ncu",
+        "WORKER_NCU_COUNTER_ACCESS=granted",
+        "WORKER_NVHPC_INSTALLED=true",
+        "WORKER_NVHPC_COMPONENTS_MISSING=none",
+        "WORKER_NCCL_VERSION=2.30.7",
         "WORKER_NETUTIL_LSPCI_PATH=/usr/bin/lspci",
         "WORKER_SOMETHING_HOST_ONLY=1",
     ]
@@ -82,9 +94,20 @@ def test_host_sentinels_do_not_replace_driver_pod_gpu_facts():
     assert facts["WORKER_HOSTNAME"] == "nvidia-driver-daemonset-2hhjv"
 
 
-def test_absence_sentinels_never_override_host_tool_facts():
-    facts = merge("WORKER_PERF_PATH=/opt/perf", "WORKER_PERF_PATH=not-found")
-    assert facts["WORKER_PERF_PATH"] == "/opt/perf"
+def test_host_root_is_authoritative_for_whole_tool_families():
+    facts = merge(DRIVER_POD_OUT, HOST_ROOT_OUT)
+    assert facts["WORKER_NCU_PATH"] == "/usr/local/cuda/bin/ncu"
+    assert facts["WORKER_NCU_COUNTER_ACCESS"] == "granted"
+    assert facts["WORKER_IPMI_USER_ACCESS"] == "blocked"
+    assert facts["WORKER_NCCL_VERSION"] == "2.30.7"
+    # "none" here means no NVHPC component is missing; it must not be read as an absence marker.
+    assert facts["WORKER_NVHPC_INSTALLED"] == "true"
+    assert facts["WORKER_NVHPC_COMPONENTS_MISSING"] == "none"
+
+
+def test_host_tool_sentinels_also_come_from_the_host_root():
+    facts = merge("WORKER_PERF_PATH=/opt/perf", "WORKER_PERF_PATH=")
+    assert facts["WORKER_PERF_PATH"] == ""
 
 
 def test_empty_on_both_sides_stays_empty():

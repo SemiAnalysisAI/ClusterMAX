@@ -2602,19 +2602,18 @@ run_host_check_on_node() {
     printf '%s\n' "$outcome"
 }
 
-# Host-tool facts an nvidia-driver pod cannot see (it reads its own image, not the host's PATH).
-# GPU, driver and CUDA facts are deliberately absent: on GPU Operator nodes only the driver pod has nvidia-smi.
-HOST_ROOT_FACT_KEYS='^WORKER_(PERF_[A-Z_]+|KPTR_RESTRICT|NCU_PATH|NCU_VERSION|NVCC_PATH|NVCC_VERSION|MPIRUN_PATH|MPIRUN_VERSION|HPCX_[A-Z_]+|NHC_[A-Z_]+|SHARP_[A-Z_]+|NETUTIL_[A-Z0-9_]+|IPMITOOL_PATH)$'
+# Families of host-tool facts; the driver image ships none of these tools, so the host root is authoritative
+# for every key in them. GPU, driver and CUDA facts are excluded: on GPU Operator nodes only the driver pod has nvidia-smi.
+HOST_ROOT_FACT_KEYS='^WORKER_(PERF_|KPTR_RESTRICT$|NCU_|NVCC_|MPIRUN_|HPCX_|NHC_|SHARP_|NETUTIL_|IPMITOOL_|IPMI_|NVHPC_|NCCL_)'
 
-# merge_host_check_facts DRIVER_POD_OUT HOST_ROOT_OUT - driver-pod WORKER_* facts, with the host root's
-# value for HOST_ROOT_FACT_KEYS wherever the host reported one.
+# merge_host_check_facts DRIVER_POD_OUT HOST_ROOT_OUT - driver-pod WORKER_* facts, with every
+# HOST_ROOT_FACT_KEYS fact the host root reported taken from the host root, sentinels included.
 merge_host_check_facts() {
     awk -v allow="$HOST_ROOT_FACT_KEYS" '
         !/^WORKER_[A-Za-z0-9_]+=/ { next }
         { key = substr($0, 1, index($0, "=") - 1); value = substr($0, index($0, "=") + 1) }
         FNR == NR {
-            absent = (value == "" || value == "unknown" || value == "none" || value == "not-found" || value == "n/a")
-            if (key ~ allow && !absent && !(key in host)) { host[key] = value; order[++n] = key }
+            if (key ~ allow && !(key in host)) { host[key] = value; order[++n] = key }
             next
         }
         key in seen { next }
