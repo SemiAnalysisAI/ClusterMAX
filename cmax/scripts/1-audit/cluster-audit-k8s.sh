@@ -2602,6 +2602,22 @@ run_host_check_on_node() {
     printf '%s\n' "$outcome"
 }
 
+# merge_host_check_facts DRIVER_POD_OUT HOST_ROOT_OUT - WORKER_* facts, taking the host root's value
+# wherever it reported one; an nvidia-driver pod sees its own image, not host tools like perf.
+merge_host_check_facts() {
+    awk '
+        !/^WORKER_[A-Za-z0-9_]+=/ { next }
+        { key = substr($0, 1, index($0, "=") - 1); value = substr($0, index($0, "=") + 1) }
+        FNR == NR {
+            if (value != "" && value != "unknown" && !(key in host)) { host[key] = value; order[++n] = key }
+            next
+        }
+        key in seen { next }
+        { seen[key] = 1; print (key in host) ? key "=" host[key] : $0 }
+        END { for (i = 1; i <= n; i++) if (!(order[i] in seen)) print order[i] "=" host[order[i]] }
+    ' <(printf '%s\n' "$2") <(printf '%s\n' "$1")
+}
+
 run_gpu_error_check_on_node() {
     local node="$1" pod="" outcome=""
     pod=$(apply_privileged_host_check_pod "$node" || true)
@@ -2958,6 +2974,15 @@ if [[ -f "$WORKLOAD_DIR/host-check.sh" ]]; then
             < <(host_check_stdin) 2>/dev/null | grep '^WORKER_' || true)
         if [[ -n "$HOST_CHECK_OUT" ]]; then
             print_info "Host check via ${HOST_CHECK_POD}: $(printf '%s\n' "$HOST_CHECK_OUT" | grep -c '^WORKER_') facts"
+            # The driver pod keeps the driver facts; the host root on the same node supplies host tools.
+            HOST_CHECK_NODE=$(kubectl get pod -n "$GPU_NS" "$HOST_CHECK_POD" -o jsonpath='{.spec.nodeName}' 2>/dev/null || true)
+            if [[ -n "$HOST_CHECK_NODE" ]]; then
+                _hr_out=$(run_host_check_on_node "$HOST_CHECK_NODE")
+                if [[ -n "$_hr_out" ]]; then
+                    HOST_CHECK_OUT=$(merge_host_check_facts "$HOST_CHECK_OUT" "$_hr_out")
+                    print_info "Host check: host-root facts from ${HOST_CHECK_NODE} merged over the driver container's"
+                fi
+            fi
         else
             print_warn "Host check: no WORKER_ facts returned from driver daemonset pod"
         fi
