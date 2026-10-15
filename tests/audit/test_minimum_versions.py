@@ -219,15 +219,32 @@ class MinimumTableContractTests(unittest.TestCase):
                 self.assertTrue(minimums.component(name).get("advisory", "").startswith("http"))
 
     def test_docker_grace_period_starts_on_release_note_publication(self) -> None:
-        grace = minimums.active_grace_period("docker", today=date(2026, 7, 31))
+        # Read the dates from the table, so a refresh that moves the Docker
+        # minimum keeps this test valid. The clock starts on the later of the
+        # release-note publication and the release date, and enforcement
+        # starts gracePeriodDays + 1 calendar days after that.
+        fix = minimums.component("docker")["fixAvailability"]
+        self.assertEqual(fix["status"], "confirmed")
+        stamps = {
+            key: datetime.fromisoformat(fix[key].replace("Z", "+00:00"))
+            for key in ("available", "bulletinReleased")
+        }
+        start_key = max(stamps, key=lambda key: (stamps[key], key == "bulletinReleased"))
+        start = stamps[start_key].astimezone(timezone.utc).date()
+        enforcement = start + timedelta(days=minimums.grace_period_days() + 1)
+
+        grace = minimums.active_grace_period("docker", today=start)
         self.assertIsNotNone(grace)
         assert grace is not None
-        self.assertEqual(grace["fixAvailable"], "2026-07-30T00:00:00Z")
-        self.assertEqual(grace["graceStart"], "2026-07-30T21:33:46Z")
-        self.assertEqual(grace["enforcementDate"], "2026-08-03")
-        self.assertIsNone(
-            minimums.active_grace_period("docker", today=date(2026, 8, 3))
+        self.assertEqual(grace["fixAvailable"], fix["available"])
+        self.assertEqual(grace["graceStart"], fix[start_key])
+        self.assertEqual(grace["enforcementDate"], enforcement.isoformat())
+        self.assertIsNotNone(
+            minimums.active_grace_period(
+                "docker", today=enforcement - timedelta(days=1)
+            )
         )
+        self.assertIsNone(minimums.active_grace_period("docker", today=enforcement))
 
     def test_generated_policy_grades_each_published_minimum(self) -> None:
         """The regression that catches a bad regeneration of the table.
