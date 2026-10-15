@@ -613,6 +613,28 @@ class ExtractorTest(unittest.TestCase):
             entry["fixAvailability"]["url"], f"{fr.UBUNTU_OSV_VULN_URL}USN-7744-1"
         )
 
+    def test_ubuntu_reads_usn_records_from_the_github_mirror(self) -> None:
+        api_url, mirror_url = fr.ubuntu_osv_notice_urls("USN-7744-1")
+        self.assertTrue(mirror_url.endswith("/osv/usn/USN-7744-1.json"))
+        self.stub.json_by_url[mirror_url] = self.stub.json_by_url.pop(api_url)
+        entry = fr.ubuntu_entry("CVE-2024-3446", "qemu", fetch=self.stub)
+        self.assertIn(mirror_url, self.stub.calls)
+        self.assertEqual(entry["fixAvailability"]["status"], "confirmed")
+        self.assertEqual(entry["source"]["id"], "USN-7744-1")
+
+    def test_ubuntu_fix_is_dated_from_the_security_api_when_no_usn_record_reads(
+        self,
+    ) -> None:
+        # OSV names a released fix, but no OSV USN record can be read. The fix
+        # must still be confirmed, or its grace period never ends.
+        for notice_id in ("USN-7744-1", "USN-8412-1"):
+            del self.stub.json_by_url[fr.ubuntu_osv_notice_urls(notice_id)[0]]
+        entry = fr.ubuntu_entry("CVE-2024-3446", "qemu", fetch=self.stub)
+        self.assertIn(f"{fr.UBUNTU_CVE_URL}CVE-2024-3446.json", self.stub.calls)
+        self.assertEqual(entry["fixAvailability"]["status"], "confirmed")
+        self.assertEqual(entry["source"]["id"], "USN-7744-1")
+        self.assertEqual(entry["released"], "2025-09-11T12:41:28.262010")
+
     def test_ubuntu_osv_ignores_other_releases(self) -> None:
         # The fixture CVE-2024-3446 record also lists the Jammy qemu fix.
         listed, fixed = fr._osv_fixed(

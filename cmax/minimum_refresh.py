@@ -1147,6 +1147,14 @@ def ubuntu_osv_urls(cve: str) -> tuple[str, str]:
     )
 
 
+def ubuntu_osv_notice_urls(notice_id: str) -> tuple[str, str]:
+    """The OSV.dev record and its GitHub mirror for one USN."""
+    return (
+        f"{UBUNTU_OSV_VULN_URL}{notice_id}",
+        f"{UBUNTU_OSV_RAW_URL.removesuffix('cve/')}usn/{notice_id}.json",
+    )
+
+
 def ubuntu_osv_record(cve: str, fetch: Fetcher | None = None) -> dict | None:
     """Canonical's OSV record for one CVE, or None when no mirror answers."""
     logger = logging.getLogger(__name__)
@@ -1286,11 +1294,16 @@ def ubuntu_osv_fix_notices(
     """
 
     def read(notice_id: str) -> dict | None:
-        try:
-            doc = _fetcher(fetch).get_json(f"{UBUNTU_OSV_VULN_URL}{notice_id}")
-        except MinimumRefreshError:
-            return None
-        if not isinstance(doc, dict) or doc.get("id") != notice_id:
+        doc = None
+        for url in ubuntu_osv_notice_urls(notice_id):
+            try:
+                candidate = _fetcher(fetch).get_json(url)
+            except MinimumRefreshError:
+                continue
+            if isinstance(candidate, dict) and candidate.get("id") == notice_id:
+                doc = candidate
+                break
+        if doc is None:
             return None
         published = doc.get("published")
         if not isinstance(published, str) or not published.strip():
@@ -1375,6 +1388,21 @@ def ubuntu_entry(
                 first["published"], first["id"], entry["fixed"], "ubuntu-osv",
                 f"{UBUNTU_OSV_VULN_URL}{first['id']}",
             )
+        if notice is None:
+            # No OSV USN record could date the fix. Without a date the fix
+            # stays unconfirmed and its grace period never ends, so read the
+            # dated notice list from the Ubuntu security API as a last resort.
+            try:
+                api_entry, api_notices = _ubuntu_api_entry(
+                    cve, package, codename, fetch
+                )
+            except MinimumRefreshError as exc:
+                logging.getLogger(__name__).warning("ubuntu: %s", exc)
+            else:
+                if api_entry.get("fixed") == entry["fixed"]:
+                    notice = ubuntu_fix_notice(
+                        api_notices, package, codename, entry["fixed"], fetch=fetch
+                    )
         if notice:
             entry.update(notice)
     else:
