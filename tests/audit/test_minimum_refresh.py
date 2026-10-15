@@ -139,6 +139,20 @@ class StubFetcher(fr.Fetcher):
             self.json_by_url[f"{fr.UBUNTU_CVE_URL}{cve}.json"] = ubuntu[cve]
         for notice_id, notice in ubuntu_fixture["notices"].items():
             self.json_by_url[fr.ubuntu_notice_url(notice_id)] = notice
+        # Canonical's OSV records are the primary Ubuntu source. The Ubuntu
+        # security API fixture above serves the fallback for fixes OSV cannot
+        # describe yet (pending), and the USN pages that confirm a fix.
+        ubuntu_osv = fixture("ubuntu-osv.json")
+        for spec in fr.UBUNTU_PACKAGES:
+            cve = spec["cve"]
+            if cve not in ubuntu_osv["cves"]:
+                raise AssertionError(
+                    f"ubuntu-osv.json has no record for {cve}, which "
+                    f"UBUNTU_PACKAGES asks the generator to fetch"
+                )
+            self.json_by_url[fr.ubuntu_osv_urls(cve)[0]] = ubuntu_osv["cves"][cve]
+        for notice_id, notice in ubuntu_osv["notices"].items():
+            self.json_by_url[f"{fr.UBUNTU_OSV_VULN_URL}{notice_id}"] = notice
         self.osv = fixture("osv-runc.json")
         for version, release in self.osv.get("_releases", {}).items():
             self.json_by_url[
@@ -537,22 +551,99 @@ class ExtractorTest(unittest.TestCase):
         self.assertIn('"0.0  to 4.8.2"', raw)
 
     def test_ubuntu_noble_packages(self) -> None:
-        cve_url = f"{fr.UBUNTU_CVE_URL}CVE-2024-3446.json"
-        self.stub.json_by_url[cve_url]["notices"] = [
-            {"id": "USN-unreadable", "published": "2025-09-09T00:00:00Z"},
-            {"id": "USN-malformed", "published": "2025-09-10T00:00:00Z"},
-            *self.stub.json_by_url[cve_url]["notices"],
+        osv_url = fr.ubuntu_osv_urls("CVE-2024-3446")[0]
+        # OSV lists every USN for a CVE. An unreadable or malformed USN record
+        # is skipped, and a USN that ships no Noble qemu fix is not chosen.
+        self.stub.json_by_url[osv_url]["related"] = [
+            "USN-unreadable",
+            "USN-malformed",
+            *self.stub.json_by_url[osv_url]["related"],
         ]
-        self.stub.json_by_url[fr.ubuntu_notice_url("USN-malformed")] = {
-            "release_packages": []
+        self.stub.json_by_url[f"{fr.UBUNTU_OSV_VULN_URL}USN-malformed"] = {
+            "id": "USN-malformed",
+            "published": "2025-09-01T00:00:00Z",
+            "affected": "not a list",
         }
         block = fr.ubuntu_minimums(fetch=self.stub)
+        qemu = block["packages"]["qemu"]
+        self.assertEqual(qemu["fixed"], "1:8.2.2+ds-0ubuntu1.10")
+        self.assertEqual(qemu["source"]["id"], "USN-7744-1")
+        self.assertEqual(qemu["released"], "2025-09-11T12:41:28.262010")
+        self.assertEqual(qemu["priority"], "medium")
+        self.assertEqual(block["packages"]["linuxVmscape"]["source"]["id"], "USN-7861-1")
         self.assertEqual(block["packages"]["linuxFragnesia"]["abi"], 124)
         self.assertEqual(block["packages"]["linuxJanuscape"]["status"], "pending")
         self.assertEqual(
             block["packages"]["linuxJanuscape"]["fixAvailability"]["status"],
             "unconfirmed",
         )
+        # Ubuntu's CVE API times out on CVE-2024-3446 (HTTP 504). Only the
+        # pending Janus fix, which OSV cannot describe, may read that API.
+        api_calls = [url for url in self.stub.calls if url.startswith(fr.UBUNTU_CVE_URL)]
+        self.assertEqual(api_calls, [f"{fr.UBUNTU_CVE_URL}CVE-2026-53359.json"])
+
+    def test_ubuntu_reads_the_github_mirror_when_osv_dev_fails(self) -> None:
+        api_url, mirror_url = fr.ubuntu_osv_urls("CVE-2024-3446")
+        self.stub.json_by_url[mirror_url] = self.stub.json_by_url.pop(api_url)
+        entry = fr.ubuntu_entry("CVE-2024-3446", "qemu", fetch=self.stub)
+        self.assertIn(mirror_url, self.stub.calls)
+        self.assertEqual(entry["fixed"], "1:8.2.2+ds-0ubuntu1.10")
+        self.assertEqual(entry["source"]["id"], "USN-7744-1")
+        self.assertNotIn(f"{fr.UBUNTU_CVE_URL}CVE-2024-3446.json", self.stub.calls)
+
+    def test_ubuntu_falls_back_to_the_security_api_when_no_osv_mirror_answers(
+        self,
+    ) -> None:
+        del self.stub.json_by_url[fr.ubuntu_osv_urls("CVE-2024-3446")[0]]
+        entry = fr.ubuntu_entry("CVE-2024-3446", "qemu", fetch=self.stub)
+        self.assertIn(f"{fr.UBUNTU_CVE_URL}CVE-2024-3446.json", self.stub.calls)
+        self.assertEqual(entry["fixed"], "1:8.2.2+ds-0ubuntu1.10")
+        self.assertEqual(entry["source"]["id"], "USN-7744-1")
+
+    def test_ubuntu_fix_is_dated_from_osv_when_ubuntu_com_is_unreachable(
+        self,
+    ) -> None:
+        del self.stub.json_by_url[fr.ubuntu_notice_url("USN-7744-1")]
+        entry = fr.ubuntu_entry("CVE-2024-3446", "qemu", fetch=self.stub)
+        self.assertEqual(entry["fixed"], "1:8.2.2+ds-0ubuntu1.10")
+        self.assertEqual(entry["released"], "2025-09-11T12:41:28Z")
+        self.assertEqual(entry["fixAvailability"]["status"], "confirmed")
+        self.assertEqual(entry["fixAvailability"]["feed"], "ubuntu-osv")
+        self.assertEqual(
+            entry["fixAvailability"]["url"], f"{fr.UBUNTU_OSV_VULN_URL}USN-7744-1"
+        )
+
+    def test_ubuntu_reads_usn_records_from_the_github_mirror(self) -> None:
+        api_url, mirror_url = fr.ubuntu_osv_notice_urls("USN-7744-1")
+        self.assertTrue(mirror_url.endswith("/osv/usn/USN-7744-1.json"))
+        self.stub.json_by_url[mirror_url] = self.stub.json_by_url.pop(api_url)
+        entry = fr.ubuntu_entry("CVE-2024-3446", "qemu", fetch=self.stub)
+        self.assertIn(mirror_url, self.stub.calls)
+        self.assertEqual(entry["fixAvailability"]["status"], "confirmed")
+        self.assertEqual(entry["source"]["id"], "USN-7744-1")
+
+    def test_ubuntu_fix_is_dated_from_the_security_api_when_no_usn_record_reads(
+        self,
+    ) -> None:
+        # OSV names a released fix, but no OSV USN record can be read. The fix
+        # must still be confirmed, or its grace period never ends.
+        for notice_id in ("USN-7744-1", "USN-8412-1"):
+            del self.stub.json_by_url[fr.ubuntu_osv_notice_urls(notice_id)[0]]
+        entry = fr.ubuntu_entry("CVE-2024-3446", "qemu", fetch=self.stub)
+        self.assertIn(f"{fr.UBUNTU_CVE_URL}CVE-2024-3446.json", self.stub.calls)
+        self.assertEqual(entry["fixAvailability"]["status"], "confirmed")
+        self.assertEqual(entry["source"]["id"], "USN-7744-1")
+        self.assertEqual(entry["released"], "2025-09-11T12:41:28.262010")
+
+    def test_ubuntu_osv_ignores_other_releases(self) -> None:
+        # The fixture CVE-2024-3446 record also lists the Jammy qemu fix.
+        listed, fixed = fr._osv_fixed(
+            self.stub.json_by_url[fr.ubuntu_osv_urls("CVE-2024-3446")[0]],
+            "qemu",
+            fr.UBUNTU_OSV_ECOSYSTEMS["noble"],
+        )
+        self.assertTrue(listed)
+        self.assertEqual(fixed, "1:8.2.2+ds-0ubuntu1.10")
 
 
 class VersionPhraseTest(unittest.TestCase):
