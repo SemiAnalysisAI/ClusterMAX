@@ -62,19 +62,19 @@ NO_BLUEFIELD_LSPCI = (
 DPU_MODE_MLXCONFIG = """
 Device #1:
 ----------
-Configurations:                              Next Boot
+Configurations:                              Current
          INTERNAL_CPU_MODEL                  EMBEDDED_CPU(1)
          INTERNAL_CPU_OFFLOAD_ENGINE         ENABLED(0)
          INTERNAL_CPU_RSHIM                  ENABLED(0)
 """
 NIC_MODE_MLXCONFIG = """
-Configurations:                              Next Boot
+Configurations:                              Current
          INTERNAL_CPU_MODEL                  EMBEDDED_CPU(1)
          INTERNAL_CPU_OFFLOAD_ENGINE         DISABLED(1)
          INTERNAL_CPU_RSHIM                  ENABLED(0)
 """
 ZERO_TRUST_MLXCONFIG = """
-Configurations:                              Next Boot
+Configurations:                              Current
          INTERNAL_CPU_MODEL                  EMBEDDED_CPU(1)
          INTERNAL_CPU_OFFLOAD_ENGINE         ENABLED(0)
          INTERNAL_CPU_RSHIM                  DISABLED(1)
@@ -729,17 +729,17 @@ class PrivilegedModeReadTests(CheckHarness):
         self.assertTrue(self.calls_for("sudo"))
         self.assertIn("sudo -n retry did not answer", record["reason"])
 
-    def test_mst_start_carries_the_same_privilege_as_the_query(self) -> None:
-        # `mst start` loads kernel modules, so an unprivileged attempt is a
-        # wasted call. It only helps when it runs with the same rights.
+    def test_failed_mode_read_never_loads_host_kernel_modules(self) -> None:
+        # Missing tool access stays unknown; a security audit must not start MST.
         self.stub_output("lspci", BLUEFIELD3_LSPCI)
         self.stub("mlxconfig", 'echo "-E- Failed to open the device" >&2\nexit 1')
         self.stub("mst", "exit 0")
         self.stub_sudo()
 
-        self.host_record()
-
-        self.assertTrue(any(call.startswith("-n mst") for call in self.calls_for("sudo")))
+        record = self.host_record()
+        self.assertEqual(record["state"], "incomplete")
+        self.assertFalse(self.calls_for("mst"))
+        self.assertFalse(any(call.startswith("-n mst") for call in self.calls_for("sudo")))
 
 
 class RshimEvidenceTests(CheckHarness):

@@ -67,11 +67,8 @@ without passwordless sudo fails immediately and the state stays ``incomplete``.
 ``modeSource`` records which of the two reads answered, and ``modeEscalation``
 records which privilege path the host was on.
 
-When both queries fail the existing ``mst start`` fallback also carries the
-prefix, because it loads the mst kernel modules and cannot work without the
-rights the query needs. That module load is the one host-state change on this
-path. Nothing is written to the device and nothing is written to the RShim
-console.
+If the read fails, the result stays unknown. The audit never runs ``mst start``,
+loads a kernel module, writes device configuration, or writes to the RShim console.
 
 The zero-trust observation
 --------------------------
@@ -500,25 +497,37 @@ ESCALATION_UNAVAILABLE = "no-sudo"
 
 _MLXCONFIG_KEYS = ("INTERNAL_CPU_MODEL", "INTERNAL_CPU_OFFLOAD_ENGINE", "INTERNAL_CPU_RSHIM")
 _MLXCONFIG_LINE_RE = re.compile(
-    r"^\s*(INTERNAL_CPU_MODEL|INTERNAL_CPU_OFFLOAD_ENGINE|INTERNAL_CPU_RSHIM)\s+(\S+)"
+    r"^\s*(?:RO\s+|\*\s+)?(INTERNAL_CPU_MODEL|INTERNAL_CPU_OFFLOAD_ENGINE|INTERNAL_CPU_RSHIM)\s+(.+)"
 )
 
 
 def parse_mlxconfig(text: str) -> dict[str, str]:
-    """Pull the three mode controls out of `mlxconfig -d <dev> q` output.
+    """Read only the Current column of `mlxconfig -e -d <dev> q`.
 
-    Values print as ``ENABLED(0)`` / ``EMBEDDED_CPU(1)`` / a bare number. The
-    numeric in parentheses wins, because the symbolic names differ per firmware
-    release while the numbers are the documented contract.
+    Plain query output is Next Boot, which cannot prove current isolation or
+    whether a controller is running. Defaults and pending settings are ignored.
     """
     values: dict[str, str] = {}
+    current_column = None
     for line in text.splitlines():
+        if "Configurations:" in line:
+            columns = line.split("Configurations:", 1)[1].replace("Next Boot", "NextBoot").split()
+            current_column = columns.index("Current") if "Current" in columns else None
+            continue
+        if current_column is None:
+            continue
         match = _MLXCONFIG_LINE_RE.match(line)
         if not match:
             continue
         key, raw = match.group(1), match.group(2)
-        paren = re.search(r"\((\d+)\)", raw)
-        values[key] = paren.group(1) if paren else raw.strip()
+        cells = raw.split()
+        if current_column >= len(cells):
+            continue
+        current = cells[current_column]
+        paren = re.fullmatch(r"[A-Za-z_]+\((\d+)\)", current)
+        numeric = paren.group(1) if paren else current
+        if numeric in {"0", "1", "2"}:
+            values[key] = numeric
     return values
 
 
@@ -586,7 +595,7 @@ def collect_mode(
         return result
 
     slot = devices[0].get("slot") or ""
-    query = ["mlxconfig", "-d", slot, "q"]
+    query = ["mlxconfig", "-e", "-d", slot, "q"]
     prefix, escalation = privileged_prefix(which=which, euid=euid)
     result["escalation"] = escalation
     source = "mlxconfig"
@@ -599,15 +608,8 @@ def collect_mode(
         if values:
             source = "sudo mlxconfig"
     if not values:
-        # `mst start` loads the mst kernel modules and needs the same privilege
-        # the query does, so it carries the same prefix.
-        run_tool([*prefix, "mst", "start"], runner=runner)
-        text, retry_error = run_tool([*prefix, *query], runner=runner)
-        values = parse_mlxconfig(text)
-        if not values:
-            result["error"] = error or retry_error or "mlxconfig returned no mode parameters"
-            return result
-        source = "sudo mlxconfig" if prefix else "mlxconfig"
+        result["error"] = error or "mlxconfig returned no readable Current mode parameters"
+        return result
 
     result["values"] = values
     result["modeSource"] = source
@@ -973,6 +975,7 @@ def gather(
         "modeSource": mode.get("modeSource"),
         "modeEscalation": mode.get("escalation"),
         "modeParameters": mode.get("values") or {},
+        "modeValueScope": "current" if mode.get("values") else "unknown",
         "modeError": mode.get("error"),
         "rshimHostAccess": rshim,
         "version": version.get("version"),
@@ -1466,7 +1469,7 @@ if [ "$slot_count" -gt 1 ]; then
 fi
 if [ -n "$slot" ] && command -v mlxconfig >/dev/null 2>&1; then
   echo @@MLXCONFIG_BEGIN@@
-  mlxconfig -d "$slot" q 2>&1
+  mlxconfig -e -d "$slot" q 2>&1
   echo @@MLXCONFIG_END@@
 elif [ -n "$slot" ]; then
   printf '@@MODE_ERROR@@\t%s\n' "mlxconfig is not installed"
@@ -1554,6 +1557,7 @@ def record_from_k8s(node: str, parsed: dict[str, Any]) -> dict[str, Any]:
         # already holds the rights the local arm has to escalate for.
         "modeEscalation": ESCALATION_ROOT,
         "modeParameters": mode_values,
+        "modeValueScope": "current" if mode_values else "unknown",
         "modeError": mode_error,
         "rshimHostAccess": rshim,
         "version": version,

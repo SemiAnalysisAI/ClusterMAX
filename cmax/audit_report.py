@@ -391,6 +391,7 @@ _CONTEXT_OBSERVATION_KEYS = frozenset(
         "gpu_controls.vboost.allowed",
         "networking.hcaNamingValid",
         "security.januscape.status",
+        "securityVersions.dpuHostIsolation.status",
     }
 )
 
@@ -513,6 +514,23 @@ def _version_observation(audit: dict[str, Any], key: str, value: Any) -> Any:
                 f"observed version {advisory.get('running', 'unknown')}; "
                 f"minimum version {advisory.get('minimum', 'unknown')}; "
                 f"CVE-2026-46242; {advisory.get('detail', '')}"
+            )
+    if key == "securityVersions.dpuHostIsolation.status":
+        evidence = _nested(audit, "securityVersions.dpuHostIsolation")
+        if isinstance(evidence, dict):
+            if not any(field in evidence for field in (
+                "internalCpuRshim", "rshimRestricted", "rshimDeviceNode", "tmfifoNet0",
+            )):
+                return str(evidence.get("status", "unknown"))
+            def dpu_display(field: str) -> str:
+                value = evidence.get(field, "unknown")
+                return str(value).lower() if isinstance(value, bool) else str(value)
+            return (
+                f"INTERNAL_CPU_RSHIM={evidence.get('internalCpuRshim', 'unknown')}; "
+                f"RShim restricted={dpu_display('rshimRestricted')}; "
+                f"/dev/rshim0={dpu_display('rshimDeviceNode')}; "
+                f"tmfifo_net0={dpu_display('tmfifoNet0')}; "
+                f"basis={evidence.get('findingBasis', 'unknown')}"
             )
     if key == "security.fragnesia.status":
         fragnesia = _nested(audit, "security.fragnesia")
@@ -1099,7 +1117,12 @@ def evaluate(
                 )
             )
             continue
-        if any(rule.severity in {findings.MISSING, findings.VERSION} for rule in failing):
+        if key == "securityVersions.dpuHostIsolation.status" and observed == "fail" and failing:
+            # The collector already completed the scan and established an
+            # isolation-policy violation. CONFIG severity must not downgrade
+            # its explicit failure into an inconclusive warning.
+            status = FAIL
+        elif any(rule.severity in {findings.MISSING, findings.VERSION} for rule in failing):
             status = FAIL
         elif failing:
             status = WARNING

@@ -1707,7 +1707,11 @@ class VersionDetailReportTests(unittest.TestCase):
         }
         for key, command in expected_commands.items():
             check = by_key[key]
-            self.assertEqual(check.status, audit_report.WARNING)
+            self.assertEqual(
+                check.status,
+                audit_report.FAIL if key == "securityVersions.dpuHostIsolation.status"
+                else audit_report.WARNING,
+            )
             self.assertIn(command, check.reproduce)
             self.assertNotEqual(
                 check.recommendation,

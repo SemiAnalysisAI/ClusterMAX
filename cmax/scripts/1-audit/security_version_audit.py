@@ -1453,10 +1453,12 @@ def dpu_host_isolation_verdict(evidence: dict[str, Any] | None = None) -> Verdic
                 "fail",
                 requirement,
                 advisory,
-                f"The host side can reach the DPU control plane "
-                f"(INTERNAL_CPU_RSHIM=0), so this cluster is not in zero-trust "
-                f"mode and a host-side administrator, or a tenant with host "
-                f"access, can reach the BlueField. Apply zero-trust mode with "
+                f"The completed host scan reports INTERNAL_CPU_RSHIM=0, "
+                f"so the configured RShim restriction is disabled and the "
+                f"zero-trust isolation policy fails. No active /dev/rshim0 "
+                f"or tmfifo_net0 path was observed; no DPU login or escape "
+                f"was attempted. Have the provider verify the host policy "
+                f"before applying "
                 f"`{MLXPRIVHOST_REMEDIATION}`.",
             ),
             facts.get("unassessedHosts"),
@@ -1494,6 +1496,12 @@ def dpu_host_isolation_result(evidence: dict[str, Any] | None = None) -> dict[st
         "rshimDeviceNode": rshim.get("rshimDeviceNode"),
         "tmfifoNet0": rshim.get("tmfifoNet0"),
         "internalCpuRshim": rshim.get("internalCpuRshim", "unknown"),
+        "findingBasis": (
+            "host-interface-present"
+            if rshim.get("rshimDeviceNode") is True or rshim.get("tmfifoNet0") is True
+            else "unrestricted-rshim-configuration" if rshim.get("rshimRestricted") is False
+            else "restriction-check"
+        ),
         # Hosts the check could not assess. Recorded so a fail carries its
         # coverage gap as structured data that a consumer can filter on.
         "unassessedHosts": [

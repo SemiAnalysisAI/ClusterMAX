@@ -65,7 +65,9 @@ version or an image tag.
 
 The network probe prefers a verified privileged host-root mount when available.
 It can enumerate PCI devices through sysfs if `lspci` is missing. It uses
-read-only `mlxconfig` queries and does not install tools or start `mst`.
+read-only `mlxconfig -e` queries and grades only the Current column. Defaults
+and next-boot settings do not establish current isolation. It does not install
+tools or start `mst`.
 Missing permissions, incomplete scans, and unassessed firmware trains remain
 unknown. A completed topology scan alone does not prove exclusive ownership
 of the physical NVLink domain.
