@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read-only CVE-2026-46242 grading from the audited worker's kernel evidence.
 
-Only Ubuntu 24.04 GA and 22.04 HWE 6.8 generic packages are mapped initially.
+Maps Ubuntu 24.04 GA/22.04 HWE 6.8 generic and Ubuntu 24.04 NVIDIA 6.17.
 Never compare cloud-flavor ABIs, mainline kernels, or container image versions
 against a generic-kernel minimum. This is a package advisory check, not an
 exploit test or cryptographic attestation of a provider's kernel.
@@ -18,11 +18,20 @@ import minimum_versions
 CVE = "CVE-2026-46242"
 ADVISORY = f"https://ubuntu.com/security/{CVE}"
 MAPPINGS = {
-    "24.04": ("ubuntuNoble", "linux", {"linux", "linux-signed"}, ""),
-    "22.04": (
-        "ubuntuJammy", "linux-hwe-6.8",
+    ("24.04", "6.8.0", "generic"): (
+        "ubuntuNoble", "linuxBadEpoll", "linux", {"linux", "linux-signed"}, "",
+    ),
+    ("22.04", "6.8.0", "generic"): (
+        "ubuntuJammy", "linuxBadEpoll", "linux-hwe-6.8",
         {"linux-hwe-6.8", "linux-signed-hwe-6.8"}, "~22.04.",
     ),
+    **{
+        ("24.04", "6.17.0", flavor): (
+            "ubuntuNoble", "linuxBadEpollNvidia617", "linux-nvidia-6.17",
+            {"linux-nvidia-6.17", "linux-signed-nvidia-6.17"}, "",
+        )
+        for flavor in ("nvidia", "nvidia-64k")
+    },
 }
 
 
@@ -42,10 +51,16 @@ def evaluate(
         "detail": "Kernel package identity or advisory mapping is unverified; "
                   "requires provider patch evidence.",
     }
-    kernel = re.fullmatch(r"6\.8\.0-([1-9][0-9]*)-generic", running)
-    if os_id != "ubuntu" or release not in MAPPINGS or kernel is None:
+    kernel = re.fullmatch(
+        r"(6\.8\.0|6\.17\.0)-([1-9][0-9]*)-(generic|nvidia|nvidia-64k)", running
+    )
+    if os_id != "ubuntu" or kernel is None:
         return result
-    component, source, accepted_sources, suffix = MAPPINGS[release]
+    family, abi, flavor = kernel.groups()
+    mapping = MAPPINGS.get((release, family, flavor))
+    if mapping is None:
+        return result
+    component, entry_key, source, accepted_sources, suffix = mapping
     # dpkg evidence must refer to the exact RUNNING image, not the newest
     # installed image. A container's own package database is not host proof.
     fields = package.split("|")
@@ -57,22 +72,22 @@ def evaluate(
     # Require installed state and no error flag, regardless of that selection.
     if re.fullmatch(r"[uihrp]i", state.strip()) is None or source_name not in accepted_sources:
         return result
-    pattern = r"6\.8\.0-([1-9][0-9]*)\.([1-9][0-9]*)"
+    pattern = re.escape(family) + r"-([1-9][0-9]*)\.([1-9][0-9]*)"
     if suffix:
         pattern += r"~22\.04\.([1-9][0-9]*)"
     installed = re.fullmatch(pattern, version)
     signature_fields = signature.split()
     if (
         installed is None
-        or installed.group(1) != kernel.group(1)
+        or installed.group(1) != abi
         or len(signature_fields) != 3
         or signature_fields[0] != "Ubuntu"
-        or signature_fields[1] != f"{version}-generic"
+        or signature_fields[1] != f"{version}-{flavor}"
     ):
         return result
     try:
         entry = minimum_versions.get(
-            f"components.{component}.packages.linuxBadEpoll"
+            f"components.{component}.packages.{entry_key}"
         )
     except (minimum_versions.MinimumDataError, OSError, ValueError):
         entry = None

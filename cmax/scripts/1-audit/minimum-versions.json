@@ -824,6 +824,17 @@
       "advisory": "https://ubuntu.com/security/notices",
       "kind": "distroPackages",
       "packages": {
+        "linuxBadEpollNvidia617": {
+          "cve": "CVE-2026-46242",
+          "fixed": "6.17.0-1031.31",
+          "package": "linux-nvidia-6.17",
+          "priority": "high",
+          "status": "released",
+          "source": {
+            "feed": "ubuntu-security-api",
+            "url": "https://ubuntu.com/security/CVE-2026-46242"
+          }
+        },
         "linuxBadEpoll": {
           "cve": "CVE-2026-46242",
           "fixed": "6.8.0-137.137",
