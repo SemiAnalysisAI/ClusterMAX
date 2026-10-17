@@ -45,7 +45,7 @@ def targets(pods, node):
         for container in spec.get("containers", []):
             resources = container.get("resources", {})
             gpu = any(
-                str(k).startswith("nvidia.com/") and ("gpu" in k or "mig" in k)
+                re.fullmatch(r"nvidia[.]com/(?:gpu(?:[.]shared)?|mig-[A-Za-z0-9_.-]+)", str(k))
                 and str(v) not in {"0", ""}
                 for kind in ("requests", "limits")
                 for k, v in resources.get(kind, {}).items()

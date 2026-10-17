@@ -1445,7 +1445,25 @@ if [ -n "$scan" ]; then
   echo @@LSPCI_END@@
 fi
 [ "$scan_rc" -eq 0 ] || printf '@@SCAN_ERROR@@\t%s\n' "PCI inventory unavailable or incomplete (lspci and sysfs)"
-slot=$(printf '%s\n' "$scan" | grep -Eio '^[0-9a-f:.]+ [^ ]* 15b3:(a2dc|a2d9)' | head -1 | cut -d' ' -f1)
+slot=""
+physical_slots=""
+for dev in "$scan_root"/sys/bus/pci/devices/*; do
+  [ -d "$dev" ] || continue
+  vendor=$(cat "$dev/vendor" 2>/dev/null)
+  device=$(cat "$dev/device" 2>/dev/null)
+  case "$vendor:$device" in
+    0x15b3:0xa2dc|0x15b3:0xa2d9)
+      bdf=${dev##*/}
+      [ -n "$slot" ] || slot=$bdf
+      physical_slots="${physical_slots}
+${bdf%.*}"
+      ;;
+  esac
+done
+slot_count=$(printf '%s\n' "$physical_slots" | sed '/^$/d' | sort -u | wc -l)
+if [ "$slot_count" -gt 1 ]; then
+  printf '@@SCAN_ERROR@@\t%s\n' "Multiple BlueField-3 PCI devices require per-device mode evidence"
+fi
 if [ -n "$slot" ] && command -v mlxconfig >/dev/null 2>&1; then
   echo @@MLXCONFIG_BEGIN@@
   mlxconfig -d "$slot" q 2>&1
@@ -1605,7 +1623,7 @@ def k8s_driver_pod(namespace: str, node: str, *, runner: Runner) -> dict[str, An
             if volume.get("hostPath", {}).get("path") == "/"
         }
         if "nvidia-driver" in name:
-            candidates.append((0, name, None, False))
+            candidates.append((1, name, None, False))
         elif "nvidia-device-plugin" in name:
             for container in item.get("spec", {}).get("containers", []):
                 host_root = any(
@@ -1613,7 +1631,9 @@ def k8s_driver_pod(namespace: str, node: str, *, runner: Runner) -> dict[str, An
                     for mount in container.get("volumeMounts", [])
                 )
                 if host_root and container.get("securityContext", {}).get("privileged") is True:
-                    candidates.append((1, name, container.get("name"), True))
+                    # MFT and pciutils are host software. A verified privileged
+                    # host-root mount is preferable to the thin driver image.
+                    candidates.append((0, name, container.get("name"), True))
     if not candidates:
         return None
     _, name, container, host_root = min(candidates)
@@ -1640,7 +1660,9 @@ def run_k8s_node_check(namespace: str, node: str, *, runner: Runner) -> tuple[di
         return None, f"{node}: virtio-net check exec failed: {exc}"
     if proc.returncode != 0:
         return None, f"{node}: virtio-net check exec failed: {proc.stderr.strip()}"
-    return record_from_k8s(node, parse_k8s_collector(proc.stdout)), None
+    record = record_from_k8s(node, parse_k8s_collector(proc.stdout))
+    record["probeSource"] = "host-root" if access["hostRoot"] else "gpu-operator-container"
+    return record, None
 
 
 def k8s_records(
