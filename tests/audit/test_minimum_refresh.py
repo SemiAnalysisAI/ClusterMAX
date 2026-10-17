@@ -491,6 +491,40 @@ class ExtractorTest(unittest.TestCase):
         self.assertEqual(blocks["dcgm"]["source"], blocks["dcgmExporter"]["source"])
         self.assertEqual(blocks["dcgm"]["source"]["aId"], 5857)
 
+    def test_dcgm_exporter_fixed_entry_wins_over_the_affected_range(self) -> None:
+        """Upstream lists 4.8.2 as both the affected upper bound and the fix.
+
+        Bulletin 5857 says DCGM Exporter is affected "0.0  to 4.8.2" and fixed
+        at "4.8.2". Read literally the same release is both. The fixed entry is
+        authoritative, so 4.8.2 is the minimum and a host on 4.8.2 grades pass.
+        A change that let the affected range raise the minimum would grade every
+        patched deployment as vulnerable.
+        """
+        blocks = fr.bulletin_product_minimums(2026, 5857, fr.DCGM_PRODUCTS, fetch=self.stub)
+        self.assertEqual(blocks["dcgmExporter"]["minimum"], "4.8.2")
+
+    def test_the_dcgm_bulletin_keeps_the_upstream_double_space(self) -> None:
+        # The exact string upstream publishes. An editor that collapses the
+        # double space would silently weaken every parser regression below.
+        raw = (FIXTURES / "nvidia-dcgm-5857.json").read_text()
+        self.assertIn('"0.0  to 4.5.2"', raw)
+        self.assertIn('"0.0  to 4.8.2"', raw)
+
+    def test_bad_epoll_uses_release_and_source_package_specific_fixes(self) -> None:
+        noble = fr.ubuntu_minimums(fetch=self.stub)
+        self.assertEqual(
+            noble["packages"]["linuxBadEpoll"]["fixed"], "6.8.0-137.137"
+        )
+        jammy = fr.ubuntu_minimums(
+            codename="jammy",
+            specs=({"key": "linuxBadEpoll", "cve": "CVE-2026-46242",
+                    "package": "linux-hwe-6.8"},),
+            fetch=self.stub,
+        )
+        self.assertEqual(
+            jammy["packages"]["linuxBadEpoll"]["fixed"], "6.8.0-138.138~22.04.1"
+        )
+
     def test_ubuntu_noble_packages(self) -> None:
         osv_url = fr.ubuntu_osv_urls("CVE-2024-3446")[0]
         self.stub.json_by_url[osv_url]["related"] = [

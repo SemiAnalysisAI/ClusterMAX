@@ -294,6 +294,35 @@ fi
 # state and can otherwise report no pending update while the live kernel stays
 # vulnerable until reboot.
 WORKER_GUEST_KERNEL_RUNNING=$(uname -r 2>/dev/null || echo unknown)
+# Bad Epoll identity evidence. These reads never exercise the vulnerability.
+# /proc describes the running kernel; dpkg must identify that same image.
+WORKER_BAD_EPOLL_SIGNATURE=$(cat "${CLUSTERMAX_AUDIT_ROOT:-}/proc/version_signature" 2>/dev/null || echo unknown)
+WORKER_BAD_EPOLL_PACKAGE=unknown
+if command -v dpkg-query >/dev/null 2>&1; then
+    WORKER_BAD_EPOLL_PACKAGE=$(dpkg-query -W \
+        -f='${db:Status-Abbrev}|${source:Package}|${source:Version}' \
+        "linux-image-${WORKER_GUEST_KERNEL_RUNNING}" 2>/dev/null) \
+        || WORKER_BAD_EPOLL_PACKAGE=unknown
+fi
+WORKER_BAD_EPOLL_LIVEPATCH=unknown
+bad_epoll_livepatch_dir="${CLUSTERMAX_AUDIT_ROOT:-}/sys/kernel/livepatch"
+if [[ -d "$bad_epoll_livepatch_dir" && -r "$bad_epoll_livepatch_dir" && -x "$bad_epoll_livepatch_dir" ]]; then
+    WORKER_BAD_EPOLL_LIVEPATCH=none
+    for bad_epoll_patch in "$bad_epoll_livepatch_dir"/*; do
+        [[ -e "$bad_epoll_patch" ]] || continue
+        bad_epoll_enabled=$(cat "$bad_epoll_patch/enabled" 2>/dev/null || echo unknown)
+        if [[ "$bad_epoll_enabled" == 1 ]]; then
+            WORKER_BAD_EPOLL_LIVEPATCH=active
+            break
+        elif [[ "$bad_epoll_enabled" != 0 ]]; then
+            WORKER_BAD_EPOLL_LIVEPATCH=unknown
+        fi
+    done
+fi
+echo "WORKER_BAD_EPOLL_SIGNATURE=${WORKER_BAD_EPOLL_SIGNATURE}"
+echo "WORKER_BAD_EPOLL_PACKAGE=${WORKER_BAD_EPOLL_PACKAGE}"
+echo "WORKER_BAD_EPOLL_LIVEPATCH=${WORKER_BAD_EPOLL_LIVEPATCH}"
+# End Bad Epoll identity evidence.
 WORKER_GUEST_KERNEL_NEWEST_INSTALLED=unknown
 WORKER_GUEST_KERNEL_NEWER_INSTALLED=false
 WORKER_GUEST_REBOOT_REQUIRED=false

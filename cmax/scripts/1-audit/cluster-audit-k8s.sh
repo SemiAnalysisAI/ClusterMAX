@@ -3379,6 +3379,11 @@ if [[ "$NVIDIA_GPU_NODE_COUNT" -eq 1 ]]; then
 fi
 HP_IOMMU_GROUPS=$(host_check_kv "WORKER_IOMMU_GROUPS")
 HP_GUEST_KERNEL_RUNNING=$(host_check_kv "WORKER_GUEST_KERNEL_RUNNING")
+HP_BAD_EPOLL_OS=$(host_check_kv WORKER_OS_ID)
+HP_BAD_EPOLL_RELEASE=$(host_check_kv WORKER_OS_VERSION_ID)
+HP_BAD_EPOLL_SIGNATURE=$(host_check_kv WORKER_BAD_EPOLL_SIGNATURE)
+HP_BAD_EPOLL_PACKAGE=$(host_check_kv WORKER_BAD_EPOLL_PACKAGE)
+HP_BAD_EPOLL_LIVEPATCH=$(host_check_kv WORKER_BAD_EPOLL_LIVEPATCH)
 HP_GUEST_KERNEL_NEWEST=$(host_check_kv "WORKER_GUEST_KERNEL_NEWEST_INSTALLED")
 HP_GUEST_KERNEL_NEWER=$(host_check_kv "WORKER_GUEST_KERNEL_NEWER_INSTALLED")
 HP_GUEST_REBOOT_REQUIRED=$(host_check_kv "WORKER_GUEST_REBOOT_REQUIRED")
@@ -3462,6 +3467,12 @@ SECURITY_VERSION_AUDIT_JSON=$(build_security_version_audit \
 # slurm/standalone collector uses, so the two JSON shapes read one minimum table
 # instead of two hand-maintained copies.
 SECURITY_ADVISORY_JSON=$(build_security_advisory_json \
+    --bad-epoll-os "${HP_BAD_EPOLL_OS:-unknown}" \
+    --bad-epoll-release "${HP_BAD_EPOLL_RELEASE:-unknown}" \
+    --bad-epoll-running "${HP_GUEST_KERNEL_RUNNING:-unknown}" \
+    --bad-epoll-signature "${HP_BAD_EPOLL_SIGNATURE:-unknown}" \
+    --bad-epoll-package "${HP_BAD_EPOLL_PACKAGE:-unknown}" \
+    --bad-epoll-livepatch "${HP_BAD_EPOLL_LIVEPATCH:-unknown}" \
     --fragnesia-status "${HP_FRAGNESIA_STATUS:-unknown}" \
     --fragnesia-compared-abi "${HP_FRAGNESIA_ABI_MINIMUM:-unknown}" \
     --ubuntu-kernel-status "${HP_UBUNTU_KERNEL_STATUS:-unknown}" \

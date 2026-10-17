@@ -601,6 +601,7 @@ class SecurityReportTests(unittest.TestCase):
             Path("/tmp/report"),
         )
         self.assertIn("# ClusterMAX security audit report", report)
+        # CUDA, ConnectX, and the absent bare-metal NVLink boundary do not apply.
         self.assertIn("3 failed, 6 warnings, 4 passed, 3 skipped", report)
         self.assertIn("Action required: 3 critical findings.", report)
         self.assertNotIn("critical findings are known exposure", report)
@@ -1145,6 +1146,8 @@ class MinimumFreshnessTests(unittest.TestCase):
             },
         )
         self.assertEqual(sum(security.counts(stale_checks).values()), 16)
+        # A stale table is a notice, so a run with no critical finding still
+        # exits 0 and no check is graded critical by staleness alone.
         self.assertEqual(clean_exit, 0)
         report = self._report(now=self.generated + timedelta(days=40), verbosity=3)
         self.assertNotIn("minimum-version-freshness", report)
@@ -1212,6 +1215,7 @@ class MinimumFreshnessTests(unittest.TestCase):
                 "connectx-firmware",
                 "guest-kernel",
                 "fragnesia",
+                "bad-epoll",
                 "januscape",
                 "bmc-ipmi",
                 "kubernetes-nodes-proxy",

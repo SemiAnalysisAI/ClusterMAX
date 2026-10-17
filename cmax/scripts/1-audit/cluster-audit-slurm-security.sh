@@ -533,6 +533,12 @@ fi
 JANUSCAPE_EXPOSED_JSON=$(json_bool_or_unknown "${WORKER_JANUSCAPE_EXPOSED:-}")
 SECURITY_ADVISORY_JSON=$(printf '{%s "_end": null}' \
     "$(build_security_advisory_json \
+        --bad-epoll-os "${WORKER_OS_ID:-unknown}" \
+        --bad-epoll-release "${WORKER_OS_VERSION_ID:-unknown}" \
+        --bad-epoll-running "${WORKER_GUEST_KERNEL_RUNNING:-unknown}" \
+        --bad-epoll-signature "${WORKER_BAD_EPOLL_SIGNATURE:-unknown}" \
+        --bad-epoll-package "${WORKER_BAD_EPOLL_PACKAGE:-unknown}" \
+        --bad-epoll-livepatch "${WORKER_BAD_EPOLL_LIVEPATCH:-unknown}" \
         --fragnesia-status "${WORKER_FRAGNESIA_STATUS:-unknown}" \
         --fragnesia-compared-abi "${WORKER_FRAGNESIA_ABI_FLOOR:-unknown}" \
         --ubuntu-kernel-status "${WORKER_UBUNTU_KERNEL_MINIMUM_STATUS:-unknown}" \

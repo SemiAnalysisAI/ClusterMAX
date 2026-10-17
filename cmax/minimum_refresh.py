@@ -209,6 +209,7 @@ DCGM_EXPORTER_RELEASE_REPO = "NVIDIA/dcgm-exporter"
 
 UBUNTU_RELEASE = "noble"
 UBUNTU_PACKAGES: tuple[dict[str, Any], ...] = (
+    {"key": "linuxBadEpoll", "cve": "CVE-2026-46242", "package": "linux"},
     {"key": "qemu", "cve": "CVE-2024-3446", "package": "qemu"},
     {"key": "linuxVmscape", "cve": "CVE-2025-40300", "package": "linux"},
     {
@@ -2687,6 +2688,12 @@ def build_minimums(
             "rocm": amd_rocm_minimums(fetch=fetch),
             "amdDriver": amd_driver_minimums(fetch=fetch),
             "ubuntuNoble": ubuntu_minimums(fetch=fetch),
+            "ubuntuJammy": ubuntu_minimums(
+                codename="jammy",
+                specs=({"key": "linuxBadEpoll", "cve": "CVE-2026-46242",
+                        "package": "linux-hwe-6.8"},),
+                fetch=fetch,
+            ),
         },
     }
     record_minimum_bulletin_dates(doc)

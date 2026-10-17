@@ -164,6 +164,8 @@ minimum_version_grace() {
 # An omitted check status becomes "unknown", and an unresolved minimum becomes
 # "unknown" as well. Neither ever becomes a value that reads as a pass.
 build_security_advisory_json() {
+    local bad_epoll_os=unknown bad_epoll_release=unknown bad_epoll_running=unknown
+    local bad_epoll_signature=unknown bad_epoll_package=unknown bad_epoll_livepatch=unknown
     local fragnesia_status="unknown" fragnesia_compared_abi="unknown"
     local ubuntu_kernel_status="unknown" ubuntu_kernel_abi="unknown"
     local ubuntu_kernel_floor="unknown"
@@ -176,6 +178,12 @@ build_security_advisory_json() {
     # truncated argument list from spinning here instead of shifting.
     while [[ $# -gt 1 ]]; do
         case "$1" in
+            --bad-epoll-os) bad_epoll_os="$2"; shift 2 ;;
+            --bad-epoll-release) bad_epoll_release="$2"; shift 2 ;;
+            --bad-epoll-running) bad_epoll_running="$2"; shift 2 ;;
+            --bad-epoll-signature) bad_epoll_signature="$2"; shift 2 ;;
+            --bad-epoll-package) bad_epoll_package="$2"; shift 2 ;;
+            --bad-epoll-livepatch) bad_epoll_livepatch="$2"; shift 2 ;;
             --fragnesia-status) fragnesia_status="$2"; shift 2 ;;
             --fragnesia-compared-abi) fragnesia_compared_abi="$2"; shift 2 ;;
             --ubuntu-kernel-status) ubuntu_kernel_status="$2"; shift 2 ;;
@@ -193,6 +201,12 @@ build_security_advisory_json() {
         esac
     done
 
+    local bad_epoll_json
+    bad_epoll_json=$(python3 "${AUDIT_COMMON_DIR}/bad_epoll.py" \
+        --os-id "$bad_epoll_os" --release "$bad_epoll_release" \
+        --running "$bad_epoll_running" --signature "$bad_epoll_signature" \
+        --package "$bad_epoll_package" --livepatch "$bad_epoll_livepatch" 2>/dev/null) \
+        || bad_epoll_json='{"status":"unknown","cve":"CVE-2026-46242","detail":"Bad Epoll grader unavailable; requires provider patch evidence."}'
     local frag_cve frag_related frag_fixed frag_abi frag_fix_status
     local ubuntu_kernel_fixed ubuntu_kernel_abi_min ubuntu_kernel_fix_status
     local frag_grace="null"
@@ -235,6 +249,7 @@ build_security_advisory_json() {
     # ubuntuNobleKernelFix (a tracked fix), not as a "Minimum" (a released
     # minimum), and the pair replaces the retired "no fix available" claim.
     cat <<EOF
+    "badEpoll": ${bad_epoll_json},
     "fragnesia": {
       "cve": "${frag_cve}",
       "relatedCves": ${frag_related},
@@ -1013,6 +1028,12 @@ build_audit_json() {
     fi
     [[ -n "$security_version_audit_json" ]] || security_version_audit_json="{}"
     security_advisory_json=$(build_security_advisory_json \
+        --bad-epoll-os "${WORKER_OS_ID:-unknown}" \
+        --bad-epoll-release "${WORKER_OS_VERSION_ID:-unknown}" \
+        --bad-epoll-running "${WORKER_GUEST_KERNEL_RUNNING:-unknown}" \
+        --bad-epoll-signature "${WORKER_BAD_EPOLL_SIGNATURE:-unknown}" \
+        --bad-epoll-package "${WORKER_BAD_EPOLL_PACKAGE:-unknown}" \
+        --bad-epoll-livepatch "${WORKER_BAD_EPOLL_LIVEPATCH:-unknown}" \
         --fragnesia-status "${WORKER_FRAGNESIA_STATUS:-unknown}" \
         --fragnesia-compared-abi "${WORKER_FRAGNESIA_ABI_FLOOR:-unknown}" \
         --ubuntu-kernel-status "${WORKER_UBUNTU_KERNEL_MINIMUM_STATUS:-unknown}" \
