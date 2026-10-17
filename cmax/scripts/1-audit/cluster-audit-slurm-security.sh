@@ -235,10 +235,12 @@ installed=false
 mc=not-installed
 chassis=not-installed
 if [ -n "$path" ]; then
-  mc=blocked
-  chassis=blocked
-  timeout 5 "$path" mc info >/dev/null 2>&1 && mc=allowed
-  timeout 5 "$path" chassis status >/dev/null 2>&1 && chassis=allowed
+  mc=unknown
+  chassis=unknown
+  if out=$(timeout 5 "$path" mc info 2>&1); then mc=allowed
+  elif printf '%s' "$out" | grep -qiE 'permission denied|operation not permitted|access denied'; then mc=blocked; fi
+  if out=$(timeout 5 "$path" chassis status 2>&1); then chassis=allowed
+  elif printf '%s' "$out" | grep -qiE 'permission denied|operation not permitted|access denied'; then chassis=blocked; fi
 fi
 printf 'DEVICE=%s\nPATH=%s\nINSTALLED=%s\nMC=%s\nCHASSIS=%s\n' \
   "$device" "$path" "$installed" "$mc" "$chassis"
@@ -262,7 +264,8 @@ EOF
     jq -n --arg node "$node" --arg path "$path" --arg device "$device" \
         --arg installed "$installed" --arg mc "$mc" --arg chassis "$chassis" '{
           node: $node,
-          checked: true,
+          checked: (($device == "false") or ($mc == "allowed") or ($chassis == "allowed")
+            or (($mc == "blocked") and ($chassis == "blocked"))),
           devicePresent: ($device == "true"),
           ipmitoolInstalled: ($installed == "true"),
           ipmitoolPath: (if $path == "" then "not-installed" else $path end),
@@ -486,7 +489,7 @@ elif [[ "$SECURITY_HARNESS" == "k8s" ]]; then
 fi
 
 SECURITY_VERSION_AUDIT_JSON=$(build_security_version_audit \
-    "$WORKER_CHECK_OUTPUT" "${WORKER_DRIVER_VERSION:-unknown}" \
+    "$WORKER_CHECK_OUTPUT" "${NVIDIA_DRIVER_VERSION:-unknown}" \
     "$SECURITY_NCT_VERSION" "$SECURITY_RUNC_VERSION" \
     "$SECURITY_DOCKER_VERSION" "$SECURITY_GPU_VENDOR" \
     "${WORKER_NVCC_VERSION:-unknown}" "$SECURITY_HARNESS")
@@ -593,6 +596,9 @@ JSON_OUTPUT=$(jq -n \
     --argjson nvidia_present "$(json_bool_or_unknown "${WORKER_SECURITY_NVIDIA_GPU_PRESENT:-unknown}")" \
     --argjson nvlink_domain_exclusive "$(json_bool_or_unknown "${CLUSTERMAX_NVLINK_DOMAIN_EXCLUSIVE_ATTESTED:-unknown}")" \
     --argjson iommu_groups "$(json_int "${WORKER_IOMMU_GROUPS:-0}")" \
+    --argjson pcie_complete "$(json_bool_or_unknown "${WORKER_PCIE_SCAN_COMPLETE:-unknown}")" \
+    --argjson pcie_vfio "$(json_int "${WORKER_PCIE_VFIO_DEVICES:-0}")" \
+    --argjson pcie_unsafe "$(json_int "${WORKER_PCIE_UNSAFE_GROUPS:-0}")" \
     --argjson bmc_ipmi "$K8S_BMC_IPMI_JSON" \
     '{
         audit: {
@@ -647,11 +653,31 @@ JSON_OUTPUT=$(jq -n \
             },
             pciePassthrough: {
                 guestIommuGroupCount: $iommu_groups,
+                inventoryComplete: $pcie_complete,
+                vfioDevices: $pcie_vfio,
+                unsafeGroups: $pcie_unsafe,
+                scope: "sampled-worker-host",
                 hostVerificationRequired: true
             },
             bmcIpmi: $bmc_ipmi
         })
     }')
+
+if [[ "$SECURITY_HARNESS" == k8s ]]; then
+    # K8S_SECURITY_NODE changes during fleet BMC probes. GPU_PARTITION retains
+    # the original sampled GPU worker selected at the start of this collector.
+    if runtime_enriched=$(printf '%s' "$JSON_OUTPUT" | python3 \
+        "${WORKLOAD_DIR}/k8s_runtime_software.py" --node "$GPU_PARTITION"); then
+        JSON_OUTPUT="$runtime_enriched"
+    else
+        JSON_OUTPUT=$(jq '
+          .runtimeSoftware.cudaToolkit = {coverageComplete:false,error:"runtime software collector failed"}
+          | if .securityVersions.cudaToolkit.status != "fail" then
+              .securityVersions.cudaToolkit.status = "unknown"
+              | .securityVersions.cudaToolkit.detail = "Runtime software collector failed; patch status is unverified"
+            else . end' <<< "$JSON_OUTPUT")
+    fi
+fi
 
 if [[ "$JSON_ONLY" == "true" ]]; then
     printf '%s\n' "$JSON_OUTPUT"

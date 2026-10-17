@@ -1536,27 +1536,12 @@ def connectx_firmware_verdict(version: str) -> Verdict:
     _, train, patch = parsed
     if train not in trains:
         newest_train = max(trains)
-        if train > newest_train:
-            # Shipping firmware runs ahead of the bulletin table: ConnectX-8
-            # ships train 47 while the current bulletin assesses up to train
-            # 46. Such a train cannot be below a published minimum, because none
-            # is published for it yet. That is a clean pass, the same as a
-            # driver branch newer than the newest assessed branch, instead of
-            # flagging a whole fleet as unverifiable with no new evidence.
-            return Verdict(
-                version,
-                "pass",
-                f"newer than train {newest_train} baseline",
-                advisory,
-                f"Train {train} postdates the current NVIDIA networking bulletin "
-                f"table (newest assessed train {newest_train}), so no published "
-                f"minimum version applies to it",
-            )
         return _unknown(
             version,
             minimum,
             advisory,
-            f"Firmware train {train} is not assessed by the current bulletin",
+            f"Firmware train {train} is not assessed by the current bulletin "
+            f"(newest assessed train {newest_train}); a newer train is not proof of a fix",
         )
     # The bulletin covers the observed train, so the minimum names that
     # train's fixed patch alone. Listing every train's minimum asked a reader

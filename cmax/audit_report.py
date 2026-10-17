@@ -980,6 +980,16 @@ def evaluate(
             continue
         rules = applicable_rules
         observed = findings.nested_get(audit, *key.split("."))
+        if key == "security.guestKernel.newerInstalled" and observed is not None:
+            from cmax import security
+            grade, observation, assessment = security._guest_kernel(audit)
+            checks.append(AuditCheck(
+                key, _title(key), check_category,
+                {security.PASS: PASS, security.CRITICAL: FAIL}.get(grade, WARNING),
+                observation, assessment,
+                references=_with_criteria_reference(key),
+            ))
+            continue
         if observed is None:
             if not any(rule.flag_when_missing for rule in rules):
                 continue

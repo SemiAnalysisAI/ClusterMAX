@@ -824,6 +824,18 @@
       "advisory": "https://ubuntu.com/security/notices",
       "kind": "distroPackages",
       "packages": {
+        "linuxFragnesiaNvidia617": {
+          "cve": "CVE-2026-46300",
+          "relatedCves": ["CVE-2026-43284", "CVE-2026-43500"],
+          "fixed": "6.17.0-1021.21",
+          "package": "linux-nvidia-6.17",
+          "priority": "high",
+          "status": "released",
+          "source": {
+            "feed": "ubuntu-security-api",
+            "url": "https://ubuntu.com/security/CVE-2026-46300"
+          }
+        },
         "linuxBadEpollNvidia617": {
           "cve": "CVE-2026-46242",
           "fixed": "6.17.0-1031.31",

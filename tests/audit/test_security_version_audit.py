@@ -488,7 +488,7 @@ class ConnectxFirmwarePolicyTests(unittest.TestCase):
         verdict = security.connectx_firmware_verdict("12.28.4702")
         self.assertEqual(verdict.status, "pass")
 
-    def test_train_newer_than_the_bulletin_passes_with_a_re_verify_caveat(self) -> None:
+    def test_train_newer_than_the_bulletin_requires_advisory_evidence(self) -> None:
         # Deployed ConnectX-8 firmware (40.47.2526) runs one train ahead of the
         # bulletin table. Grading it unknown would move already-qualified
         # fleets to "requires host attestation" with no new evidence.
@@ -497,9 +497,9 @@ class ConnectxFirmwarePolicyTests(unittest.TestCase):
         # A clean pass, for the same reason as the driver branch above: no
         # published minimum covers this train, so the detail states that and does
         # not ask a reader to re-verify by hand.
-        self.assertEqual(verdict.status, "pass")
-        self.assertNotIn("re-verify", verdict.detail)
-        self.assertIn(str(max(self.trains)), verdict.minimum)
+        self.assertEqual(verdict.status, "unknown")
+        self.assertIn("not assessed", verdict.detail)
+        self.assertIn(str(max(self.trains)), verdict.detail)
 
     def test_older_unassessed_train_is_unknown_rather_than_failed(self) -> None:
         train = next(

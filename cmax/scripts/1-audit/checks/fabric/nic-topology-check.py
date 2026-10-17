@@ -345,7 +345,10 @@ def gather(*, runner: Runner = subprocess.run) -> dict:
     topo, topo_error = collect_topo(runner=runner)
     nics = classify_nics(topo, _collect_hcas_local(), _collect_netdevs_local())
     host = os.environ.get("NODE_NAME") or socket.gethostname()
-    record: dict[str, Any] = {"host": host, "nics": nics, "topo_collected": topo_error is None}
+    record: dict[str, Any] = {
+        "host": host, "nics": nics, "topo_collected": topo_error is None,
+        "nvlinkExposed": bool(re.search(r"\bNV[0-9]+\b", topo)) if topo_error is None else None,
+    }
     if topo_error is not None:
         record["topo_error"] = topo_error
     return record
@@ -600,6 +603,7 @@ def run_k8s_node_check(namespace: str, node: str, *, runner: Runner) -> tuple[di
         "host": node,
         "nics": classify_nics(topo, hcas, netdevs),
         "topo_collected": bool(topo.strip()),
+        "nvlinkExposed": bool(re.search(r"\bNV[0-9]+\b", topo)) if topo.strip() else None,
     }
     if not topo.strip():
         record["topo_error"] = "no output"
@@ -668,6 +672,17 @@ def build_check_payload(
     for error in errors:
         print(f"  WARNING: nic_topology: {error}", file=sys.stderr)
     payload: dict[str, Any] = {"nic_topology": aggregate(records)}
+    payload["nvlink_topology"] = {
+        "hosts": {
+            str(r["host"]): {"checked": r.get("topo_collected") is True,
+                             "exposed": r.get("nvlinkExposed")}
+            for r in records if r.get("host")
+        },
+        "coverageComplete": bool(records) and not errors and all(
+            r.get("topo_collected") is True and isinstance(r.get("nvlinkExposed"), bool)
+            for r in records
+        ),
+    }
     if status:
         payload["nic_topology_status"] = status
     return payload
