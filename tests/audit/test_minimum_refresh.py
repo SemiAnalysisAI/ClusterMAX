@@ -513,6 +513,12 @@ class ExtractorTest(unittest.TestCase):
     def test_bad_epoll_uses_release_and_source_package_specific_fixes(self) -> None:
         noble = fr.ubuntu_minimums(fetch=self.stub)
         self.assertEqual(
+            noble["packages"]["linuxBadEpollNvidia617"]["fixed"], "6.17.0-1031.31"
+        )
+        self.assertEqual(
+            noble["packages"]["linuxBadEpollNvidia617"]["package"], "linux-nvidia-6.17"
+        )
+        self.assertEqual(
             noble["packages"]["linuxBadEpoll"]["fixed"], "6.8.0-137.137"
         )
         jammy = fr.ubuntu_minimums(

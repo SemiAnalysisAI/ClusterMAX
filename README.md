@@ -47,8 +47,9 @@ The current [minimum-version table](https://www.clustermax.ai/minimum-versions) 
 
 The read-only Bad Epoll check, `security.badEpoll.status`, checks the running
 kernel against [CVE-2026-46242](https://ubuntu.com/security/CVE-2026-46242).
-It initially maps Ubuntu 24.04 GA 6.8 generic and Ubuntu 22.04 HWE 6.8 generic
-packages. It requires matching running-kernel signature and installed-package
+It maps Ubuntu 24.04 GA 6.8 generic, Ubuntu 22.04 HWE 6.8 generic, and Ubuntu
+24.04 NVIDIA 6.17 (`nvidia` and `nvidia-64k`) packages. Each source package uses
+its own fixed-version minimum. It requires matching running-kernel signature and installed-package
 evidence. A newer installed kernel does not clear a failure until it is running.
 Unsupported flavors, missing evidence, and active or unreadable livepatch state
 produce an unknown result that requires provider patch evidence. The check does

@@ -210,6 +210,8 @@ DCGM_EXPORTER_RELEASE_REPO = "NVIDIA/dcgm-exporter"
 UBUNTU_RELEASE = "noble"
 UBUNTU_PACKAGES: tuple[dict[str, Any], ...] = (
     {"key": "linuxBadEpoll", "cve": "CVE-2026-46242", "package": "linux"},
+    {"key": "linuxBadEpollNvidia617", "cve": "CVE-2026-46242",
+     "package": "linux-nvidia-6.17"},
     {"key": "qemu", "cve": "CVE-2024-3446", "package": "qemu"},
     {"key": "linuxVmscape", "cve": "CVE-2025-40300", "package": "linux"},
     {

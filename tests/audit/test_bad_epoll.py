@@ -22,7 +22,7 @@ import bashtest
 
 def table():
     # Frozen fixtures, deliberately independent of daily minimum refreshes.
-    return {"schemaVersion": 1, "components": {
+    doc = {"schemaVersion": 1, "components": {
         component: {"packages": {"linuxBadEpoll": {
             "cve": "CVE-2026-46242", "package": package,
             "fixed": fixed, "status": "released",
@@ -32,6 +32,11 @@ def table():
             ("ubuntuJammy", "linux-hwe-6.8", "6.8.0-138.138~22.04.1"),
         )
     }}
+    doc["components"]["ubuntuNoble"]["packages"]["linuxBadEpollNvidia617"] = {
+        "cve": "CVE-2026-46242", "package": "linux-nvidia-6.17",
+        "fixed": "6.17.0-1031.31", "status": "released",
+    }
+    return doc
 
 
 def facts(abi=137, release="24.04", upload=None):
@@ -67,6 +72,56 @@ def test_noble_boundaries(abi, expected):
 @pytest.mark.parametrize("abi,expected", [(137, "fail"), (138, "pass"), (139, "pass")])
 def test_jammy_hwe_uses_its_own_minimum(abi, expected):
     assert bad_epoll.evaluate(**facts(abi, "22.04"))["status"] == expected
+
+
+def nvidia_facts(abi=1031, upload=31, flavor="nvidia-64k", signed=True):
+    version = f"6.17.0-{abi}.{upload}"
+    source = "linux-signed-nvidia-6.17" if signed else "linux-nvidia-6.17"
+    return dict(
+        os_id="ubuntu", release="24.04", running=f"6.17.0-{abi}-{flavor}",
+        signature=f"Ubuntu {version}-{flavor} 6.17.13",
+        package=f"hi |{source}|{version}", livepatch="none",
+    )
+
+
+@pytest.mark.parametrize("abi,upload,expected", [
+    (1021, 21, "fail"), (1030, 30, "fail"), (1031, 30, "fail"),
+    (1031, 31, "pass"), (1031, 32, "pass"), (1032, 32, "pass"),
+])
+@pytest.mark.parametrize("flavor", ["nvidia", "nvidia-64k"])
+@pytest.mark.parametrize("signed", [True, False])
+def test_nvidia_617_fixed_boundary(abi, upload, expected, flavor, signed):
+    result = bad_epoll.evaluate(**nvidia_facts(abi, upload, flavor, signed))
+    assert result["status"] == expected
+    assert result["minimum"] == "6.17.0-1031.31"
+    assert result["sourcePackage"] == "linux-nvidia-6.17"
+
+
+@pytest.mark.parametrize("change", [
+    {"release": "22.04"}, {"running": "6.17.0-1031-nvidia-lowlatency"},
+    {"running": "6.17.0-1031-generic"},
+    {"package": "hi |linux-signed|6.17.0-1031.31"},
+    {"package": "hi |linux-signed-nvidia|6.17.0-1031.31"},
+    {"package": "hi |linux-signed-nvidia-6.17|6.17.0-1031.31+custom"},
+    {"signature": "Ubuntu 6.17.0-1031.31-nvidia 6.17.13"},
+    {"signature": "unknown"}, {"livepatch": "active"},
+])
+def test_nvidia_617_identity_mismatches_remain_unknown(change):
+    assert bad_epoll.evaluate(**(nvidia_facts() | change))["status"] == "unknown"
+
+
+def test_nvidia_mapping_cannot_fall_back_to_generic(minimums):
+    doc = table()
+    del doc["components"]["ubuntuNoble"]["packages"]["linuxBadEpollNvidia617"]
+    minimums.write_text(json.dumps(doc))
+    assert bad_epoll.evaluate(**nvidia_facts())["status"] == "unknown"
+
+
+def test_nvidia_minimum_is_table_driven(minimums):
+    doc = table()
+    doc["components"]["ubuntuNoble"]["packages"]["linuxBadEpollNvidia617"]["fixed"] = "6.17.0-1040.40"
+    minimums.write_text(json.dumps(doc))
+    assert bad_epoll.evaluate(**nvidia_facts())["status"] == "fail"
 
 
 @pytest.mark.parametrize("change", [
