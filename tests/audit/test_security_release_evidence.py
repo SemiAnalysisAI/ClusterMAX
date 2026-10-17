@@ -284,3 +284,50 @@ def test_published_table_cannot_drop_new_release_checks(tmp_path, monkeypatch, o
     monkeypatch.setattr(minimum_sync, "cached_table", lambda: (fetched, "2026-10-16T00:00:00Z"))
     assert security.sync_minimum_table() is False
     assert not os.environ.get(security.MINIMUMS_ENV)
+
+
+@pytest.mark.parametrize("state,expected", [
+    ("pass", audit_report.PASS), ("fail", audit_report.FAIL), ("unknown", audit_report.WARNING),
+])
+def test_completed_dpu_isolation_failure_is_not_downgraded(state, expected):
+    values = {"audit_data": {
+        "securityVersions": {"dpuHostIsolation": {
+            "status": state, "bluefield3Present": True, "scanComplete": True,
+            "internalCpuRshim": "1" if state == "pass" else "0" if state == "fail" else "unknown",
+        }},
+    }}
+    result = next(c for c in audit_report.evaluate(values, ROOT / "cmax")
+                  if c.key == "securityVersions.dpuHostIsolation.status")
+    assert result.status == expected
+    assert "INTERNAL_CPU_RSHIM=" in result.observed
+
+
+def test_unrestricted_configuration_does_not_claim_an_executed_dpu_escape():
+    result = runtime.policy.dpu_host_isolation_result({
+        "scanComplete": True, "bluefield3Present": True,
+        "rshimHostAccess": {
+            "rshimRestricted": False, "internalCpuRshim": "0",
+            "rshimDeviceNode": False, "tmfifoNet0": False,
+        },
+    })
+    assert result["status"] == "fail"
+    assert result["findingBasis"] == "unrestricted-rshim-configuration"
+    assert "no DPU login or escape was attempted" in result["detail"]
+
+
+@pytest.mark.parametrize("current,next_boot", [("0", "1"), ("1", "0")])
+def test_mlxconfig_uses_current_not_pending_or_default(current, next_boot):
+    text = f"""
+Configurations: Default Current Next Boot
+  INTERNAL_CPU_MODEL EMBEDDED_CPU(1) EMBEDDED_CPU(1) EMBEDDED_CPU(1)
+  INTERNAL_CPU_RSHIM DISABLED(1) {current} {next_boot}
+  INTERNAL_CPU_OFFLOAD_ENGINE DISABLED(1) {current} {next_boot}
+"""
+    values = virtio.parse_mlxconfig(text)
+    assert values["INTERNAL_CPU_RSHIM"] == current
+    assert values["INTERNAL_CPU_OFFLOAD_ENGINE"] == current
+
+
+@pytest.mark.parametrize("header", ["Configurations: Next Boot", ""])
+def test_pending_only_or_unlabelled_mode_is_not_current_evidence(header):
+    assert virtio.parse_mlxconfig(header + "\nINTERNAL_CPU_RSHIM DISABLED(1)") == {}
