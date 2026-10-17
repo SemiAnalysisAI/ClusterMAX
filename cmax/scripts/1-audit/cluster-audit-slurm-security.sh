@@ -238,9 +238,13 @@ if [ -n "$path" ]; then
   mc=unknown
   chassis=unknown
   if out=$(timeout 5 "$path" mc info 2>&1); then mc=allowed
-  elif printf '%s' "$out" | grep -qiE 'permission denied|operation not permitted|access denied'; then mc=blocked; fi
+  elif [ "$?" -eq 124 ]; then mc=unknown
+  elif printf '%s' "$out" | grep -qiE 'permission denied|operation not permitted|access denied'; then mc=blocked
+  elif printf '%s' "$out" | grep -qiE 'Get Device ID command failed: 0xff Unspecified error'; then mc=error-response; fi
   if out=$(timeout 5 "$path" chassis status 2>&1); then chassis=allowed
-  elif printf '%s' "$out" | grep -qiE 'permission denied|operation not permitted|access denied'; then chassis=blocked; fi
+  elif [ "$?" -eq 124 ]; then chassis=unknown
+  elif printf '%s' "$out" | grep -qiE 'permission denied|operation not permitted|access denied'; then chassis=blocked
+  elif printf '%s' "$out" | grep -qiE 'Get Device ID command failed: 0xff Unspecified error'; then chassis=error-response; fi
 fi
 printf 'DEVICE=%s\nPATH=%s\nINSTALLED=%s\nMC=%s\nCHASSIS=%s\n' \
   "$device" "$path" "$installed" "$mc" "$chassis"
@@ -265,7 +269,10 @@ EOF
         --arg installed "$installed" --arg mc "$mc" --arg chassis "$chassis" '{
           node: $node,
           checked: (($device == "false") or ($mc == "allowed") or ($chassis == "allowed")
-            or (($mc == "blocked") and ($chassis == "blocked"))),
+            or ((($mc == "blocked") or ($mc == "error-response"))
+              and (($chassis == "blocked") or ($chassis == "error-response")))),
+          assessmentScope: "local-read-commands",
+          errorResponseIsAccessDenial: false,
           devicePresent: ($device == "true"),
           ipmitoolInstalled: ($installed == "true"),
           ipmitoolPath: (if $path == "" then "not-installed" else $path end),
@@ -649,7 +656,8 @@ JSON_OUTPUT=$(jq -n \
                 topologyCoverageComplete: $nvlink_coverage_complete,
                 nvidiaGpuPresent: $nvidia_present,
                 targetIsVm: $virtualization_guest,
-                domainExclusive: $nvlink_domain_exclusive
+                domainExclusive: $nvlink_domain_exclusive,
+                domainExclusivitySource: "operator-attestation"
             },
             pciePassthrough: {
                 guestIommuGroupCount: $iommu_groups,

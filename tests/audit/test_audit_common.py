@@ -654,7 +654,7 @@ class AuditCommonTests(unittest.TestCase):
         profile = self.run_ufm_profile_helper("infiniband")
 
         self.assertTrue(profile["applicable"])
-        self.assertEqual(profile["status"], "manual")
+        self.assertEqual(profile["status"], "provider_attestation_required")
         self.assertEqual(profile["profile"], "Secured Bare Metal Cloud")
         self.assertEqual(len(profile["requiredControls"]), 7)
         self.assertTrue(
@@ -951,7 +951,7 @@ esac
         self.assertEqual(security["nvidiaDriver"]["status"], "pass")
         self.assertEqual(security["runc"]["status"], "pass")
         self.assertEqual(security["docker"]["status"], "pass")
-        self.assertEqual(security["connectxFirmware"]["status"], "unknown")
+        self.assertEqual(security["connectxFirmware"]["status"], "pass")
         self.assertEqual(len(security["connectxFirmware"]["devices"]), 1)
 
     def test_complete_non_nvidia_inventory_is_not_applicable(self) -> None:

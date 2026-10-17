@@ -815,9 +815,9 @@ audit_ufm_secured_profile() {
     case "$rdma_type" in
         infiniband)
             applicable="true"
-            verification_status="manual"
-            print_warn 'Manual verification required: confirm the UFM "Secured Bare Metal Cloud" profile is enabled.'
-            print_detail "Review the UFM Continuous Security Verification report and confirm:"
+            verification_status="provider_attestation_required"
+            print_info 'Provider-side control: the complete UFM profile cannot be tested with tenant credentials.'
+            print_detail "For a shared fabric, request the provider's security verification report:"
             for control in "${required_controls[@]}"; do
                 print_detail "  - ${control}"
             done
@@ -839,6 +839,7 @@ audit_ufm_secured_profile() {
         '{
             applicable: $applicable,
             status: $status,
+            verificationScope: "provider-fabric",
             profile: "Secured Bare Metal Cloud",
             verification: "Confirm in UFM and review the Continuous Security Verification report",
             requiredControls: .
@@ -1323,7 +1324,8 @@ ${security_advisory_json}
       "topologyCoverageComplete": ${nvlink_topology_coverage_complete},
       "nvidiaGpuPresent": $(json_bool_or_unknown "${WORKER_SECURITY_NVIDIA_GPU_PRESENT:-unknown}"),
       "targetIsVm": $(json_bool_or_unknown "${WORKER_VIRT_GUEST:-unknown}"),
-      "domainExclusive": $(json_bool_or_unknown "${CLUSTERMAX_NVLINK_DOMAIN_EXCLUSIVE_ATTESTED:-unknown}")
+      "domainExclusive": $(json_bool_or_unknown "${CLUSTERMAX_NVLINK_DOMAIN_EXCLUSIVE_ATTESTED:-unknown}"),
+      "domainExclusivitySource": "operator-attestation"
     },
     "pciePassthrough": {
       "guestIommuGroupCount": ${WORKER_IOMMU_GROUPS:-0},

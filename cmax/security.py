@@ -722,6 +722,13 @@ def _ufm(audit: dict[str, Any]) -> tuple[str, str, str]:
             observed,
             "Required fabric authentication or rate-limiting controls are disabled.",
         )
+    if status == "provider_attestation_required":
+        return (
+            NOT_APPLICABLE, "provider-side control; not tested from tenant",
+            "UFM administers the InfiniBand fabric. Tenant credentials cannot "
+            "verify its full security profile. Request a provider configuration "
+            "export for shared fabrics; this skip is not a fabric-security pass.",
+        )
     return (
         WARNING,
         observed,
@@ -767,14 +774,16 @@ def _bmc_ipmi(audit: dict[str, Any]) -> tuple[str, str, str]:
         names = exposed_nodes if isinstance(exposed_nodes, list) else []
         listed = ", ".join(str(name) for name in names) or "none"
         observed = (
-            f"{len(names)}/{nodes_total} worker nodes exposed local BMC or IPMI access; "
+            f"{len(names)}/{nodes_total} worker nodes returned data on tested local IPMI reads; "
             f"checked {nodes_checked}/{nodes_total}; exposed nodes {listed}; "
             f"access mode {access_mode}"
         )
         scope = (
             "The check used the Kubernetes identity to create a privileged pod "
             "that mounted each worker host root. It did not test access from an "
-            "ordinary workload pod."
+            "ordinary workload pod. A pass means the tested local management "
+            "reads returned no usable data. Error responses are retained; this "
+            "does not certify untested commands or network BMC interfaces."
         )
         if exposed is True or str(exposed).lower() == "true":
             return CRITICAL, observed, scope
@@ -913,11 +922,17 @@ def _nvlink_boundary(audit: dict[str, Any]) -> tuple[str, str, str]:
             "as shared across trust boundaries. Tenant-exclusive isolation failed."
         )
     if exclusive:
+        if not (checked and complete):
+            return WARNING, observed, (
+                "Exclusive ownership is attested, but the topology scan did not "
+                "complete. The allocation cannot yet be matched to the observed domain."
+            )
         return (
             PASS,
             observed,
-            "Provider evidence confirms that the complete physical NVLink or "
-            "NVSwitch domain is exclusive to this tenant. A whole-host VM is "
+            "The operator attests that the complete physical NVLink or "
+            "NVSwitch domain is exclusive to this tenant, and the topology scan "
+            "completed. A whole-host VM is "
             "sufficient only when the domain is node-local; rack-scale NVLink "
             "requires a tenant-exclusive NVLink partition.",
         )
@@ -1001,6 +1016,13 @@ def _virtio_net_bluefield(audit: dict[str, Any]) -> tuple[str, str, str]:
             "No BlueField DPU is present in the completed device scan.",
         )
     if status == "pass":
+        if verdict.get("assessmentBasis") == "current-nic-mode":
+            return (
+                PASS, "current NIC mode; controller inactive",
+                "The completed mode inventory found no active Virtio-Net "
+                "controller. Stored firmware is not certified; reassess before "
+                "enabling DPU mode.",
+            )
         grace_active, grace_note = _grace_details(verdict)
         if grace_active:
             detail = str(verdict.get("detail") or "").strip()
@@ -1874,6 +1896,9 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
             if isinstance(_get(installed_document, key), dict)
             and not isinstance(_get(candidate, key), dict)
         ]
+        if (_get(installed_document, "components.connectxFirmware.gaRanges")
+                and not _get(candidate, "components.connectxFirmware.gaRanges")):
+            missing.append("components.connectxFirmware.gaRanges")
         if missing:
             print(
                 "minimum fetch warning: published/cache table lacks mappings required "

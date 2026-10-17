@@ -515,6 +515,16 @@ def _version_observation(audit: dict[str, Any], key: str, value: Any) -> Any:
                 f"minimum version {advisory.get('minimum', 'unknown')}; "
                 f"CVE-2026-46242; {advisory.get('detail', '')}"
             )
+    if key in {
+        "securityVersions.virtioNetBluefield.status",
+        "securityVersions.virtioNetBluefield.exposure",
+    }:
+        virtio = _nested(audit, "securityVersions.virtioNetBluefield")
+        if isinstance(virtio, dict) and virtio.get("assessmentBasis") == "current-nic-mode":
+            return (
+                "current NIC mode; controller inactive; mode inventory complete; "
+                "stored firmware not certified; reassess before enabling DPU mode"
+            )
     if key == "securityVersions.dpuHostIsolation.status":
         evidence = _nested(audit, "securityVersions.dpuHostIsolation")
         if isinstance(evidence, dict):
