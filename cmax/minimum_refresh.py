@@ -844,13 +844,30 @@ def nvidia_driver_minimums(
     }
 
 
-def connectx_document_applies(doc: dict) -> bool:
-    """Whether a networking bulletin covers ClusterMAX's supported hardware."""
+def connectx_minimums(
+    year: int | None = None, a_id: int | None = None, fetch: Fetcher | None = None
+) -> dict:
+    """ConnectX / BlueField firmware trains, keyed by the train number."""
+    year = year if year is not None else bulletin_ref("connectxFirmware")["year"]
+    a_id = a_id if a_id is not None else bulletin_ref("connectxFirmware")["aId"]
+    doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
+    trains: dict[str, int] = {}
+    ga_ranges: list[dict[str, str]] = []
     for arch, kids in csaf_arch_branches(doc):
-        if not any(
-            product.lower() in arch.lower()
-            for product in NVIDIA_NETWORK_SUPPORTED_PRODUCTS
-        ):
+        # Keep the vendor's explicit GA range, including architectures without
+        # parenthesized train numbers. LTS floors remain train-specific.
+        for kid in kids:
+            product = str(kid.get("name") or "")
+            phrase = str(kid.get("product", {}).get("name") or "")
+            match = re.fullmatch(r"(\d+\.\d+)\s+or newer", phrase.strip(), re.I)
+            if product in {"ConnectX GA", "BlueField GA"} and match:
+                ga_ranges.append({
+                    "product": product, "architectures": arch,
+                    "minimum": match.group(1), "relation": "or-newer",
+                })
+        # "BlueField-2(46), BlueField-3(46)", "N/A(28)", or a name with no train.
+        train_ids = {int(value) for value in re.findall(r"\((\d+)\)", arch)}
+        if len(train_ids) != 1:
             continue
         if any(
             re.match(r"^(?:connectx|bluefield)(?:\s|$)", str(kid.get("name", "")), re.I)
@@ -934,12 +951,13 @@ def connectx_minimums(
     return {
         "kind": "trainMap",
         "trains": dict(sorted(trains.items(), key=lambda kv: int(kv[0]))),
-        "floorAvailability": dict(
-            sorted(train_availability.items(), key=lambda kv: int(kv[0]))
-        ),
-        "advisory": NVIDIA_ADVISORY.format(a_id=newest.get("aId", "")),
-        "source": newest,
-        "sources": sorted(sources, key=lambda item: item["aId"]),
+        "gaRanges": ga_ranges,
+        "floorAvailability": {
+            train: {**availability, "version": f"{train}.{patch}"}
+            for train, patch in sorted(trains.items(), key=lambda kv: int(kv[0]))
+        },
+        "advisory": NVIDIA_ADVISORY.format(a_id=a_id),
+        "source": nvidia_source(a_id, year, doc),
     }
 
 
@@ -2828,6 +2846,19 @@ def verify(doc: dict, existing: dict | None = None) -> None:
             problems.extend(
                 _minimum_downgrades(name, "firmware train", payload, old_block.get("trains"))
             )
+            ranges = block.get("gaRanges") or []
+            old_ranges = old_block.get("gaRanges") or []
+            for old_range in old_ranges:
+                matching = next((
+                    new for new in ranges
+                    if new.get("product") == old_range.get("product")
+                    and new.get("architectures") == old_range.get("architectures")
+                    and new.get("relation") == "or-newer"
+                ), None)
+                if matching is None:
+                    problems.append(f"{name}: missing previously published GA range {old_range}")
+                elif version_key(matching.get("minimum", "")) < version_key(old_range.get("minimum", "")):
+                    problems.append(f"{name}: GA minimum moved backwards for {old_range.get('product')}")
             continue
         if kind == "programMap":
             problems.extend(
