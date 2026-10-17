@@ -88,12 +88,12 @@ class AuditReportTests(unittest.TestCase):
     def test_real_rules_have_one_category_and_stable_counts(self) -> None:
         checks = audit_report.list_check_specs(RUNTIME_ROOT)
 
-        self.assertEqual(len(checks), 59)
+        self.assertEqual(len(checks), 60)
         self.assertEqual(
             Counter(check.category for check in checks),
             {
                 "versions": 9,
-                "isolation": 9,
+                "isolation": 10,
                 "hardware": 8,
                 "software": 9,
                 "containers": 5,
@@ -1707,7 +1707,11 @@ class VersionDetailReportTests(unittest.TestCase):
         }
         for key, command in expected_commands.items():
             check = by_key[key]
-            self.assertEqual(check.status, audit_report.WARNING)
+            self.assertEqual(
+                check.status,
+                audit_report.FAIL if key == "securityVersions.dpuHostIsolation.status"
+                else audit_report.WARNING,
+            )
             self.assertIn(command, check.reproduce)
             self.assertNotEqual(
                 check.recommendation,

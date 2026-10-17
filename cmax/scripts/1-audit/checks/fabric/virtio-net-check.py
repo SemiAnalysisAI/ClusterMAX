@@ -67,11 +67,8 @@ without passwordless sudo fails immediately and the state stays ``incomplete``.
 ``modeSource`` records which of the two reads answered, and ``modeEscalation``
 records which privilege path the host was on.
 
-When both queries fail the existing ``mst start`` fallback also carries the
-prefix, because it loads the mst kernel modules and cannot work without the
-rights the query needs. That module load is the one host-state change on this
-path. Nothing is written to the device and nothing is written to the RShim
-console.
+If the read fails, the result stays unknown. The audit never runs ``mst start``,
+loads a kernel module, writes device configuration, or writes to the RShim console.
 
 The zero-trust observation
 --------------------------
@@ -500,25 +497,37 @@ ESCALATION_UNAVAILABLE = "no-sudo"
 
 _MLXCONFIG_KEYS = ("INTERNAL_CPU_MODEL", "INTERNAL_CPU_OFFLOAD_ENGINE", "INTERNAL_CPU_RSHIM")
 _MLXCONFIG_LINE_RE = re.compile(
-    r"^\s*(INTERNAL_CPU_MODEL|INTERNAL_CPU_OFFLOAD_ENGINE|INTERNAL_CPU_RSHIM)\s+(\S+)"
+    r"^\s*(?:RO\s+|\*\s+)?(INTERNAL_CPU_MODEL|INTERNAL_CPU_OFFLOAD_ENGINE|INTERNAL_CPU_RSHIM)\s+(.+)"
 )
 
 
 def parse_mlxconfig(text: str) -> dict[str, str]:
-    """Pull the three mode controls out of `mlxconfig -d <dev> q` output.
+    """Read only the Current column of `mlxconfig -e -d <dev> q`.
 
-    Values print as ``ENABLED(0)`` / ``EMBEDDED_CPU(1)`` / a bare number. The
-    numeric in parentheses wins, because the symbolic names differ per firmware
-    release while the numbers are the documented contract.
+    Plain query output is Next Boot, which cannot prove current isolation or
+    whether a controller is running. Defaults and pending settings are ignored.
     """
     values: dict[str, str] = {}
+    current_column = None
     for line in text.splitlines():
+        if "Configurations:" in line:
+            columns = line.split("Configurations:", 1)[1].replace("Next Boot", "NextBoot").split()
+            current_column = columns.index("Current") if "Current" in columns else None
+            continue
+        if current_column is None:
+            continue
         match = _MLXCONFIG_LINE_RE.match(line)
         if not match:
             continue
         key, raw = match.group(1), match.group(2)
-        paren = re.search(r"\((\d+)\)", raw)
-        values[key] = paren.group(1) if paren else raw.strip()
+        cells = raw.split()
+        if current_column >= len(cells):
+            continue
+        current = cells[current_column]
+        paren = re.fullmatch(r"[A-Za-z_]+\((\d+)\)", current)
+        numeric = paren.group(1) if paren else current
+        if numeric in {"0", "1", "2"}:
+            values[key] = numeric
     return values
 
 
@@ -586,7 +595,7 @@ def collect_mode(
         return result
 
     slot = devices[0].get("slot") or ""
-    query = ["mlxconfig", "-d", slot, "q"]
+    query = ["mlxconfig", "-e", "-d", slot, "q"]
     prefix, escalation = privileged_prefix(which=which, euid=euid)
     result["escalation"] = escalation
     source = "mlxconfig"
@@ -599,15 +608,8 @@ def collect_mode(
         if values:
             source = "sudo mlxconfig"
     if not values:
-        # `mst start` loads the mst kernel modules and needs the same privilege
-        # the query does, so it carries the same prefix.
-        run_tool([*prefix, "mst", "start"], runner=runner)
-        text, retry_error = run_tool([*prefix, *query], runner=runner)
-        values = parse_mlxconfig(text)
-        if not values:
-            result["error"] = error or retry_error or "mlxconfig returned no mode parameters"
-            return result
-        source = "sudo mlxconfig" if prefix else "mlxconfig"
+        result["error"] = error or "mlxconfig returned no readable Current mode parameters"
+        return result
 
     result["values"] = values
     result["modeSource"] = source
@@ -973,6 +975,7 @@ def gather(
         "modeSource": mode.get("modeSource"),
         "modeEscalation": mode.get("escalation"),
         "modeParameters": mode.get("values") or {},
+        "modeValueScope": "current" if mode.get("values") else "unknown",
         "modeError": mode.get("error"),
         "rshimHostAccess": rshim,
         "version": version.get("version"),
@@ -1409,25 +1412,70 @@ def slurm_records(
 # emitting tagged lines that this orchestrator parses. It reads only; it never
 # runs mlxprivhost and never writes to the RShim console.
 K8S_COLLECTOR_SH = r'''
+scan_root="${CLUSTERMAX_AUDIT_ROOT:-}"
+scan=""
+scan_rc=1
 if command -v lspci >/dev/null 2>&1; then
-  echo @@LSPCI_BEGIN@@
-  lspci -Dnn 2>/dev/null
-  rc=$?
-  echo @@LSPCI_END@@
-  [ "$rc" -eq 0 ] || printf '@@SCAN_ERROR@@\t%s\n' "lspci failed: exit $rc"
-else
-  printf '@@SCAN_ERROR@@\t%s\n' "lspci is not installed"
+  scan=$(lspci -Dnn 2>/dev/null)
+  scan_rc=$?
 fi
-slot=$(lspci -Dn 2>/dev/null | grep -Eio '^[0-9a-f:.]+ [^ ]* 15b3:(a2dc|a2d9)' | head -1 | cut -d' ' -f1)
+if [ "$scan_rc" -ne 0 ] || [ -z "$scan" ]; then
+  # The GPU Operator driver image need not contain pciutils. PCI sysfs is
+  # supplied by the running host kernel and does not require installing tools
+  # in a provider container or changing host packages.
+  scan_rc=0
+  scan=""
+  count=0
+  for dev in "$scan_root"/sys/bus/pci/devices/*; do
+    [ -d "$dev" ] || continue
+    vendor=$(cat "$dev/vendor" 2>/dev/null) || { scan_rc=1; continue; }
+    device=$(cat "$dev/device" 2>/dev/null) || { scan_rc=1; continue; }
+    class=$(cat "$dev/class" 2>/dev/null) || { scan_rc=1; continue; }
+    vendor=${vendor#0x}; device=${device#0x}; class=${class#0x}
+    class=$(printf '%s' "$class" | cut -c1-4)
+    case "$vendor:$device:$class" in *[!0-9a-fA-F:]*|::*)
+      scan_rc=1; continue ;;
+    esac
+    scan="${scan}
+${dev##*/} $class: $vendor:$device"
+    count=$((count + 1))
+  done
+  [ "$count" -gt 0 ] || scan_rc=1
+fi
+if [ -n "$scan" ]; then
+  echo @@LSPCI_BEGIN@@
+  printf '%s\n' "$scan"
+  echo @@LSPCI_END@@
+fi
+[ "$scan_rc" -eq 0 ] || printf '@@SCAN_ERROR@@\t%s\n' "PCI inventory unavailable or incomplete (lspci and sysfs)"
+slot=""
+physical_slots=""
+for dev in "$scan_root"/sys/bus/pci/devices/*; do
+  [ -d "$dev" ] || continue
+  vendor=$(cat "$dev/vendor" 2>/dev/null)
+  device=$(cat "$dev/device" 2>/dev/null)
+  case "$vendor:$device" in
+    0x15b3:0xa2dc|0x15b3:0xa2d9)
+      bdf=${dev##*/}
+      [ -n "$slot" ] || slot=$bdf
+      physical_slots="${physical_slots}
+${bdf%.*}"
+      ;;
+  esac
+done
+slot_count=$(printf '%s\n' "$physical_slots" | sed '/^$/d' | sort -u | wc -l)
+if [ "$slot_count" -gt 1 ]; then
+  printf '@@SCAN_ERROR@@\t%s\n' "Multiple BlueField-3 PCI devices require per-device mode evidence"
+fi
 if [ -n "$slot" ] && command -v mlxconfig >/dev/null 2>&1; then
   echo @@MLXCONFIG_BEGIN@@
-  mlxconfig -d "$slot" q 2>&1
+  mlxconfig -e -d "$slot" q 2>&1
   echo @@MLXCONFIG_END@@
 elif [ -n "$slot" ]; then
   printf '@@MODE_ERROR@@\t%s\n' "mlxconfig is not installed"
 fi
-[ -e /dev/rshim0 ] && printf '@@RSHIM@@\t%s\n' "device"
-[ -e /sys/class/net/tmfifo_net0 ] && printf '@@RSHIM@@\t%s\n' "tmfifo"
+[ -e "$scan_root/dev/rshim0" ] && printf '@@RSHIM@@\t%s\n' "device"
+[ -e "$scan_root/sys/class/net/tmfifo_net0" ] && printf '@@RSHIM@@\t%s\n' "tmfifo"
 if command -v virtnet >/dev/null 2>&1; then
   echo @@VIRTNET_BEGIN@@
   virtnet version 2>/dev/null
@@ -1509,6 +1557,7 @@ def record_from_k8s(node: str, parsed: dict[str, Any]) -> dict[str, Any]:
         # already holds the rights the local arm has to escalate for.
         "modeEscalation": ESCALATION_ROOT,
         "modeParameters": mode_values,
+        "modeValueScope": "current" if mode_values else "unknown",
         "modeError": mode_error,
         "rshimHostAccess": rshim,
         "version": version,
@@ -1578,7 +1627,7 @@ def k8s_driver_pod(namespace: str, node: str, *, runner: Runner) -> dict[str, An
             if volume.get("hostPath", {}).get("path") == "/"
         }
         if "nvidia-driver" in name:
-            candidates.append((0, name, None, False))
+            candidates.append((1, name, None, False))
         elif "nvidia-device-plugin" in name:
             for container in item.get("spec", {}).get("containers", []):
                 host_root = any(
@@ -1586,7 +1635,9 @@ def k8s_driver_pod(namespace: str, node: str, *, runner: Runner) -> dict[str, An
                     for mount in container.get("volumeMounts", [])
                 )
                 if host_root and container.get("securityContext", {}).get("privileged") is True:
-                    candidates.append((1, name, container.get("name"), True))
+                    # MFT and pciutils are host software. A verified privileged
+                    # host-root mount is preferable to the thin driver image.
+                    candidates.append((0, name, container.get("name"), True))
     if not candidates:
         return None
     _, name, container, host_root = min(candidates)
@@ -1613,7 +1664,9 @@ def run_k8s_node_check(namespace: str, node: str, *, runner: Runner) -> tuple[di
         return None, f"{node}: virtio-net check exec failed: {exc}"
     if proc.returncode != 0:
         return None, f"{node}: virtio-net check exec failed: {proc.stderr.strip()}"
-    return record_from_k8s(node, parse_k8s_collector(proc.stdout)), None
+    record = record_from_k8s(node, parse_k8s_collector(proc.stdout))
+    record["probeSource"] = "host-root" if access["hostRoot"] else "gpu-operator-container"
+    return record, None
 
 
 def k8s_records(

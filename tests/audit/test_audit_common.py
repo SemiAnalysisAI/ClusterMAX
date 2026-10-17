@@ -654,7 +654,7 @@ class AuditCommonTests(unittest.TestCase):
         profile = self.run_ufm_profile_helper("infiniband")
 
         self.assertTrue(profile["applicable"])
-        self.assertEqual(profile["status"], "manual")
+        self.assertEqual(profile["status"], "provider_attestation_required")
         self.assertEqual(profile["profile"], "Secured Bare Metal Cloud")
         self.assertEqual(len(profile["requiredControls"]), 7)
         self.assertTrue(

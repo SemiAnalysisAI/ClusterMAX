@@ -536,6 +536,27 @@ class ExtractorTest(unittest.TestCase):
         self.assertIn('"0.0  to 4.5.2"', raw)
         self.assertIn('"0.0  to 4.8.2"', raw)
 
+    def test_bad_epoll_uses_release_and_source_package_specific_fixes(self) -> None:
+        noble = fr.ubuntu_minimums(fetch=self.stub)
+        self.assertEqual(
+            noble["packages"]["linuxBadEpollNvidia617"]["fixed"], "6.17.0-1031.31"
+        )
+        self.assertEqual(
+            noble["packages"]["linuxBadEpollNvidia617"]["package"], "linux-nvidia-6.17"
+        )
+        self.assertEqual(
+            noble["packages"]["linuxBadEpoll"]["fixed"], "6.8.0-137.137"
+        )
+        jammy = fr.ubuntu_minimums(
+            codename="jammy",
+            specs=({"key": "linuxBadEpoll", "cve": "CVE-2026-46242",
+                    "package": "linux-hwe-6.8"},),
+            fetch=self.stub,
+        )
+        self.assertEqual(
+            jammy["packages"]["linuxBadEpoll"]["fixed"], "6.8.0-138.138~22.04.1"
+        )
+
     def test_ubuntu_noble_packages(self) -> None:
         cve_url = f"{fr.UBUNTU_CVE_URL}CVE-2024-3446.json"
         self.stub.json_by_url[cve_url]["notices"] = [

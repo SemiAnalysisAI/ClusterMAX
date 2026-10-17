@@ -843,16 +843,9 @@ def virtio_net_verdict(
 ) -> Verdict:
     """Grade the controller firmware, taking the BlueField platform mode into account.
 
-    In DPU mode the controller runs and the minimum applies directly. In NIC mode
-    no controller runs, so there is no exposure today, but the firmware is still
-    installed on the card and NIC versus DPU mode is an mlxconfig setting a
-    provider can flip. Reporting that as ``not_applicable`` would hide a real
-    finding, so unpatched or unreadable firmware in NIC mode is reported as a
-    warning instead. The module's status vocabulary has no warning member, so
-    that case uses ``unknown``, which the security CLI already renders as a
-    non-critical warning, and the latent-exposure wording lives in the detail.
-    A mode the collector could not read falls back to the running grade, because
-    an unproven idle controller cannot be assumed idle.
+    Verified current NIC mode passes the current-exposure check. Stored firmware
+    remains separate evidence and must be reassessed before a mode change.
+    Unknown mode never receives the NIC-mode exemption.
     """
     normalized = (mode or "").strip().lower() or None
     if normalized == "absent":
@@ -868,45 +861,14 @@ def virtio_net_verdict(
     if normalized != "nic":
         return running
 
-    if running.status == "pass":
-        return Verdict(
-            version,
-            "pass",
-            running.minimum,
-            running.advisory,
-            f"{running.detail}; the BlueField is in NIC mode, so the virtio-net "
-            f"controller is not currently running",
-        )
-    if running.status == "fail":
-        reason = "the installed controller firmware is below the published minimum"
-    elif running.minimum == MINIMUMS_UNAVAILABLE:
-        # The minimum table itself could not be read, so nothing was compared. The
-        # release-line wording below would send an operator to attest a release
-        # line when the fault is on our side, in the table the audit ships.
-        reason = (
-            "the minimum version table is unusable, so the installed controller "
-            "firmware was not compared against any minimum"
-        )
-    elif numeric_version(version, parts=3) is None:
-        reason = "the installed controller firmware version could not be read"
-    else:
-        # Read, but it shares a year.month prefix with more than one release
-        # line, so it cannot be graded without knowing the line. Saying it could
-        # not be read would misdescribe evidence we do hold.
-        reason = (
-            "the installed controller firmware version could not be graded "
-            "against a single release line"
-        )
     return Verdict(
         version or "unknown",
-        "unknown",
+        "pass",
         running.minimum,
         running.advisory,
-        f"The virtio-net controller is not running because the BlueField is in "
-        f"NIC mode, so there is no exposure right now. However {reason}. The "
-        f"firmware stays installed on the card, and a change to DPU mode would "
-        f"run it unchanged, so this is a latent exposure that a mode change "
-        f"would activate with no firmware update.",
+        "Current NIC mode disables the virtio-net controller, so the current "
+        "exposure check passes. This does not certify stored controller firmware. "
+        "Reassess its version before enabling DPU mode.",
     )
 
 
@@ -1068,7 +1030,7 @@ def _worst_observed_verdict(
         minimum = _virtio_running_verdict(version, line=entry.get("line")).status
         ranked.append((
             _VIRTIO_SEVERITY.get(verdict.status, 2),
-            _VIRTIO_MINIMUM_SEVERITY.get(minimum, 1),
+            _VIRTIO_MINIMUM_SEVERITY.get(minimum, 1) if verdict.status != "pass" else 0,
             _VIRTIO_MODE_SEVERITY.get(mode, 1),
             -index,
             verdict,
@@ -1229,6 +1191,10 @@ def virtio_net_result(
     # The cluster-wide mode, which covers hosts that produced no reading.
     fleet_mode = (mode or "").strip().lower()
     fleet_mode = fleet_mode if fleet_mode in VIRTIO_MODES else None
+    # A complete mode inventory can establish no active controllers without
+    # reading their stored versions. Never use this for mixed or missing modes.
+    if coverage_complete and fleet_mode == "nic" and normalized == "nic":
+        verdict = virtio_net_verdict(graded_version, line=graded_line, mode="nic")
     verdict, unassessed_dpu_host = _flag_unassessed_dpu_host(
         verdict,
         graded_version=graded_version,
@@ -1274,6 +1240,10 @@ def virtio_net_result(
         "versionUnavailableDetail": None if graded else (version_reason or None),
         "exposure": _virtio_exposure(verdict.status, normalized, minimum_status),
         "floorStatus": minimum_status,
+        "assessmentBasis": (
+            "current-nic-mode" if verdict.status == "pass" and normalized == "nic"
+            else "controller-firmware"
+        ),
         "gradedVersion": graded_version,
         "gradedFrom": graded_from,
         "gradedHost": graded_host,
@@ -1283,6 +1253,16 @@ def virtio_net_result(
         # it live. Evidence for the report, never an input to the grade.
         "unassessedDpuHostRisk": unassessed_dpu_host,
         "observedControllers": len(readings) or (1 if ranked is not None else 0),
+        "storedFirmwareFindings": [
+            {
+                "host": entry.get("host"), "mode": entry.get("mode"),
+                "version": entry.get("version"),
+                "floorStatus": _virtio_running_verdict(
+                    str(entry.get("version") or ""), line=entry.get("line")
+                ).status,
+            }
+            for entry in readings
+        ],
         # Two coverage answers, never one. `coverageComplete` says every host
         # was reached and settled. `everyBluefieldHostRead` says every host
         # carrying a BlueField also produced a controller version, which is the
@@ -1354,21 +1334,18 @@ def _isolation_coverage_caveat(verdict: Verdict, unassessed: Any) -> Verdict:
     return _with_caveat(
         verdict,
         f"The finding is confirmed on at least one host. Other hosts could not be "
-        f"assessed ({', '.join(names)}), so the cluster may carry further reachable "
-        f"DPU control planes, and this fail already stands on the host that was read.",
+        f"assessed ({', '.join(names)}). This policy failure stands on the host "
+        f"that was read; access on unassessed hosts remains unknown.",
     )
 
 
 def dpu_host_isolation_verdict(evidence: dict[str, Any] | None = None) -> Verdict:
-    """Grade whether the tenant-visible host can reach the BlueField control plane.
+    """Grade the configured host-to-BlueField isolation policy.
 
-    Zero-trust mode is the specialization of DPU mode whose whole purpose is to
-    stop the host system administrator from reaching the BlueField. A host that
-    still has the RShim device node, a tmfifo_net0 interface, or an unrestricted
-    INTERNAL_CPU_RSHIM is not in zero-trust mode, and the tenant-visible side of
-    the machine can reach the DPU control plane. That is a tenant isolation
-    finding, so it is graded and never inferred from silence: evidence the check
-    could not collect (mlxconfig usually needs root) reports ``unknown``.
+    Grade the configured host-access policy, not a demonstrated DPU compromise.
+    Device presence and INTERNAL_CPU_RSHIM do not establish usable RShim access:
+    runtime SECURE_NIC_MODE, DROP_MODE, device permissions and ownership are
+    separate gates. This collector does not start drivers or attempt DPU login.
 
     Consumes the virtio-net check record shape (``checks/fabric/virtio-net-check.py``):
     ``scanComplete``, ``bluefield3Present``, ``scanError`` / ``modeError``, and
@@ -1409,11 +1386,11 @@ def dpu_host_isolation_verdict(evidence: dict[str, Any] | None = None) -> Verdic
             "fail",
             requirement,
             advisory,
-            f"The host side can reach the DPU control plane "
-            f"({', '.join(reachable)}), so this cluster is not in zero-trust "
-            f"mode and a host-side administrator, or a tenant with host access, "
-            f"can reach the BlueField. Apply zero-trust mode with "
-            f"`{MLXPRIVHOST_REMEDIATION}`.",
+            f"The host exposes management interface paths ({', '.join(reachable)}), "
+            f"which fails the zero-trust no-host-interface policy. This does not prove usable "
+            f"RShim access or DPU login. Verify device permissions, SECURE_NIC_MODE, "
+            f"DROP_MODE and RShim ownership before remediation. Provider policy "
+            f"may require `{MLXPRIVHOST_REMEDIATION}`.",
         )
         if not scan_complete:
             # Name the gap without weakening the grade. The path is proven; what
@@ -1453,10 +1430,13 @@ def dpu_host_isolation_verdict(evidence: dict[str, Any] | None = None) -> Verdic
                 "fail",
                 requirement,
                 advisory,
-                f"The host side can reach the DPU control plane "
-                f"(INTERNAL_CPU_RSHIM=0), so this cluster is not in zero-trust "
-                f"mode and a host-side administrator, or a tenant with host "
-                f"access, can reach the BlueField. Apply zero-trust mode with "
+                f"The completed host scan reports INTERNAL_CPU_RSHIM=0, "
+                f"so the configured RShim restriction is disabled and the "
+                f"zero-trust isolation policy fails. No active /dev/rshim0 "
+                f"or tmfifo_net0 path was observed; no DPU login or escape "
+                f"was attempted. Runtime RShim lock and ownership remain unverified. "
+                f"Have the provider verify the host policy "
+                f"before applying "
                 f"`{MLXPRIVHOST_REMEDIATION}`.",
             ),
             facts.get("unassessedHosts"),
@@ -1488,12 +1468,20 @@ def dpu_host_isolation_result(evidence: dict[str, Any] | None = None) -> dict[st
     verdict = dpu_host_isolation_verdict(evidence)
     return {
         **asdict(verdict),
+        "assessmentType": "host-access-policy",
+        "dpuLoginTested": False,
         "bluefieldPresent": facts.get("bluefield3Present"),
         "scanComplete": bool(facts.get("scanComplete")),
         "rshimRestricted": rshim.get("rshimRestricted"),
         "rshimDeviceNode": rshim.get("rshimDeviceNode"),
         "tmfifoNet0": rshim.get("tmfifoNet0"),
         "internalCpuRshim": rshim.get("internalCpuRshim", "unknown"),
+        "findingBasis": (
+            "host-interface-present"
+            if rshim.get("rshimDeviceNode") is True or rshim.get("tmfifoNet0") is True
+            else "unrestricted-rshim-configuration" if rshim.get("rshimRestricted") is False
+            else "restriction-check"
+        ),
         # Hosts the check could not assess. Recorded so a fail carries its
         # coverage gap as structured data that a consumer can filter on.
         "unassessedHosts": [
@@ -1510,11 +1498,9 @@ def connectx_firmware_verdict(version: str) -> Verdict:
 
     NVIDIA firmware starts with a hardware-family component, for example
     40.47.2526 on ConnectX-8. The bulletin publishes one fixed patch per
-    firmware train. A train above every assessed train postdates the bulletin
-    and gives a clean pass, the same way a driver branch newer than the newest
-    assessed branch does. An older train the bulletin does not list
-    is reported as ``unknown`` rather than failed, because it may well be
-    unpatched and there is no minimum to grade it against.
+    firmware train. A later train passes only through an explicit vendor
+    "or newer" GA range for the matching hardware family. Unknown families
+    and unlisted older trains remain unknown.
     """
     try:
         block = minimum_versions.component("connectxFirmware")
@@ -1533,30 +1519,33 @@ def connectx_firmware_verdict(version: str) -> Verdict:
     parsed = numeric_version(version, parts=3)
     if parsed is None:
         return _unknown(version, minimum, advisory, "NIC firmware version is unavailable")
-    _, train, patch = parsed
+    family, train, patch = parsed
     if train not in trains:
+        # Firmware family identifiers, distinct from release trains:
+        # BlueField-3 uses 32.xx; ConnectX-8 uses 40.xx. Do not extend a GA
+        # range to unknown products merely because their train is newer.
+        product = {32: "BlueField-3", 40: "ConnectX-8"}.get(family)
+        for ga in block.get("gaRanges") or []:
+            if not isinstance(ga, dict) or ga.get("relation") != "or-newer":
+                continue
+            architectures = re.sub(r"\(\d+\)", "", str(ga.get("architectures") or ""))
+            products = {name.strip() for name in architectures.split(",")}
+            floor = re.fullmatch(r"(\d+)\.(\d+)", str(ga.get("minimum") or ""))
+            if product in products and floor:
+                minimum_pair = tuple(int(part) for part in floor.groups())
+                if (train, patch) >= minimum_pair:
+                    return Verdict(
+                        version, "pass", f"{ga['minimum']} or newer", advisory,
+                        f"Meets NVIDIA's explicit {product} GA fixed range "
+                        f"({ga['minimum']} or newer) for this advisory",
+                    )
         newest_train = max(trains)
-        if train > newest_train:
-            # Shipping firmware runs ahead of the bulletin table: ConnectX-8
-            # ships train 47 while the current bulletin assesses up to train
-            # 46. Such a train cannot be below a published minimum, because none
-            # is published for it yet. That is a clean pass, the same as a
-            # driver branch newer than the newest assessed branch, instead of
-            # flagging a whole fleet as unverifiable with no new evidence.
-            return Verdict(
-                version,
-                "pass",
-                f"newer than train {newest_train} baseline",
-                advisory,
-                f"Train {train} postdates the current NVIDIA networking bulletin "
-                f"table (newest assessed train {newest_train}), so no published "
-                f"minimum version applies to it",
-            )
         return _unknown(
             version,
             minimum,
             advisory,
-            f"Firmware train {train} is not assessed by the current bulletin",
+            f"Firmware train {train} is not assessed by the current bulletin "
+            f"(newest assessed train {newest_train}); a newer train is not proof of a fix",
         )
     # The bulletin covers the observed train, so the minimum names that
     # train's fixed patch alone. Listing every train's minimum asked a reader

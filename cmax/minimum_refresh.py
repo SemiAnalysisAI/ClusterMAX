@@ -214,6 +214,12 @@ DCGM_EXPORTER_RELEASE_REPO = "NVIDIA/dcgm-exporter"
 
 UBUNTU_RELEASE = "noble"
 UBUNTU_PACKAGES: tuple[dict[str, Any], ...] = (
+    {"key": "linuxBadEpoll", "cve": "CVE-2026-46242", "package": "linux"},
+    {"key": "linuxBadEpollNvidia617", "cve": "CVE-2026-46242",
+     "package": "linux-nvidia-6.17"},
+    {"key": "linuxFragnesiaNvidia617", "cve": "CVE-2026-46300",
+     "relatedCves": ["CVE-2026-43284", "CVE-2026-43500"],
+     "package": "linux-nvidia-6.17"},
     {"key": "qemu", "cve": "CVE-2024-3446", "package": "qemu"},
     {"key": "linuxVmscape", "cve": "CVE-2025-40300", "package": "linux"},
     {
@@ -818,7 +824,19 @@ def connectx_minimums(
     a_id = a_id if a_id is not None else bulletin_ref("connectxFirmware")["aId"]
     doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
     trains: dict[str, int] = {}
+    ga_ranges: list[dict[str, str]] = []
     for arch, kids in csaf_arch_branches(doc):
+        # Keep the vendor's explicit GA range, including architectures without
+        # parenthesized train numbers. LTS floors remain train-specific.
+        for kid in kids:
+            product = str(kid.get("name") or "")
+            phrase = str(kid.get("product", {}).get("name") or "")
+            match = re.fullmatch(r"(\d+\.\d+)\s+or newer", phrase.strip(), re.I)
+            if product in {"ConnectX GA", "BlueField GA"} and match:
+                ga_ranges.append({
+                    "product": product, "architectures": arch,
+                    "minimum": match.group(1), "relation": "or-newer",
+                })
         # "BlueField-2(46), BlueField-3(46)", "N/A(28)", or a name with no train.
         train_ids = {int(value) for value in re.findall(r"\((\d+)\)", arch)}
         if len(train_ids) != 1:
@@ -835,6 +853,7 @@ def connectx_minimums(
     return {
         "kind": "trainMap",
         "trains": dict(sorted(trains.items(), key=lambda kv: int(kv[0]))),
+        "gaRanges": ga_ranges,
         "floorAvailability": {
             train: {**availability, "version": f"{train}.{patch}"}
             for train, patch in sorted(trains.items(), key=lambda kv: int(kv[0]))
@@ -1945,6 +1964,12 @@ def build_minimums(
             "docker": docker_minimums(fetch=fetch),
             "rocm": amd_rocm_minimums(fetch=fetch),
             "ubuntuNoble": ubuntu_minimums(fetch=fetch),
+            "ubuntuJammy": ubuntu_minimums(
+                codename="jammy",
+                specs=({"key": "linuxBadEpoll", "cve": "CVE-2026-46242",
+                        "package": "linux-hwe-6.8"},),
+                fetch=fetch,
+            ),
         },
     }
     record_minimum_bulletin_dates(doc)
@@ -2074,6 +2099,19 @@ def verify(doc: dict, existing: dict | None = None) -> None:
             problems.extend(
                 _minimum_downgrades(name, "firmware train", payload, old_block.get("trains"))
             )
+            ranges = block.get("gaRanges") or []
+            old_ranges = old_block.get("gaRanges") or []
+            for old_range in old_ranges:
+                matching = next((
+                    new for new in ranges
+                    if new.get("product") == old_range.get("product")
+                    and new.get("architectures") == old_range.get("architectures")
+                    and new.get("relation") == "or-newer"
+                ), None)
+                if matching is None:
+                    problems.append(f"{name}: missing previously published GA range {old_range}")
+                elif version_key(matching.get("minimum", "")) < version_key(old_range.get("minimum", "")):
+                    problems.append(f"{name}: GA minimum moved backwards for {old_range.get('product')}")
             continue
         if kind == "programMap":
             problems.extend(

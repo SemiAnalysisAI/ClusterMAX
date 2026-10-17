@@ -45,6 +45,72 @@ The [ClusterMAX website](https://clustermax.semianalysis.com/) explains the rati
 
 The current [minimum-version table](https://www.clustermax.ai/minimum-versions) lists the software and firmware versions used for grading, with vendor advisories behind each value. Its [machine-readable form](https://www.clustermax.ai/minimum-versions.json) is the table `cmax audit security` fetches on startup (skip with `--no-fetch-minimums`).
 
+The read-only Bad Epoll check, `security.badEpoll.status`, checks the running
+kernel against [CVE-2026-46242](https://ubuntu.com/security/CVE-2026-46242).
+It maps Ubuntu 24.04 GA 6.8 generic, Ubuntu 22.04 HWE 6.8 generic, and Ubuntu
+24.04 NVIDIA 6.17 (`nvidia` and `nvidia-64k`) packages. Each source package uses
+its own fixed-version minimum. It requires matching running-kernel signature and installed-package
+evidence. A newer installed kernel does not clear a failure until it is running.
+Unsupported flavors, missing evidence, and active or unreadable livepatch state
+produce an unknown result that requires provider patch evidence. The check does
+not run an exploit or attest that a provider's kernel is genuine. An explicitly
+pinned minimum table without the mapping produces an unknown result.
+
+Security collection distinguishes the host, GPU Operator containers, and active
+GPU workloads on the sampled worker. Driver detection can read the loaded
+kernel module when `nvidia-smi` is outside the host search path. Toolkit
+detection also checks the GPU Operator installation directory. CUDA Toolkit
+versions come from `nvcc` or toolkit metadata, never the driver compatibility
+version or an image tag.
+
+The network probe prefers a verified privileged host-root mount when available.
+It can enumerate PCI devices through sysfs if `lspci` is missing. It uses
+read-only `mlxconfig -e` queries and grades only the Current column. Defaults
+and next-boot settings do not establish current isolation. It does not install
+tools or start `mst`.
+Missing permissions, incomplete scans, and unassessed firmware trains remain
+unknown. A completed topology scan alone does not prove exclusive ownership
+of the physical NVLink domain.
+
+Held installed kernels participate in the reboot check. Missing installed-kernel
+inventory cannot produce a PASS. The NVIDIA 6.17 mapping also checks
+[Fragnesia and Dirty Frag](https://ubuntu.com/security/CVE-2026-46300) against
+the source-package minimum. A newer downloaded table cannot silently remove
+the kernel mappings shipped with this client. If it lacks those mappings,
+the client reports the mismatch and retains its installed table.
+
+An absent host Docker installation or an absent CUDA Toolkit in the inspected
+scope remains not applicable. This differs from an unreadable tool or failed
+probe, which remains unknown. A complete bare-metal PCI scan with no VFIO
+assignment makes that sampled host's passthrough check not applicable. UFM
+control settings require provider evidence. The tenant profile skips this
+provider-side check until a control record is supplied. A skip does not certify
+the fabric. Shared InfiniBand fabrics still need the provider's security review.
+
+The following results have explicit assessment scopes:
+
+- **BMC/IPMI:** A PASS means the completed local read commands returned no
+  usable management data. A generic IPMI error response remains recorded as
+  `error-response`, not an access-denied response. Missing tools, timeouts and
+  incomplete node coverage remain unknown. Network BMC interfaces are not tested.
+- **NVLink:** A complete topology scan plus an operator ownership attestation
+  can pass. Set `CLUSTERMAX_NVLINK_DOMAIN_EXCLUSIVE_ATTESTED=true` only when the
+  entire observed physical domain belongs to the allocation. GPU counts alone
+  do not establish ownership. The evidence records the attestation source.
+- **ConnectX firmware:** The parser preserves NVIDIA's explicit GA
+  ["46.3008 or newer" range](https://raw.githubusercontent.com/NVIDIA/product-security/main/2026/5699/5699.json).
+  Later trains can pass for the mapped ConnectX-8 and BlueField-3 firmware
+  families. Older LTS floors remain separate. Unknown products do not inherit
+  that range merely because their version is higher.
+- **Virtio-Net:** Verified current NIC mode passes the current-exposure check.
+  Stored firmware remains unassessed when unreadable. Recheck it before enabling
+  DPU mode. A NIC-mode sample cannot clear missing or mixed fleet evidence.
+- **DPU host policy:** An enabled RShim path can fail the configured restriction
+  policy without proving DPU login or an exploit. Runtime locks, permissions and
+  ownership need separate checks. The audit does not start RShim or change modes.
+  On BlueField-3, the Arm OS does not boot in NIC mode
+  ([NVIDIA mode documentation](https://docs.nvidia.com/doca/archive/2-9-4/bluefield-modes-of-operation/index.html)).
+
 The security profile selects the version and isolation checks from the complete audit. Use `-s` or `--show` to list the applicable checks before the audit runs:
 
 ```console
