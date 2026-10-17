@@ -706,9 +706,8 @@ def _ufm(audit: dict[str, Any]) -> tuple[str, str, str]:
     controls = value.get("controls")
     if value.get("probeComplete") is True and isinstance(controls, dict):
         required = (
-            "smkeyAuthentication", "mkeyAuthentication", "mkeyProtectBits",
-            "forceSmAssignment", "disableHostPort0Sma", "forceDmAssignment",
-            "limitMadQueue",
+            "madKeyProtection", "guidAccessControl", "serviceAuthentication",
+            "saTrustModel", "madRateLimiting", "dosProtection", "sourceRateLimiting",
         )
         if any(controls.get(key) is False for key in required):
             return CRITICAL, observed, "A completed UFM probe found a required fabric control disabled."
@@ -1959,15 +1958,45 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
         return False
     installed_generated: str | None = None
     installed_path: Path | None = None
+    installed_document: dict[str, Any] = {}
     try:
         installed_path = minimum_table_path(repo)
-        installed_generated = str(
-            json.loads(installed_path.read_text()).get("generated") or ""
-        )
+        installed_document = json.loads(installed_path.read_text())
+        installed_generated = str(installed_document.get("generated") or "")
     except (SecurityAuditError, OSError, json.JSONDecodeError, AttributeError):
         # The installed table is missing or unreadable. The fetch is then the
         # only path to a usable table, so it continues with no age minimum.
         installed_generated = None
+
+    def supports_release_checks(path: Path) -> bool:
+        # A newly published client may precede website-table publication. Do
+        # not replace its shipped kernel mappings with an otherwise newer table
+        # that silently drops those checks. Explicit user pins remain untouched.
+        requirements = (
+            "components.ubuntuNoble.packages.linuxBadEpoll",
+            "components.ubuntuNoble.packages.linuxBadEpollNvidia617",
+            "components.ubuntuNoble.packages.linuxFragnesiaNvidia617",
+            "components.ubuntuJammy.packages.linuxBadEpoll",
+        )
+        try:
+            candidate = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return False
+        missing = [
+            key for key in requirements
+            if isinstance(_get(installed_document, key), dict)
+            and not isinstance(_get(candidate, key), dict)
+        ]
+        if missing:
+            print(
+                "minimum fetch warning: published/cache table lacks mappings required "
+                "by this release: " + ", ".join(missing)
+                + ". Keeping the installed table.",
+                flush=True,
+            )
+            return False
+        return True
+
     result = minimum_sync.sync(installed_generated=installed_generated)
     print(f"minimum fetch: {result.message}", flush=True)
     installed = minimum_sync.parse_stamp(installed_generated)
@@ -1984,7 +2013,8 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
         if cached is not None:
             cache_file, cached_generated = cached
             stamp = minimum_sync.parse_stamp(cached_generated)
-            if stamp is not None and (installed is None or stamp >= installed):
+            if stamp is not None and (installed is None or stamp >= installed) \
+                    and supports_release_checks(cache_file):
                 os.environ[MINIMUMS_ENV] = str(cache_file)
                 print(
                     f"minimum fetch warning: could not update the minimum "
@@ -2001,6 +2031,8 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
             f"Grading against the installed table{suffix}.",
             flush=True,
         )
+        return False
+    if not supports_release_checks(result.path):
         return False
     fetched = minimum_sync.parse_stamp(result.generated)
     if fetched is not None and installed is not None and fetched < installed:

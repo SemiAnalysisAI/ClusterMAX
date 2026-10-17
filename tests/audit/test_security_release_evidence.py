@@ -172,13 +172,13 @@ def test_security_collector_grades_resolved_driver():
 ])
 def test_ufm_complete_control_results(complete, missing, disabled, expected):
     controls = dict.fromkeys((
-        "smkeyAuthentication", "mkeyAuthentication", "mkeyProtectBits",
-        "forceSmAssignment", "disableHostPort0Sma", "forceDmAssignment", "limitMadQueue",
+        "madKeyProtection", "guidAccessControl", "serviceAuthentication",
+        "saTrustModel", "madRateLimiting", "dosProtection", "sourceRateLimiting",
     ), True)
     if missing:
-        del controls["limitMadQueue"]
+        del controls["madRateLimiting"]
     if disabled:
-        controls["mkeyAuthentication"] = False
+        controls["madKeyProtection"] = False
     record = {"probeComplete": complete, "controls": controls}
     assert security._ufm({"security": {"ufmSecuredBareMetalCloud": record}})[0] == expected
 
@@ -229,3 +229,58 @@ def test_runtime_node_is_original_sample_not_last_bmc_node():
     text = (WORK / "cluster-audit-slurm-security.sh").read_text()
     assert '"${WORKLOAD_DIR}/k8s_runtime_software.py" --node "$GPU_PARTITION"' in text
     assert 'SECURITY_TARGET_NODE' not in text
+
+
+@pytest.mark.parametrize("resource,expected", [
+    ("nvidia.com/gpu", True), ("nvidia.com/gpu.shared", True),
+    ("nvidia.com/mig-1g.10gb", True), ("other/nvidia.com/gpu", False),
+    ("nvidia.com/gpu-fake", False), ("nvidia.com/rdma", False),
+])
+def test_gpu_resource_names_are_exact_kubernetes_keys(resource, expected):
+    pod = gpu_pod()
+    pod["spec"]["containers"][0]["resources"] = {"limits": {resource: "1"}}
+    assert bool(runtime.targets({"items": [pod]}, "gpu-test")) is expected
+
+
+def test_network_probe_prefers_verified_host_root_over_driver_image():
+    pods = {"items": [
+        {"metadata": {"name": "nvidia-driver-sample"},
+         "status": {"phase": "Running"}, "spec": {"containers": [{"name": "driver"}]}},
+        {"metadata": {"name": "nvidia-device-plugin-sample"},
+         "status": {"phase": "Running"},
+         "spec": {
+             "volumes": [{"name": "host-root", "hostPath": {"path": "/"}}],
+             "containers": [{"name": "plugin", "securityContext": {"privileged": True},
+                             "volumeMounts": [{"name": "host-root", "mountPath": "/host",
+                                              "readOnly": True}]}],
+         }},
+    ]}
+    def fake_runner(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 0, json.dumps(pods), "")
+    chosen = virtio.k8s_driver_pod("operators", "worker", runner=fake_runner)
+    assert chosen == {"name": "nvidia-device-plugin-sample", "container": "plugin", "hostRoot": True}
+
+
+@pytest.mark.parametrize("offline", [True, False])
+def test_published_table_cannot_drop_new_release_checks(tmp_path, monkeypatch, offline):
+    from cmax import minimum_sync
+    base = {"schemaVersion": 1, "generated": "2026-10-15T00:00:00Z", "components": {
+        "ubuntuNoble": {"packages": {"linuxBadEpollNvidia617": {"fixed": "6.17.0-1031.31"}}},
+    }}
+    installed = tmp_path / "installed.json"
+    installed.write_text(json.dumps(base))
+    fetched = tmp_path / "fetched.json"
+    fetched.write_text(json.dumps({
+        "schemaVersion": 1, "generated": "2026-10-16T00:00:00Z",
+        "components": {"ubuntuNoble": {"packages": {}}},
+    }))
+    monkeypatch.delenv(security.MINIMUMS_ENV, raising=False)
+    monkeypatch.setattr(security, "minimum_table_path", lambda repo: installed)
+    outcome = minimum_sync.SyncResult(
+        not offline, not offline, None if offline else fetched,
+        None if offline else "2026-10-16T00:00:00Z", "fixture",
+    )
+    monkeypatch.setattr(minimum_sync, "sync", lambda **kwargs: outcome)
+    monkeypatch.setattr(minimum_sync, "cached_table", lambda: (fetched, "2026-10-16T00:00:00Z"))
+    assert security.sync_minimum_table() is False
+    assert not os.environ.get(security.MINIMUMS_ENV)

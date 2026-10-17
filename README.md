@@ -53,8 +53,35 @@ its own fixed-version minimum. It requires matching running-kernel signature and
 evidence. A newer installed kernel does not clear a failure until it is running.
 Unsupported flavors, missing evidence, and active or unreadable livepatch state
 produce an unknown result that requires provider patch evidence. The check does
-not run an exploit or attest that a provider's kernel is genuine. If a fetched
-minimum table lacks this CVE, the result remains unknown.
+not run an exploit or attest that a provider's kernel is genuine. An explicitly
+pinned minimum table without the mapping produces an unknown result.
+
+Security collection distinguishes the host, GPU Operator containers, and active
+GPU workloads on the sampled worker. Driver detection can read the loaded
+kernel module when `nvidia-smi` is outside the host search path. Toolkit
+detection also checks the GPU Operator installation directory. CUDA Toolkit
+versions come from `nvcc` or toolkit metadata, never the driver compatibility
+version or an image tag.
+
+The network probe prefers a verified privileged host-root mount when available.
+It can enumerate PCI devices through sysfs if `lspci` is missing. It uses
+read-only `mlxconfig` queries and does not install tools or start `mst`.
+Missing permissions, incomplete scans, and unassessed firmware trains remain
+unknown. A completed topology scan alone does not prove exclusive ownership
+of the physical NVLink domain.
+
+Held installed kernels participate in the reboot check. Missing installed-kernel
+inventory cannot produce a PASS. The NVIDIA 6.17 mapping also checks
+[Fragnesia and Dirty Frag](https://ubuntu.com/security/CVE-2026-46300) against
+the source-package minimum. A newer downloaded table cannot silently remove
+the kernel mappings shipped with this client. If it lacks those mappings,
+the client reports the mismatch and retains its installed table.
+
+An absent host Docker installation or an absent CUDA Toolkit in the inspected
+scope remains not applicable. This differs from an unreadable tool or failed
+probe, which remains unknown. A complete bare-metal PCI scan with no VFIO
+assignment makes that sampled host's passthrough check not applicable. UFM
+control settings and physical NVLink-domain ownership still require evidence.
 
 The security profile selects the version and isolation checks from the complete audit. Use `-s` or `--show` to list the applicable checks before the audit runs:
 
