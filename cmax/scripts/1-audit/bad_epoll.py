@@ -52,7 +52,10 @@ def evaluate(
     if len(fields) != 3:
         return result
     state, source_name, version = fields
-    if state.strip() != "ii" or source_name not in accepted_sources:
+    # The first dpkg character is the requested selection, not installation
+    # state. Held or removal-selected images still describe a running kernel.
+    # Require installed state and no error flag, regardless of that selection.
+    if re.fullmatch(r"[uihrp]i", state.strip()) is None or source_name not in accepted_sources:
         return result
     pattern = r"6\.8\.0-([1-9][0-9]*)\.([1-9][0-9]*)"
     if suffix:

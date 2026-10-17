@@ -90,6 +90,20 @@ def test_signed_distribution_package():
     assert bad_epoll.evaluate(**data)["status"] == "pass"
 
 
+@pytest.mark.parametrize("selection", ["h", "r", "p", "u"])
+@pytest.mark.parametrize("abi,expected", [(136, "fail"), (138, "pass")])
+def test_installed_packages_are_graded_regardless_of_selection(selection, abi, expected):
+    data = facts(abi)
+    data["package"] = data["package"].replace("ii ", f"{selection}i ", 1)
+    assert bad_epoll.evaluate(**data)["status"] == expected
+
+
+def test_package_error_flag_remains_unverified():
+    data = facts()
+    data["package"] = data["package"].replace("ii ", "hiR", 1)
+    assert bad_epoll.evaluate(**data)["status"] == "unknown"
+
+
 def test_newer_package_with_same_abi_is_not_running():
     data = facts()
     data["package"] = "ii |linux|6.8.0-137.138"
