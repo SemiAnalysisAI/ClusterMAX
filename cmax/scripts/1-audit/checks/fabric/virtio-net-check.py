@@ -1409,16 +1409,43 @@ def slurm_records(
 # emitting tagged lines that this orchestrator parses. It reads only; it never
 # runs mlxprivhost and never writes to the RShim console.
 K8S_COLLECTOR_SH = r'''
+scan_root="${CLUSTERMAX_AUDIT_ROOT:-}"
+scan=""
+scan_rc=1
 if command -v lspci >/dev/null 2>&1; then
-  echo @@LSPCI_BEGIN@@
-  lspci -Dnn 2>/dev/null
-  rc=$?
-  echo @@LSPCI_END@@
-  [ "$rc" -eq 0 ] || printf '@@SCAN_ERROR@@\t%s\n' "lspci failed: exit $rc"
-else
-  printf '@@SCAN_ERROR@@\t%s\n' "lspci is not installed"
+  scan=$(lspci -Dnn 2>/dev/null)
+  scan_rc=$?
 fi
-slot=$(lspci -Dn 2>/dev/null | grep -Eio '^[0-9a-f:.]+ [^ ]* 15b3:(a2dc|a2d9)' | head -1 | cut -d' ' -f1)
+if [ "$scan_rc" -ne 0 ] || [ -z "$scan" ]; then
+  # The GPU Operator driver image need not contain pciutils. PCI sysfs is
+  # supplied by the running host kernel and does not require installing tools
+  # in a provider container or changing host packages.
+  scan_rc=0
+  scan=""
+  count=0
+  for dev in "$scan_root"/sys/bus/pci/devices/*; do
+    [ -d "$dev" ] || continue
+    vendor=$(cat "$dev/vendor" 2>/dev/null) || { scan_rc=1; continue; }
+    device=$(cat "$dev/device" 2>/dev/null) || { scan_rc=1; continue; }
+    class=$(cat "$dev/class" 2>/dev/null) || { scan_rc=1; continue; }
+    vendor=${vendor#0x}; device=${device#0x}; class=${class#0x}
+    class=$(printf '%s' "$class" | cut -c1-4)
+    case "$vendor:$device:$class" in *[!0-9a-fA-F:]*|::*)
+      scan_rc=1; continue ;;
+    esac
+    scan="${scan}
+${dev##*/} $class: $vendor:$device"
+    count=$((count + 1))
+  done
+  [ "$count" -gt 0 ] || scan_rc=1
+fi
+if [ -n "$scan" ]; then
+  echo @@LSPCI_BEGIN@@
+  printf '%s\n' "$scan"
+  echo @@LSPCI_END@@
+fi
+[ "$scan_rc" -eq 0 ] || printf '@@SCAN_ERROR@@\t%s\n' "PCI inventory unavailable or incomplete (lspci and sysfs)"
+slot=$(printf '%s\n' "$scan" | grep -Eio '^[0-9a-f:.]+ [^ ]* 15b3:(a2dc|a2d9)' | head -1 | cut -d' ' -f1)
 if [ -n "$slot" ] && command -v mlxconfig >/dev/null 2>&1; then
   echo @@MLXCONFIG_BEGIN@@
   mlxconfig -d "$slot" q 2>&1
@@ -1426,8 +1453,8 @@ if [ -n "$slot" ] && command -v mlxconfig >/dev/null 2>&1; then
 elif [ -n "$slot" ]; then
   printf '@@MODE_ERROR@@\t%s\n' "mlxconfig is not installed"
 fi
-[ -e /dev/rshim0 ] && printf '@@RSHIM@@\t%s\n' "device"
-[ -e /sys/class/net/tmfifo_net0 ] && printf '@@RSHIM@@\t%s\n' "tmfifo"
+[ -e "$scan_root/dev/rshim0" ] && printf '@@RSHIM@@\t%s\n' "device"
+[ -e "$scan_root/sys/class/net/tmfifo_net0" ] && printf '@@RSHIM@@\t%s\n' "tmfifo"
 if command -v virtnet >/dev/null 2>&1; then
   echo @@VIRTNET_BEGIN@@
   virtnet version 2>/dev/null

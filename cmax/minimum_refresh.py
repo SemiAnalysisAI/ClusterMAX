@@ -212,6 +212,9 @@ UBUNTU_PACKAGES: tuple[dict[str, Any], ...] = (
     {"key": "linuxBadEpoll", "cve": "CVE-2026-46242", "package": "linux"},
     {"key": "linuxBadEpollNvidia617", "cve": "CVE-2026-46242",
      "package": "linux-nvidia-6.17"},
+    {"key": "linuxFragnesiaNvidia617", "cve": "CVE-2026-46300",
+     "relatedCves": ["CVE-2026-43284", "CVE-2026-43500"],
+     "package": "linux-nvidia-6.17"},
     {"key": "qemu", "cve": "CVE-2024-3446", "package": "qemu"},
     {"key": "linuxVmscape", "cve": "CVE-2025-40300", "package": "linux"},
     {

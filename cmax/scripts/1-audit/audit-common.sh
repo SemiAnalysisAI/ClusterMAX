@@ -234,6 +234,26 @@ build_security_advisory_json() {
         frag_grace="null"
     fi
     jan_cve=$(minimum_version "${jan_key}.cve")
+    # Use source-package identity where current collectors provide it. This
+    # prevents NVIDIA ABIs from being compared against Ubuntu generic floors.
+    local frag_record=""
+    if [[ "$bad_epoll_running" != unknown ]]; then
+        frag_record=$(python3 "${AUDIT_COMMON_DIR}/bad_epoll.py" \
+            --advisory fragnesia --os-id "$bad_epoll_os" \
+            --release "$bad_epoll_release" --running "$bad_epoll_running" \
+            --signature "$bad_epoll_signature" --package "$bad_epoll_package" \
+            --livepatch "$bad_epoll_livepatch" 2>/dev/null) \
+            || frag_record='{"status":"unknown","cve":"CVE-2026-46300","detail":"Kernel package advisory grader unavailable"}'
+        fragnesia_status=$(printf '%s' "$frag_record" | jq -r '.status // "unknown"')
+        frag_fixed=$(printf '%s' "$frag_record" | jq -r '.minimum // "unknown"')
+        frag_cve=CVE-2026-46300
+        frag_grace=null
+        frag_abi=unknown
+        if [[ "$frag_fixed" =~ ^[0-9]+\.[0-9]+\.[0-9]+-([0-9]+)\. ]]; then
+            frag_abi="${BASH_REMATCH[1]}"
+        fi
+        fragnesia_compared_abi="$frag_abi"
+    fi
     jan_fixed=$(minimum_version "${jan_key}.fixed")
     jan_fix_status=$(minimum_version "${jan_key}.status")
     qemu_cve=$(minimum_version "${qemu_key}.cve")
@@ -259,6 +279,7 @@ build_security_advisory_json() {
       "ubuntuNoblePackageMinimumAbi": "${frag_abi}",
       "ubuntuNobleFixStatus": "${frag_fix_status}",
       "comparedAbiFloor": "${fragnesia_compared_abi}"
+      ,"kernelEvidence": ${frag_record:-null}
     },
     "ubuntuNobleKernelMinimum": {
       "status": "${ubuntu_kernel_status}",

@@ -335,7 +335,7 @@ if command -v dpkg-query >/dev/null 2>&1; then
     WORKER_GUEST_KERNEL_NEWEST_INSTALLED=$(
         dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'linux-image-[0-9]*' 2>/dev/null \
             | awk -v suffix="-${WORKER_GUEST_KERNEL_FLAVOR}" \
-                '$1 == "ii" && index($2, suffix) == length($2) - length(suffix) + 1 {
+                '$1 ~ /^[uihrp]i$/ && index($2, suffix) == length($2) - length(suffix) + 1 {
                     sub(/^linux-image-/, "", $2); print $2
                 }' \
             | sort -V | tail -1
@@ -519,7 +519,8 @@ WORKER_VIRT_TYPE=unknown
 WORKER_VIRT_GUEST=unknown
 WORKER_VIRT_DETECTION=none
 if command -v systemd-detect-virt >/dev/null 2>&1; then
-    virt_reading=$(systemd-detect-virt 2>/dev/null)
+    # Classify the physical/VM machine, not the collector's container cgroup.
+    virt_reading=$(systemd-detect-virt --vm 2>/dev/null)
     virt_rc=$?
     virt_reading="${virt_reading//[[:space:]]/}"
     if [[ "$virt_rc" -eq 0 && -n "$virt_reading" && "$virt_reading" != none ]]; then
@@ -641,6 +642,40 @@ echo "WORKER_VIRTIO_SERIAL=${WORKER_VIRTIO_SERIAL}"
 echo "WORKER_QEMU_CVE_2024_3446_STATUS=${WORKER_QEMU_CVE_2024_3446_STATUS}"
 echo "WORKER_VMSCAPE_STATUS=${WORKER_VMSCAPE_STATUS}"
 echo "WORKER_IOMMU_GROUPS=${WORKER_IOMMU_GROUPS}"
+# Direct host PCI assignment evidence. Guest observations cannot attest the
+# provider's IOMMU, and a missing/unreadable sysfs tree never means no VFIO.
+WORKER_PCIE_SCAN_COMPLETE=false
+WORKER_PCIE_VFIO_DEVICES=0
+WORKER_PCIE_UNSAFE_GROUPS=0
+pcie_root="${CLUSTERMAX_AUDIT_ROOT:-}/sys/bus/pci/devices"
+if [[ -d "$pcie_root" && -r "$pcie_root" && -x "$pcie_root" ]]; then
+    WORKER_PCIE_SCAN_COMPLETE=true
+    pcie_seen=0
+    for pcie_dev in "$pcie_root"/*; do
+        [[ -d "$pcie_dev" ]] || continue
+        pcie_seen=$((pcie_seen + 1))
+        [[ -r "$pcie_dev/vendor" && -r "$pcie_dev/device" ]] \
+            || WORKER_PCIE_SCAN_COMPLETE=false
+        pcie_driver=$(readlink "$pcie_dev/driver" 2>/dev/null || true)
+        [[ "${pcie_driver##*/}" == vfio-pci ]] || continue
+        WORKER_PCIE_VFIO_DEVICES=$((WORKER_PCIE_VFIO_DEVICES + 1))
+        if [[ ! -d "$pcie_dev/iommu_group/devices" ]]; then
+            WORKER_PCIE_UNSAFE_GROUPS=$((WORKER_PCIE_UNSAFE_GROUPS + 1))
+            continue
+        fi
+        for group_peer in "$pcie_dev/iommu_group/devices"/*; do
+            peer_driver=$(readlink "$group_peer/driver" 2>/dev/null || true)
+            if [[ -n "$peer_driver" && "${peer_driver##*/}" != vfio-pci ]]; then
+                WORKER_PCIE_UNSAFE_GROUPS=$((WORKER_PCIE_UNSAFE_GROUPS + 1))
+                break
+            fi
+        done
+    done
+    (( pcie_seen > 0 )) || WORKER_PCIE_SCAN_COMPLETE=false
+fi
+echo "WORKER_PCIE_SCAN_COMPLETE=$WORKER_PCIE_SCAN_COMPLETE"
+echo "WORKER_PCIE_VFIO_DEVICES=$WORKER_PCIE_VFIO_DEVICES"
+echo "WORKER_PCIE_UNSAFE_GROUPS=$WORKER_PCIE_UNSAFE_GROUPS"
 
 # --- GPU ---
 if command -v nvidia-smi &>/dev/null; then
@@ -651,7 +686,11 @@ if command -v nvidia-smi &>/dev/null; then
     echo "WORKER_GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | wc -l || echo 0)"
 else
     echo "WORKER_GPU_MODEL=no-nvidia-smi"
-    echo "WORKER_DRIVER_VERSION=unknown"
+    # GPU Operator mounts the driver root separately. The loaded kernel module
+    # is stronger evidence than a DaemonSet image tag or a node label.
+    module_driver=$(sed -nE 's/^NVRM version:.*[[:space:]]([0-9]{3}\.[0-9]+\.[0-9]+)[[:space:]].*/\1/p' \
+        "${CLUSTERMAX_AUDIT_ROOT:-}/proc/driver/nvidia/version" 2>/dev/null | head -1)
+    echo "WORKER_DRIVER_VERSION=${module_driver:-unknown}"
     echo "WORKER_CUDA_VERSION=unknown"
     echo "WORKER_GPU_MEMORY=0"
     echo "WORKER_GPU_COUNT=0"

@@ -42,9 +42,12 @@ def evaluate(
     signature: str = "unknown",
     package: str = "unknown",
     livepatch: str = "unknown",
+    advisory: str = "bad-epoll",
 ) -> dict:
+    cve = CVE if advisory == "bad-epoll" else "CVE-2026-46300"
+    label = "Bad Epoll" if advisory == "bad-epoll" else "Fragnesia / Dirty Frag"
     result = {
-        "cve": CVE, "advisory": ADVISORY, "status": "unknown",
+        "cve": cve, "advisory": f"https://ubuntu.com/security/{cve}", "status": "unknown",
         "running": running, "minimum": "unknown",
         "osId": os_id, "release": release, "signature": signature,
         "packageEvidence": package, "livepatch": livepatch,
@@ -61,6 +64,9 @@ def evaluate(
     if mapping is None:
         return result
     component, entry_key, source, accepted_sources, suffix = mapping
+    if advisory == "fragnesia":
+        entry_key = entry_key.replace("BadEpoll", "Fragnesia")
+        result["relatedCves"] = ["CVE-2026-43284", "CVE-2026-43500"]
     # dpkg evidence must refer to the exact RUNNING image, not the newest
     # installed image. A container's own package database is not host proof.
     fields = package.split("|")
@@ -92,16 +98,21 @@ def evaluate(
     except (minimum_versions.MinimumDataError, OSError, ValueError):
         entry = None
     if not isinstance(entry, dict):
-        result["detail"] = "Bad Epoll minimum is unavailable; cannot verify patch status."
+        result["detail"] = f"{label} minimum is unavailable; cannot verify patch status."
         return result
     fixed = entry.get("fixed", "")
     minimum = re.fullmatch(pattern, fixed) if isinstance(fixed, str) else None
     if (
-        entry.get("cve") != CVE or entry.get("package") != source
+        entry.get("cve") != cve or entry.get("package") != source
         or entry.get("status") != "released" or minimum is None
     ):
-        result["detail"] = "Bad Epoll minimum is unverified for this kernel package."
+        result["detail"] = f"{label} minimum is unverified for this kernel package."
         return result
+    if advisory == "fragnesia":
+        coverage = {entry.get("cve"), *(entry.get("relatedCves") or [])}
+        if not {cve, *result["relatedCves"]}.issubset(coverage):
+            result["detail"] = "Fragnesia minimum lacks coverage for all related fixes."
+            return result
     result["minimum"] = fixed
     result["sourcePackage"] = source
     # An enabled patch may cover another CVE. Do not claim this CVE is patched
@@ -112,9 +123,9 @@ def evaluate(
     patched = tuple(map(int, installed.groups())) >= tuple(map(int, minimum.groups()))
     result["status"] = "pass" if patched else "fail"
     result["detail"] = (
-        "The running distribution kernel meets the Bad Epoll fixed package minimum."
+        f"The running distribution kernel meets the {label} fixed package minimum."
         if patched else
-        "The running distribution kernel is below the Bad Epoll fixed package minimum; "
+        f"The running distribution kernel is below the {label} fixed package minimum; "
         "update the host kernel and reboot into it."
     )
     return result
@@ -124,6 +135,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     for field in ("os-id", "release", "running", "signature", "package", "livepatch"):
         parser.add_argument(f"--{field}", default="unknown")
+    parser.add_argument("--advisory", choices=("bad-epoll", "fragnesia"), default="bad-epoll")
     print(json.dumps(evaluate(**vars(parser.parse_args()))))
 
 

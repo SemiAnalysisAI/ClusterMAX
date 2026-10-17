@@ -1514,11 +1514,13 @@ def connectx_firmware_verdict(version: str) -> Verdict:
         return _unknown(version, minimum, advisory, "NIC firmware version is unavailable")
     _, train, patch = parsed
     if train not in trains:
+        newest_train = max(trains)
         return _unknown(
             version,
             minimum,
             advisory,
-            f"Firmware train {train} is not assessed by the current bulletin",
+            f"Firmware train {train} is not assessed by the current bulletin "
+            f"(newest assessed train {newest_train}); a newer train is not proof of a fix",
         )
     # The bulletin covers the observed train, so the minimum names that
     # train's fixed patch alone. Listing every train's minimum asked a reader

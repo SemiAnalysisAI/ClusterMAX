@@ -1130,8 +1130,6 @@ class ContainerWorkerCheckTests(unittest.TestCase):
         self.assertEqual(security["nvidiaDriver"]["status"], "pass")
         self.assertEqual(security["runc"]["status"], "pass")
         self.assertEqual(security["docker"]["status"], "pass")
-        # Train 47 is present in the collected Nvidia NIC inventory but has no
-        # train-specific floor in the current table, so it must fail closed.
         self.assertEqual(security["connectxFirmware"]["status"], "unknown")
         self.assertEqual(len(security["connectxFirmware"]["devices"]), 1)
 

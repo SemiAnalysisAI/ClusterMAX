@@ -125,6 +125,12 @@
       ],
       "packages": [
         {
+          "name": "linux-nvidia-6.17",
+          "statuses": [
+            {"release_codename": "noble", "status": "released", "description": "6.17.0-1021.21"}
+          ]
+        },
+        {
           "name": "linux",
           "source": "https://ubuntu.com/security/cve?package=linux",
           "statuses": [

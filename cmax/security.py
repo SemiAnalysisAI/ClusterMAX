@@ -565,7 +565,8 @@ def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
         return (
             CRITICAL,
             observed,
-            "A security-updated kernel is installed but inactive until the machine reboots.",
+            "A newer kernel is installed but inactive until the machine reboots; "
+            "its security-fix contents require a separate advisory check.",
         )
     unknown_values = {"", "unknown", "not collected", "none", "null"}
     if (
@@ -578,7 +579,7 @@ def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
             "The installed kernel inventory was unavailable, so a pending security reboot cannot be ruled out.",
         )
     if newer is False or str(newer).lower() == "false":
-        return PASS, observed, "The host is running its newest detected kernel."
+        return PASS, observed, "The audit did not find a newer installed kernel that is waiting for a reboot."
     return (
         WARNING,
         observed,
@@ -700,6 +701,20 @@ def _ufm(audit: dict[str, Any]) -> tuple[str, str, str]:
         )
     status = str(value.get("status") or "unknown").lower()
     observed = f"status {status}"
+    if value.get("probeComplete") is False:
+        return WARNING, observed, "The UFM probe did not complete; profile isolation is unverified."
+    controls = value.get("controls")
+    if value.get("probeComplete") is True and isinstance(controls, dict):
+        required = (
+            "smkeyAuthentication", "mkeyAuthentication", "mkeyProtectBits",
+            "forceSmAssignment", "disableHostPort0Sma", "forceDmAssignment",
+            "limitMadQueue",
+        )
+        if any(controls.get(key) is False for key in required):
+            return CRITICAL, observed, "A completed UFM probe found a required fabric control disabled."
+        if all(controls.get(key) is True for key in required):
+            return PASS, observed, "The completed UFM probe verified every required fabric control."
+        return WARNING, observed, "The completed UFM probe omitted one or more required fabric controls."
     if status == "pass":
         return PASS, observed, "The secured bare-metal UFM profile was verified."
     if status == "fail":
@@ -907,6 +922,39 @@ def _manual_boundary(
     return evaluate
 
 
+def _pcie_boundary(audit: dict[str, Any]) -> tuple[str, str, str]:
+    evidence = _get(audit, "security.pciePassthrough")
+    virt = _get(audit, "security.virtualization")
+    if not isinstance(evidence, dict):
+        evidence = {}
+    if not isinstance(virt, dict):
+        virt = {}
+    guest = virt.get("guest")
+    complete = evidence.get("inventoryComplete") is True
+    devices = evidence.get("vfioDevices")
+    unsafe = evidence.get("unsafeGroups")
+    observed = (
+        f"target guest={_display(guest)}; inventory complete={complete}; "
+        f"VFIO devices={_display(devices)}; unsafe IOMMU groups={_display(unsafe)}; "
+        f"scope={evidence.get('scope', 'unknown')}"
+    )
+    if guest is False and complete and type(devices) is int and type(unsafe) is int:
+        if devices > 0 and unsafe > 0:
+            return CRITICAL, observed, (
+                "A host VFIO device has no IOMMU group or shares it with a "
+                "host-driver device. The required assignment isolation is not established."
+            )
+        if devices == 0:
+            return NOT_APPLICABLE, observed, (
+                "The complete sampled bare-metal PCI inventory found no VFIO "
+                "passthrough devices. This does not certify other hosts or tenant boundaries."
+            )
+    return WARNING, observed, (
+        "PCIe assignment requires physical-host IOMMU, ACS, reset, and memory "
+        "sanitization evidence. Guest-visible groups or an incomplete scan cannot establish it."
+    )
+
+
 def _nvlink_boundary(audit: dict[str, Any]) -> tuple[str, str, str]:
     boundary = _get(audit, "security.nvlinkBoundary")
     if not isinstance(boundary, dict):
@@ -951,6 +999,11 @@ def _nvlink_boundary(audit: dict[str, Any]) -> tuple[str, str, str]:
             observed,
             "The completed GPU inventory found no NVIDIA GPU, so NVLink and "
             "NVBleed do not apply to this target.",
+        )
+    if domain_exclusive is False and exposed:
+        return CRITICAL, observed, (
+            "NVLink is visible and the physical domain is explicitly recorded "
+            "as shared across trust boundaries. Tenant-exclusive isolation failed."
         )
     if exclusive:
         return (
@@ -1465,10 +1518,7 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
                 "https://docs.kernel.org/6.8/userspace-api/iommu.html",
             ),
         ),
-        _manual_boundary(
-            "security.pciePassthrough.hostVerificationRequired",
-            "host verification required",
-        ),
+        _pcie_boundary,
     ),
     CheckSpec(
         "nvlink-boundary",
