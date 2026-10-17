@@ -83,6 +83,7 @@ _CHECK_ANCHORS = {
     "security.januscape.status": _SECURITY_ESCALATION,
     "security.guestKernel.newerInstalled": _SECURITY_PATCHING,
     "security.fragnesia.status": _SECURITY_PATCHING,
+    "security.badEpoll.status": _SECURITY_PATCHING,
     "containers.nvidiaContainerToolkit": _LIFECYCLE_DRIVERS,
     "containers.workerCheckOk": "orchestration",
     "containers.pyxisRuntimeWorks": _ORCHESTRATION_PYXIS,

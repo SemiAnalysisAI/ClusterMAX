@@ -590,7 +590,7 @@ class SecurityReportTests(unittest.TestCase):
         )
         self.assertIn("# ClusterMAX security audit report", report)
         # CUDA, ConnectX, and the absent bare-metal NVLink boundary do not apply.
-        self.assertIn("3 failed, 5 warnings, 4 passed, 3 skipped", report)
+        self.assertIn("3 failed, 6 warnings, 4 passed, 3 skipped", report)
         self.assertIn("Action required: 3 critical findings.", report)
         self.assertNotIn("critical findings are known exposure", report)
         self.assertIn("NVIDIA driver minimum version", report)
@@ -1191,12 +1191,12 @@ class MinimumFreshnessTests(unittest.TestCase):
             # NVLink boundary not applicable instead of counting it as a pass.
             {
                 security.PASS: 3,
-                security.WARNING: 5,
+                security.WARNING: 6,
                 security.CRITICAL: 4,
                 security.NOT_APPLICABLE: 3,
             },
         )
-        self.assertEqual(sum(security.counts(stale_checks).values()), 15)
+        self.assertEqual(sum(security.counts(stale_checks).values()), 16)
         # A stale table is a notice, so a run with no critical finding still
         # exits 0 and no check is graded critical by staleness alone.
         self.assertEqual(clean_exit, 0)
@@ -1260,8 +1260,8 @@ class MinimumFreshnessTests(unittest.TestCase):
 
     def test_minimum_freshness_is_not_a_graded_criterion(self) -> None:
         ids = [spec.id for spec in security.CHECK_SPECS]
-        self.assertEqual(len(ids), 15)
-        self.assertEqual(len(set(ids)), 15)
+        self.assertEqual(len(ids), 16)
+        self.assertEqual(len(set(ids)), 16)
         self.assertEqual(
             ids,
             [
@@ -1273,6 +1273,7 @@ class MinimumFreshnessTests(unittest.TestCase):
                 "connectx-firmware",
                 "guest-kernel",
                 "fragnesia",
+                "bad-epoll",
                 "januscape",
                 "bmc-ipmi",
                 "ufm-profile",

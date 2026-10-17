@@ -628,6 +628,22 @@ def _fragnesia(audit: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
+def _bad_epoll(audit: dict[str, Any]) -> tuple[str, str, str]:
+    advisory = _get(audit, "security.badEpoll")
+    if not isinstance(advisory, dict):
+        advisory = {}
+    status = {"pass": PASS, "fail": CRITICAL}.get(
+        advisory.get("status"), WARNING
+    )
+    observed = (
+        f"observed version {advisory.get('running', 'unknown')}; "
+        f"minimum version {advisory.get('minimum', 'unknown')}; CVE-2026-46242"
+    )
+    return status, observed, advisory.get("detail") or (
+        "Bad Epoll patch status is unverified; requires provider patch evidence."
+    )
+
+
 def _januscape(audit: dict[str, Any]) -> tuple[str, str, str]:
     value = _get(audit, "security.januscape")
     if not isinstance(value, dict):
@@ -1263,6 +1279,15 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
             ("CVE-2026-43500", "https://ubuntu.com/security/CVE-2026-43500"),
         ),
         _fragnesia,
+    ),
+    CheckSpec(
+        "bad-epoll",
+        "Bad Epoll running-kernel fix",
+        "CVE-2026-46242 permits local privilege escalation in affected kernels and may allow shared-kernel container escape.",
+        "Install the fixed host kernel for the distribution and flavor, reboot, "
+        "and verify the running kernel. Obtain provider evidence for custom kernels or livepatches.",
+        _references(("CVE-2026-46242", "https://ubuntu.com/security/CVE-2026-46242")),
+        _bad_epoll,
     ),
     CheckSpec(
         "januscape",

@@ -802,10 +802,39 @@
         }
       ]
     },
+    "ubuntuJammy": {
+      "advisory": "https://ubuntu.com/security/CVE-2026-46242",
+      "kind": "distroPackages",
+      "release": "jammy",
+      "packages": {
+        "linuxBadEpoll": {
+          "cve": "CVE-2026-46242",
+          "fixed": "6.8.0-138.138~22.04.1",
+          "package": "linux-hwe-6.8",
+          "priority": "high",
+          "status": "released",
+          "source": {
+            "feed": "ubuntu-security-api",
+            "url": "https://ubuntu.com/security/CVE-2026-46242"
+          }
+        }
+      }
+    },
     "ubuntuNoble": {
       "advisory": "https://ubuntu.com/security/notices",
       "kind": "distroPackages",
       "packages": {
+        "linuxBadEpoll": {
+          "cve": "CVE-2026-46242",
+          "fixed": "6.8.0-137.137",
+          "package": "linux",
+          "priority": "high",
+          "status": "released",
+          "source": {
+            "feed": "ubuntu-security-api",
+            "url": "https://ubuntu.com/security/CVE-2026-46242"
+          }
+        },
         "linuxFragnesia": {
           "abi": 124,
           "cve": "CVE-2026-46300",

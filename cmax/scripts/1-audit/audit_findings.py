@@ -765,6 +765,20 @@ RULES: tuple[Rule, ...] = (
         _status_is("fail"),
         cves=("CVE-2026-46300", "CVE-2026-43284", "CVE-2026-43500"),
     ),
+    Rule(
+        "security.badEpoll.status",
+        "Running kernel is below the Bad Epoll fixed package minimum; update and reboot",
+        VERSION,
+        _status_is("fail"),
+        cves=("CVE-2026-46242",),
+    ),
+    Rule(
+        "security.badEpoll.status",
+        "Bad Epoll patch status is unverified; requires provider patch evidence",
+        CONFIG,
+        _status_is("unknown"),
+        cves=("CVE-2026-46242",),
+    ),
     # --- Containers -------------------------------------------------------
     # These checks are worker-scoped. A `false` value produced only because the
     # worker check never ran (containers.workerCheckOk == false) is inconclusive,
@@ -1324,6 +1338,8 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "security.januscape.status": "security-januscape",
     "security.guestKernel.newerInstalled": "guest-kernel-current",
     "security.fragnesia.status": "ubuntu-kernel-fragnesia-dirty-frag",
+    # CLI-only until the website catalog publishes a dedicated Bad Epoll row.
+    "security.badEpoll.status": None,
     "containers.nvidiaContainerToolkit": "container-toolkit",
     "containers.workerCheckOk": None,
     "containers.pyxisRuntimeWorks": "pyxis",

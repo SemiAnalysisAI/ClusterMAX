@@ -45,6 +45,16 @@ The [ClusterMAX website](https://clustermax.semianalysis.com/) explains the rati
 
 The current [minimum-version table](https://www.clustermax.ai/minimum-versions) lists the software and firmware versions used for grading, with vendor advisories behind each value. Its [machine-readable form](https://www.clustermax.ai/minimum-versions.json) is the table `cmax audit security` fetches on startup (skip with `--no-fetch-minimums`).
 
+The read-only Bad Epoll check, `security.badEpoll.status`, checks the running
+kernel against [CVE-2026-46242](https://ubuntu.com/security/CVE-2026-46242).
+It initially maps Ubuntu 24.04 GA 6.8 generic and Ubuntu 22.04 HWE 6.8 generic
+packages. It requires matching running-kernel signature and installed-package
+evidence. A newer installed kernel does not clear a failure until it is running.
+Unsupported flavors, missing evidence, and active or unreadable livepatch state
+produce an unknown result that requires provider patch evidence. The check does
+not run an exploit or attest that a provider's kernel is genuine. If a fetched
+minimum table lacks this CVE, the result remains unknown.
+
 The security profile selects the version and isolation checks from the complete audit. Use `-s` or `--show` to list the applicable checks before the audit runs:
 
 ```console

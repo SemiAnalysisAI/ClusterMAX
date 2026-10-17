@@ -91,6 +91,9 @@ _PASS_ASSESSMENTS = {
     "security.fragnesia.status": (
         "The running kernel does not match the affected Fragnesia or Dirty Frag ranges."
     ),
+    "security.badEpoll.status": (
+        "The running distribution kernel meets the Bad Epoll fixed package minimum."
+    ),
     "containers.nvidiaContainerToolkit": (
         "The worker has NVIDIA Container Toolkit support."
     ),
@@ -286,6 +289,10 @@ _REPRODUCTION_COMMANDS = {
     "securityVersions.runc.status": "on the audited worker: `runc --version`",
     "securityVersions.dcgm.status": "on the audited worker: `dcgmi --version`",
     "security.fragnesia.status": "on the audited worker: `uname -r`",
+    "security.badEpoll.status": (
+        "on the audited worker: `uname -r`; `cat /proc/version_signature`; "
+        "`dpkg-query -W 'linux-image-*'`; inspect `/sys/kernel/livepatch`"
+    ),
     "software.nvhpc.status": (
         "on the audited worker: run `nvc --version`, `nvc++ --version`, and "
         "`nvfortran --version`; inspect the selected SDK release tree for NCCL, "
@@ -498,6 +505,14 @@ def _version_observation(audit: dict[str, Any], key: str, value: Any) -> Any:
                 f"observed version {kernel.get('running', 'unknown')}; "
                 "minimum version not applicable; newest installed version "
                 f"{kernel.get('newestInstalled', 'unknown')}"
+            )
+    if key == "security.badEpoll.status":
+        advisory = _nested(audit, "security.badEpoll")
+        if isinstance(advisory, dict):
+            return (
+                f"observed version {advisory.get('running', 'unknown')}; "
+                f"minimum version {advisory.get('minimum', 'unknown')}; "
+                f"CVE-2026-46242; {advisory.get('detail', '')}"
             )
     if key == "security.fragnesia.status":
         fragnesia = _nested(audit, "security.fragnesia")
