@@ -1489,6 +1489,7 @@ def classify_suppression(key: str, audit: dict[str, Any]) -> tuple[str, str]:
 # key and security extension id appears here and that every mapped id exists
 # in the vendored catalog.
 CHECK_CRITERIA: dict[str, str | None] = {
+    "storage_config.status": None,
     "k8s_scheduling.status": None,
     "tenant_pod_defaults.status": None,
     "tenant_pod_defaults.checks.memlock.status": None,
