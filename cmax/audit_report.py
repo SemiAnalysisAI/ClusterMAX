@@ -55,6 +55,7 @@ def _harness_not_applicable(harness: str) -> str:
 
 
 _PASS_ASSESSMENTS = {
+    "storage_config.status": "The collected node storage inventory is consistent.",
     "k8s_scheduling.status": "The scheduling inventory has no recorded findings.",
     "tenant_pod_defaults.status": "The tenant pod check completed.",
     "tenant_pod_defaults.checks.memlock.status": "The tenant pod has sufficient locked memory.",

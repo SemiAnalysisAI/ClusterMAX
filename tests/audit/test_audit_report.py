@@ -88,7 +88,7 @@ class AuditReportTests(unittest.TestCase):
     def test_real_rules_have_one_category_and_stable_counts(self) -> None:
         checks = audit_report.list_check_specs(RUNTIME_ROOT)
 
-        self.assertEqual(len(checks), 68)
+        self.assertEqual(len(checks), 69)
         self.assertEqual(
             Counter(check.category for check in checks),
             {
@@ -99,7 +99,7 @@ class AuditReportTests(unittest.TestCase):
                 "containers": 5,
                 "orchestration": 11,
                 "networking": 5,
-                "storage": 1,
+                "storage": 2,
                 "health": 4,
                 "access": 5,
             },

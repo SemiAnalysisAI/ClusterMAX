@@ -14,6 +14,7 @@ from typing import Any
 
 
 CHECK_PROFILES = {
+    'system/storage_config.py': frozenset(['storage']),
     'system/k8s_scheduling.py': frozenset(['orchestration']),
     'system/tenant_pod_defaults.py': frozenset(['orchestration']),
     "fabric/nccl-ib-qps-check.py": frozenset({"networking"}),
@@ -30,6 +31,7 @@ CHECK_PROFILES = {
     "system/vm-iommu-check.py": frozenset({"hardware"}),
 }
 CHECK_HARNESSES = {
+    'system/storage_config.py': frozenset(['standalone', 'slurm', 'k8s']),
     'system/k8s_scheduling.py': frozenset(['k8s']),
     'system/tenant_pod_defaults.py': frozenset(['k8s']),
     "fabric/nccl-ib-qps-check.py": frozenset({"slurm", "k8s"}),
@@ -160,6 +162,7 @@ def discover_gpu_operator_namespace() -> str | None:
 # summary line, and a fail / warning also reaches stderr so it is visible in a
 # scrolling run log before audit_findings.py collects it at the end.
 STATUS_CHECK_KEYS = (
+    "storage_config",
     "k8s_scheduling",
     "tenant_pod_defaults",
     "hbm_memory_exposure",
