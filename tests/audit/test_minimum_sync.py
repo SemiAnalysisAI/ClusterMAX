@@ -144,6 +144,19 @@ class FetchTests(MinimumSyncTestCase):
         self.assertEqual(result.generated, "2026-08-20T07:32:09Z")
         self.assertIn("unchanged", result.message)
 
+    def test_a_not_modified_response_rejects_an_unusable_cached_table(self) -> None:
+        """A 304 response has no body, so the cached file must pass validation."""
+        with self.server(FakeResponse(body(table()), {"ETag": '"abc"'})):
+            minimum_sync.sync()
+        minimum_sync.cache_path().write_text('{"generated":"2026-08-20T07:32:09Z"}\n')
+        with self.server(urllib.error.HTTPError("u", 304, "Not Modified", {}, None)):
+            result = minimum_sync.sync()
+        self.assertFalse(result.ok)
+        self.assertIsNone(result.path)
+        self.assertIn("could not be read", result.message)
+        self.assertIsNone(minimum_sync.cached_table())
+        self.assertEqual(minimum_sync.read_state(), {})
+
     def test_a_changed_address_starts_a_full_fetch(self) -> None:
         with self.server(FakeResponse(body(table()), {"ETag": '"abc"'})):
             minimum_sync.sync()

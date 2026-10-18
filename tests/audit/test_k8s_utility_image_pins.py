@@ -66,6 +66,7 @@ def test_python_host_checks_use_pinned_default_and_preserve_override(check_path,
 
 def _applied_manifest(function_name: str, setup: str) -> dict:
     function = bashtest.extract_function(SCRIPT, function_name)
+    function = bashtest.extract_function(SCRIPT, "audit_node_is_live_check_target") + "\n" + function
     with tempfile.TemporaryDirectory() as temp_dir:
         applied = Path(temp_dir) / "applied.yaml"
         run = bashtest.run_bash(

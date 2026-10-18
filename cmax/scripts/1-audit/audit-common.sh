@@ -161,6 +161,7 @@ minimum_version_grace() {
 # An omitted check status becomes "unknown", and an unresolved minimum becomes
 # "unknown" as well. Neither ever becomes a value that reads as a pass.
 build_security_advisory_json() {
+    local host_facts="" pwnescape_json=""
     local bad_epoll_os=unknown bad_epoll_release=unknown bad_epoll_running=unknown
     local bad_epoll_signature=unknown bad_epoll_package=unknown bad_epoll_livepatch=unknown
     local fragnesia_status="unknown" fragnesia_compared_abi="unknown"
@@ -173,6 +174,7 @@ build_security_advisory_json() {
     # truncated argument list from spinning here instead of shifting.
     while [[ $# -gt 1 ]]; do
         case "$1" in
+            --host-facts) host_facts="$2"; shift 2 ;;
             --bad-epoll-os) bad_epoll_os="$2"; shift 2 ;;
             --bad-epoll-release) bad_epoll_release="$2"; shift 2 ;;
             --bad-epoll-running) bad_epoll_running="$2"; shift 2 ;;
@@ -224,7 +226,11 @@ build_security_advisory_json() {
     # Use source-package identity where current collectors provide it. This
     # prevents NVIDIA ABIs from being compared against Ubuntu generic floors.
     local frag_record=""
-    if [[ "$bad_epoll_running" != unknown ]]; then
+    if [[ "$bad_epoll_running" != unknown ]] && ! {
+        [[ "$bad_epoll_os" == ubuntu && "$bad_epoll_release" == 24.04 \
+            && "$bad_epoll_running" =~ ^6\.8\.0-[0-9]+-generic$ ]] \
+        && [[ "$bad_epoll_signature" == unknown || "$bad_epoll_package" == unknown ]]
+    }; then
         frag_record=$(python3 "${AUDIT_COMMON_DIR}/bad_epoll.py" \
             --advisory fragnesia --os-id "$bad_epoll_os" \
             --release "$bad_epoll_release" --running "$bad_epoll_running" \
@@ -240,6 +246,16 @@ build_security_advisory_json() {
             frag_abi="${BASH_REMATCH[1]}"
         fi
         fragnesia_compared_abi="$frag_abi"
+        if [[ "$fragnesia_status" == fail ]]; then
+            local frag_entry=linuxFragnesia
+            [[ "$bad_epoll_running" == 6.17.0-*-nvidia* ]] && frag_entry=linuxFragnesiaNvidia617
+            if [[ "$bad_epoll_release" == 24.04 ]] && \
+                frag_grace=$(minimum_version_grace ubuntuNoble "$frag_entry"); then
+                fragnesia_status=pass
+            else
+                frag_grace=null
+            fi
+        fi
     fi
     jan_fixed=$(minimum_version "${jan_key}.fixed")
     jan_fix_status=$(minimum_version "${jan_key}.status")
@@ -249,6 +265,9 @@ build_security_advisory_json() {
     vmscape_cve=$(minimum_version "${vmscape_key}.cve")
     vmscape_fixed=$(minimum_version "${vmscape_key}.fixed")
     vmscape_fix_status=$(minimum_version "${vmscape_key}.status")
+    pwnescape_json=$(printf '%s\n' "$host_facts" | \
+        python3 "${AUDIT_COMMON_DIR}/pwnescape.py" 2>/dev/null) || pwnescape_json=""
+    [[ -n "$pwnescape_json" ]] || pwnescape_json='{"status":"unknown","reason":"PwnEscape grader unavailable","exploitTested":false}'
 
     # ubuntuNobleFixStatus carries the Ubuntu tracker state for the fix itself.
     # Januscape reads "pending" today: Canonical tracks the fix as 6.8.0-137.137
@@ -257,6 +276,7 @@ build_security_advisory_json() {
     # minimum), and the pair replaces the retired "no fix available" claim.
     cat <<EOF
     "badEpoll": ${bad_epoll_json},
+    "pwnescape": ${pwnescape_json},
     "fragnesia": {
       "cve": "${frag_cve}",
       "relatedCves": ${frag_related},
@@ -1015,6 +1035,7 @@ build_audit_json() {
     fi
     [[ -n "$security_version_audit_json" ]] || security_version_audit_json="{}"
     security_advisory_json=$(build_security_advisory_json \
+        --host-facts "${WORKER_CHECK_OUTPUT:-}" \
         --bad-epoll-os "${WORKER_OS_ID:-unknown}" \
         --bad-epoll-release "${WORKER_OS_VERSION_ID:-unknown}" \
         --bad-epoll-running "${WORKER_GUEST_KERNEL_RUNNING:-unknown}" \

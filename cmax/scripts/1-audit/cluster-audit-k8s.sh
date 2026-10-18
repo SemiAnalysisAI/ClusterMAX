@@ -1104,6 +1104,9 @@ GPU_NODE_NAMES=$(echo "$NODES_JSON" | jq -r --argjson used "$GPU_ALLOC_BY_NODE" 
 GPU_FREE_NODE_NAMES=$(echo "$NODES_JSON" | jq -r --argjson used "$GPU_ALLOC_BY_NODE" \
     --argjson primary "$PRIMARY_GPU_NODE_NAMES_JSON" --arg key "$GPU_RESOURCE_KEY" '
     [ .items[]
+      | select(((.status.conditions // []) | any(.type == "Ready" and .status == "True")))
+      | select((.spec.unschedulable // false) != true)
+      | select(((.spec.taints // []) | map(.key) | index("node.kubernetes.io/unreachable")) == null)
       | select((.status.capacity[$key] // "0" | tonumber?) > 0)
       | .metadata.name as $name
       | select(($primary | index($name)) != null)
@@ -1112,10 +1115,42 @@ GPU_FREE_NODE_NAMES=$(echo "$NODES_JSON" | jq -r --argjson used "$GPU_ALLOC_BY_N
                  - ($used[.metadata.name] // 0)) }
       | select(.free > 0) ]
     | sort_by(-.free) | .[].name')
+# Live check pods are pinned with spec.nodeName. A GPU node whose kubelet is
+# NotReady/unreachable can advertise the most free GPUs yet never start those
+# pods, so keep GPU_NODE_NAMES for inventory counts and use this Ready-only
+# list for every pod the collector launches on a named worker.
+GPU_PRIMARY_MODEL=$(printf '%s\n' "$PRIMARY_GPU_PROFILE_JSON" | jq -r '.model // ""')
+GPU_PRIMARY_PER_NODE=$(printf '%s\n' "$PRIMARY_GPU_PROFILE_JSON" | jq -r '.perNode // 0')
+GPU_CHECK_NODE_NAMES=$(echo "$NODES_JSON" | jq -r --argjson used "$GPU_ALLOC_BY_NODE" \
+    --argjson primary "$PRIMARY_GPU_NODE_NAMES_JSON" --arg key "$GPU_RESOURCE_KEY" \
+    --arg vendor "$GPU_VENDOR" --arg model "$GPU_PRIMARY_MODEL" \
+    --argjson density "$GPU_PRIMARY_PER_NODE" '
+    [ .items[]
+      | .metadata.name as $name
+      | (((.status.capacity[$key] // "0" | tonumber?) // 0)) as $capacity
+      | (if $vendor == "nvidia" and $capacity <= 0
+         then (((.metadata.labels["nvidia.com/gpu.count"] // "0" | tonumber?) // 0))
+         else $capacity end) as $gpu_count
+      | (if $vendor == "amd"
+         then (.metadata.labels["amd.com/gpu.product-name"]
+               // .metadata.labels["beta.amd.com/gpu.product-name"] // "")
+         else (.metadata.labels["nvidia.com/gpu.product"] // "") end) as $node_model
+      | select($gpu_count > 0)
+      | select((($primary | index($name)) != null)
+               or ($model != "" and $model != "unknown"
+                   and $node_model == $model
+                   and $density > 0 and $gpu_count == $density))
+      | select(((.status.conditions // []) | any(.type == "Ready" and .status == "True")))
+      | select((.spec.unschedulable // false) != true)
+      | select(((.spec.taints // []) | map(.key) | index("node.kubernetes.io/unreachable")) == null)
+      | { name: .metadata.name,
+          free: (((.status.allocatable[$key] // "0" | tonumber?) // 0)
+                 - ($used[.metadata.name] // 0)) } ]
+    | sort_by([-.free, .name]) | .[].name')
 GPU_NODE_COUNT=$(printf '%s\n' "$PRIMARY_GPU_PROFILE_JSON" | jq -r '.nodeCount // 0')
 GPU_TOTAL_CPUS=$(printf '%s\n' "$PRIMARY_GPU_PROFILE_JSON" | jq -r '.totalCpus // 0')
 GPU_TOTAL_MEMORY_GB=$(printf '%s\n' "$PRIMARY_GPU_PROFILE_JSON" | jq -r '.totalMemoryGB // 0')
-FIRST_GPU_NODE=$(head -n 1 <<< "$GPU_NODE_NAMES")
+FIRST_GPU_NODE=$(head -n 1 <<< "$GPU_CHECK_NODE_NAMES")
 FIRST_FREE_GPU_NODE=$(head -n 1 <<< "$GPU_FREE_NODE_NAMES")
 # Check pods have unique names and are removed individually, so concurrent
 # collectors can safely share the stable namespace used by later audit checks.
@@ -1241,11 +1276,27 @@ audit_check_wait_ready() {
     return 1
 }
 
+audit_node_is_live_check_target() {
+    local node="$1"
+    # Tests that extract an apply helper may not provide node inventory. In
+    # the full collector NODES_JSON is always set and this guard fails fast
+    # instead of pinning a pod to a kubelet that cannot start it.
+    [[ -z "${NODES_JSON:-}" ]] && return 0
+    jq -e --arg node "$node" '
+        any(.items[];
+            .metadata.name == $node
+            and ((.status.conditions // []) | any(.type == "Ready" and .status == "True"))
+            and ((.spec.unschedulable // false) != true)
+            and (((.spec.taints // []) | map(.key) | index("node.kubernetes.io/unreachable")) == null)
+        )' <<< "$NODES_JSON" >/dev/null
+}
+
 # Pod names use $$/$RANDOM suffixes, never sanitized node names: a slugged
 # node name can end in "-", which RFC 1123 rejects, and short DOKS node names
 # hit exactly that. The target node is in spec.nodeName and the check logs.
 apply_privileged_host_check_pod() {
     local node="$1"
+    audit_node_is_live_check_target "$node" || { check_log "skipping host check pod on ${node}: node is not Ready/schedulable"; return 1; }
     ensure_audit_check_namespace || { check_log "no usable namespace for check pods"; return 1; }
     local ns="$K8S_AUDIT_CHECK_NS"
     local pod="cmax-audit-host-$$-${RANDOM}"
@@ -1306,6 +1357,7 @@ EOF
 apply_gpu_check_pod() {
     local node="$1"
     local image="$2"
+    audit_node_is_live_check_target "$node" || { check_log "skipping GPU check pod on ${node}: node is not Ready/schedulable"; return 1; }
     ensure_audit_check_namespace || { check_log "no usable namespace for check pods"; return 1; }
     local ns="$K8S_AUDIT_CHECK_NS"
     local pod="cmax-audit-gpu-$$-${RANDOM}"
@@ -2325,19 +2377,22 @@ print_section "Per-Node Storage (drive config)"
 NODE_STORAGE_JSON="["
 NODE_STORAGE_FIRST="true"
 
-# Sample up to 3 GPU worker nodes. The storage layout that matters for GPU
-# workloads is the GPU nodes' (local NVMe scratch is provisioned there); the
-# rest of this collector also iterates GPU_NODE_NAMES. On a mixed cluster the
-# old "any non-control-plane node" selection could sample a CPU-only service
-# node and report its (different) storage. Fall back to any non-control-plane
-# node only if no GPU node is visible.
-WORKER_NODE_NAMES=$(echo "$GPU_NODE_NAMES" | tr ' ' '\n' | sed '/^$/d' | head -3)
+# Sample up to 3 Ready GPU worker nodes. The storage layout that matters for
+# GPU workloads is the GPU nodes' (local NVMe scratch is provisioned there);
+# the rest of this collector also iterates GPU_CHECK_NODE_NAMES for live pods.
+# On a mixed cluster the old "any non-control-plane node" selection could
+# sample a CPU-only service node and report its (different) storage. Fall
+# back to any Ready non-control-plane node only if no Ready GPU node exists.
+WORKER_NODE_NAMES=$(echo "$GPU_CHECK_NODE_NAMES" | tr ' ' '\n' | sed '/^$/d' | head -3)
 if [[ -z "$WORKER_NODE_NAMES" ]]; then
     WORKER_NODE_NAMES=$(echo "$NODES_JSON" | jq -r '
         [.items[] |
          select(
            (.metadata.labels["node-role.kubernetes.io/control-plane"] == null) and
-           (.metadata.labels["node-role.kubernetes.io/master"] == null)
+           (.metadata.labels["node-role.kubernetes.io/master"] == null) and
+           ((.status.conditions // []) | any(.type == "Ready" and .status == "True")) and
+           ((.spec.unschedulable // false) != true) and
+           (((.spec.taints // []) | map(.key) | index("node.kubernetes.io/unreachable")) == null)
          ) | .metadata.name
         ] | .[0:3] | .[]')
 fi
@@ -2618,7 +2673,7 @@ DMESG_AMDGPU_ERRORS_COUNT=unavailable
 GPU_ERROR_NODES_TOTAL=${GPU_NODE_COUNT:-0}
 GPU_ERROR_NODES_CHECKED=0
 GPU_ERROR_OUTPUT=""
-for node in $GPU_NODE_NAMES; do
+for node in $GPU_CHECK_NODE_NAMES; do
     GPU_ERROR_OUTPUT+="$(run_gpu_error_check_on_node "$node")"$'\n'
 done
 aggregate_gpu_error_history "$GPU_ERROR_OUTPUT" || true
@@ -2843,9 +2898,9 @@ K8S_GPU_CONTAINER_RUNTIME_NODE="unknown"
 K8S_CUDA_VISIBLE_DEVICES="unknown"
 K8S_NVIDIA_VISIBLE_DEVICES="unknown"
 
-if [[ -f "$WORKLOAD_DIR/container-check.sh" && -n "$GPU_NODE_NAMES" ]]; then
+if [[ -f "$WORKLOAD_DIR/container-check.sh" && -n "$GPU_CHECK_NODE_NAMES" ]]; then
     _container_tries=0
-    for node in $GPU_NODE_NAMES; do
+    for node in $GPU_CHECK_NODE_NAMES; do
         if [[ "$_container_tries" -ge "$K8S_AUDIT_CHECK_NODE_TRIES" ]]; then break; fi
         _container_tries=$((_container_tries + 1))
         print_detail "Container host check: privileged pod on ${node} (ns=${K8S_AUDIT_CHECK_NS})"
@@ -2885,6 +2940,8 @@ if [[ -f "$WORKLOAD_DIR/container-check.sh" && -n "$GPU_NODE_NAMES" ]]; then
     fi
 elif [[ -z "$GPU_NODE_NAMES" ]]; then
     print_warn "Container host check skipped: no GPU worker node detected"
+elif [[ -z "$GPU_CHECK_NODE_NAMES" ]]; then
+    print_warn "Container host check skipped: no Ready/schedulable GPU worker node detected"
 else
     print_warn "Container host check skipped: container-check.sh is unavailable"
 fi
@@ -2966,9 +3023,9 @@ if [[ -f "$WORKLOAD_DIR/host-check.sh" ]]; then
     # Strategy 2: privileged host pod, chroot into the host root. Preferred
     # fallback because it needs no free GPU and returns the full WORKER_*
     # host fact set.
-    if ! host_check_driver_known "$HOST_CHECK_OUT" && [[ -n "$GPU_NODE_NAMES" ]]; then
+    if ! host_check_driver_known "$HOST_CHECK_OUT" && [[ -n "$GPU_CHECK_NODE_NAMES" ]]; then
         _hp_tries=0
-        for node in $GPU_NODE_NAMES; do
+        for node in $GPU_CHECK_NODE_NAMES; do
             if [[ "$_hp_tries" -ge "$K8S_AUDIT_CHECK_NODE_TRIES" ]]; then break; fi
             _hp_tries=$((_hp_tries + 1))
             print_detail "Host check fallback: privileged host pod on ${node} (ns=${K8S_AUDIT_CHECK_NS})"
@@ -2986,9 +3043,9 @@ if [[ -f "$WORKLOAD_DIR/host-check.sh" ]]; then
 
     # Strategy 3: plain GPU pod running nvidia-smi, for clusters that forbid
     # privileged pods. Needs a schedulable nvidia.com/gpu, so NVIDIA-only.
-    if ! host_check_driver_known "$HOST_CHECK_OUT" && [[ -n "$GPU_NODE_NAMES" && "${TOTAL_GPUS:-0}" -gt 0 && "$GPU_VENDOR" == "nvidia" ]]; then
+    if ! host_check_driver_known "$HOST_CHECK_OUT" && [[ -n "$GPU_CHECK_NODE_NAMES" && "${TOTAL_GPUS:-0}" -gt 0 && "$GPU_VENDOR" == "nvidia" ]]; then
         _hp_tries=0
-        for node in $GPU_NODE_NAMES; do
+        for node in $GPU_CHECK_NODE_NAMES; do
             if [[ "$_hp_tries" -ge "$K8S_AUDIT_CHECK_NODE_TRIES" ]]; then break; fi
             _hp_tries=$((_hp_tries + 1))
             print_detail "Host check fallback: GPU pod on ${node} (ns=${K8S_AUDIT_CHECK_NS}, image=${K8S_AUDIT_GPU_CHECK_IMAGE})"
@@ -3009,6 +3066,8 @@ if [[ -f "$WORKLOAD_DIR/host-check.sh" ]]; then
         HOST_CHECK_OK=true
     elif [[ -z "$GPU_NODE_NAMES" ]]; then
         print_warn "Host check: skipped (no GPU node available for fallback checks)"
+    elif [[ -z "$GPU_CHECK_NODE_NAMES" ]]; then
+        print_warn "Host check: skipped (no Ready/schedulable GPU node available for fallback checks)"
     fi
 else
     print_warn "Host check: skipped (host-check.sh not found)"
@@ -3431,6 +3490,7 @@ SECURITY_VERSION_AUDIT_JSON=$(build_security_version_audit \
 # slurm/standalone collector uses, so the two JSON shapes read one minimum table
 # instead of two hand-maintained copies.
 SECURITY_ADVISORY_JSON=$(build_security_advisory_json \
+    --host-facts "${HOST_CHECK_OUT:-}" \
     --bad-epoll-os "${HP_BAD_EPOLL_OS:-unknown}" \
     --bad-epoll-release "${HP_BAD_EPOLL_RELEASE:-unknown}" \
     --bad-epoll-running "${HP_GUEST_KERNEL_RUNNING:-unknown}" \

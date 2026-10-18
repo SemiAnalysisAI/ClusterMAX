@@ -84,6 +84,7 @@ _CHECK_ANCHORS = {
     "security.guestKernel.newerInstalled": _SECURITY_PATCHING,
     "security.fragnesia.status": _SECURITY_PATCHING,
     "security.badEpoll.status": _SECURITY_PATCHING,
+    "security.pwnescape.status": _SECURITY_PATCHING,
     "containers.nvidiaContainerToolkit": _LIFECYCLE_DRIVERS,
     "containers.workerCheckOk": "orchestration",
     "containers.pyxisRuntimeWorks": _ORCHESTRATION_PYXIS,

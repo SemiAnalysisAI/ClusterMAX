@@ -14,6 +14,10 @@ This version of the `cmax` CLI provides the following commands:
 
 ## Install ClusterMAX
 
+The [security release preparation checklist](docs/security-release-preparation.md)
+describes the added checks and publication gates. PR validation does not publish
+a stable package.
+
 ClusterMAX requires Python 3.10 or later. Install the current release:
 ```
 uv venv

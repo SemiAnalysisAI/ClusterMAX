@@ -94,6 +94,9 @@ _PASS_ASSESSMENTS = {
     "security.badEpoll.status": (
         "The running distribution kernel meets the Bad Epoll fixed package minimum."
     ),
+    "security.pwnescape.status": (
+        "The sampled physical host meets the upstream PwnEscape running-kernel minimum."
+    ),
     "containers.nvidiaContainerToolkit": (
         "The worker has NVIDIA Container Toolkit support."
     ),
@@ -289,6 +292,10 @@ _REPRODUCTION_COMMANDS = {
     "securityVersions.runc.status": "on the audited worker: `runc --version`",
     "securityVersions.dcgm.status": "on the audited worker: `dcgmi --version`",
     "security.fragnesia.status": "on the audited worker: `uname -r`",
+    "security.pwnescape.status": (
+        "on the audited worker: `uname -r`; inspect `/sys/kernel/livepatch`; "
+        "request provider patch evidence when the physical host is hidden"
+    ),
     "security.badEpoll.status": (
         "on the audited worker: `uname -r`; `cat /proc/version_signature`; "
         "`dpkg-query -W 'linux-image-*'`; inspect `/sys/kernel/livepatch`"
@@ -506,6 +513,15 @@ def _version_observation(audit: dict[str, Any], key: str, value: Any) -> Any:
                 f"observed version {kernel.get('running', 'unknown')}; "
                 "minimum version not applicable; newest installed version "
                 f"{kernel.get('newestInstalled', 'unknown')}"
+            )
+    if key == "security.pwnescape.status":
+        advisory = _nested(audit, "security.pwnescape")
+        if isinstance(advisory, dict):
+            return (
+                f"observed version {advisory.get('runningKernel', 'unknown')}; "
+                f"minimum version {advisory.get('minimum', 'unknown')}; "
+                f"local status {advisory.get('localKernelStatus', 'unknown')}; "
+                f"CVE-2026-99999; {advisory.get('reason', '')}"
             )
     if key == "security.badEpoll.status":
         advisory = _nested(audit, "security.badEpoll")

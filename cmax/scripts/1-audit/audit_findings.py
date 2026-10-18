@@ -780,6 +780,20 @@ RULES: tuple[Rule, ...] = (
         cves=("CVE-2026-46242",),
     ),
     # --- Containers -------------------------------------------------------
+    Rule(
+        "security.pwnescape.status",
+        "Running upstream kernel is below the PwnEscape minimum version",
+        VERSION,
+        _status_is("fail"),
+        cves=("CVE-2026-99999",),
+    ),
+    Rule(
+        "security.pwnescape.status",
+        "PwnEscape host patch status requires vendor or provider evidence",
+        CONFIG,
+        lambda value: str(value).strip().lower() not in {"pass", "fail"},
+        cves=("CVE-2026-99999",),
+    ),
     # These checks are worker-scoped. A `false` value produced only because the
     # worker check never ran (containers.workerCheckOk == false) is inconclusive,
     # so the "not installed" / "below version" rules are guarded to fire only
@@ -1340,6 +1354,7 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "security.fragnesia.status": "ubuntu-kernel-fragnesia-dirty-frag",
     # CLI-only until the website catalog publishes a dedicated Bad Epoll row.
     "security.badEpoll.status": None,
+    "security.pwnescape.status": None,
     "containers.nvidiaContainerToolkit": "container-toolkit",
     "containers.workerCheckOk": None,
     "containers.pyxisRuntimeWorks": "pyxis",

@@ -12,6 +12,28 @@ from test_security_release_evidence import WORK, bashtest, runtime
 policy = runtime.policy
 
 
+@pytest.mark.parametrize("message", [
+    "Get Chassis Status failed: 0xff Unspecified error",
+    "Unable to get Chassis Status: 0xff Unspecified error",
+    "Get Device ID command failed: 0xff Unspecified error",
+])
+def test_bmc_chassis_command_error_is_preserved(message):
+    function = bashtest.extract_function(WORK / "cluster-audit-slurm-security.sh", "k8s_bmc_record_for_current_pod")
+    run = bashtest.run_bash(
+        "run_k8s_security_script() { bash; }\n" + function + "\nk8s_bmc_record_for_current_pod fixture-node",
+        env={"CHASSIS_ERROR": message},
+        stubs={"ipmitool": (
+            'if [ "$1" = mc ]; then echo "Get Device ID command failed: 0xff Unspecified error"; '
+            'else echo "$CHASSIS_ERROR"; fi\nexit 1'
+        )},
+    )
+    assert run.returncode == 0, run.stderr
+    record = json.loads(run.stdout)
+    assert record["checked"] is True
+    assert record["exposed"] is False
+    assert record["errorResponseIsAccessDenial"] is False
+
+
 def test_csaf_ga_ranges_retain_products_and_or_newer():
     result = minimum_refresh.connectx_minimums(fetch=StubFetcher())
     assert result["gaRanges"] == [
