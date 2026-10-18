@@ -163,7 +163,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ needs.build.outputs.commit }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
@@ -176,7 +176,7 @@ jobs:
       - name: Verify the approved artifacts
         env:
           VERSION: ${{ needs.build.outputs.version }}
-          COMMIT: ${{ needs.build.outputs.commit }}
+          COMMIT: ${{ github.sha }}
           RELEASE_CHANNEL: ${{ needs.build.outputs.channel }}
         run: |
           args=()
@@ -192,7 +192,7 @@ jobs:
           EXPECTED_VERSION: ${{ inputs.expected_version }}
           SMOKE_TESTED_COMMIT: ${{ inputs.smoke_tested_commit }}
           VERSION: ${{ needs.build.outputs.version }}
-          COMMIT: ${{ needs.build.outputs.commit }}
+          COMMIT: ${{ github.sha }}
         run: |
           python .github/scripts/stable_release.py preflight --version "$VERSION" --commit "$COMMIT"
 
@@ -213,7 +213,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ needs.build.outputs.commit }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
@@ -225,7 +225,7 @@ jobs:
       - name: Verify PyPI hashes and download the published wheel
         env:
           VERSION: ${{ needs.build.outputs.version }}
-          COMMIT: ${{ needs.build.outputs.commit }}
+          COMMIT: ${{ github.sha }}
         run: |
           python .github/scripts/stable_release.py verify-pypi \
             --version "$VERSION" --commit "$COMMIT"
@@ -256,7 +256,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ needs.build.outputs.commit }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
@@ -270,7 +270,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_CHANNEL: ${{ needs.build.outputs.channel }}
           VERSION: ${{ needs.build.outputs.version }}
-          COMMIT: ${{ needs.build.outputs.commit }}
+          COMMIT: ${{ github.sha }}
         run: |
           python .github/scripts/stable_release.py github-release \
             --version "$VERSION" --commit "$COMMIT"

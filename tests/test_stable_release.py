@@ -389,6 +389,5 @@ def test_workflow_permissions_dependencies_and_manual_inputs():
     for name, job in jobs.items():
         for step in job["steps"]:
             if step.get("uses", "").startswith("actions/checkout@"):
-                expected = "${{ github.sha }}" if name == "build" else "${{ needs.build.outputs.commit }}"
-                assert step["with"]["ref"] == expected
+                assert step["with"]["ref"] == "${{ github.sha }}"
                 assert step["with"]["persist-credentials"] is False
