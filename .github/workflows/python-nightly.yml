@@ -13,6 +13,14 @@ on:
         options:
           - nightly
           - stable
+      expected_version:
+        description: Exact source version to publish (required for stable)
+        required: false
+        type: string
+      smoke_tested_commit:
+        description: Full master commit SHA smoke-tested on a test cluster (required for stable)
+        required: false
+        type: string
 
 concurrency:
   group: python-publish-${{ inputs.channel || 'nightly' }}
@@ -34,6 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -45,7 +54,8 @@ jobs:
         env:
           DISPATCH_CHANNEL: ${{ inputs.channel }}
         run: |
-          commit="$(git rev-parse --short=12 HEAD)"
+          commit="$(git rev-parse HEAD)"
+          test "$commit" = "$GITHUB_SHA"
           source_version="$(python -c 'import cmax; print(cmax.__version__)')"
           channel="${DISPATCH_CHANNEL:-nightly}"
           case "$channel" in
@@ -73,6 +83,25 @@ jobs:
           echo "- Version: \`$version\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: \`$commit\`" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Check stable publication inputs and collisions
+        if: steps.version.outputs.channel == 'stable'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_CHANNEL: ${{ steps.version.outputs.channel }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+          SMOKE_TESTED_COMMIT: ${{ inputs.smoke_tested_commit }}
+          VERSION: ${{ steps.version.outputs.version }}
+          COMMIT: ${{ steps.version.outputs.commit }}
+        run: |
+          python .github/scripts/stable_release.py preflight --version "$VERSION" --commit "$COMMIT"
+          test -s "docs/releases/${VERSION}.md"
+
+      - name: Test the exact stable commit
+        if: steps.version.outputs.channel == 'stable'
+        run: |
+          python -m pip install pytest pyyaml prompt-toolkit packaging
+          python -m pytest -q
+
       - name: Build the distributions
         env:
           CLUSTERMAX_BUILD_VERSION: ${{ steps.version.outputs.version }}
@@ -99,12 +128,27 @@ jobs:
           /tmp/clustermax-publication/bin/cmax audit --show
           /tmp/clustermax-publication/bin/cmax audit security --show
 
+      - name: Bind artifacts and release notes to the commit
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          COMMIT: ${{ steps.version.outputs.commit }}
+          RELEASE_CHANNEL: ${{ steps.version.outputs.channel }}
+        run: |
+          mkdir -p publication/dist
+          cp dist/* publication/dist/
+          args=()
+          if [[ "$RELEASE_CHANNEL" == stable ]]; then
+            args+=(--notes "docs/releases/${VERSION}.md")
+          fi
+          python .github/scripts/stable_release.py prepare \
+            --version "$VERSION" --commit "$COMMIT" "${args[@]}"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: clustermax-${{ steps.version.outputs.version }}-${{ steps.version.outputs.commit }}
-          path: dist/
+          path: publication/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: ${{ steps.version.outputs.channel == 'stable' && 90 || 14 }}
 
   publish:
     if: github.repository == 'SemiAnalysisAI/ClusterMAX' && github.ref == 'refs/heads/master'
@@ -114,13 +158,119 @@ jobs:
       name: ${{ needs.build.outputs.channel == 'nightly' && 'pypi-nightly' || 'pypi' }}
       url: https://pypi.org/project/clustermax/
     permissions:
+      contents: read
       id-token: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: clustermax-${{ needs.build.outputs.version }}-${{ needs.build.outputs.commit }}
-          path: dist/
+          path: publication/
+
+      - name: Verify the approved artifacts
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          COMMIT: ${{ needs.build.outputs.commit }}
+          RELEASE_CHANNEL: ${{ needs.build.outputs.channel }}
+        run: |
+          args=()
+          if [[ "$RELEASE_CHANNEL" == stable ]]; then args+=(--stable); fi
+          python .github/scripts/stable_release.py verify \
+            --version "$VERSION" --commit "$COMMIT" "${args[@]}"
+
+      - name: Recheck stable publication after approval
+        if: needs.build.outputs.channel == 'stable'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_CHANNEL: ${{ needs.build.outputs.channel }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+          SMOKE_TESTED_COMMIT: ${{ inputs.smoke_tested_commit }}
+          VERSION: ${{ needs.build.outputs.version }}
+          COMMIT: ${{ needs.build.outputs.commit }}
+        run: |
+          python .github/scripts/stable_release.py preflight --version "$VERSION" --commit "$COMMIT"
 
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
-          packages-dir: dist/
+          packages-dir: publication/dist/
+
+  verify-pypi:
+    if: >-
+      github.repository == 'SemiAnalysisAI/ClusterMAX' &&
+      github.ref == 'refs/heads/master' &&
+      github.event_name == 'workflow_dispatch' &&
+      needs.build.outputs.channel == 'stable'
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: clustermax-${{ needs.build.outputs.version }}-${{ needs.build.outputs.commit }}
+          path: publication/
+      - name: Verify PyPI hashes and download the published wheel
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          COMMIT: ${{ needs.build.outputs.commit }}
+        run: |
+          python .github/scripts/stable_release.py verify-pypi \
+            --version "$VERSION" --commit "$COMMIT"
+      - name: Smoke-test the wheel fetched from PyPI
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          python -m venv /tmp/clustermax-from-pypi
+          /tmp/clustermax-from-pypi/bin/python -m pip --isolated install \
+            --index-url https://pypi.org/simple --no-cache-dir \
+            "/tmp/clustermax-pypi-wheel/clustermax-${VERSION}-py3-none-any.whl"
+          cd /tmp
+          test "$(/tmp/clustermax-from-pypi/bin/cmax --version)" = "cmax ${VERSION}"
+          /tmp/clustermax-from-pypi/bin/cmax audit --show
+          /tmp/clustermax-from-pypi/bin/cmax audit security --show
+          /tmp/clustermax-from-pypi/bin/cmax audit security --standalone --dry-run -o yaml
+
+  github-release:
+    if: >-
+      github.repository == 'SemiAnalysisAI/ClusterMAX' &&
+      github.ref == 'refs/heads/master' &&
+      github.event_name == 'workflow_dispatch' &&
+      needs.build.outputs.channel == 'stable'
+    needs: [build, verify-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: clustermax-${{ needs.build.outputs.version }}-${{ needs.build.outputs.commit }}
+          path: publication/
+      - name: Create or resume the matching GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_CHANNEL: ${{ needs.build.outputs.channel }}
+          VERSION: ${{ needs.build.outputs.version }}
+          COMMIT: ${{ needs.build.outputs.commit }}
+        run: |
+          python .github/scripts/stable_release.py github-release \
+            --version "$VERSION" --commit "$COMMIT"
