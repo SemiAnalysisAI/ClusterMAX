@@ -62,9 +62,7 @@ def _harness_not_applicable(harness: str) -> str:
 
 
 _PASS_ASSESSMENTS = {
-    "securityVersions.amdDriver.status": (
-        "The loaded AMD driver on the inspected host meets the published security minimum."
-    ),
+    "k8s_scheduling.status": "The scheduling inventory has no recorded findings.",
     "tenant_pod_defaults.status": "The tenant pod check completed.",
     "tenant_pod_defaults.checks.memlock.status": "The tenant pod has sufficient locked memory.",
     "tenant_pod_defaults.checks.shm.status": "The tenant pod has sufficient shared memory.",

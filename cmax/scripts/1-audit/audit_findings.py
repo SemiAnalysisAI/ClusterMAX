@@ -601,16 +601,11 @@ _TENANT_POD_RECOMMENDATIONS = {
 
 RULES: tuple[Rule, ...] = (
     Rule(
-        "securityVersions.amdDriver.status",
-        "AMD host driver below security minimum",
-        VERSION,
-        _status_is("fail"),
-    ),
-    Rule(
-        "securityVersions.amdDriver.status",
-        "AMD host driver patch requires provider or distribution evidence",
+        "k8s_scheduling.status",
+        "Kubernetes scheduling policy needs review",
         CONFIG,
-        _status_is("unknown"),
+        _status_is("warning"),
+        harnesses=frozenset({"k8s"}),
     ),
     # --- Advisory-backed host security versions -------------------------
     Rule(
@@ -1688,6 +1683,15 @@ def _sentence(text: str) -> str:
 def _finding_guidance(
     audit: dict[str, Any], rule: Rule, value: Any
 ) -> tuple[str, str, tuple[str, ...], tuple[str, ...]]:
+    if rule.key == "k8s_scheduling.status":
+        payload = nested_get(audit, "k8s_scheduling", default={})
+        messages = [str(row.get("message", "")) for row in payload.get("findings", [])
+                    if isinstance(row, dict)]
+        return (
+            "; ".join(messages) or str(payload.get("message") or value),
+            "Check the recorded policy against the intended workload. A placement restriction does not establish a provider defect.",
+            (), (),
+        )
     if rule.key.startswith("tenant_pod_defaults."):
         detected, recommendation = _tenant_pod_guidance(audit, rule, value)
         return detected, recommendation, (), ()
