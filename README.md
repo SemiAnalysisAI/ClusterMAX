@@ -18,6 +18,10 @@ The [security release preparation checklist](docs/security-release-preparation.m
 describes the added checks and publication gates. PR validation does not publish
 a stable package.
 
+Stable publication uses a manually dispatched, approved workflow. It verifies
+the PyPI upload before creating the matching GitHub tag and Release from the
+same commit and artifacts. Nightly publication does not create GitHub Releases.
+
 ClusterMAX requires Python 3.10 or later. Install the current release:
 ```
 uv venv

@@ -2,7 +2,9 @@
 
 This PR prepares the public `cmax` CLI for release `0.3.0`. It sets the source
 and build defaults to `0.3.0` and the next nightly base to `0.3.1`.
-It does not merge the PR, create a tag, or publish a distribution.
+It also adds the stable publication workflow described below.
+Adding this code does not merge the PR, dispatch that workflow, create a tag,
+or publish a distribution.
 
 ## Included changes
 
@@ -59,6 +61,9 @@ floors from upstream release numbers.
   `cmax --version` all report `0.3.0`.
 - Rebuild a wheel from the source distribution and verify the same version.
 - Verify that the configured nightly version sorts after stable `0.3.0`.
+- Run `tests/test_stable_release.py`. Its synthetic files and fake services
+  test the publication guards without network access or publication.
+- Lint the workflow with `actionlint`.
 - Confirm that `cmax audit security --show` and `cmax audit --show` include
   `security.pwnescape.status` and `security.badEpoll.status`.
 - Confirm that the installed PwnEscape grader matches the reviewed source.
@@ -88,10 +93,58 @@ Before publication:
 - Confirm the `pypi` environment approval and Trusted Publisher configuration.
   The existing workflow publishes only from public `master`.
 - Obtain explicit release approval before dispatching the `python-publish`
-  workflow with `channel=stable` from `master`.
-- Verify the published package version and perform a fresh installation from
-  PyPI. Create the matching GitHub tag and release notes only with approval.
+  workflow with `channel=stable` from `master`. Set `expected_version` to
+  `0.3.0` and `smoke_tested_commit` to the full master SHA tested on a cluster.
+  Both inputs must match the checked-out commit and version.
+- Review the committed `docs/releases/0.3.0.md` notes before approving the
+  stable `pypi` environment. That approval covers the PyPI upload and the
+  subsequent matching GitHub tag and Release.
 
-Only the nightly version base changes in the publication workflow. Its
-triggers, credentials, and publication gates remain unchanged.
-The maintainer must check those gates at release time.
+## Stable workflow
+
+The workflow has four jobs. Each checks out the full commit SHA selected by
+the dispatch rather than resolving a moving branch again.
+
+- **Build:** Reject non-master or non-manual stable runs, mismatched inputs,
+  existing PyPI versions, conflicting tags, and existing visible releases.
+  Run the full tests, then build and smoke-test the wheel once.
+  Bundle the distributions, committed notes, a version/commit manifest, and
+  `SHA256SUMS` as one immutable Actions artifact.
+- **Publish:** Wait for the existing `pypi` environment approval.
+  Verify the downloaded bundle and recheck version/tag collisions after
+  approval. Use Trusted Publishing to upload only the wheel and source
+  distribution. Do not skip existing PyPI files.
+- **Verify PyPI:** Poll for both files with up to 18 checks at 10-second intervals.
+  Check their recorded hashes and reject yanked or unexpected files.
+  Fetch the wheel from the PyPI file host, verify its bytes, and install it
+  outside the checkout. Check the version, audit inventory, and dry-run plan.
+- **GitHub Release:** Run only after successful PyPI verification and the
+  clean-install checks. Create `v0.3.0` at the original full commit SHA.
+  Create a draft, attach the original distributions, notes, manifest, and
+  checksums, and verify the attachments before publishing the draft.
+
+Only the final stable job has `contents: write`. The upload job retains
+`id-token: write` for PyPI and gets no tag/release write permission.
+Nightlies retain their schedule and separate environment. They verify the
+same bundle format but do not create tags or GitHub Releases.
+Stable artifacts are retained for 90 days and nightly artifacts for 14 days.
+
+## Recovery
+
+If PyPI succeeds and a later job fails, rerun the failed job and its dependents
+in the original Actions run. Do not dispatch a new run or rerun all jobs,
+because that rebuilds an already-published version.
+
+The GitHub job finds interrupted drafts through the paginated releases API.
+It checks the existing tag, notes, and asset bytes before resuming an upload.
+It does not move tags, replace notes, clobber files, or delete releases.
+A matching complete release is a no-op on retry.
+
+If an existing tag, release, or asset differs, the job stops for inspection.
+Permission errors also stop the job. If a PyPI upload only partly completes,
+inspect the registry before any further action. This workflow does not
+automatically repair or replace an existing PyPI version.
+
+If the original Actions artifact has expired, stop and plan an explicit
+recovery. Do not rebuild files and assume they match the published bytes.
+Repository tag rules and PyPI environment restrictions remain in force.
