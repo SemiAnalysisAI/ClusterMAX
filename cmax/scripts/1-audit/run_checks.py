@@ -14,6 +14,7 @@ from typing import Any
 
 
 CHECK_PROFILES = {
+    'system/tenant_pod_defaults.py': frozenset(['orchestration']),
     "fabric/nccl-ib-qps-check.py": frozenset({"networking"}),
     "fabric/nccl-topology-file-check.py": frozenset({"networking"}),
     "fabric/nic-topology-check.py": frozenset(
@@ -28,6 +29,7 @@ CHECK_PROFILES = {
     "system/vm-iommu-check.py": frozenset({"hardware"}),
 }
 CHECK_HARNESSES = {
+    'system/tenant_pod_defaults.py': frozenset(['k8s']),
     "fabric/nccl-ib-qps-check.py": frozenset({"slurm", "k8s"}),
     "fabric/nccl-topology-file-check.py": frozenset({"slurm"}),
     "fabric/nic-topology-check.py": frozenset({"slurm", "k8s"}),

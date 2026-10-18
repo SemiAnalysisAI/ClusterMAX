@@ -88,7 +88,7 @@ AUDIT_CATEGORIES = (
         "Show checks for Slurm workers, Pyxis, and Kubernetes kubelets.",
         # "slurm." covers scheduler-level checks such as accounting; container
         # runtimes on workers stay in the containers category above.
-        prefixes=("kubelet_cpu_manager_policy.", "slurm."),
+        prefixes=('kubelet_cpu_manager_policy.', 'slurm.', 'tenant_pod_defaults.'),
         keys=frozenset(
             {
                 "containers.workerCheckOk",
