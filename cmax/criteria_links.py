@@ -69,6 +69,7 @@ _MONITORING_SACCT = (
 # checks point to the owning public category instead of claiming that a nearby
 # requirement is an exact match.
 _CHECK_ANCHORS = {
+    "storage_config.status": "storage",
     "k8s_scheduling.status": "orchestration",
     "tenant_pod_defaults.status": "orchestration",
     "tenant_pod_defaults.checks.memlock.status": "lifecycle",
