@@ -587,6 +587,21 @@ def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
+def _pwnescape(audit: dict[str, Any]) -> tuple[str, str, str]:
+    value = _get(audit, "security.pwnescape")
+    if not isinstance(value, dict):
+        return WARNING, "not collected", "PwnEscape host patch evidence was not collected."
+    status = {"pass": PASS, "fail": CRITICAL}.get(value.get("status"), WARNING)
+    observed = (
+        f"running={value.get('runningKernel', 'unknown')}; "
+        f"minimum={value.get('minimum', 'unknown')}; "
+        f"local={value.get('localKernelStatus', 'unknown')}; "
+        f"scope={value.get('scope', 'unknown')}"
+    )
+    return status, observed, str(value.get("reason") or "Host patch evidence is required.")
+
+
+
 def _fragnesia(audit: dict[str, Any]) -> tuple[str, str, str]:
     advisory = _get(audit, "security.fragnesia")
     kernel = _get(audit, "security.guestKernel")
@@ -1425,6 +1440,21 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
             ("Ubuntu kernel update guidance", "https://ubuntu.com/security/notices"),
         ),
         _guest_kernel,
+    ),
+    CheckSpec(
+        "pwnescape",
+        "PwnEscape host networking kernel fix",
+        "Malformed checksum metadata can cross the guest-to-host boundary through the Linux networking stack.",
+        (
+            "Install the vendor kernel fix for CVE-2026-99999 and boot it on the host. "
+            "Request provider evidence when the physical host is hidden."
+        ),
+        _references(
+            ("CVE-2026-99999", "https://nvd.nist.gov/vuln/detail/CVE-2026-99999"),
+            ("PwnEscape research", "https://pwn.ai/blog/pwnescape"),
+            ("Ubuntu tracker", "https://ubuntu.com/security/CVE-2026-99999"),
+        ),
+        _pwnescape,
     ),
     CheckSpec(
         "fragnesia",

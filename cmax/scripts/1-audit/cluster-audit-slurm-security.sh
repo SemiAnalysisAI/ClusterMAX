@@ -247,7 +247,7 @@ if [ -n "$path" ]; then
   if out=$(timeout 5 "$path" chassis status 2>&1); then chassis=allowed
   elif [ "$?" -eq 124 ]; then chassis=unknown
   elif printf '%s' "$out" | grep -qiE 'permission denied|operation not permitted|access denied'; then chassis=blocked
-  elif printf '%s' "$out" | grep -qiE 'Get Device ID command failed: 0xff Unspecified error'; then chassis=error-response; fi
+  elif printf '%s' "$out" | grep -qiE '(Get Device ID command failed|Get Chassis Status failed|Unable to get Chassis Status): 0xff Unspecified error'; then chassis=error-response; fi
 fi
 printf 'DEVICE=%s\nPATH=%s\nINSTALLED=%s\nMC=%s\nCHASSIS=%s\n' \
   "$device" "$path" "$installed" "$mc" "$chassis"
@@ -543,6 +543,7 @@ fi
 JANUSCAPE_EXPOSED_JSON=$(json_bool_or_unknown "${WORKER_JANUSCAPE_EXPOSED:-}")
 SECURITY_ADVISORY_JSON=$(printf '{%s "_end": null}' \
     "$(build_security_advisory_json \
+        --host-facts "${WORKER_CHECK_OUTPUT:-}" \
         --bad-epoll-os "${WORKER_OS_ID:-unknown}" \
         --bad-epoll-release "${WORKER_OS_VERSION_ID:-unknown}" \
         --bad-epoll-running "${WORKER_GUEST_KERNEL_RUNNING:-unknown}" \

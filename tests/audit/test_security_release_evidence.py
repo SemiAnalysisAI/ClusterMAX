@@ -28,6 +28,48 @@ virtio = load("release_virtio", WORK / "checks/fabric/virtio-net-check.py")
 kernel = load("release_kernel", WORK / "bad_epoll.py")
 
 
+@pytest.mark.parametrize("status", ["fail", "pass"])
+def test_generic_fragnesia_abi_result_survives_missing_package_evidence(status):
+    run = bashtest.run_bash(
+        f'source "{WORK}/audit-common.sh"\n'
+        'build_security_advisory_json --bad-epoll-os ubuntu --bad-epoll-release 24.04 '
+        '--bad-epoll-running 6.8.0-120-generic '
+        f'--fragnesia-status {status} --fragnesia-compared-abi 121'
+    )
+    assert run.returncode == 0, run.stderr
+    data = json.loads("{" + run.stdout + '"_end": null}')
+    # The original ABI result remains unless an active published grace applies.
+    assert data["fragnesia"]["status"] == status or (
+        status == "fail" and data["fragnesia"]["gracePeriod"] is not None
+    )
+    assert data["fragnesia"]["comparedAbiFloor"] == "121"
+
+
+def test_multiple_dpus_require_per_device_mode_evidence(tmp_path):
+    for bdf in ("0000:03:00.0", "0000:04:00.0"):
+        dev = tmp_path / "sys/bus/pci/devices" / bdf
+        dev.mkdir(parents=True)
+        (dev / "vendor").write_text("0x15b3\n")
+        (dev / "device").write_text("0xa2dc\n")
+        (dev / "class").write_text("0x020000\n")
+    called = tmp_path / "mlxconfig-called"
+    run = bashtest.run_bash(
+        'lspci() { return 127; }\n' + virtio.K8S_COLLECTOR_SH,
+        env={"CLUSTERMAX_AUDIT_ROOT": str(tmp_path), "CALLED": str(called)},
+        stubs={
+            "mlxconfig": 'touch "$CALLED"; printf "Configurations: Next Boot\\nINTERNAL_CPU_OFFLOAD_ENGINE 1\\n"',
+            "virtnet": 'printf "version: 99.0.0\\n"',
+        },
+    )
+    assert run.returncode == 0, run.stderr
+    assert not called.exists()
+    record = virtio.record_from_k8s("fixture-node", virtio.parse_k8s_collector(run.stdout))
+    assert "per-device" in record["modeError"]
+    assert record["mode"] == "unknown"
+    assert record["version"] is None
+    assert record["state"] not in {virtio.STATE_NOT_RUNNING, virtio.STATE_VERSION}
+
+
 def test_loaded_module_driver_without_nvidia_smi(tmp_path):
     version = tmp_path / "proc/driver/nvidia"
     version.mkdir(parents=True)

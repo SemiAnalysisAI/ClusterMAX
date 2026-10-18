@@ -175,7 +175,7 @@ class AuditCommonTests(unittest.TestCase):
         run = bashtest.run_bash(
             bashtest.extract_function(COMMON_PATH, "aggregate_gpu_error_history")
             + "\nrun_gpu_error_check_on_node() { printf 'GPU_ERROR\\t%s\\tjournalctl\\t0\\tnone\\t0\\n' \"$1\"; }"
-            + "\nGPU_NODE_COUNT=3; GPU_NODE_NAMES='gpu-a gpu-b gpu-c'\n"
+            + "\nGPU_NODE_COUNT=3; GPU_CHECK_NODE_NAMES='gpu-a gpu-b gpu-c'\n"
             + block
             + '\nprintf "%s %s\\n" "$GPU_ERROR_NODES_CHECKED" "$GPU_ERROR_NODES_TOTAL"',
         )
@@ -1649,7 +1649,7 @@ k8s_audit_merge_gpu_allocations "$scalar" "$dra"
         function = bashtest.extract_function(self.K8S_SCRIPT, "apply_gpu_check_pod")
         with tempfile.TemporaryDirectory() as temp_dir:
             manifest = Path(temp_dir) / "applied.yaml"
-            snippet = function + """
+            snippet = bashtest.extract_function(self.K8S_SCRIPT, "audit_node_is_live_check_target") + "\n" + function + """
 ensure_audit_check_namespace() { return 0; }
 check_log() { return 0; }
 audit_check_wait_ready() { return 0; }

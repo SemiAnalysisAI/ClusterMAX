@@ -1465,9 +1465,8 @@ ${bdf%.*}"
 done
 slot_count=$(printf '%s\n' "$physical_slots" | sed '/^$/d' | sort -u | wc -l)
 if [ "$slot_count" -gt 1 ]; then
-  printf '@@SCAN_ERROR@@\t%s\n' "Multiple BlueField-3 PCI devices require per-device mode evidence"
-fi
-if [ -n "$slot" ] && command -v mlxconfig >/dev/null 2>&1; then
+  printf '@@MODE_ERROR@@\t%s\n' "Multiple BlueField-3 PCI devices require per-device mode evidence"
+elif [ -n "$slot" ] && command -v mlxconfig >/dev/null 2>&1; then
   echo @@MLXCONFIG_BEGIN@@
   mlxconfig -e -d "$slot" q 2>&1
   echo @@MLXCONFIG_END@@
@@ -1544,6 +1543,13 @@ def record_from_k8s(node: str, parsed: dict[str, Any]) -> dict[str, Any]:
         "dpuReachedFromHost": None,
     }
     version = parse_virtnet_version(parsed["virtnet"])
+    if mode_error and "per-device mode evidence" in mode_error:
+        # One host-level version cannot certify every physical DPU.
+        mode = "unknown"
+        version = None
+        mode_values = {}
+        rshim["internalCpuRshim"] = "unknown"
+        rshim["rshimRestricted"] = None
     record: dict[str, Any] = {
         "host": node,
         "scanComplete": scan_complete,

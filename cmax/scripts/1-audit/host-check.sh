@@ -677,6 +677,48 @@ echo "WORKER_PCIE_SCAN_COMPLETE=$WORKER_PCIE_SCAN_COMPLETE"
 echo "WORKER_PCIE_VFIO_DEVICES=$WORKER_PCIE_VFIO_DEVICES"
 echo "WORKER_PCIE_UNSAFE_GROUPS=$WORKER_PCIE_UNSAFE_GROUPS"
 
+# PwnEscape facts are passive observations. No device is opened, no network
+# setting is changed, and absence of a device never proves this CVE is fixed.
+collect_pwnescape_facts() {
+    local root="${CLUSTERMAX_AUDIT_ROOT:-}"
+    local livepatch=unknown tun=unknown virtio=unknown userns=unknown
+    local entry enabled
+    if [[ -d "${root}/sys/kernel/livepatch" && -r "${root}/sys/kernel/livepatch" \
+          && -x "${root}/sys/kernel/livepatch" ]]; then
+        livepatch=none
+        for entry in "${root}"/sys/kernel/livepatch/*; do
+            [[ -e "$entry" ]] || continue
+            enabled=$(cat "$entry/enabled" 2>/dev/null) || enabled=unknown
+            if [[ "$enabled" != 0 ]]; then
+                livepatch=active-or-unreadable
+            fi
+        done
+    elif [[ -d "${root}/sys/kernel" && -r "${root}/sys/kernel" \
+            && -x "${root}/sys/kernel" && ! -e "${root}/sys/kernel/livepatch" \
+            && ! -L "${root}/sys/kernel/livepatch" ]]; then
+        livepatch=not-supported
+    fi
+    if [[ -d "${root}/dev/net" && -r "${root}/dev/net" && -x "${root}/dev/net" ]]; then
+        tun=false
+        [[ -c "${root}/dev/net/tun" ]] && tun=true
+    fi
+    if [[ -r "${root}/sys/class/net" && -x "${root}/sys/class/net" ]]; then
+        virtio=false
+        for entry in "${root}"/sys/class/net/*/device/driver; do
+            [[ -L "$entry" ]] || continue
+            [[ "$(readlink "$entry" 2>/dev/null)" == */virtio_net ]] && virtio=true
+        done
+    fi
+    userns=$(cat "${root}/proc/sys/user/max_user_namespaces" 2>/dev/null) || userns=unknown
+    [[ "$userns" =~ ^[0-9]+$ ]] || userns=unknown
+    printf 'WORKER_PWNESCAPE_LIVEPATCH=%s\n' "$livepatch"
+    printf 'WORKER_PWNESCAPE_TUN_PRESENT=%s\n' "$tun"
+    printf 'WORKER_PWNESCAPE_VIRTIO_NET=%s\n' "$virtio"
+    printf 'WORKER_PWNESCAPE_USERNS_MAX=%s\n' "$userns"
+}
+collect_pwnescape_facts
+
+
 # --- GPU ---
 if command -v nvidia-smi &>/dev/null; then
     echo "WORKER_GPU_MODEL=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 | tr ' ' '-' || echo unknown)"
