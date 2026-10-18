@@ -108,7 +108,7 @@ AUDIT_CATEGORIES = (
         "storage",
         "Storage",
         "Show binary storage installation and configuration checks.",
-        prefixes=("storage.",),
+        prefixes=('storage.', 'storage_config.'),
     ),
     AuditCategory(
         "health",
