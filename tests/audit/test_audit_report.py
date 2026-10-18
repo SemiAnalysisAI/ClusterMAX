@@ -83,6 +83,28 @@ class AuditReportTests(unittest.TestCase):
             ],
         )
 
+    def test_real_rules_have_one_category_and_stable_counts(self) -> None:
+        checks = audit_report.list_check_specs(RUNTIME_ROOT)
+
+        self.assertEqual(len(checks), 67)
+        self.assertEqual(
+            Counter(check.category for check in checks),
+            {
+                "versions": 9,
+                "isolation": 11,
+                "hardware": 8,
+                "software": 9,
+                "containers": 5,
+                "orchestration": 10,
+                "networking": 5,
+                "storage": 1,
+                "health": 4,
+                "access": 5,
+            },
+        )
+        keys = {check.key for check in checks}
+        self.assertTrue(audit_report._SECURITY_EXTENSION_IDS.issubset(keys))
+
     def test_januscape_status_shows_the_exposure_evidence(self) -> None:
         values = {
             "audit_data": {
