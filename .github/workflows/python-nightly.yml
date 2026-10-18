@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 env:
-  NIGHTLY_VERSION: 0.3.0
+  NIGHTLY_VERSION: 0.3.1
 
 jobs:
   build:

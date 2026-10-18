@@ -1,7 +1,8 @@
 # Security release preparation
 
-This PR prepares the public `cmax` CLI for its next release. It does not change
-the stable version, create a tag, or publish a distribution.
+This PR prepares the public `cmax` CLI for release `0.3.0`. It sets the source
+and build defaults to `0.3.0` and the next nightly base to `0.3.1`.
+It does not merge the PR, create a tag, or publish a distribution.
 
 ## Included changes
 
@@ -54,6 +55,10 @@ floors from upstream release numbers.
 - Confirm that the final PR commit passes automated review.
 - Build the wheel and source distribution. Check both with `twine check`.
 - Check the wheel contents and install it outside the checkout.
+- Confirm that wheel metadata, source-distribution metadata, and installed
+  `cmax --version` all report `0.3.0`.
+- Rebuild a wheel from the source distribution and verify the same version.
+- Verify that the configured nightly version sorts after stable `0.3.0`.
 - Confirm that `cmax audit security --show` and `cmax audit --show` include
   `security.pwnescape.status` and `security.badEpoll.status`.
 - Confirm that the installed PwnEscape grader matches the reviewed source.
@@ -68,15 +73,14 @@ They do not establish the security status of a provider.
 
 ## Stable publication gate
 
-The current source version remains `0.2.1`, which is already released.
-Do not dispatch the stable workflow with that version.
+The source and build defaults are prepared for `0.3.0`. The nightly base is
+`0.3.1`, so later development releases sort after stable `0.3.0`.
+These changes do not publish a package.
 
-After the maintainer selects the next stable version:
+Before publication:
 
-- Update `cmax/_version.py` and the default in `setup.py` to the same new
-  version. Set the next nightly base in `.github/workflows/python-nightly.yml`
-  so future nightly versions sort after that stable release.
 - Rerun the package checks on that commit, obtain review, and merge the PR.
+- Confirm that `0.3.0` has not already been published to PyPI before dispatch.
 - Confirm that the website minimum table includes the new Bad Epoll and
   NVIDIA Fragnesia mappings. Coordinate the feed correction with
   [PR #38](https://github.com/SemiAnalysisAI/ClusterMAX/pull/38).
@@ -88,5 +92,6 @@ After the maintainer selects the next stable version:
 - Verify the published package version and perform a fresh installation from
   PyPI. Create the matching GitHub tag and release notes only with approval.
 
-The workflow and its credentials are unchanged by this PR. No PyPI readiness
-claim substitutes for checking those publication gates at release time.
+Only the nightly version base changes in the publication workflow. Its
+triggers, credentials, and publication gates remain unchanged.
+The maintainer must check those gates at release time.
