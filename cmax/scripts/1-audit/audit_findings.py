@@ -523,7 +523,10 @@ def _host_rdma_active(audit: dict[str, Any]) -> bool:
     The tenant-pod device rules use it: reporting a missing /dev/infiniband to
     a provider whose nodes hold no RDMA hardware would be noise.
     """
-    return as_int_or_zero(nested_get(audit, "networking", "hostRdma", "activePorts")) > 0
+    try:
+        return int(nested_get(audit, "networking", "hostRdma", "activePorts") or 0) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 def _host_gdrdrv_loaded(audit: dict[str, Any]) -> bool:
@@ -1461,6 +1464,12 @@ def classify_suppression(key: str, audit: dict[str, Any]) -> tuple[str, str]:
 # key and security extension id appears here and that every mapped id exists
 # in the vendored catalog.
 CHECK_CRITERIA: dict[str, str | None] = {
+    "tenant_pod_defaults.status": None,
+    "tenant_pod_defaults.checks.memlock.status": None,
+    "tenant_pod_defaults.checks.shm.status": None,
+    "tenant_pod_defaults.checks.rdmaDevices.status": None,
+    "tenant_pod_defaults.checks.gdrcopyDevice.status": None,
+    "tenant_pod_defaults.checks.tunedPodAdmission.status": None,
     "securityVersions.nvidiaDriver.status": "security-nvidia-driver",
     "securityVersions.nvidiaContainerToolkit.status": "security-nvidia-container-toolkit",
     "securityVersions.cudaToolkit.status": "cuda-toolkit-security",

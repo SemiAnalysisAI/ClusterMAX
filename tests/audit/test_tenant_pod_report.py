@@ -1,6 +1,7 @@
 """Verify the packaged collector and report integration."""
 import importlib.util
 from pathlib import Path
+import pytest
 
 from cmax import audit_report, runtime_paths
 
@@ -29,3 +30,14 @@ def test_tenant_warning_preserves_detail_and_recommendation():
     assert result.status == audit_report.WARNING
     assert result.assessment == "The pod has an 8 MiB limit."
     assert result.recommendation
+
+
+@pytest.mark.parametrize("ports", [None, "unknown", 0, "2", 2])
+def test_absent_rdma_devices_do_not_crash_report(ports):
+    values = {"audit_data": {
+        "networking": {"hostRdma": {"activePorts": ports}},
+        "tenant_pod_defaults": {"checks": {"rdmaDevices": {"status": "absent"}}},
+    }}
+    checks = audit_report.evaluate(values, ROOT, harness="k8s")
+    check = next(c for c in checks if c.key == "tenant_pod_defaults.checks.rdmaDevices.status")
+    assert check.status == (audit_report.WARNING if ports in (2, "2") else audit_report.SKIPPED)
