@@ -55,6 +55,9 @@ def _harness_not_applicable(harness: str) -> str:
 
 
 _PASS_ASSESSMENTS = {
+    "thp_madvise.status": "The host THP policy supports madvise.",
+    "static_hugepages.status": "The static HugeTLB pool has available pages.",
+    "hugepage_allocation.status": "The explicit allocation trial passed and restored the pool.",
     "storage_config.status": "The collected node storage inventory is consistent.",
     "k8s_scheduling.status": "The scheduling inventory has no recorded findings.",
     "tenant_pod_defaults.status": "The tenant pod check completed.",
@@ -824,6 +827,9 @@ _DEPENDENT_CHECK_PREREQUISITES: dict[str, _DependentCheck] = {
 
 
 def _is_not_applicable(audit: dict[str, Any], key: str, value: Any) -> bool:
+    if key in {"thp_madvise.status", "static_hugepages.status", "hugepage_allocation.status"}:
+        if _normalize_sentinel(value) in {"neutral", "skipped"}:
+            return True
     if _normalize_sentinel(value) in _NOT_APPLICABLE_VALUES:
         return True
     if key == "securityVersions.virtioNetBluefield.exposure":
