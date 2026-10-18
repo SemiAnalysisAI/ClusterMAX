@@ -38,8 +38,9 @@ cmax audit -h
 cmax audit security -h
 ```
 
-Nightly releases use the `0.3.0.devYYYYMMDDNN` format until the stable 0.3.0
-release. This version is newer than stable 0.2.1 when `--pre` is enabled.
+The prepared stable release is `0.3.0`. Subsequent nightly releases use the
+`0.3.1.devYYYYMMDDNN` format, which sorts after `0.3.0` when `--pre` is enabled.
+The version change in this branch does not publish either channel.
 
 ## Public documentation
 
@@ -238,7 +239,7 @@ report format, and evidence limits.
 
 ## Run a cluster audit
 
-Version 0.2.1 runs the core audit. Use `-s` or `--show` to list every check without collecting data:
+Version 0.3.0 runs the core audit. Use `-s` or `--show` to list every check without collecting data:
 
 ```bash
 cmax audit --show

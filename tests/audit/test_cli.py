@@ -50,7 +50,7 @@ class PublicCliTests(unittest.TestCase):
             ) as raised, contextlib.redirect_stdout(io.StringIO()) as out:
                 cli.main([flag])
             self.assertEqual(raised.exception.code, 0)
-            self.assertEqual(out.getvalue(), "cmax 0.2.1\n")
+            self.assertEqual(out.getvalue(), "cmax 0.3.0\n")
 
     def test_unreleased_commands_are_rejected(self) -> None:
         for command in ("init", "performance", "run"):

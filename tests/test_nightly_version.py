@@ -3,6 +3,9 @@ from pathlib import Path
 import unittest
 
 from packaging.version import Version
+import yaml
+
+from cmax import __version__
 
 
 SCRIPT_PATH = Path(__file__).parents[1] / ".github" / "scripts" / "nightly_version.py"
@@ -27,9 +30,12 @@ class NightlyVersionTests(unittest.TestCase):
         )
 
     def test_next_release_nightly_is_newer_than_current_stable(self) -> None:
-        nightly = NIGHTLY_VERSION.nightly_version("0.3.0", "20260826", 1)
+        workflow = SCRIPT_PATH.parents[1] / "workflows" / "python-nightly.yml"
+        configured_base = yaml.safe_load(workflow.read_text())["env"]["NIGHTLY_VERSION"]
+        nightly = NIGHTLY_VERSION.nightly_version(configured_base, "20260826", 1)
 
-        self.assertGreater(Version(nightly), Version("0.2.1"))
+        self.assertGreater(Version(nightly), Version(__version__))
+        self.assertLess(Version(nightly), Version(configured_base))
 
     def test_rejects_an_invalid_release_version(self) -> None:
         with self.assertRaisesRegex(ValueError, "X.Y.Z"):
