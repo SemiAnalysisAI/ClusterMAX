@@ -320,7 +320,7 @@ def k8s_vboost_results(
         return [], [f"kubectl get nodes returned invalid JSON: {exc}"]
 
     fanout = load_fanout()
-    nodes = fanout.k8s_gpu_nodes(nodes_json)
+    nodes = fanout.k8s_gpu_nodes(nodes_json, gpu_vendor="nvidia")
     if not nodes:
         return [], ["no Kubernetes nodes advertise nvidia.com/gpu capacity"]
 

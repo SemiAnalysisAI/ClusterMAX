@@ -52,6 +52,16 @@ class ParseJsonLinesTests(unittest.TestCase):
 
 
 class K8sGpuNodesTests(unittest.TestCase):
+    def test_vendor_filter_keeps_mixed_cluster_checks_scoped(self) -> None:
+        nodes = {"items": [
+            {"metadata": {"name": "nvidia-worker"}, "status": {"capacity": {"nvidia.com/gpu": "8"}}},
+            {"metadata": {"name": "amd-worker"}, "status": {"capacity": {"amd.com/gpu": "8"}}},
+        ]}
+        self.assertEqual(
+            [n["name"] for n in fanout.k8s_gpu_nodes(nodes, gpu_vendor="nvidia")],
+            ["nvidia-worker"],
+        )
+        self.assertEqual(len(fanout.k8s_gpu_nodes(nodes)), 2)
     def test_returns_rich_dicts_for_gpu_nodes(self) -> None:
         nodes_json = {
             "items": [

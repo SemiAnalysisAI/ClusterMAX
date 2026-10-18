@@ -64,7 +64,7 @@ def parse_json_lines(stdout: str, *, require_host: bool = False) -> list[dict[st
     return records
 
 
-def k8s_gpu_nodes(nodes_json: dict[str, Any]) -> list[dict[str, Any]]:
+def k8s_gpu_nodes(nodes_json: dict[str, Any], *, gpu_vendor: str | None = None) -> list[dict[str, Any]]:
     """GPU nodes from ``kubectl get nodes -o json``.
 
     Returns a rich dict per node
@@ -85,6 +85,8 @@ def k8s_gpu_nodes(nodes_json: dict[str, Any]) -> list[dict[str, Any]]:
             gpu_count = _as_int(capacity.get("amd.com/gpu"))
             vendor = "amd"
         if gpu_count <= 0:
+            continue
+        if gpu_vendor is not None and vendor != gpu_vendor:
             continue
         if vendor == "amd":
             gpu_model = labels.get("amd.com/gpu.product-name") or labels.get(

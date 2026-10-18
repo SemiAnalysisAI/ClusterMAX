@@ -630,7 +630,7 @@ def k8s_records(
     except json.JSONDecodeError as exc:
         return [], [f"kubectl get nodes returned invalid JSON: {exc}"]
 
-    nodes = load_fanout().k8s_gpu_nodes(nodes_json)
+    nodes = load_fanout().k8s_gpu_nodes(nodes_json, gpu_vendor="nvidia")
     if not nodes:
         return [], ["no Kubernetes nodes advertise nvidia.com/gpu capacity"]
 
