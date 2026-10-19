@@ -165,7 +165,7 @@ def validate_bulletin_lists() -> None:
             )
         if not str(reason).strip():
             problems.append(f"{a_id}: deferred bulletin has no written reason")
-    amd_tracked = {sb_id.lower() for sb_id in AMD_BULLETINS}
+    amd_tracked = {sb_id.lower() for sb_id in (*AMD_BULLETINS, *AMD_DRIVER_BULLETINS)}
     for sb_id, reason in AMD_DEFERRED_BULLETINS.items():
         if sb_id.lower() in amd_tracked:
             problems.append(
@@ -260,6 +260,7 @@ AMD_BULLETIN_PAGE = (
     "https://www.amd.com/en/resources/product-security/bulletin/{sb_id}.html"
 )
 AMD_BULLETINS: tuple[str, ...] = ("amd-sb-6018", "amd-sb-6024", "amd-sb-6027")
+AMD_DRIVER_BULLETINS: tuple[str, ...] = ("amd-sb-6034",)
 
 # An index row whose title matches this pattern concerns GPUs, so
 # `--detect-new-bulletins` reports the bulletin when it is neither tracked nor
@@ -1630,6 +1631,22 @@ def amd_rocm_minimums(
     bulletins: Sequence[str] | None = None,
     fetch: Fetcher | None = None,
 ) -> dict:
+    """Build ROCm floors without mixing in packaged host-driver releases."""
+    return _amd_program_minimums(existing, bulletins, fetch)
+
+
+def amd_driver_minimums(fetch: Fetcher | None = None) -> dict:
+    """Build the independent AMD Linux GPU Driver floors for Instinct."""
+    return _amd_program_minimums(fetch=fetch, host_driver=True)
+
+
+def _amd_program_minimums(
+    existing: dict | None = None,
+    bulletins: Sequence[str] | None = None,
+    fetch: Fetcher | None = None,
+    *,
+    host_driver: bool = False,
+) -> dict:
     """Merge every tracked AMD bulletin into one ROCm minimum per program.
 
     A program keeps the highest ROCm release any tracked bulletin names for
@@ -1646,9 +1663,11 @@ def amd_rocm_minimums(
     compare the rebuild against it and reject any lowered or dropped program.
     """
     del existing
+    component = "amdDriver" if host_driver else "rocm"
+    release_label = "driver" if host_driver else "ROCm"
     client = _fetcher(fetch)
     if bulletins is None:
-        bulletins = AMD_BULLETINS
+        bulletins = AMD_DRIVER_BULLETINS if host_driver else AMD_BULLETINS
     sources: list[dict] = []
     records: dict[str, dict[str, Any]] = {}
     for sb_id in bulletins:
@@ -1663,15 +1682,26 @@ def amd_rocm_minimums(
             }
         )
         for row in parsed["rows"]:
+            # Driver bulletins also contain client tables with three columns.
+            # Only Instinct rows belong to this component.
+            if host_driver and not AMD_PROGRAM.search(row[0] if row else ""):
+                continue
             if len(row) < 4:
                 raise MinimumRefreshError(
-                    f"rocm: a mitigation row on {url} has fewer than four "
+                    f"{component}: a mitigation row on {url} has fewer than four "
                     f"cells: {row!r}"
                 )
             program_cell, cve_cell, mitigation_cell, date_cell = row[:4]
             mitigation = " ".join(AMD_TRADEMARKS.sub(" ", mitigation_cell).split())
-            match = AMD_ROCM_MITIGATION.fullmatch(mitigation)
+            match = (
+                re.fullmatch(r"Linux GPU Driver (\d+(?:\.\d+){1,2})", mitigation)
+                if host_driver else AMD_ROCM_MITIGATION.fullmatch(mitigation)
+            )
             if not match:
+                if host_driver:
+                    raise MinimumRefreshError(
+                        f"amdDriver: unrecognized Instinct mitigation {mitigation!r} on {url}"
+                    )
                 if AMD_ROCM_HINT.search(mitigation):
                     raise MinimumRefreshError(
                         f"rocm: mitigation {mitigation_cell!r} on {url} "
@@ -1683,20 +1713,20 @@ def amd_rocm_minimums(
             programs = AMD_PROGRAM.findall(AMD_TRADEMARKS.sub(" ", program_cell))
             if not programs:
                 raise MinimumRefreshError(
-                    f"rocm: ROCm release {fixed} on {url} names no Instinct "
+                    f"{component}: {release_label} release {fixed} on {url} names no Instinct "
                     f"program in {program_cell!r}; the program naming "
                     f"probably changed"
                 )
             cves = sorted(set(CVE_ID.findall(cve_cell)))
             if not cves:
                 raise MinimumRefreshError(
-                    f"rocm: ROCm release {fixed} on {url} carries no CVE "
+                    f"{component}: {release_label} release {fixed} on {url} carries no CVE "
                     f"identifier in {cve_cell!r}; the wording probably changed"
                 )
             date = AMD_DATE.fullmatch(date_cell.strip())
             if not date:
                 raise MinimumRefreshError(
-                    f"rocm: ROCm release {fixed} on {url} carries no release "
+                    f"{component}: {release_label} release {fixed} on {url} carries no release "
                     f"date in {date_cell!r}; the wording probably changed"
                 )
             available = f"{date.group(0)}T00:00:00Z"
@@ -1720,7 +1750,7 @@ def amd_rocm_minimums(
                         record["url"] = url
     if not records:
         raise MinimumRefreshError(
-            "rocm: extracted no ROCm minimum from "
+            f"{component}: extracted no {release_label} minimum from "
             + ", ".join(amd_bulletin_page(sb_id) for sb_id in bulletins)
             + "; the mitigation wording probably changed"
         )
@@ -1944,6 +1974,7 @@ def build_minimums(
             "runc": runc_ladder(fetch=fetch),
             "docker": docker_minimums(fetch=fetch),
             "rocm": amd_rocm_minimums(fetch=fetch),
+            "amdDriver": amd_driver_minimums(fetch=fetch),
             "ubuntuNoble": ubuntu_minimums(fetch=fetch),
         },
     }
@@ -2235,7 +2266,7 @@ def untracked_amd_bulletins(fetch: Fetcher | None = None) -> list[dict]:
         text = client.get_text(AMD_SECURITY_INDEX)
     except MinimumRefreshError:
         return []
-    known = {sb_id.lower() for sb_id in AMD_BULLETINS} | {
+    known = {sb_id.lower() for sb_id in (*AMD_BULLETINS, *AMD_DRIVER_BULLETINS)} | {
         sb_id.lower() for sb_id in AMD_DEFERRED_BULLETINS
     }
     found: list[dict] = []
