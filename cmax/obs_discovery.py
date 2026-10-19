@@ -120,11 +120,11 @@ PLATFORM_DEFAULT_PORTS["cortex"] = 9009
 MAX_TARGETS = 8
 
 # An `addr:port` pair from `ss` / `netstat` output. The port group requires
-# digits, so the `0.0.0.0:*` peer column of a LISTEN row never matches. The bare
-# `::` alternative is netstat's IPv6 wildcard form, which prints as `:::9090`;
-# `ss` uses `[::]:9090` instead, so both spellings need a rule.
+# digits, so the `0.0.0.0:*` peer column of a LISTEN row never matches. Match
+# complete whitespace-delimited endpoints and split at the last colon. This
+# retains unbracketed netstat IPv6 hosts instead of matching an IPv6 suffix.
 _ADDR_PORT = re.compile(
-    r"(\[[0-9A-Fa-f:]*\]|::|\*|[0-9]{1,3}(?:\.[0-9]{1,3}){3}|[A-Za-z0-9._-]+):([0-9]{2,5})(?![0-9])"
+    r"(?<!\S)(\[[0-9A-Za-z:.%_-]+\]|[0-9A-Za-z._:%*-]+):([0-9]{1,5})(?=\s|$)"
 )
 
 _WILDCARD_HOSTS = frozenset({"*", "0.0.0.0", "::", "[::]", "[]", "0"})
@@ -170,7 +170,9 @@ def _normalize_host(host: str) -> str:
         inner = host[1:-1]
         if not inner or inner == "::":
             return "127.0.0.1"
-        return host
+        return f"[{inner.replace('%', '%25')}]"
+    if ":" in host:
+        return f"[{host.replace('%', '%25')}]"
     return host
 
 
