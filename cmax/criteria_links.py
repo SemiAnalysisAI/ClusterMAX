@@ -69,7 +69,8 @@ _MONITORING_SACCT = (
 # checks point to the owning public category instead of claiming that a nearby
 # requirement is an exact match.
 _CHECK_ANCHORS = {
-    "securityVersions.amdDriver.status": _SECURITY_PATCHING,
+    "qemu-virtio-serial": "security-qemu-virtio-serial",
+    "vmscape": "security-vmscape",
     "observability-isolation": "security-observability-isolation",
     "thp_madvise.status": "lifecycle",
     "static_hugepages.status": "lifecycle",
