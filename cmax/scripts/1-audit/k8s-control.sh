@@ -1211,6 +1211,17 @@ def quantity(value):
         return Decimal(number + suffix)
     return Decimal(number) * SUFFIXES.get(suffix or "", 1)
 
+rdma_hostdev = False
+try:
+    configmap = json.loads(os.environ.get("SRIOV_CONFIG", "") or "{}")
+    config = json.loads(configmap.get("data", {}).get("config.json", "{}"))
+    rdma_hostdev = any(
+        resource.get("resourceName") == "hostdev"
+        and resource.get("selectors", {}).get("isRdma") is True
+        for resource in config.get("resourceList", [])
+    )
+except (ValueError, TypeError, AttributeError):
+    pass
 data = json.load(sys.stdin)
 keys = sorted({
     key
@@ -1219,6 +1230,7 @@ keys = sorted({
     if (
         (key.startswith("rdma/") and not key.startswith("rdma/fabric"))
         or key.startswith("nvidia.com/rdma")
+        or (key == "nvidia.com/hostdev" and rdma_hostdev)
     ) and quantity(value) > 0
 })
 print(keys[0] if keys else "")
