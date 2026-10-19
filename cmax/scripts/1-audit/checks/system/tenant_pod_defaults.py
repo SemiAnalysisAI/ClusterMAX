@@ -179,15 +179,9 @@ def pod_facts(raw: dict[str, str]) -> dict[str, Any]:
     }
 
 
-# RDMA-capable extended resources that carry no "rdma" substring. The names
-# mirror the deployment patterns that scripts/shared/k8s_device_exposure.py
-# classifies: AWS EFA, SR-IOV InfiniBand (SriovIBNetwork), SR-IOV host
-# device, and OVS offload (OVSNetwork). Resources with "rdma" in the name
-# (RDMA shared device plugin, DOKS per-NIC fabrics, Network Operator rdma_*
-# names, GKE DRANET mrdma.google.com) match through the substring test. One
-# residual case stays unmatchable by name: sriov_legacy uses an arbitrary
-# nvidia.com/<sriov_resource> key that only the CRD-based classifier in
-# scripts/shared/k8s_device_exposure.py can detect.
+# Public RDMA-capable extended resource keys with no "rdma" substring.
+# Other keys match through the substring test. Arbitrary SR-IOV resource
+# names cannot establish RDMA capability without configuration evidence.
 FABRIC_RESOURCE_EXACT = (
     "vpc.amazonaws.com/efa",
     "nvidia.com/mlnxics",
@@ -212,9 +206,7 @@ def cluster_rdma_resources(nodes_json: dict[str, Any]) -> list[str]:
 
 
 def filter_dra_rdma_class_names(names: Any) -> list[str]:
-    """DeviceClass names that look RDMA-capable. The tokens mirror the DRA
-    driver matching in cluster-audit-k8s.sh: rdma and mrdma names (GKE DRANET
-    mrdma.google.com) plus DRANET names (dranet.net, Azure GB300 dra.net)."""
+    """Match RDMA-related public DeviceClass naming tokens."""
     return sorted(
         name
         for name in (str(item) for item in names)

@@ -656,8 +656,7 @@ TOTAL_GPUS="$GPU_INVENTORY_TOTAL"
 DEFAULT_GPUS_PER_NODE="${CLUSTERMAX_GPUS_PER_NODE:-8}"
 if [[ "$TOTAL_GPUS" -eq 0 && "$SINFO_OK" == "true" ]]; then
     # sinfo -N prints one row per node and partition, so a node in several
-    # partitions is counted once per partition; dedupe on node name (this
-    # doubled oracle-gb300, whose nodes sit in two partitions). Capture the
+    # partitions is counted once per partition; dedupe on node name. Capture the
     # count right after gpu[:type]: the pattern must stop there and not walk
     # into socket-affinity suffixes such as gpu:B300:4(S:0-1) - the old
     # greedy `gpu[^,]*:` parse read the socket index, reporting 0 GPUs on
