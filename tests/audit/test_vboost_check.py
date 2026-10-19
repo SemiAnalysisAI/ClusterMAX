@@ -146,7 +146,7 @@ class VboostCheckTests(unittest.TestCase):
         self.assertIn("Exec format error", result["stderr"])
 
     def test_all_nvidia_smi_error_run_aggregates_to_unavailable(self) -> None:
-        # GCore Soperator login node: nvidia-smi is a monitoring stub that
+        # Synthetic login node: nvidia-smi is a monitoring stub that
         # raises OSError on every node the check reaches. The control was never
         # exercised, so the aggregate must be "unavailable" (missing data), not
         # "denied" - "denied" grades as a vendor-facing FAIL downstream.

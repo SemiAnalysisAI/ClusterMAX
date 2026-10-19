@@ -920,11 +920,8 @@ class SecurityGpuVendorGateTests(unittest.TestCase):
     NVIDIA driver minimums apply at all. Both the slurm and standalone collectors
     used to require `DRIVER_VERSION == unknown` as well as `AMD_GPUS_PRESENT`,
     which made the gate depend on the AMD driver promotion *not* existing on
-    those two harnesses. cluster-audit-k8s.sh:2655 already promotes the amdgpu
-    version into the vendor-neutral gpus.driverVersion field (42 committed
-    records carry amdgpu 6.16.13 from oracle-mi355x that way), so porting that
-    block to slurm or standalone for AMD parity would have silently flipped an
-    AMD cluster back to "nvidia".
+    those two harnesses. A promoted amdgpu version in the vendor-neutral
+    gpus.driverVersion field must not flip an AMD cluster back to "nvidia".
 
     Standalone was the worse case: it passes DRIVER_VERSION itself as the
     security driver version, so the promoted amdgpu version would have been
@@ -936,8 +933,8 @@ class SecurityGpuVendorGateTests(unittest.TestCase):
     """
 
     GATES = (("slurm", SLURM_VENDOR_GATE), ("standalone", STANDALONE_VENDOR_GATE))
-    # The real amdgpu version on oracle-mi355x, as committed.
-    AMD_DRIVER_VERSION = "6.16.13"
+    # Arbitrary synthetic amdgpu-shaped version.
+    AMD_DRIVER_VERSION = "6.1.2"
 
     def vendor(self, gate: str, **variables: str) -> str:
         assignments = "".join(f'{key}="{value}"\n' for key, value in variables.items())
