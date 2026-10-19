@@ -1245,7 +1245,7 @@ keys = sorted({
         or key.startswith("nvidia.com/rdma")
         or (key == "nvidia.com/hostdev" and rdma_hostdev)
     ) and quantity(value) > 0
-})
+}, key=lambda resource: (resource == "nvidia.com/hostdev", resource))
 print(keys[0] if keys else "")
 ' 2>/dev/null
 }
