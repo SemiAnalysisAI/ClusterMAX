@@ -90,7 +90,10 @@ def aggregate(reports: list[dict[str, Any]], *, nodes_expected: int, mode: str) 
     # A host whose df failed or returned nothing has no mount table to
     # compare. It is reported as a warning below, not as a host missing
     # every mount.
-    by_host = {r["host"]: {row["target"]: row for row in r["df"]} for r in reports if r["df"]}
+    by_host = {
+        r["host"]: {row["target"]: row for row in r["df"]}
+        for r in reports if r["df"] and not r.get("error")
+    }
     all_targets = sorted({t for rows in by_host.values() for t in rows})
     failures: list[str] = []
     warnings: list[str] = []
