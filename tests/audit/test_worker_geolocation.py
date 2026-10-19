@@ -50,6 +50,17 @@ def test_host_check_collects_geolocation_from_the_worker() -> None:
     assert run.calls("curl") == [["-sf", "--max-time", "10", "https://ipinfo.io/json"]]
 
 
+def test_null_geolocation_fields_are_blank():
+    function = bashtest.extract_function(HOST_CHECK, "collect_worker_geolocation")
+    run = bashtest.run_bash(
+        function + "\ncollect_worker_geolocation",
+        stubs={"curl": """printf '%s' '{"ip":"203.0.113.8","city":null,"region":null,"org":null,"loc":null}'"""},
+    )
+    assert run.returncode == 0, run.stderr
+    assert "None" not in run.stdout
+    assert "WORKER_GEO_CITY=\n" in run.stdout
+
+
 @pytest.mark.parametrize(
     ("worker_ok", "status", "geo", "expected"),
     [
