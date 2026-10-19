@@ -365,13 +365,13 @@ class AuditCommonTests(unittest.TestCase):
             stubs={
                 "kubectl": (
                     'if [[ "$*" == *"--all-namespaces -l app=gpu-feature-discovery"* ]]; then '
-                    "printf 'cw-nvidia-gpu-operator'; fi"
+                    "printf 'example-nvidia-gpu-operator'; fi"
                 )
             },
         )
 
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(run.stdout.strip(), "cw-nvidia-gpu-operator")
+        self.assertEqual(run.stdout.strip(), "example-nvidia-gpu-operator")
 
     def test_k8s_dcgm_discovery_scans_branded_namespaces(self) -> None:
         block = bashtest.extract_block(
@@ -525,7 +525,7 @@ class AuditCommonTests(unittest.TestCase):
             {
                 "items": [
                     {"metadata": {"name": "default"}},
-                    {"metadata": {"name": "cw-nvidia-gpu-operator"}},
+                    {"metadata": {"name": "example-nvidia-gpu-operator"}},
                 ]
             }
         )
@@ -541,14 +541,14 @@ class AuditCommonTests(unittest.TestCase):
         )
 
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(run.stdout.strip(), "cw-nvidia-gpu-operator")
+        self.assertEqual(run.stdout.strip(), "example-nvidia-gpu-operator")
 
     def test_supplemental_checks_select_branded_gpu_operator_namespace(self) -> None:
         self.assertEqual(
             run_checks.select_gpu_operator_namespace(
-                ["default", "cw-nvidia-gpu-operator", "kube-system"]
+                ["default", "example-nvidia-gpu-operator", "kube-system"]
             ),
-            "cw-nvidia-gpu-operator",
+            "example-nvidia-gpu-operator",
         )
 
     def test_bmc_ipmi_summary_retains_per_node_coverage(self) -> None:
@@ -2206,7 +2206,7 @@ class HostCheckGpuInventoryTests(unittest.TestCase):
         self.assertEqual(facts["WORKER_SECURITY_NVIDIA_GPU_PRESENT"], "false")
 
     def test_corroborated_empty_bus_is_absent(self) -> None:
-        # The 20260827-134338 sandbox shape: lspci exits 0 with nothing to
+        # Synthetic empty bus: lspci exits 0 with nothing to
         # print and /sys/bus/pci/devices is readable and empty.
         facts = self.facts(
             self.run_inventory(self.make_root(empty_pci_bus=True), lspci="exit 0")
