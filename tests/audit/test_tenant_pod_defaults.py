@@ -147,8 +147,8 @@ class NodeScanTests(unittest.TestCase):
             ["nvidia.com/hostdev", "nvidia.com/mlnxics", "nvidia.com/switchdev", "vpc.amazonaws.com/efa"],
         )
 
-    def test_dra_class_name_filter_matches_the_fleet_patterns(self) -> None:
-        """mrdma.google.com (GKE), dranet.net (open source), dra.net (Azure GB300)."""
+    def test_dra_class_name_filter_matches_public_resource_tokens(self) -> None:
+        """Construct resource keys independently of any deployment."""
         self.assertEqual(
             check.filter_dra_rdma_class_names(
                 ["mrdma.google.com", "dranet.net", "gpu.dra.net", "gpu.nvidia.com", ""]

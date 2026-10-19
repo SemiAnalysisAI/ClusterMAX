@@ -1763,7 +1763,7 @@ RDMA_FABRIC_COUNT_PER_NODE=$(echo "$NODES_JSON" | jq '[.items[] | [.status.capac
 
 # DRA network drivers advertise devices through ResourceSlices instead of node
 # extended resources. Count node-local RDMA-capable devices so managed clusters
-# such as Azure GB300 (dra.net / dranet.net) are not misreported as TCP-only.
+# using dra.net / dranet.net are not misreported as TCP-only.
 RDMA_DRA=0
 RDMA_DRA_DRIVER=""
 if [[ -n "${DRA_SLICES_JSON:-}" ]]; then
