@@ -326,6 +326,29 @@ class PlatformFingerprintTests(unittest.TestCase):
 
 
 class CheckSanitizationTests(unittest.TestCase):
+    def test_separate_single_tenant_backends_do_not_form_a_leak(self) -> None:
+        with mock.patch.object(obs_check, "check_endpoint", side_effect=[
+            {"reachable": True, "query_ok": True, "labels": {"account": {"tenant-a"}}},
+            {"reachable": True, "query_ok": True, "labels": {"account": {"tenant-b"}}},
+        ]):
+            result = obs_check.check(["https://first.example", "https://second.example"])
+        self.assertFalse(result["cross_tenant_series_visible"])
+        self.assertEqual(result["foreign_tenant_counts"], {})
+
+    def test_isolated_grafana_sources_are_classified_separately(self) -> None:
+        def get(url, header):
+            if url.endswith("/api/health"):
+                return 200, json.dumps({"database": "ok", "version": "12.3.6"}), {}
+            if url.endswith("/api/datasources"):
+                return 200, json.dumps([{"id": 1, "type": "prometheus"}, {"id": 2, "type": "prometheus"}]), {}
+            values = []
+            if "/label/account/values" in url:
+                values = ["tenant-a" if "/proxy/1/" in url else "tenant-b"]
+            return 200, json.dumps({"status": "success", "data": values}), {}
+        with mock.patch.object(obs_check, "_get", side_effect=get):
+            result = obs_check.check(["https://grafana.example"])
+        self.assertFalse(result["cross_tenant_series_visible"])
+        self.assertEqual(result["foreign_tenant_counts"], {})
     def test_check_returns_counts_only_never_rosters(self) -> None:
         # Simulate a Grafana pivot exposing several foreign accounts.
         health = (200, json.dumps({"database": "ok", "version": "12.3.6"}), {})

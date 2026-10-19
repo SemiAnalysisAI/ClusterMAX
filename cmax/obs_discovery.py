@@ -174,8 +174,8 @@ def _normalize_host(host: str) -> str:
     return host
 
 
-def _url_for(host: str, port: int) -> str:
-    scheme = "https" if port == 443 else "http"
+def _url_for(host: str, port: int, *, tls: bool = False) -> str:
+    scheme = "https" if tls or port == 443 else "http"
     return f"{scheme}://{host}:{port}"
 
 
@@ -363,7 +363,14 @@ def parse_kubernetes_services(payload: Mapping[str, object]) -> list[Endpoint]:
         port = _preferred_port(ports if isinstance(ports, Sequence) else [])
         if port is None:
             continue
-        url = _url_for(f"{name}.{namespace}.svc.cluster.local", port)
+        tls = any(
+            entry.get("port") == port and (
+                str(entry.get("name", "")).lower().startswith("https")
+                or str(entry.get("appProtocol", "")).lower() in {"https", "kubernetes.io/https"}
+            )
+            for entry in ports if isinstance(entry, Mapping)
+        )
+        url = _url_for(f"{name}.{namespace}.svc.cluster.local", port, tls=tls)
         if url in seen:
             continue
         seen.add(url)

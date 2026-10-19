@@ -176,6 +176,17 @@ class AuditEvidenceTests(unittest.TestCase):
 
 
 class KubernetesDiscoveryTests(unittest.TestCase):
+    def test_https_metadata_survives_nonstandard_service_port(self) -> None:
+        for port in (
+            {"name": "https", "port": 8443},
+            {"name": "web", "appProtocol": "https", "port": 9443},
+        ):
+            payload = {"items": [{
+                "metadata": {"name": "grafana", "namespace": "monitoring"},
+                "spec": {"ports": [port]},
+            }]}
+            endpoint, = obs_discovery.parse_kubernetes_services(payload)
+            self.assertEqual(endpoint.url, f"https://grafana.monitoring.svc.cluster.local:{port['port']}")
     def test_named_web_port_wins_over_other_ports(self) -> None:
         payload = {
             "items": [
