@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+from http.client import BadStatusLine, IncompleteRead
 import ssl
 import threading
 import unittest
@@ -39,6 +40,10 @@ class RequestDrivenClock:
 
 
 class TransportSafetyTests(unittest.TestCase):
+    def test_malformed_http_responses_are_missing_evidence(self) -> None:
+        for error in (BadStatusLine("not HTTP"), IncompleteRead(b"partial")):
+            with mock.patch.object(obs_check._OPENER, "open", side_effect=error):
+                self.assertEqual(obs_check._get("http://wrong-protocol.example", ""), (None, "", {}))
     def test_https_verifies_the_server_certificate_and_hostname(self) -> None:
         self.assertTrue(obs_check._TLS_CTX.check_hostname)
         self.assertEqual(obs_check._TLS_CTX.verify_mode, ssl.CERT_REQUIRED)
