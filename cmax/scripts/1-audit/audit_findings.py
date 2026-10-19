@@ -1367,7 +1367,7 @@ GUARD_SUPPRESSIONS: dict[str, tuple[GuardReason, ...]] = {
     ),
     "tenant_pod_defaults.checks.gdrcopyDevice.status": (
         GuardReason(
-            lambda audit: nested_get(audit, "software", "gdrdrvLoaded") is False,
+            lambda audit: str(nested_get(audit, "gpus", "gdrcopy", "gdrdrvLoaded")).lower() == "false",
             NOT_APPLICABLE_KIND,
             "The host inventory confirms that gdrdrv is not loaded.",
         ),
