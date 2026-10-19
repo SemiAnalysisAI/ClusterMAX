@@ -31,6 +31,12 @@ def report(host: str, *, home_pct: int = 40, scratch: str = "mgs@tcp:/fs lustre 
 
 
 class StorageConfigTests(unittest.TestCase):
+    def test_wrapped_shared_device_preserves_mount(self) -> None:
+        text = "Filesystem Type Size Used Avail Use% Mounted on\nserver:/a-very-long-lustre-path\n  lustre 100T 20T 80T 20% /shared workspace\n"
+        row, = storage.parse_df(text)
+        self.assertEqual(row["source"], "server:/a-very-long-lustre-path")
+        self.assertEqual(row["fstype"], "lustre")
+        self.assertEqual(row["target"], "/shared workspace")
     def test_partial_df_does_not_prove_missing_mounts(self) -> None:
         first = json.loads(report("gpu-a"))
         second = json.loads(report("gpu-b", scratch=""))
