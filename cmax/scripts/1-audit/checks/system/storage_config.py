@@ -54,8 +54,15 @@ K8S_POD_READY_TIMEOUT = "90s"
 def parse_df(text: str) -> list[dict[str, str]]:
     """Parse ``df -hT`` output into rows keyed by column name."""
     rows: list[dict[str, str]] = []
+    wrapped_source: str | None = None
     for line in text.splitlines()[1:]:
+        if wrapped_source:
+            line = wrapped_source + " " + line.lstrip()
+            wrapped_source = None
         parts = line.split(None, 6)
+        if len(parts) == 1:
+            wrapped_source = parts[0]
+            continue
         if len(parts) < 7 or parts[1] in PSEUDO_FSTYPES:
             continue
         if parts[6].strip().startswith(NODE_LOCAL_PREFIXES):
@@ -70,7 +77,7 @@ def parse_df(text: str) -> list[dict[str, str]]:
 def worker_report() -> dict[str, Any]:
     host = os.environ.get("SLURMD_NODENAME") or socket.gethostname()
     try:
-        proc = subprocess.run(["df", "-hT"], capture_output=True, text=True, timeout=60)
+        proc = subprocess.run(["df", "-hTP"], capture_output=True, text=True, timeout=60)
         rows = parse_df(proc.stdout)
         error = proc.stderr.strip() or None
         if proc.returncode != 0 and not error:
