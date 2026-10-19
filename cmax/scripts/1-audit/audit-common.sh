@@ -941,7 +941,10 @@ count_snodes_states() {
 select_worker_ssh_nodes() {
     local nodes_json="${1:-[]}"
     local preferred_source="${2:-}"
-    jq -r --arg preferred "$preferred_source" '
+    # null means a standalone invocation; [] means allocation scope is unknown
+    # or empty, so no worker may be selected.
+    local allocated_nodes_json="${3:-null}"
+    jq -r --arg preferred "$preferred_source" --argjson allocated "$allocated_nodes_json" '
         def usable:
             ((.state // "") | test("[*~#$!%@^]")) as $flagged
             | ($flagged | not)
@@ -953,7 +956,8 @@ select_worker_ssh_nodes() {
                 or . == "NO_RESPOND" or . == "NOT_RESPONDING"
                 or . == "POWERED_DOWN" or . == "POWERING_DOWN" or . == "POWER_DOWN"
             )) | not));
-        [.[] | select(usable)] as $usable
+        [.[] | select(usable)
+             | select($allocated == null or (.name as $name | $allocated | index($name) != null))] as $usable
         | [$usable[] | select((.gpus // 0) > 0)] as $gpu
         | (if ($gpu | length) >= 2 then $gpu else $usable end)
         | map(.name) | unique as $names
