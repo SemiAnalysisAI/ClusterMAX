@@ -64,7 +64,7 @@ def thp_report(root: Path) -> dict:
         }
     effective = [entry["effective"] for entry in sizes.values()] or [top]
     # The check rewards an effective madvise policy.
-    status = "pass" if "madvise" in effective else "neutral"
+    status = "pass" if effective and all(mode == "madvise" for mode in effective) else "neutral"
     if "unknown" in effective or top == "unknown":
         status = "unknown"
     return {
@@ -234,7 +234,7 @@ def aggregate(reports: list[dict], errors: list[str]) -> dict:
     for key in ("thp_madvise", "static_hugepages", "hugepage_allocation"):
         hosts = {r["host"]: r[key] for r in reports if "host" in r and key in r}
         statuses = [r["status"] for r in hosts.values()]
-        if errors or not hosts or "unknown" in statuses:
+        if not hosts or "unknown" in statuses:
             status = "unknown"
         elif key == "thp_madvise":
             status = "pass" if all(s == "pass" for s in statuses) else "neutral"
@@ -242,8 +242,11 @@ def aggregate(reports: list[dict], errors: list[str]) -> dict:
             status = "neutral"
         else:
             status = statuses[0] if len(set(statuses)) == 1 else "incomplete"
+        complete = not errors and len(hosts) == len(reports)
+        if not complete and hosts and status in {"pass", "neutral"}:
+            status = "warning"
         messages = [f"{host}: {r['message']}" for host, r in hosts.items()]
-        result[key] = {"status": status, "hosts": hosts, "errors": errors,
+        result[key] = {"status": status, "hosts": hosts, "errors": errors, "coverageComplete": complete,
                        "message": "; ".join(messages + errors) or "No worker reported."}
     return result
 
