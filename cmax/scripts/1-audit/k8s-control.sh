@@ -1185,8 +1185,12 @@ k8s_cluster_has_rdma_fabric() {
 # suffixes: the NVIDIA network operator shared device plugin advertises pools
 # like "1k", which bare int() rejects.
 k8s_detect_shared_rdma_resource() {
-    kubectl get nodes -o json 2>/dev/null | python3 -c '
-import json, re, sys
+    local sriov_config=""
+    sriov_config="$(kubectl get configmap network-operator-sriovdp-config \
+        -n "${CLUSTERMAX_K8S_NETWORK_OPERATOR_NAMESPACE:-nvidia-network-operator}" \
+        -o json 2>/dev/null)" || sriov_config=""
+    kubectl get nodes -o json 2>/dev/null | SRIOV_CONFIG="$sriov_config" python3 -c '
+import json, os, re, sys
 from decimal import Decimal
 
 SUFFIXES = {
