@@ -271,7 +271,7 @@ else
         IDLE_NODES=$(echo "$SNODES_SUMMARY" | jq -r '.idle // 0')
         ALLOCATED_NODES=$(echo "$SNODES_SUMMARY" | jq -r '.allocated // 0')
         DOWN_NODES=$(echo "$SNODES_SUMMARY" | jq -r '.downDrained // 0')
-        NODES_JSON=$(echo "$SNODES_OUT" | tail -n +2 | awk '{print "{\"name\":\""$6"\",\"state\":\""$5"\",\"cpus\":0,\"memory\":0,\"gpus\":0}"}' | jq -s '.' 2>/dev/null || echo "[]")
+        NODES_JSON=$(snodes_inventory "$SNODES_OUT" 2>/dev/null || echo "[]")
     fi
 fi
 
@@ -3073,14 +3073,20 @@ if [[ -n "${SLURM_JOB_ID:-}" ]]; then
     fi
     SSH_ALLOCATED_NODES_JSON=$(printf '%s\n' "$SSH_ALLOCATION_HOSTS" | jq -Rsc 'split("\n") | map(select(length > 0))')
 fi
-mapfile -t SSH_NODES < <(select_worker_ssh_nodes "$NODES_JSON" "${SLURMD_NODENAME:-${WORKER_HOSTNAME:-}}" "$SSH_ALLOCATED_NODES_JSON")
+mapfile -t SSH_NODES < <(select_worker_ssh_nodes "$NODES_JSON" "${SLURMD_NODENAME:-${WORKER_HOSTNAME:-}}" "$SSH_ALLOCATED_NODES_JSON" "${GPU_PARTITION:-}")
 if [[ "${#SSH_NODES[@]}" -ge 2 ]]; then
     SSH_SOURCE_NODE="${SSH_NODES[0]}"
     SSH_TARGET_NODE="${SSH_NODES[1]}"
     FIRST_COMPUTE_NODE="$SSH_TARGET_NODE"
     SSH_GRES_ARGS=(--gres=none)
     if [[ -z "${SLURM_JOB_ID:-}" ]] \
-        && jq -e --arg node "$SSH_SOURCE_NODE" 'any(.[]; .name == $node and (.gpus // 0) > 0)' <<< "$NODES_JSON" >/dev/null; then
+        && jq -e --arg node "$SSH_SOURCE_NODE" --arg partition "${GPU_PARTITION:-}" '
+            any(.[]; .name == $node and (
+                (.gpus // 0) > 0 or (
+                    .gpus == null and $partition != "" and $partition != "none"
+                    and .partition == $partition
+                )
+            ))' <<< "$NODES_JSON" >/dev/null; then
         SSH_GRES_ARGS=(--gres=gpu:1)
     fi
     print_detail "Testing SSH from ${SSH_SOURCE_NODE} to ${SSH_TARGET_NODE}"
