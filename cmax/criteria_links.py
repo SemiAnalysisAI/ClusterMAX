@@ -69,6 +69,7 @@ _MONITORING_SACCT = (
 # checks point to the owning public category instead of claiming that a nearby
 # requirement is an exact match.
 _CHECK_ANCHORS = {
+    "securityVersions.amdDriver.status": _SECURITY_PATCHING,
     "securityVersions.nvidiaDriver.status": _SECURITY_PATCHING,
     "securityVersions.nvidiaContainerToolkit.status": _SECURITY_CONTAINER_TOOLKIT,
     "securityVersions.cudaToolkit.status": _SECURITY_PATCHING,

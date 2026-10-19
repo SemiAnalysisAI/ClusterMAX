@@ -143,8 +143,9 @@ def minimum_released_at(
         return exact_release
     kind = block.get("kind")
     source: Any = None
-    if kind == "branchMap" and selector is not None:
-        source_id = (block.get("branchSources") or {}).get(str(selector))
+    if kind in {"branchMap", "programMap"} and selector is not None:
+        source_key = "programSources" if kind == "programMap" else "branchSources"
+        source_id = (block.get(source_key) or {}).get(str(selector))
         source = next(
             (
                 item
@@ -182,7 +183,7 @@ def minimum_fix_availability(
     block = component(name, path)
     kind = block.get("kind")
     availability: Any = None
-    if kind in {"branchMap", "trainMap", "ladder", "releaseLines"}:
+    if kind in {"branchMap", "trainMap", "programMap", "ladder", "releaseLines"}:
         if selector is not None:
             availability = (block.get("floorAvailability") or {}).get(str(selector))
     elif kind == "distroPackages" and selector is not None:
