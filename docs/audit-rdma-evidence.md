@@ -8,6 +8,10 @@ and timeouts remain explicit. They do not prove a single-plane topology.
 GPU Operator access supports privileged AMD system pods as well as NVIDIA pods.
 The public host-root and container-selection behavior is retained.
 NVIDIA-only vBoost and virtio checks remain scoped to NVIDIA nodes.
+Namespace discovery also checks custom GPU Operator namespace names.
+AMD system-pod collection reads host network devices without running
+`nvidia-smi`. NVIDIA affinity and NVLink readings are not applicable on those
+nodes. This does not count as a failed collection or prove an NVLink boundary.
 
 Configured `nvidia.com/hostdev` resources count as RDMA only when the SR-IOV device
 plugin configuration declares `isRdma`. Failed fabric rails remain visible.

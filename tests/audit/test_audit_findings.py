@@ -98,6 +98,43 @@ class DetectFindingsTests(unittest.TestCase):
 
         self.assertEqual(audit_findings.detect_findings(values), [])
 
+    def test_every_tenant_pod_rule_is_kubernetes_only(self) -> None:
+        rules = [
+            rule for rule in audit_findings.RULES
+            if rule.key.startswith("tenant_pod_defaults.")
+        ]
+        self.assertEqual(len(rules), 6)
+        for rule in rules:
+            with self.subTest(key=rule.key):
+                self.assertEqual(rule.harnesses, frozenset({"k8s"}))
+
+    def test_tenant_pod_findings_obey_the_harness_boundary(self) -> None:
+        # Independent synthetic statuses exercise every formerly unscoped rule.
+        audit = {"tenant_pod_defaults": {
+            "status": "unknown",
+            "checks": {
+                "memlock": {"status": "warning"},
+                "shm": {"status": "warning"},
+                "tunedPodAdmission": {"status": "warning"},
+            },
+        }}
+        expected = {
+            "tenant_pod_defaults.status",
+            "tenant_pod_defaults.checks.memlock.status",
+            "tenant_pod_defaults.checks.shm.status",
+            "tenant_pod_defaults.checks.tunedPodAdmission.status",
+        }
+        for harness in ("k8s", "slurm", "standalone"):
+            with self.subTest(harness=harness):
+                findings = audit_findings.detect_findings({
+                    "cluster": {"orchestrator": harness},
+                    "audit_data": audit,
+                })
+                self.assertEqual(
+                    {finding.key for finding in findings},
+                    expected if harness == "k8s" else set(),
+                )
+
     def test_container_toolkit_false_is_flagged_missing(self) -> None:
         findings = audit_findings.detect_findings(
             {"audit_data": {"containers": {"nvidiaContainerToolkit": False}}}
