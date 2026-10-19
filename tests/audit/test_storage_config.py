@@ -92,7 +92,7 @@ class StorageConfigTests(unittest.TestCase):
 
         payload = storage.build_check_payload(harness="k8s", env={}, runner=runner)["storage_config"]
 
-        self.assertEqual(created, ["g0", "g1"])  # GPU nodes only
+        self.assertEqual(sorted(created), ["g0", "g1"])  # Concurrent GPU-node fan-out.
         self.assertEqual(len(deleted), 2)
         self.assertEqual(payload["mode"], "k8s")
         self.assertEqual(payload["nodes_expected"], 2)

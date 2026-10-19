@@ -1734,12 +1734,8 @@ class LocalFallbackVantageTests(unittest.TestCase):
             self.assertTrue(platform_config.vantage_is_local_only([local]))
             self.assertFalse(platform_config.vantage_is_local_only([]))
 
-    def test_every_stand_in_read_is_stamped(self) -> None:
-        """The gate is only as good as the stamping, so pin every fallback.
-
-        Each of these branches replaces a fan-out that did not happen with a read
-        of the machine the audit was launched from.
-        """
+    def test_missing_slurm_workers_never_substitute_local_reads(self) -> None:
+        """Missing worker evidence stays missing on each transport failure."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_bare_metal(root)
@@ -1752,17 +1748,17 @@ class LocalFallbackVantageTests(unittest.TestCase):
             with mock.patch.object(platform_config, "collect_host", fake_collect_host):
                 with mock.patch.dict(os.environ, {}, clear=True):
                     reports, _ = platform_config.run_slurm_check("slurm")
-                    self.assertEqual([report.get("check_scope") for report in reports], ["local"])
+                    self.assertEqual(reports, [])
 
                 with mock.patch.dict(os.environ, {"SLURM_JOB_ID": "1", "SLURM_NNODES": "2"}, clear=True):
                     with mock.patch.object(platform_config, "run_command", side_effect=OSError("no srun")):
                         reports, _ = platform_config.run_slurm_check("slurm")
-                    self.assertEqual([report.get("check_scope") for report in reports], ["local"])
+                    self.assertEqual(reports, [])
 
                     empty = subprocess.CompletedProcess(args=["srun"], returncode=0, stdout="", stderr="")
                     with mock.patch.object(platform_config, "run_command", return_value=empty):
                         reports, _ = platform_config.run_slurm_check("slurm")
-                    self.assertEqual([report.get("check_scope") for report in reports], ["local"])
+                    self.assertEqual(reports, [])
 
     def test_kubernetes_with_no_gpu_node_grades_unknown(self) -> None:
         """The k8s fallback reads the control host, so it is a stand-in too."""

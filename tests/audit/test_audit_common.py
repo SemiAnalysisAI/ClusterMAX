@@ -811,17 +811,6 @@ class SlurmAuditParsingTests(unittest.TestCase):
         self.assertIn('-type f -perm -u+x', host_check)
         self.assertIn('HealthCheckProgram plugin:', slurm)
 
-    def test_nhc_detection_falls_back_to_worker_check(self) -> None:
-        workload_dir = COMMON_PATH.parent
-        host_check = (workload_dir / "host-check.sh").read_text()
-        slurm = (workload_dir / "cluster-audit-slurm.sh").read_text()
-
-        self.assertIn("WORKER_NHC_INSTALLED=", host_check)
-        self.assertIn("WORKER_NHC_PATH=", host_check)
-        self.assertIn("WORKER_NHC_CONF_CHECKS=", host_check)
-        self.assertIn('"$WORKER_NHC_INSTALLED" == "true"', slurm)
-        self.assertIn("compute node ${WORKER_HOSTNAME}; not on head node", slurm)
-
     def test_prolog_parser_accepts_indexed_slurm_25_keys(self) -> None:
         script = (COMMON_PATH.parent / "cluster-audit-slurm.sh").read_text()
 

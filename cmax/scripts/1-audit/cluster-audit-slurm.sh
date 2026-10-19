@@ -172,7 +172,8 @@ print_info "Hostname: $(hostname)"
 # reported as running instead of a false "not running" / "not detected" warning.
 print_section "SLURM Services"
 SLURMCTLD_RUNNING=$(pgrep -x slurmctld &>/dev/null && echo "true" || echo "false")
-SLURMD_RUNNING=$(pgrep -x slurmd &>/dev/null && echo "true" || echo "false")
+SLURMD_RUNNING="false"
+SLURMD_CHECK_SCOPE="unverified"
 SLURMDBD_RUNNING=$(pgrep -x slurmdbd &>/dev/null && echo "true" || echo "false")
 
 # slurmctld: local process first, otherwise reachable via `scontrol ping`.
@@ -186,8 +187,8 @@ else
     print_warn "slurmctld: Not running here and not reachable via scontrol ping"
 fi
 
-# slurmd is a compute-node daemon; its absence on the head/login node is normal.
-[[ "$SLURMD_RUNNING" == "true" ]] && print_info "slurmd: Running" || print_detail "slurmd: Not running (head node may not be compute)"
+# slurmd is a compute-node daemon. The worker check below records its state.
+print_detail "slurmd: check deferred until the compute-node check"
 
 # slurmdbd: local process, else reachable via accounting; only warn when
 # accounting_storage/slurmdbd is configured but the daemon cannot be reached.
@@ -206,7 +207,7 @@ else
     print_detail "slurmdbd: Not configured (no accounting_storage/slurmdbd)"
 fi
 
-# Server geolocation - determine physical location of cluster
+# The compute-node check below determines the cluster egress location.
 print_section "Server Location"
 GEO_REGION=""
 GEO_CITY=""
@@ -214,24 +215,8 @@ GEO_COUNTRY=""
 GEO_IP=""
 GEO_ORG=""
 GEO_LOC=""
-
-# Try ipinfo.io for external IP + geolocation (10s timeout)
-GEO_JSON=$(curl -sf --max-time 10 "https://ipinfo.io/json" 2>/dev/null || echo "{}")
-
-if echo "$GEO_JSON" | jq -e '.ip' &>/dev/null; then
-    GEO_IP=$(echo "$GEO_JSON" | jq -r '.ip // ""')
-    GEO_CITY=$(echo "$GEO_JSON" | jq -r '.city // ""')
-    GEO_COUNTRY=$(echo "$GEO_JSON" | jq -r '.country // ""')
-    GEO_REGION=$(echo "$GEO_JSON" | jq -r '.region // ""')
-    GEO_ORG=$(echo "$GEO_JSON" | jq -r '.org // ""')
-    GEO_LOC=$(echo "$GEO_JSON" | jq -r '.loc // ""')  # lat,lon
-    print_info "External IP: ${GEO_IP}"
-    print_info "Location: ${GEO_CITY}, ${GEO_REGION}, ${GEO_COUNTRY}"
-    print_info "ISP/Org: ${GEO_ORG}"
-    [[ -n "$GEO_LOC" ]] && print_detail "Coordinates: ${GEO_LOC}"
-else
-    print_warn "Could not determine server location (no egress or API unreachable)"
-fi
+GEO_CHECK_SCOPE="unverified"
+print_detail "Location check deferred until the compute-node check"
 
 # =============================================================================
 # SECTION 2: Node Inventory
@@ -435,6 +420,9 @@ WORKER_PERF_STAT_ACCESS="unknown"
 WORKER_PERF_TOP_ACCESS="unknown"
 WORKER_NVCC_PATH=""
 WORKER_NVCC_VERSION="unknown"
+WORKER_CUDA_HOME="none"
+WORKER_CUDA_HOME_SOURCE="unverified"
+WORKER_CUDA_HOME_EXISTS="false"
 WORKER_MPIRUN_PATH=""
 WORKER_MPIRUN_VERSION="unknown"
 WORKER_HPCX_DETECTED="false"
@@ -449,9 +437,29 @@ WORKER_HEALTH_PROGRAM_DCGM_EVIDENCE="none"
 WORKER_NHC_INSTALLED="false"
 WORKER_NHC_PATH="none"
 WORKER_NHC_CONF_CHECKS="0"
+WORKER_SLURMD_RUNNING="false"
+WORKER_GEO_CHECK_STATUS="unavailable"
+WORKER_GEO_IP=""
+WORKER_GEO_CITY=""
+WORKER_GEO_REGION=""
+WORKER_GEO_COUNTRY=""
+WORKER_GEO_ORG=""
+WORKER_GEO_LOC=""
+WORKER_MONITORING_CHECK_OK="false"
+WORKER_DCGM_EXPORTER_DETECTED="false"
+WORKER_NODE_EXPORTER_DETECTED="false"
+WORKER_GRAFANA_DETECTED="false"
 WORKER_IB_DEVICES=""
 WORKER_IBHOSTS_COUNT="0"
 WORKER_IBHOSTS_SAMPLE=""
+WORKER_SAQUERY_STATUS="not-checked"
+WORKER_SAQUERY_NODE_RECORDS="0"
+WORKER_SMINFO_STATUS="not-checked"
+WORKER_SM_LID="unknown"
+WORKER_OPENSM_RUNNING="false"
+WORKER_IB_SM_KEY_CONFIGURED="unknown"
+WORKER_IB_SM_KEY_STATUS="unverified"
+WORKER_IB_SM_KEY_CHECK_SCOPE="worker-unavailable"
 # Storage / drive config (collected by check, parsed after)
 WORKER_BOOT_DEVICE="unknown"
 WORKER_BOOT_FSTYPE="unknown"
@@ -509,6 +517,41 @@ if [[ -n "$GPU_PARTITION" ]]; then
 else
     print_warn "No GPU partition detected - skipping worker node check"
     print_detail "Set CLUSTERMAX_GPU_PARTITION or ensure GPU nodes advertise GRES"
+fi
+
+# The compute node is the only valid vantage point for slurmd. A login-node
+# process scan can report a false negative because login nodes usually do not
+# run the worker daemon.
+if [[ "$WORKER_CHECK_OK" == "true" ]]; then
+    # A completed worker step proves that slurmd accepted and launched work on
+    # the node. The task PID namespace can still hide the daemon from pgrep.
+    SLURMD_RUNNING="true"
+    SLURMD_CHECK_SCOPE="worker"
+    if [[ "$WORKER_SLURMD_RUNNING" == "true" ]]; then
+        print_info "slurmd: Running on compute node ${WORKER_HOSTNAME}"
+    else
+        print_detail "slurmd: The worker step succeeded, but the task PID namespace hid the daemon process"
+    fi
+else
+    print_warn "slurmd: Unverified because the compute-node check did not run"
+fi
+
+# Geolocation must describe the compute node's egress path. A query from the
+# login node can report a different region, external address, or organization.
+if [[ "$WORKER_CHECK_OK" == "true" && "$WORKER_GEO_CHECK_STATUS" == "success" ]]; then
+    GEO_IP="$WORKER_GEO_IP"
+    GEO_CITY="$WORKER_GEO_CITY"
+    GEO_REGION="$WORKER_GEO_REGION"
+    GEO_COUNTRY="$WORKER_GEO_COUNTRY"
+    GEO_ORG="$WORKER_GEO_ORG"
+    GEO_LOC="$WORKER_GEO_LOC"
+    GEO_CHECK_SCOPE="worker"
+    print_info "External IP: ${GEO_IP} (compute node ${WORKER_HOSTNAME})"
+    print_info "Location: ${GEO_CITY}, ${GEO_REGION}, ${GEO_COUNTRY}"
+    print_info "ISP/Org: ${GEO_ORG}"
+    [[ -n "$GEO_LOC" ]] && print_detail "Coordinates: ${GEO_LOC}"
+else
+    print_warn "Could not determine the compute-node location (status: ${WORKER_GEO_CHECK_STATUS})"
 fi
 
 # Build worker drive config JSON from parsed check variables.
@@ -1402,13 +1445,21 @@ else
     fi
 fi
 
-CUDA_HOME_VAL="${CUDA_HOME:-}"
-if [[ -n "$CUDA_HOME_VAL" ]]; then
-    print_info "CUDA_HOME: ${CUDA_HOME_VAL}"
-elif [[ -d "/usr/local/cuda" ]]; then
-    print_info "CUDA found: /usr/local/cuda"
+CUDA_HOME_VAL="none"
+CUDA_HOME_SOURCE="unverified"
+CUDA_HOME_EXISTS="false"
+if [[ "$WORKER_CHECK_OK" == "true" ]]; then
+    CUDA_HOME_VAL="${WORKER_CUDA_HOME:-none}"
+    CUDA_HOME_SOURCE="${WORKER_CUDA_HOME_SOURCE:-unverified}"
+    CUDA_HOME_EXISTS="${WORKER_CUDA_HOME_EXISTS:-false}"
+    if [[ "$CUDA_HOME_VAL" != "none" ]]; then
+        print_info "CUDA home: ${CUDA_HOME_VAL} (compute node ${WORKER_HOSTNAME}; source=${CUDA_HOME_SOURCE})"
+        [[ "$CUDA_HOME_EXISTS" == "true" ]] || print_warn "CUDA home does not name a directory on the checked compute node"
+    else
+        print_detail "CUDA home was not set and /usr/local/cuda was not found on compute node ${WORKER_HOSTNAME}"
+    fi
 else
-    print_detail "CUDA_HOME: Not set on head node, /usr/local/cuda not found"
+    print_warn "CUDA home is unverified because the compute-node check did not run"
 fi
 
 # NVIDIA HPC SDK - from worker check (/opt is typically node-local, so the head
@@ -2313,43 +2364,39 @@ else
     fi
 fi
 
-# saquery (requires sudo; run from head node or any IB-connected node)
-SAQUERY_OUT=$(sudo -n saquery NodeRecord 2>/dev/null | grep NodeDescription | wc -l | tr -d '[:space:]' || echo "0")
-if [[ "$SAQUERY_OUT" -gt 0 ]]; then
-    print_info "saquery NodeRecord: ${SAQUERY_OUT} node records visible via SM"
-    print_detail "Verify this count matches your allocated nodes (no external tenants visible)"
-else
-    print_detail "saquery: Requires sudo or SM access - run manually: sudo saquery NodeRecord | grep NodeDescription"
-fi
+SAQUERY_OUT="${WORKER_SAQUERY_NODE_RECORDS:-0}"
+case "${WORKER_SAQUERY_STATUS:-not-checked}" in
+    pass)
+        print_info "saquery on compute node: ${SAQUERY_OUT} node records visible via SM"
+        print_detail "Verify this count matches your allocated nodes (no external tenants visible)"
+        ;;
+    timeout) print_warn "saquery timed out on compute node ${WORKER_HOSTNAME}" ;;
+    fail) print_warn "saquery could not query the SM from compute node ${WORKER_HOSTNAME}" ;;
+    *) print_detail "saquery was not available on the checked compute node" ;;
+esac
 
 # SMKey / SAKey / OpenSM check
 print_section "Subnet Manager & SM Key"
-IB_SM_KEY_CONFIGURED="false"
-OPENSM_CONF="/etc/opensm/opensm.conf"
-
-SMINFO_OUT=$(sminfo 2>/dev/null); SMINFO_RC=$?
-if [[ $SMINFO_RC -eq 0 && -n "$SMINFO_OUT" ]]; then
-    SM_LID=$(echo "$SMINFO_OUT" | grep -oP 'LID \K[0-9]+' | head -1 || echo "unknown")
-    print_info "SM info: ${SMINFO_OUT}"
-    print_info "SM LID: ${SM_LID}"
-    # Check if this node is running SM (it should NOT be a compute node running SM)
-    if pgrep -x opensm &>/dev/null; then
-        print_warn "OpenSM: Running on this node - ensure this is the designated SM node, not a compute node"
-    else
-        print_info "OpenSM: Not running on this node (correct for compute/login nodes)"
-    fi
-fi
-
-if [[ -f "$OPENSM_CONF" ]]; then
-    SM_KEY_VAL=$(grep "^sm_key" "$OPENSM_CONF" 2>/dev/null | awk '{print $2}' | head -1 || echo "")
-    if [[ -n "$SM_KEY_VAL" && "$SM_KEY_VAL" != "0x0000000000000000" && "$SM_KEY_VAL" != "0" ]]; then
-        IB_SM_KEY_CONFIGURED="true"
-        print_info "OpenSM SM_KEY: Non-zero (configured) - good for security"
-    else
-        print_warn "OpenSM SM_KEY: Zero or unset at ${OPENSM_CONF} - SM key not secured"
-    fi
+IB_SM_KEY_CONFIGURED="${WORKER_IB_SM_KEY_CONFIGURED:-unknown}"
+IB_SM_KEY_STATUS="${WORKER_IB_SM_KEY_STATUS:-unverified}"
+IB_SM_KEY_CHECK_SCOPE="${WORKER_IB_SM_KEY_CHECK_SCOPE:-worker-unavailable}"
+case "${WORKER_SMINFO_STATUS:-not-checked}" in
+    pass)
+        print_info "SM query from compute node succeeded (SM LID: ${WORKER_SM_LID:-unknown})"
+        ;;
+    timeout|fail)
+        print_warn "SM query from the compute node did not succeed (status: ${WORKER_SMINFO_STATUS})"
+        ;;
+    *)
+        print_detail "SM query was not available on the checked compute node (status: ${WORKER_SMINFO_STATUS:-not-checked})"
+        ;;
+esac
+if [[ "$IB_SM_KEY_STATUS" == "configured" ]]; then
+    print_info "OpenSM SM key: Non-zero on the local subnet manager"
+elif [[ "$IB_SM_KEY_STATUS" == "unsecured" ]]; then
+    print_warn "OpenSM SM key: Zero or unset on the local subnet manager"
 else
-    print_detail "OpenSM config: Not at ${OPENSM_CONF} (may be on SM node only)"
+    print_detail "OpenSM SM key: ${IB_SM_KEY_STATUS}; scope=${IB_SM_KEY_CHECK_SCOPE}"
 fi
 
 # SHARP check - from worker check. sharp_hello, the SHARP tree, and the AM-key
@@ -2858,39 +2905,55 @@ fi
 print_section "Node Health Check (NHC)"
 NHC_INSTALLED="false"
 NHC_PATH=""
-if command -v nhc &>/dev/null; then
+NHC_CONF_LINES="0"
+NHC_CHECK_SCOPE="unverified"
+if [[ "$WORKER_CHECK_OK" == "true" ]]; then
+    NHC_INSTALLED="$WORKER_NHC_INSTALLED"
+    NHC_PATH="$WORKER_NHC_PATH"
+    NHC_CONF_LINES="${WORKER_NHC_CONF_CHECKS:-0}"
+    NHC_CHECK_SCOPE="worker"
+    if [[ "$NHC_INSTALLED" == "true" ]]; then
+        print_info "nhc binary: ${NHC_PATH} (compute node ${WORKER_HOSTNAME})"
+    else
+        print_detail "nhc not installed on compute node ${WORKER_HOSTNAME} (https://github.com/mej/nhc)"
+    fi
+elif command -v nhc &>/dev/null; then
     NHC_INSTALLED="true"
     NHC_PATH=$(which nhc)
-    print_info "nhc binary: ${NHC_PATH} (head node)"
+    NHC_CHECK_SCOPE="head-fallback"
+    print_info "nhc binary: ${NHC_PATH} (head-node fallback; compute node unverified)"
 elif [[ -x /usr/sbin/nhc || -x /usr/local/sbin/nhc ]]; then
     NHC_INSTALLED="true"
     NHC_PATH=$(ls /usr/sbin/nhc /usr/local/sbin/nhc 2>/dev/null | head -1)
-    print_info "nhc binary: ${NHC_PATH} (head node)"
-elif [[ "$WORKER_NHC_INSTALLED" == "true" ]]; then
-    # NHC lives on the compute nodes (where slurmd runs the
-    # HealthCheckProgram); many clusters do not install it on the head or
-    # login node at all, so the worker check is the authoritative check.
-    NHC_INSTALLED="true"
-    NHC_PATH="${WORKER_NHC_PATH}"
-    print_info "nhc binary: ${NHC_PATH} (compute node ${WORKER_HOSTNAME}; not on head node)"
+    NHC_CHECK_SCOPE="head-fallback"
+    print_info "nhc binary: ${NHC_PATH} (head-node fallback; compute node unverified)"
 else
-    print_detail "nhc not installed (https://github.com/mej/nhc) — DCGM is the only health check source"
+    print_detail "nhc unverified because the compute-node check did not run"
 fi
-if [[ -f /etc/nhc/nhc.conf ]]; then
+if [[ "$NHC_CHECK_SCOPE" == "worker" ]]; then
+    [[ "$NHC_CONF_LINES" -gt 0 ]] && print_info "/etc/nhc/nhc.conf: ${NHC_CONF_LINES} active checks (compute node ${WORKER_HOSTNAME})"
+elif [[ -f /etc/nhc/nhc.conf ]]; then
     NHC_CONF_LINES=$(grep -cv -E '^\s*(#|$)' /etc/nhc/nhc.conf 2>/dev/null || echo 0)
-    [[ "$NHC_CONF_LINES" -gt 0 ]] && print_info "/etc/nhc/nhc.conf: ${NHC_CONF_LINES} active checks"
-elif [[ "${WORKER_NHC_CONF_CHECKS:-0}" -gt 0 ]]; then
-    print_info "/etc/nhc/nhc.conf: ${WORKER_NHC_CONF_CHECKS} active checks (compute node ${WORKER_HOSTNAME})"
+    [[ "$NHC_CONF_LINES" -gt 0 ]] && print_info "/etc/nhc/nhc.conf: ${NHC_CONF_LINES} active checks (head-node fallback)"
 fi
 
-# Monitoring stack detection: prometheus / dcgm-exporter / grafana / node-exporter.
-# We check listening ports (best signal — exporters expose HTTP) and systemd unit names.
+# Monitoring stack detection: backend absence stays unknown. Exporter absence
+# requires a successful worker-host socket scan.
 print_section "Monitoring Stack"
-PROMETHEUS_DETECTED="false"
-DCGM_EXPORTER_DETECTED="false"
-NODE_EXPORTER_DETECTED="false"
-GRAFANA_DETECTED="false"
+PROMETHEUS_DETECTED="unknown"
+DCGM_EXPORTER_DETECTED="unknown"
+NODE_EXPORTER_DETECTED="unknown"
+GRAFANA_DETECTED="unknown"
+GRAFANA_HEAD_NODE_DETECTED="false"
+GRAFANA_WORKER_NODE_DETECTED="unknown"
+MONITORING_EXPORTER_CHECK_SCOPE="unknown"
 SLURM_EXPORTER_DETECTED="false"
+# Endpoint and platform evidence. A boolean says a backend exists; the security
+# audit's observability-isolation check needs the address to check it, and the
+# product name to report what answered. Both stay in audit.values.json.
+MONITORING_ENDPOINTS=""
+MONITORING_PLATFORMS=""
+
 # ss is faster + sandbox-safe than netstat
 if command -v ss &>/dev/null; then
     LISTENING=$(ss -tlnp 2>/dev/null | awk 'NR>1 {print $4}')
@@ -2898,25 +2961,62 @@ else
     LISTENING=$(netstat -tlnp 2>/dev/null | awk 'NR>2 {print $4}')
 fi
 echo "$LISTENING" | grep -qE ':9090(\s|$)'  && PROMETHEUS_DETECTED="true"
-echo "$LISTENING" | grep -qE ':9100(\s|$)'  && NODE_EXPORTER_DETECTED="true"
-echo "$LISTENING" | grep -qE ':9400(\s|$)'  && DCGM_EXPORTER_DETECTED="true"
 echo "$LISTENING" | grep -qE ':3000(\s|$)'  && GRAFANA_DETECTED="true"
 echo "$LISTENING" | grep -qE ':8080(\s|$)'  && SLURM_EXPORTER_DETECTED="maybe"
 
-# systemd fallback for things not running on head node (e.g. dcgm-exporter on workers)
-if systemctl is-active dcgm-exporter &>/dev/null; then DCGM_EXPORTER_DETECTED="true"; fi
 if systemctl is-active prometheus &>/dev/null; then PROMETHEUS_DETECTED="true"; fi
 if systemctl is-active grafana-server &>/dev/null; then GRAFANA_DETECTED="true"; fi
-if systemctl is-active node-exporter prometheus-node-exporter &>/dev/null; then NODE_EXPORTER_DETECTED="true"; fi
 # Containerized and tarball Grafana installs can run without a systemd unit,
 # and unprivileged `ss -p` may hide process details. The executable comm name
 # remains visible through procfs.
 if pgrep -x grafana &>/dev/null || pgrep -x grafana-server &>/dev/null; then GRAFANA_DETECTED="true"; fi
+[[ "$GRAFANA_DETECTED" == "true" ]] && GRAFANA_HEAD_NODE_DETECTED="true"
 
-[[ "$PROMETHEUS_DETECTED"   == "true" ]] && print_info "Prometheus: detected (port 9090 or systemd active)"     || print_detail "Prometheus: not detected"
-[[ "$DCGM_EXPORTER_DETECTED" == "true" ]] && print_info "dcgm-exporter: detected (port 9400 or systemd active)" || print_detail "dcgm-exporter: not detected"
-[[ "$NODE_EXPORTER_DETECTED" == "true" ]] && print_info "node-exporter: detected (port 9100 or systemd active)" || print_detail "node-exporter: not detected"
-[[ "$GRAFANA_DETECTED"      == "true" ]] && print_info "Grafana: detected (port 3000 or systemd active)"        || print_detail "Grafana: not detected"
+if [[ "$WORKER_CHECK_OK" == "true" && "$WORKER_MONITORING_CHECK_OK" == "true" ]]; then
+    case "${WORKER_CONTAINER_RUNTIME_SCOPE:-unknown}" in
+        host) MONITORING_EXPORTER_CHECK_SCOPE="worker-host" ;;
+        nested-container) MONITORING_EXPORTER_CHECK_SCOPE="worker-container" ;;
+        *) MONITORING_EXPORTER_CHECK_SCOPE="worker-unknown" ;;
+    esac
+fi
+
+[[ "$WORKER_DCGM_EXPORTER_DETECTED" == "true" ]] && DCGM_EXPORTER_DETECTED="true"
+[[ "$WORKER_NODE_EXPORTER_DETECTED" == "true" ]] && NODE_EXPORTER_DETECTED="true"
+[[ "$WORKER_GRAFANA_DETECTED" == "true" ]] && GRAFANA_WORKER_NODE_DETECTED="true"
+if [[ "$MONITORING_EXPORTER_CHECK_SCOPE" == "worker-host" ]]; then
+    DCGM_EXPORTER_DETECTED="$WORKER_DCGM_EXPORTER_DETECTED"
+    NODE_EXPORTER_DETECTED="$WORKER_NODE_EXPORTER_DETECTED"
+    GRAFANA_WORKER_NODE_DETECTED="$WORKER_GRAFANA_DETECTED"
+fi
+[[ "$GRAFANA_WORKER_NODE_DETECTED" == "true" ]] && GRAFANA_DETECTED="true"
+
+# Record every metrics/dashboard query endpoint that listens here, plus the
+# product behind it. Exporter ports are platform evidence only: an exporter
+# serves its own host's metrics and answers no tenancy question.
+collect_monitoring_evidence "$LISTENING"
+
+# Report exactly one status for each monitoring component.
+if [[ "$PROMETHEUS_DETECTED" == "true" ]]; then
+    print_info "Prometheus: detected in a tenant-visible node environment"
+else
+    print_detail "Prometheus: not visible from tenant nodes; provider verification required"
+fi
+case "$DCGM_EXPORTER_DETECTED" in
+    true) print_info "dcgm-exporter: detected on compute node ${WORKER_HOSTNAME}" ;;
+    false) print_detail "dcgm-exporter: not detected on compute node ${WORKER_HOSTNAME}" ;;
+    *) print_detail "dcgm-exporter: worker deployment unverified from this tenant scope" ;;
+esac
+case "$NODE_EXPORTER_DETECTED" in
+    true) print_info "node-exporter: detected on compute node ${WORKER_HOSTNAME}" ;;
+    false) print_detail "node-exporter: not detected on compute node ${WORKER_HOSTNAME}" ;;
+    *) print_detail "node-exporter: worker deployment unverified from this tenant scope" ;;
+esac
+if [[ "$GRAFANA_DETECTED" == "true" ]]; then
+    print_info "Grafana: detected in a tenant-visible node environment"
+else
+    print_detail "Grafana: not visible from tenant nodes; provider verification required"
+fi
+print_detail "Grafana placement: head=${GRAFANA_HEAD_NODE_DETECTED}, worker=${GRAFANA_WORKER_NODE_DETECTED}"
 if [[ "$SLURM_EXPORTER_DETECTED" == "maybe" ]]; then
     print_detail "Something on :8080 (could be slurm-exporter or other)"
 fi
@@ -2953,47 +3053,42 @@ esac
 print_header "10. ACCESS & AUTHENTICATION"
 
 print_section "SSH Configuration"
-SSH_CONFIG="/etc/ssh/sshd_config"
+print_detail "Passwordless SSH is determined by the live worker-to-worker probe"
+
+print_section "Worker-to-Worker SSH"
 PASSWORDLESS_SSH="unknown"
-if [[ -f "$SSH_CONFIG" ]]; then
-    if grep -q "^PubkeyAuthentication yes" "$SSH_CONFIG" 2>/dev/null; then
-        print_info "PubkeyAuthentication: Enabled"
-        PASSWORDLESS_SSH="enabled"
-    fi
-fi
-
-if [[ -f ~/.ssh/known_hosts ]]; then
-    KNOWN_HOSTS_COUNT=$(wc -l < ~/.ssh/known_hosts)
-    print_info "Known hosts: ${KNOWN_HOSTS_COUNT} entries"
-fi
-
-# SSH to compute nodes
-print_section "SSH to Compute Nodes"
-SSH_TO_COMPUTE="false"
+SSH_TO_COMPUTE="unknown"
 FIRST_COMPUTE_NODE=""
-
-FIRST_COMPUTE_NODE=""
-if [[ "$SINFO_OK" == "true" ]]; then
-    FIRST_COMPUTE_NODE=$(sinfo -N --noheader 2>/dev/null | head -1 | awk '{print $1}' || echo "")
-else
-    # Use the worker hostname we already checked, or parse from snodes
-    FIRST_COMPUTE_NODE="${WORKER_HOSTNAME:-}"
-    [[ "$FIRST_COMPUTE_NODE" == "none" || -z "$FIRST_COMPUTE_NODE" ]] && \
-        FIRST_COMPUTE_NODE=$(sudo -n /usr/local/bin/snodes 2>/dev/null | tail -n +2 | awk '{print $NF}' | head -1 | tr -d '[]' | sed 's/\[.*//' || echo "")
-fi
-if [[ -n "$FIRST_COMPUTE_NODE" ]]; then
-    print_detail "Testing SSH to first compute node: ${FIRST_COMPUTE_NODE}"
-    SSH_RESULT=$(ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes \
-        "$FIRST_COMPUTE_NODE" hostname 2>/dev/null || echo "ssh-failed")
+SSH_SOURCE_NODE=""
+SSH_TARGET_NODE=""
+SSH_CHECK_SCOPE="unverified"
+mapfile -t SSH_NODES < <(select_worker_ssh_nodes "$NODES_JSON" "${WORKER_HOSTNAME:-}")
+if [[ "${#SSH_NODES[@]}" -ge 2 ]]; then
+    SSH_SOURCE_NODE="${SSH_NODES[0]}"
+    SSH_TARGET_NODE="${SSH_NODES[1]}"
+    FIRST_COMPUTE_NODE="$SSH_TARGET_NODE"
+    SSH_CHECK_SCOPE="worker-to-worker"
+    print_detail "Testing SSH from ${SSH_SOURCE_NODE} to ${SSH_TARGET_NODE}"
+    SSH_RESULT=$(srun "${AUDIT_SRUN_FLAGS[@]}" "${GPU_SRUN_SCOPE_ARGS[@]}" \
+        --immediate=10 -w "$SSH_SOURCE_NODE" -N1 --ntasks=1 --gres=gpu:1 --time=1:00 \
+        bash -s -- "$SSH_TARGET_NODE" 2>/dev/null <<'WORKER_SSH'
+target="$1"
+ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes \
+    "$target" hostname
+WORKER_SSH
+    ) || SSH_RESULT="ssh-failed"
     if [[ -n "$SSH_RESULT" && "$SSH_RESULT" != "ssh-failed" ]]; then
         SSH_TO_COMPUTE="true"
-        print_info "SSH to ${FIRST_COMPUTE_NODE}: SUCCESS (returned hostname: ${SSH_RESULT})"
+        PASSWORDLESS_SSH="enabled"
+        print_info "SSH from ${SSH_SOURCE_NODE} to ${SSH_TARGET_NODE}: SUCCESS (returned hostname: ${SSH_RESULT})"
     else
-        print_error "SSH to ${FIRST_COMPUTE_NODE}: FAILED (requires password or timed out)"
+        SSH_TO_COMPUTE="false"
+        PASSWORDLESS_SSH="disabled"
+        print_error "SSH from ${SSH_SOURCE_NODE} to ${SSH_TARGET_NODE}: FAILED"
         print_detail "Passwordless SSH between nodes is required for MPI and NCCL jobs"
     fi
 else
-    print_warn "SSH test: No compute nodes found via sinfo"
+    print_warn "SSH test: Two usable compute nodes were not available"
 fi
 
 print_section "Accounting"
@@ -3347,7 +3442,7 @@ echo "  perf Installed:        ${PERF_INSTALLED} (paranoid=${PERF_EVENT_PARANOID
 echo "  perf stat:             ${PERF_STAT_ACCESS}"
 echo "  perf top:              ${PERF_TOP_ACCESS}"
 echo "  HPC-X in PATH:         ${HPCX_IN_PATH}"
-echo "  SSH to Compute:        ${SSH_TO_COMPUTE} (${FIRST_COMPUTE_NODE})"
+echo "  Worker-to-worker SSH:  ${SSH_TO_COMPUTE} (${SSH_SOURCE_NODE:-none} to ${SSH_TARGET_NODE:-none})"
 echo "  TaskPlugin:            ${TASK_PLUGIN}"
 echo "  Boot Drive (head):     ${HEAD_BOOT_DEV} (${HEAD_BOOT_FSTYPE})"
 echo "  Boot Drive (worker):   ${WORKER_BOOT_DEVICE} (${WORKER_BOOT_FSTYPE})"

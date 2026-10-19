@@ -1365,27 +1365,26 @@ def slurm_records(
     runner: Runner = subprocess.run,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     if not env.get("SLURM_JOB_ID"):
-        return [gather(env=env, runner=runner)], [
-            "SLURM_JOB_ID is not set; the virtio-net check only checked the local host"
-        ]
-    command = [
-        "srun",
-        "--overlap",
-        "-N",
-        env.get("SLURM_NNODES") or "1",
-        "--ntasks-per-node=1",
-        sys.executable,
-        str(Path(__file__).resolve()),
-        "--collect-host",
-    ]
+        return [], ["SLURM_JOB_ID is not set; no compute node was checked for virtio-net"]
+    command = load_fanout().slurm_python_command(
+        node_count=env.get("SLURM_NNODES") or "1",
+        worker_args=["--collect-host"],
+    )
     try:
-        proc = runner(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=SLURM_TIMEOUT_S)
+        proc = runner(
+            command,
+            input=Path(__file__).read_text(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=SLURM_TIMEOUT_S,
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return [gather(env=env, runner=runner)], [f"srun virtio-net check failed; local host only: {exc}"]
+        return [], [f"srun virtio-net check failed; no compute node was checked: {exc}"]
     records = load_fanout().parse_json_lines(proc.stdout, require_host=True)
     if not records:
-        return [gather(env=env, runner=runner)], [
-            f"srun virtio-net check returned no host JSON (exit {proc.returncode}); local host only"
+        return [], [
+            f"srun virtio-net check returned no host JSON (exit {proc.returncode}); no compute node was checked"
         ]
     # A partial fan-out is the dangerous middle case: srun returns the hosts
     # that answered and says nothing about the ones that did not, so the rollup
