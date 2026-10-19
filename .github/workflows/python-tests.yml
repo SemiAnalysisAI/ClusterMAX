@@ -1,21 +1,15 @@
 name: python-tests
 
+# The `test` check is required on master. A pull request that never creates
+# the check cannot merge, so this job always runs and always reports. It
+# classifies the changed files first and skips the steps that those files
+# cannot affect, instead of filtering the trigger with `paths`.
+
 on:
   pull_request:
     branches: [master, 'release/**']
   push:
     branches: [master, 'release/**']
-    paths:
-      - 'bench/**'
-      - 'cmax/**'
-      - 'pyproject.toml'
-      - 'setup.py'
-      - 'tests/**'
-      - '.github/scripts/nightly_version.py'
-      - '.github/requirements/release.in'
-      - '.github/requirements/release.txt'
-      - '.github/workflows/python-nightly.yml'
-      - '.github/workflows/python-tests.yml'
 
 permissions:
   contents: read
@@ -28,18 +22,74 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Classify the changed files
+        id: changes
+        env:
+          # The base branch tip for a pull request, the previous branch tip
+          # for a push. Empty for any other event.
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        # Fail safe: when no base commit is known or it cannot be fetched
+        # (first push of a branch, force push), every step runs.
+        #
+        # Which files need which step:
+        #   - cmax/**, pyproject.toml, setup.py: the package. Both steps.
+        #   - This workflow file: both steps, so a change to the gate itself
+        #     runs the full job.
+        #   - tests/**, .github/scripts/**: tests only. The nightly version
+        #     script has its own tests.
+        #   - minimum-versions-refresh.yml: tests only. One test loads its
+        #     bulletin step and runs it under bash.
+        #   - Everything else (docs, other workflows, pinned CI requirements,
+        #     Dependabot config): no step.
+        run: |
+          set -uo pipefail
+          run_tests=true
+          run_wheel=true
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            reason="no base commit"
+          elif ! git fetch --no-tags --depth=1 origin "$BASE_SHA"; then
+            reason="base commit $BASE_SHA is not reachable"
+          else
+            reason="diff against $BASE_SHA"
+            run_tests=false
+            run_wheel=false
+            while IFS= read -r path; do
+              case "$path" in
+                .github/workflows/python-tests.yml|cmax/*|pyproject.toml|setup.py)
+                  run_tests=true
+                  run_wheel=true
+                  ;;
+                tests/*|.github/scripts/*|.github/workflows/minimum-versions-refresh.yml)
+                  run_tests=true
+                  ;;
+              esac
+            done < <(git diff --name-only "$BASE_SHA" HEAD)
+          fi
+          echo "run_tests=$run_tests" >> "$GITHUB_OUTPUT"
+          echo "run_wheel=$run_wheel" >> "$GITHUB_OUTPUT"
+          {
+            echo "### python-tests"
+            echo "- Basis: $reason"
+            echo "- Run Python tests: \`$run_tests\`"
+            echo "- Smoke-test the wheel: \`$run_wheel\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        if: steps.changes.outputs.run_tests == 'true' || steps.changes.outputs.run_wheel == 'true'
         with:
           python-version: '3.12'
 
       - name: Install test runner
+        if: steps.changes.outputs.run_tests == 'true'
         run: |
           python -m pip install pytest pyyaml prompt-toolkit
 
       - name: Run Python tests
+        if: steps.changes.outputs.run_tests == 'true'
         run: python -m pytest -q
 
       - name: Smoke-test checkout-free public wheel
+        if: steps.changes.outputs.run_wheel == 'true'
         run: |
           python -m pip wheel --no-deps --wheel-dir /tmp/clustermax-wheel .
           python -c 'import glob, zipfile; wheel = glob.glob("/tmp/clustermax-wheel/clustermax-*.whl")[0]; names = zipfile.ZipFile(wheel).namelist(); assert not any("__pycache__" in name or name.endswith((".pyc", ".pyo")) for name in names)'
