@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Unit tests for the cross-node df -hT audit check."""
+"""Synthetic parser and transport cases for cross-node storage checks."""
 
 from __future__ import annotations
 
 import importlib.util
 import json
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,115 @@ def report(host: str, *, home_pct: int = 40, scratch: str = "mgs@tcp:/fs lustre 
 
 
 class StorageConfigTests(unittest.TestCase):
+    def assert_error_is_visible_in_finding(self, payload: dict, expected: str) -> None:
+        sys.path.insert(0, str(CHECK_PATH.parents[2]))
+        import audit_findings
+
+        findings = audit_findings.detect_findings({"audit_data": {"storage_config": payload}})
+        finding, = [f for f in findings if f.key == "storage_config.status"]
+        self.assertIn(expected, finding.detected)
+
+    def test_all_reports_do_not_hide_nonzero_srun_exit(self) -> None:
+        def runner(command, **kwargs):
+            return subprocess.CompletedProcess(
+                command, 2, "\n".join([report("synthetic-a"), report("synthetic-b")]),
+                "synthetic allocation failed",
+            )
+
+        result = storage.build_check_payload(
+            harness="slurm", env={"SLURM_JOB_ID": "1", "SLURM_NNODES": "2"}, runner=runner,
+        )["storage_config"]
+        self.assertEqual(result["status"], "warning")
+        self.assertEqual(result["nodes_checked"], 2)
+        self.assertEqual(result["failures"], [])
+        self.assertIn("srun exited 2", result["errors"][0])
+        self.assertIn("synthetic allocation failed", result["message"])
+        self.assert_error_is_visible_in_finding(result, "synthetic allocation failed")
+
+    def test_no_reports_preserve_srun_failure_in_unknown_verdict(self) -> None:
+        def runner(command, **kwargs):
+            return subprocess.CompletedProcess(command, 1, "", "synthetic allocation denied")
+
+        result = storage.build_check_payload(
+            harness="slurm", env={"SLURM_JOB_ID": "1"}, runner=runner,
+        )["storage_config"]
+        self.assertEqual(result["status"], "unknown")
+        self.assertIn("synthetic allocation denied", result["message"])
+        self.assert_error_is_visible_in_finding(result, "synthetic allocation denied")
+
+    def test_srun_exceptions_surface_in_the_unknown_message(self) -> None:
+        for error in (OSError("synthetic transport unavailable"), subprocess.TimeoutExpired("srun", 1)):
+            with self.subTest(error=type(error).__name__):
+                def runner(command, **kwargs):
+                    raise error
+
+                result = storage.build_check_payload(
+                    harness="slurm", env={"SLURM_JOB_ID": "1"}, runner=runner,
+                )["storage_config"]
+                self.assertEqual(result["status"], "unknown")
+                self.assertIn("srun failed:", result["message"])
+                self.assert_error_is_visible_in_finding(result, "srun failed:")
+
+    def test_kubernetes_inventory_failure_surfaces_in_the_verdict(self) -> None:
+        def runner(command, **kwargs):
+            return subprocess.CompletedProcess(command, 1, "", "synthetic inventory forbidden")
+
+        result = storage.build_check_payload(harness="k8s", env={}, runner=runner)["storage_config"]
+        self.assertEqual(result["status"], "unknown")
+        self.assertIn("kubectl get nodes failed", result["message"])
+        self.assert_error_is_visible_in_finding(result, "synthetic inventory forbidden")
+
+    def test_kubernetes_host_failure_and_cap_cannot_pass(self) -> None:
+        nodes = {"items": [{
+            "metadata": {"name": f"synthetic-{index}"},
+            "status": {"capacity": {"nvidia.com/gpu": "1"}},
+        } for index in range(2)]}
+        for fail_host in (True, False):
+            with self.subTest(fail_host=fail_host):
+                def runner(command, **kwargs):
+                    verb = command[1]
+                    if verb == "get":
+                        return subprocess.CompletedProcess(command, 0, json.dumps(nodes), "")
+                    if verb == "apply":
+                        return subprocess.CompletedProcess(
+                            command, 1 if fail_host else 0, "", "synthetic pod forbidden" if fail_host else "",
+                        )
+                    if verb in {"wait", "delete"}:
+                        return subprocess.CompletedProcess(command, 0, "", "")
+                    if verb == "exec":
+                        return subprocess.CompletedProcess(
+                            command, 0, DF.format(home_pct=40, scratch=""), "",
+                        )
+                    raise AssertionError(command)
+
+                result = storage.build_check_payload(
+                    harness="k8s", env={"CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS": "1"},
+                    runner=runner,
+                )["storage_config"]
+                self.assertEqual(result["status"], "unknown" if fail_host else "warning")
+                self.assertTrue(result["errors"])
+                self.assertIn("checked 1 of 2 GPU nodes", result["message"])
+                self.assert_error_is_visible_in_finding(
+                    result, "synthetic pod forbidden" if fail_host else "checked 1 of 2 GPU nodes",
+                )
+
+    def test_mount_failure_keeps_priority_over_collection_warning(self) -> None:
+        result = storage.aggregate(
+            [json.loads(report("synthetic-a")), json.loads(report("synthetic-b", scratch=""))],
+            nodes_expected=2, mode="slurm", errors=["synthetic transport warning"],
+        )
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["failures"], ["/scratch is missing on synthetic-b"])
+        self.assertIn("synthetic transport warning", result["message"])
+        self.assert_error_is_visible_in_finding(result, "synthetic transport warning")
+
+    def test_successful_collection_still_passes(self) -> None:
+        result = storage.aggregate(
+            [json.loads(report("synthetic-a"))], nodes_expected=1, mode="slurm",
+        )
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["errors"], [])
+
     def test_wrapped_shared_device_preserves_mount(self) -> None:
         text = "Filesystem Type Size Used Avail Use% Mounted on\nserver:/a-very-long-lustre-path\n  lustre 100T 20T 80T 20% /shared workspace\n"
         row, = storage.parse_df(text)
@@ -118,6 +228,8 @@ class StorageConfigTests(unittest.TestCase):
     def test_no_job_is_unknown(self) -> None:
         payload = storage.build_check_payload(harness="slurm", env={})["storage_config"]
         self.assertEqual(payload["status"], "unknown")
+        self.assertIn("SLURM_JOB_ID is not set", payload["message"])
+        self.assert_error_is_visible_in_finding(payload, "SLURM_JOB_ID is not set")
 
 
 if __name__ == "__main__":

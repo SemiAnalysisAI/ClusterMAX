@@ -89,9 +89,14 @@ def worker_report() -> dict[str, Any]:
         return {"host": host, "df": [], "error": f"df -hT failed: {exc}"}
 
 
-def aggregate(reports: list[dict[str, Any]], *, nodes_expected: int, mode: str) -> dict[str, Any]:
+def aggregate(
+    reports: list[dict[str, Any]], *, nodes_expected: int, mode: str,
+    errors: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    errors = list(errors or [])
     if not reports:
-        return {"status": "unknown", "message": "no worker node reported df -hT", "mode": mode,
+        message = "; ".join(["no worker node reported df -hT", *errors])
+        return {"status": "unknown", "message": message, "mode": mode, "errors": errors,
                 "nodes_expected": nodes_expected, "nodes_checked": 0, "hosts": []}
     hosts = sorted(r["host"] for r in reports)
     # A host whose df failed or returned nothing has no mount table to
@@ -103,7 +108,7 @@ def aggregate(reports: list[dict[str, Any]], *, nodes_expected: int, mode: str) 
     }
     all_targets = sorted({t for rows in by_host.values() for t in rows})
     failures: list[str] = []
-    warnings: list[str] = []
+    warnings: list[str] = [f"collection error: {error}" for error in errors]
     for target in all_targets:
         present = {h for h, rows in by_host.items() if target in rows}
         missing = sorted(set(by_host) - present)
@@ -128,7 +133,7 @@ def aggregate(reports: list[dict[str, Any]], *, nodes_expected: int, mode: str) 
     message = "; ".join(failures + warnings) or f"{len(reports)} node(s) agree on {len(all_targets)} mount(s)"
     return {"status": status, "message": message, "mode": mode, "nodes_expected": nodes_expected,
             "nodes_checked": len(reports), "hosts_checked": hosts, "failures": failures,
-            "warnings": warnings, "hosts": reports}
+            "warnings": warnings, "errors": errors, "hosts": reports}
 
 
 def k8s_pod_manifest(namespace: str, node: str, image: str, pod_name: str) -> dict[str, Any]:
@@ -217,14 +222,14 @@ def build_check_payload(
 
     if harness != "slurm":
         reports, errors, expected = k8s_reports(dict(env), runner, _fanout)
-        payload = aggregate(reports, nodes_expected=expected, mode="k8s")
-        if errors:
-            payload["errors"] = errors
-        return {"storage_config": payload}
+        return {"storage_config": aggregate(
+            reports, nodes_expected=expected, mode="k8s", errors=errors,
+        )}
     if not env.get("SLURM_JOB_ID"):
-        payload = aggregate([], nodes_expected=0, mode="slurm")
-        payload["errors"] = ["SLURM_JOB_ID is not set; no compute node was checked"]
-        return {"storage_config": payload}
+        return {"storage_config": aggregate(
+            [], nodes_expected=0, mode="slurm",
+            errors=["SLURM_JOB_ID is not set; no compute node was checked"],
+        )}
 
     node_count = env.get("SLURM_NNODES", "1")
     command = _fanout.slurm_python_command(node_count=node_count, worker_args=["--worker"])
@@ -238,10 +243,9 @@ def build_check_payload(
             errors.append(f"srun exited {proc.returncode}: {proc.stderr.strip()[-400:]}")
     except (OSError, subprocess.TimeoutExpired) as exc:
         errors.append(f"srun failed: {exc}")
-    payload = aggregate(reports, nodes_expected=int(node_count or 1), mode="slurm")
-    if errors:
-        payload["errors"] = errors
-    return {"storage_config": payload}
+    return {"storage_config": aggregate(
+        reports, nodes_expected=int(node_count or 1), mode="slurm", errors=errors,
+    )}
 
 
 def main(argv: list[str]) -> int:
