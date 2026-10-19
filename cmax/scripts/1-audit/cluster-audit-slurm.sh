@@ -3061,14 +3061,26 @@ FIRST_COMPUTE_NODE=""
 SSH_SOURCE_NODE=""
 SSH_TARGET_NODE=""
 SSH_CHECK_SCOPE="unverified"
-mapfile -t SSH_NODES < <(select_worker_ssh_nodes "$NODES_JSON" "${WORKER_HOSTNAME:-}")
+SSH_ALLOCATED_NODES_JSON=null
+if [[ -n "${SLURM_JOB_ID:-}" ]]; then
+    SSH_ALLOCATION_NODELIST="${SLURM_JOB_NODELIST:-${SLURM_NODELIST:-}}"
+    if [[ -z "$SSH_ALLOCATION_NODELIST" ]]; then
+        SSH_ALLOCATION_NODELIST=$(squeue -h -j "$SLURM_JOB_ID" -o '%N' 2>/dev/null) || SSH_ALLOCATION_NODELIST=""
+    fi
+    SSH_ALLOCATION_HOSTS=""
+    if [[ -n "$SSH_ALLOCATION_NODELIST" ]]; then
+        SSH_ALLOCATION_HOSTS=$(scontrol show hostnames "$SSH_ALLOCATION_NODELIST" 2>/dev/null) || SSH_ALLOCATION_HOSTS=""
+    fi
+    SSH_ALLOCATED_NODES_JSON=$(printf '%s\n' "$SSH_ALLOCATION_HOSTS" | jq -Rsc 'split("\n") | map(select(length > 0))')
+fi
+mapfile -t SSH_NODES < <(select_worker_ssh_nodes "$NODES_JSON" "${SLURMD_NODENAME:-${WORKER_HOSTNAME:-}}" "$SSH_ALLOCATED_NODES_JSON")
 if [[ "${#SSH_NODES[@]}" -ge 2 ]]; then
     SSH_SOURCE_NODE="${SSH_NODES[0]}"
     SSH_TARGET_NODE="${SSH_NODES[1]}"
     FIRST_COMPUTE_NODE="$SSH_TARGET_NODE"
     print_detail "Testing SSH from ${SSH_SOURCE_NODE} to ${SSH_TARGET_NODE}"
     SSH_RESULT=$(srun "${AUDIT_SRUN_FLAGS[@]}" "${GPU_SRUN_SCOPE_ARGS[@]}" \
-        --immediate=10 -w "$SSH_SOURCE_NODE" -N1 --ntasks=1 --gres=none --time=1:00 \
+        --input=all --immediate=10 -w "$SSH_SOURCE_NODE" -N1 --ntasks=1 --gres=none --time=1:00 \
         bash -s -- "$SSH_TARGET_NODE" 2>/dev/null <<'WORKER_SSH'
 target="$1"
 if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes \
