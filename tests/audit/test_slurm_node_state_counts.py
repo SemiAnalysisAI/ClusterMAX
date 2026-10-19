@@ -2,10 +2,8 @@
 """Unit tests for Slurm node-state counting in the cluster audit.
 
 Slurm joins a node base state and its flags with "+", for example
-"IDLE+CLOUD+POWERED_DOWN". The audit used a substring test on "DOWN|DRAIN",
-so the POWERED_DOWN power-save flag matched the down/drained pattern. On an
-Azure cloud cluster that scales to zero, the audit printed
-"Down/Drained: 84" while `sinfo` showed all 84 nodes as "idle~".
+"IDLE+CLOUD+POWERED_DOWN". These hand-built synthetic fixtures distinguish
+power-save flags from actual down/drained states. No scheduler logs are used.
 """
 
 from __future__ import annotations
@@ -38,22 +36,20 @@ def node(name: str, state: str) -> dict:
 
 class SlurmNodeStateCountTests(unittest.TestCase):
     def test_powered_down_cloud_nodes_are_idle_not_down(self) -> None:
-        """Reproduce the Azure ccw cluster: 84 idle~ nodes, 0 real failures."""
-        nodes = (
-            [node(f"ccw-gpu-{i}", "IDLE+CLOUD+POWERED_DOWN") for i in range(19, 37)]
-            + [node(f"ccw-gpu-{i}", "ALLOCATED+CLOUD") for i in range(1, 5)]
-            + [node(f"ccw-gpu-{i}", "IDLE+CLOUD") for i in range(5, 19)]
-            + [node(f"ccw-hpc-{i}", "IDLE+CLOUD+POWERED_DOWN") for i in range(1, 17)]
-            + [node(f"ccw-htc-{i}", "IDLE+CLOUD+POWERED_DOWN") for i in range(1, 51)]
-        )
+        """Use the smallest fixture that contains all three relevant states."""
+        nodes = [
+            node("synthetic-a", "IDLE+CLOUD+POWERED_DOWN"),
+            node("synthetic-b", "ALLOCATED+CLOUD"),
+            node("synthetic-c", "IDLE+CLOUD"),
+        ]
 
         counts = run_helper("count_slurm_node_states", json.dumps(nodes))
 
-        self.assertEqual(counts["total"], 102)
-        self.assertEqual(counts["idle"], 98)
-        self.assertEqual(counts["allocated"], 4)
+        self.assertEqual(counts["total"], 3)
+        self.assertEqual(counts["idle"], 2)
+        self.assertEqual(counts["allocated"], 1)
         self.assertEqual(counts["downDrained"], 0)
-        self.assertEqual(counts["poweredDown"], 84)
+        self.assertEqual(counts["poweredDown"], 1)
 
     def test_power_transition_flags_are_not_down(self) -> None:
         nodes = [
@@ -120,24 +116,22 @@ class SlurmNodeStateCountTests(unittest.TestCase):
 
 class SnodesStateCountTests(unittest.TestCase):
     def test_sinfo_power_save_suffix_counts_as_idle(self) -> None:
-        """Real `sinfo` output from the Azure ccw cluster login node."""
+        """Hand-written synthetic rows cover a flag, a base state and zero."""
         rows = "\n".join(
             [
                 "PARTITION AVAIL  TIMELIMIT  NODES  STATE NODELIST",
-                "dynamic      up   infinite      0    n/a",
-                "gpu          up   infinite     18   idle~ ccw-gpu-[19-36]",
-                "gpu          up   infinite      4   alloc ccw-gpu-[1-4]",
-                "gpu          up   infinite     14    idle ccw-gpu-[5-18]",
-                "hpc*         up   infinite     16   idle~ ccw-hpc-[1-16]",
-                "htc          up   infinite     50   idle~ ccw-htc-[1-50]",
+                "synthetic    up   infinite      0    n/a",
+                "synthetic    up   infinite      2   idle~ synthetic-[1-2]",
+                "synthetic    up   infinite      1   alloc synthetic-3",
+                "synthetic    up   infinite      3    idle synthetic-[4-6]",
             ]
         )
 
         counts = run_helper("count_snodes_states", rows)
 
-        self.assertEqual(counts["total"], 102)
-        self.assertEqual(counts["idle"], 98)
-        self.assertEqual(counts["allocated"], 4)
+        self.assertEqual(counts["total"], 6)
+        self.assertEqual(counts["idle"], 5)
+        self.assertEqual(counts["allocated"], 1)
         self.assertEqual(counts["downDrained"], 0)
 
     def test_sinfo_down_and_drain_states_count(self) -> None:

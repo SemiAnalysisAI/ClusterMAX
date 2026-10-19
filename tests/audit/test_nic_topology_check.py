@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for the NIC topology audit check fan-out."""
+"""Unit tests with generated topology matrices and synthetic collector records."""
 
 from __future__ import annotations
 
@@ -378,7 +378,7 @@ class K8sDispatchTests(unittest.TestCase):
             return completed(command, stdout=k8s_collector_output())
 
         record, error = nic.run_k8s_node_check(
-            "cw-nvidia-gpu-operator", "gpu-1", runner=runner
+            "example-nvidia-gpu-operator", "gpu-1", runner=runner
         )
 
         self.assertIsNone(error)
@@ -444,116 +444,93 @@ class K8sDispatchTests(unittest.TestCase):
         )
 
 
-GB300_NODE_TOPO = "\n".join(
-    [
-        # Grace superchip: GPUs reach NICs over C2C, so every GPU<->NIC cell
-        # is NODE/SYS and the close-affinity rule can never fire.
-        "\tGPU0\tGPU1\tNIC0\tNIC1\tNIC2\tNIC3",
-        "GPU0\t X \tNV18\tNODE\tNODE\tSYS\tSYS",
-        "GPU1\tNV18\t X \tSYS\tSYS\tNODE\tNODE",
-        "NIC0\tNODE\tSYS\t X \tSYS\tSYS\tSYS",
-        "NIC1\tNODE\tSYS\tSYS\t X \tSYS\tSYS",
-        "NIC2\tSYS\tNODE\tSYS\tSYS\t X \tSYS",
-        "NIC3\tSYS\tNODE\tSYS\tSYS\tSYS\t X ",
-        "NIC Legend:",
-        "  NIC0: mlx5_0",
-        "  NIC1: mlx5_1",
-        "  NIC2: mlx5_2",
-        "  NIC3: mlx5_3",
+SYNTHETIC_TOPO_LABELS = ["GPU0", "GPU1", "NIC0", "NIC1", "NIC2"]
+SYNTHETIC_NODE_TOPO = "\n".join(
+    ["\t" + "\t".join(SYNTHETIC_TOPO_LABELS)]
+    + [
+        row + "\t" + "\t".join("X" if row == col else "SYS" for col in SYNTHETIC_TOPO_LABELS)
+        for row in SYNTHETIC_TOPO_LABELS
     ]
+    + ["NIC Legend:"]
+    + [f"  NIC{i}: mlx5_{i}" for i in range(3)]
 )
 
 
 class FabricAffinityFallbackTests(unittest.TestCase):
-    """NVL72 superchips report no close-GPU affinity; roles must recover.
-
-    Shapes below mirror committed audit artifacts: GMI/Azure/Nebius planarized
-    4x800G XDR, Firmus mlx5_rail* RoCE VFs, OCI rdma_vf_rail* with DOWN PFs.
-    """
+    """Synthetic no-affinity matrices exercise independent role rules."""
 
     def roles(self, classified: list) -> dict:
         return {n["name"]: n["role"] for n in classified}
 
-    def test_planarized_ib_gb300_promotes_top_rate_ib_group(self) -> None:
-        # GMI/Nebius GB300 shape: 4x 800G IB scale-out + 400G Ethernet storage.
+    def test_synthetic_ib_promotes_top_rate_group(self) -> None:
         classified = nic.classify_nics(
-            GB300_NODE_TOPO,
+            SYNTHETIC_NODE_TOPO,
             [
-                ("mlx5_0", 800.0, "InfiniBand", "ACTIVE"),
-                ("mlx5_1", 800.0, "InfiniBand", "ACTIVE"),
-                ("mlx5_2", 800.0, "InfiniBand", "ACTIVE"),
-                ("mlx5_3", 800.0, "InfiniBand", "ACTIVE"),
-                ("mlx5_bond_0", 400.0, "Ethernet", "ACTIVE"),
+                ("mlx5_0", 200.0, "InfiniBand", "ACTIVE"),
+                ("mlx5_1", 200.0, "InfiniBand", "ACTIVE"),
+                ("mlx5_2", 200.0, "InfiniBand", "ACTIVE"),
+                ("mlx5_bond_0", 100.0, "Ethernet", "ACTIVE"),
             ],
             [],
         )
 
         roles = self.roles(classified)
         self.assertEqual(
-            {roles[f"mlx5_{i}"] for i in range(4)}, {"fabric"}
+            {roles[f"mlx5_{i}"] for i in range(3)}, {"fabric"}
         )
         self.assertEqual(roles["mlx5_bond_0"], "storage")
         by_name = {n["name"]: n for n in classified}
         self.assertIn("no GPU-affinity signal", by_name["mlx5_0"]["reason"])
-        self.assertIn("800 Gb/s", by_name["mlx5_0"]["reason"])
+        self.assertIn("200 Gb/s", by_name["mlx5_0"]["reason"])
 
     def test_rail_named_roce_vfs_promote_and_storage_stays(self) -> None:
-        # Firmus GB300 shape: rail-named 400G RoCE VFs + same-rate storage NICs.
         classified = nic.classify_nics(
-            GB300_NODE_TOPO,
+            SYNTHETIC_NODE_TOPO,
             [
-                ("mlx5_rail0", 400.0, "Ethernet", "ACTIVE"),
-                ("mlx5_rail1", 400.0, "Ethernet", "ACTIVE"),
-                ("mlx5_rail2", 400.0, "Ethernet", "ACTIVE"),
-                ("mlx5_rail3", 400.0, "Ethernet", "ACTIVE"),
-                ("mlx5_8", 400.0, "Ethernet", "ACTIVE"),
-                ("mlx5_bond_0", 400.0, "Ethernet", "ACTIVE"),
+                ("synthetic_rail0", 200.0, "Ethernet", "ACTIVE"),
+                ("synthetic_rail1", 200.0, "Ethernet", "ACTIVE"),
+                ("mlx5_8", 200.0, "Ethernet", "ACTIVE"),
+                ("mlx5_bond_0", 200.0, "Ethernet", "ACTIVE"),
             ],
             [],
         )
 
         roles = self.roles(classified)
         self.assertEqual(
-            {roles[f"mlx5_rail{i}"] for i in range(4)}, {"fabric"}
+            {roles[f"synthetic_rail{i}"] for i in range(2)}, {"fabric"}
         )
         self.assertEqual(roles["mlx5_8"], "storage")
         self.assertEqual(roles["mlx5_bond_0"], "storage")
 
     def test_down_rail_pfs_stay_unpromoted_behind_active_vfs(self) -> None:
-        # OCI GB300 shape: quad-plane 200G VFs ACTIVE, parent PFs DOWN.
         classified = nic.classify_nics(
-            GB300_NODE_TOPO,
+            SYNTHETIC_NODE_TOPO,
             [
-                ("rdma_rail0", 200.0, "Ethernet", "DOWN"),
-                ("rdma_rail1", 200.0, "Ethernet", "DOWN"),
-                ("rdma_vf_rail0", 200.0, "Ethernet", "ACTIVE"),
-                ("rdma_vf_rail1", 200.0, "Ethernet", "ACTIVE"),
+                ("synthetic_rail0", 100.0, "Ethernet", "DOWN"),
+                ("synthetic_vf_rail0", 100.0, "Ethernet", "ACTIVE"),
             ],
             [],
         )
 
         roles = self.roles(classified)
-        self.assertEqual(roles["rdma_vf_rail0"], "fabric")
-        self.assertEqual(roles["rdma_vf_rail1"], "fabric")
-        self.assertEqual(roles["rdma_rail0"], "storage")
-        self.assertEqual(roles["rdma_rail1"], "storage")
+        self.assertEqual(roles["synthetic_vf_rail0"], "fabric")
+        self.assertEqual(roles["synthetic_rail0"], "storage")
 
     def test_single_ib_hca_never_promotes(self) -> None:
         # One high-rate IB HCA is as likely a storage NIC; require >= 2.
         classified = nic.classify_nics(
-            GB300_NODE_TOPO,
+            SYNTHETIC_NODE_TOPO,
             [("mlx5_0", 400.0, "InfiniBand", "ACTIVE")],
             [],
         )
         self.assertEqual(classified[0]["role"], "storage")
 
     def test_low_rate_rdma_ethernet_never_promotes(self) -> None:
-        # Azure mana 100G Ethernet must not ride the IB promotion.
         classified = nic.classify_nics(
-            GB300_NODE_TOPO,
+            SYNTHETIC_NODE_TOPO,
             [
-                ("mana_0", 100.0, "Ethernet", "ACTIVE"),
-                ("manae_0", 100.0, "Ethernet", "ACTIVE"),
+                ("synthetic_eth0", 100.0, "Ethernet", "ACTIVE"),
+                ("synthetic_eth1", 100.0, "Ethernet", "ACTIVE"),
             ],
             [],
         )
