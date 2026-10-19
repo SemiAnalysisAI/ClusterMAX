@@ -53,8 +53,6 @@ KNOWN_GAPS = frozenset(
         "mpi-srun-pmix",  # software.mpi.srunPmixAvailable is collected
         "prolog-fast",  # healthChecks.prologFast is collected
         "resource-limits",  # resourceLimits.* is collected
-        "security-vmscape",  # security.vmscape.status is collected
-        "security-qemu-virtio-serial",  # security.virtualization.virtioSerialExposed
         # TODO: these need graded verdict fields from the collectors first.
         # idle-thermals: collectors emit only raw idleTempMax/idlePowerMax
         # strings; the per-class idle power ceilings (Hopper 150 W, Blackwell
@@ -109,6 +107,8 @@ class CriteriaParityTests(unittest.TestCase):
         mapping = audit_findings.CHECK_CRITERIA
         rule_keys = {rule.key for rule in audit_findings.RULES}
         extension_ids = {
+            "qemu-virtio-serial",
+            "vmscape",
             "observability-isolation",
             "bmc-ipmi",
             "nvlink-boundary",

@@ -1495,6 +1495,8 @@ def classify_suppression(key: str, audit: dict[str, Any]) -> tuple[str, str]:
 # key and security extension id appears here and that every mapped id exists
 # in the vendored catalog.
 CHECK_CRITERIA: dict[str, str | None] = {
+    "qemu-virtio-serial": "security-qemu-virtio-serial",
+    "vmscape": "security-vmscape",
     "observability-isolation": "security-observability-isolation",
     "thp_madvise.status": None,
     "static_hugepages.status": None,
