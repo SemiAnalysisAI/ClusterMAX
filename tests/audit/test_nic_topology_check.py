@@ -268,6 +268,8 @@ class K8sDispatchTests(unittest.TestCase):
             args = command[1:]
             if args[:2] == ["get", "nodes"]:
                 return completed(command, stdout=nodes_json)
+            if args[:2] == ["get", "namespaces"]:
+                return completed(command, returncode=1)
             if args[:2] == ["get", "namespace"]:
                 return completed(command, returncode=0 if args[2] == "gpu-operator" else 1)
             if args[:2] == ["get", "pods"]:
@@ -303,6 +305,8 @@ class K8sDispatchTests(unittest.TestCase):
             args = command[1:]
             if args[:2] == ["get", "nodes"]:
                 return completed(command, stdout=json.dumps({"items": [{"metadata": {"name": "gpu-1"}, "status": {"capacity": {"nvidia.com/gpu": "8"}}}]}))
+            if args[:2] == ["get", "namespaces"]:
+                return completed(command, returncode=1)
             if args[:2] == ["get", "namespace"]:
                 return completed(command, returncode=0 if args[2] == "gpu-operator" else 1)
             if args[:2] == ["get", "pods"]:

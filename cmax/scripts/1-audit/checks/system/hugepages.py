@@ -177,7 +177,7 @@ def _allocation_trial(root: Path) -> dict:
         raise InterruptedError(f"The allocation test received signal {signum}.")
 
     try:
-        for sig in (signal.SIGINT, signal.SIGTERM):
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
             previous_handlers[sig] = signal.signal(sig, interrupted)
         # The proc write has the same count semantics as sysctl -w.
         (root / NR).write_text(f"{target}\n")

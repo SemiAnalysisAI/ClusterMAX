@@ -547,6 +547,15 @@ def _read_sysfs(path: str) -> str:
         return ""
 
 
+def plane_candidate(nic: dict[str, Any]) -> bool:
+    """Include down IB ports whose fabric role can be recovered from peers."""
+    return nic.get("role") == "fabric" or (
+        nic.get("layer") == "InfiniBand"
+        and isinstance(nic.get("state"), str)
+        and nic["state"] != "ACTIVE"
+    )
+
+
 def collect_plane_evidence(
     nics: list,
     *,
@@ -555,7 +564,7 @@ def collect_plane_evidence(
     budget_s: float = PLANE_BUDGET_S,
     time_fn: Callable[[], float] = time.monotonic,
 ) -> list:
-    """Tier A/B evidence for every fabric-role HCA on the local host.
+    """Tier A/B evidence for fabric HCAs and down-IB reconciliation candidates.
 
     Bounded: per-tool timeout plus an overall budget so a hung /dev/mst can
     never starve the srun window that also carries the role classification.
@@ -564,8 +573,8 @@ def collect_plane_evidence(
     started = time_fn()
     out: list[dict[str, Any]] = []
     host = os.environ.get("NODE_NAME") or socket.gethostname()
-    for nic in nics:
-        if nic.get("role") != "fabric":
+    for nic in sorted(nics, key=lambda item: item.get("role") != "fabric"):
+        if not plane_candidate(nic):
             continue
         dev = nic["name"]
         rate_raw = _read_sysfs(f"{sysfs_root}/{dev}/ports/1/rate")
@@ -700,17 +709,41 @@ def aggregate(records: list[dict[str, Any]]) -> dict[str, Any]:
     return nic_topology
 
 
-def plane_evidence_by_host(records: list[dict[str, Any]]) -> dict[str, Any]:
+def plane_evidence_by_host(
+    records: list[dict[str, Any]], topology: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Sibling ``nic_plane_evidence`` payload: host -> per-fabric-HCA evidence.
 
     Kept out of ``nic_topology`` so that mapping's host -> NIC-list shape
     stays exactly what merge_audit.py and the dashboard already consume.
     """
+    topology = aggregate(records) if topology is None else topology
     out: dict[str, Any] = {}
     for record in records:
         host = str(record.get("host") or "")
-        evidence = record.get("plane_evidence")
-        if host and evidence:
+        if not host:
+            continue
+        collected = {
+            entry["ibdev"]: entry for entry in record.get("plane_evidence", [])
+            if isinstance(entry, dict) and entry.get("ibdev")
+        }
+        evidence = []
+        for nic in topology.get(host, []):
+            if nic.get("role") != "fabric":
+                continue
+            dev = nic["name"]
+            if dev in collected:
+                evidence.append(collected[dev])
+            else:
+                # Older workers may not have probed a port before peer-based
+                # role recovery. Keep that missing evidence explicit.
+                reason = "not collected before fabric role aggregation"
+                evidence.append(evidence_from_raw(
+                    dev, nic.get("layer", "?"), "",
+                    {tool: ("", reason) for tool in ("mlxconfig", "mlxlink", "ibnetdiscover", "lldp")},
+                    host=host,
+                ))
+        if evidence:
             out[host] = evidence
     return out
 
@@ -787,42 +820,50 @@ def kubectl(
     )
 
 
-def k8s_gpu_namespace(*, env: dict[str, str], runner: Runner) -> str | None:
+def k8s_gpu_namespaces(*, env: dict[str, str], runner: Runner) -> list[str]:
     override = env.get("CLUSTERMAX_GPU_OPERATOR_NAMESPACE")
     if override:
-        return override
-    # Prefer known operator namespaces over the generic "gpu" fallback.
-    for ns in GPU_OPERATOR_NAMESPACES[:-1]:
-        try:
-            proc = kubectl(["get", "namespace", ns], runner=runner, timeout=20)
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        if proc.returncode == 0:
-            return ns
+        return [override]
     try:
         proc = kubectl(["get", "namespaces", "-o", "json"], runner=runner, timeout=20)
-        data = json.loads(proc.stdout) if proc.returncode == 0 else {}
-        items = data.get("items", []) if isinstance(data, dict) else []
-        names = sorted(
+        data = json.loads(proc.stdout) if proc.returncode == 0 else None
+        items = data.get("items") if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            raise ValueError("namespace inventory unavailable")
+        names = {
             name
             for item in items
             if isinstance(item, dict) and isinstance(item.get("metadata"), dict)
             and isinstance(name := item["metadata"].get("name"), str)
-            and re.search(r"gpu-operator|nvidia-gpu", name, re.IGNORECASE)
-        )
+            and (name in GPU_OPERATOR_NAMESPACES
+                 or re.search(r"gpu-operator|nvidia-gpu", name, re.IGNORECASE))
+        }
+        priority = {name: index for index, name in enumerate(GPU_OPERATOR_NAMESPACES[:-1])}
         if names:
-            return names[0]
+            return sorted(names, key=lambda name: (
+                priority.get(name, len(priority) + (name == "gpu")), name
+            ))
     except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
         pass
-    try:
-        if kubectl(["get", "namespace", "gpu"], runner=runner, timeout=20).returncode == 0:
-            return "gpu"
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-    return None
+    # Some tenants can read specific namespaces but cannot list all of them.
+    names = []
+    for ns in GPU_OPERATOR_NAMESPACES:
+        try:
+            if kubectl(["get", "namespace", ns], runner=runner, timeout=20).returncode == 0:
+                names.append(ns)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    return names
 
 
-def k8s_driver_pod(namespace: str, node: str, *, runner: Runner) -> dict[str, Any] | None:
+def k8s_gpu_namespace(*, env: dict[str, str], runner: Runner) -> str | None:
+    """Compatibility helper for callers that need the first namespace."""
+    return next(iter(k8s_gpu_namespaces(env=env, runner=runner)), None)
+
+
+def k8s_driver_pod(
+    namespace: str, node: str, *, runner: Runner, gpu_vendor: str | None = None,
+) -> dict[str, Any] | None:
     try:
         proc = kubectl(
             ["get", "pods", "-n", namespace, "--field-selector", f"spec.nodeName={node}", "-o", "json"],
@@ -842,6 +883,12 @@ def k8s_driver_pod(namespace: str, node: str, *, runner: Runner) -> dict[str, An
         name = item.get("metadata", {}).get("name", "")
         phase = item.get("status", {}).get("phase", "")
         if phase != "Running":
+            continue
+        if gpu_vendor == "amd" and (
+            re.search(r"(?:^|[-_])nvidia(?:[-_]|$)", name) or name.startswith("gpu-feature-discovery-")
+        ):
+            continue
+        if gpu_vendor == "nvidia" and re.search(r"(?:^|[-_])amd(?:[-_]|$)", name):
             continue
         volumes = {
             volume.get("name")
@@ -1051,9 +1098,12 @@ def _parse_k8s_plane(text: str) -> tuple[dict[str, dict[str, tuple[str, str | No
 
 
 def run_k8s_node_check(
-    namespace: str, node: str, *, runner: Runner, gpu_vendor: str = "nvidia"
+    namespace: str, node: str, *, runner: Runner, gpu_vendor: str = "nvidia",
+    pod_access: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any] | None, str | None]:
-    access = k8s_driver_pod(namespace, node, runner=runner)
+    access = pod_access if pod_access is not None else k8s_driver_pod(
+        namespace, node, runner=runner, gpu_vendor=gpu_vendor,
+    )
     if not access:
         return None, f"{node}: no running GPU Operator system pod for NIC classification"
     exec_args = ["exec", "-i", "-n", namespace, access["name"]]
@@ -1105,18 +1155,34 @@ def run_k8s_node_check(
             host=node,
         )
         for nic in record["nics"]
-        if nic.get("role") == "fabric"
+        if plane_candidate(nic)
     ]
     if evidence:
         record["plane_evidence"] = evidence
     return record, None
 
 
-def _nic_per_node(namespace: str, *, runner: Runner):
+def _nic_per_node(namespaces: list[str], *, runner: Runner):
     """Per-node strategy: exec the worker inside a privileged GPU system pod."""
-    return lambda node: run_k8s_node_check(
-        namespace, node["name"], runner=runner, gpu_vendor=node.get("gpu_vendor", "nvidia")
-    )
+    def check_node(node):
+        vendor = node.get("gpu_vendor", "nvidia")
+
+        def priority(namespace):
+            amd = "amd" in namespace.lower()
+            nvidia = "nvidia" in namespace.lower() or namespace in {"gpu-operator", "gpu-operator-resources"}
+            if (vendor == "amd" and amd) or (vendor == "nvidia" and nvidia):
+                return 0
+            return 2 if (amd or nvidia) else 1
+
+        for namespace in sorted(namespaces, key=priority):
+            access = k8s_driver_pod(namespace, node["name"], runner=runner, gpu_vendor=vendor)
+            if access:
+                return run_k8s_node_check(
+                    namespace, node["name"], runner=runner, gpu_vendor=vendor, pod_access=access,
+                )
+        return None, f"{node['name']}: no running {vendor} GPU Operator system pod in the discovered namespaces"
+
+    return check_node
 
 
 def k8s_records(
@@ -1139,8 +1205,8 @@ def k8s_records(
     if not nodes:
         return [], ["no Kubernetes nodes advertise nvidia.com/gpu or amd.com/gpu capacity"]
 
-    namespace = k8s_gpu_namespace(env=env, runner=runner)
-    if not namespace:
+    namespaces = k8s_gpu_namespaces(env=env, runner=runner)
+    if not namespaces:
         return [], ["no supported GPU Operator namespace found; cannot reach a system pod for NIC classification"]
 
     try:
@@ -1148,7 +1214,7 @@ def k8s_records(
     except (TypeError, ValueError):
         max_nodes = len(nodes)
 
-    return load_fanout().fan_out_k8s(_nic_per_node(namespace, runner=runner), nodes=nodes, max_nodes=max_nodes)
+    return load_fanout().fan_out_k8s(_nic_per_node(namespaces, runner=runner), nodes=nodes, max_nodes=max_nodes)
 
 
 def build_check_payload(
@@ -1169,7 +1235,8 @@ def build_check_payload(
         r.get("topo_collected") is True and isinstance(r.get("nvlinkExposed"), bool)
         for r in nvlink_records
     )
-    evidence = plane_evidence_by_host(records)
+    topology = aggregate(records)
+    evidence = plane_evidence_by_host(records, topology)
     undetermined = sorted(
         host
         for host, evs in evidence.items()
@@ -1193,7 +1260,7 @@ def build_check_payload(
         )
     for error in errors:
         print(f"  WARNING: nic_topology: {error}", file=sys.stderr)
-    payload: dict[str, Any] = {"nic_topology": aggregate(records)}
+    payload: dict[str, Any] = {"nic_topology": topology}
     payload["nvlink_topology"] = {
         "hosts": {
             str(r["host"]): {"checked": r.get("topo_collected") is True,
