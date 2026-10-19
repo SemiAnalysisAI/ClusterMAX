@@ -31,6 +31,14 @@ def report(host: str, *, home_pct: int = 40, scratch: str = "mgs@tcp:/fs lustre 
 
 
 class StorageConfigTests(unittest.TestCase):
+    def test_partial_df_does_not_prove_missing_mounts(self) -> None:
+        first = json.loads(report("gpu-a"))
+        second = json.loads(report("gpu-b", scratch=""))
+        second["error"] = "df: /scratch: Stale file handle"
+        result = storage.aggregate([first, second], nodes_expected=2, mode="slurm")
+        self.assertEqual(result["status"], "warning")
+        self.assertEqual(result["failures"], [])
+        self.assertIn("Stale file handle", result["message"])
     def test_slurm_fan_out_compares_every_node(self) -> None:
         def runner(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
             self.assertEqual(command[0], "srun")

@@ -146,7 +146,24 @@ def test_aggregate_and_terminal_preserve_neutral_and_unknown(tmp_path):
     }
     assert "2 skipped" in audit_report.format_report(checks, color=False)
     assert data["static_hugepages"]["message"] in audit_report.format_report(checks, verbosity=3)
-    assert hp.aggregate([report], ["worker missing"])["thp_madvise"]["status"] == "unknown"
+    assert hp.aggregate([report], ["worker missing"])["thp_madvise"]["status"] == "warning"
+
+
+def test_mixed_per_size_thp_policies_do_not_pass(tmp_path):
+    write(tmp_path, f"{hp.THP}/enabled", "always [madvise] never")
+    write(tmp_path, f"{hp.THP}/hugepages-64kB/enabled", "[always] madvise inherit never")
+    write(tmp_path, f"{hp.THP}/hugepages-2048kB/enabled", "always [madvise] inherit never")
+    assert hp.thp_report(tmp_path)["status"] != "pass"
+
+
+def test_partial_collection_retains_valid_evidence(tmp_path):
+    write(tmp_path, f"{hp.THP}/enabled", "always [madvise] never")
+    host = hp.collect_host(tmp_path)
+    result = hp.aggregate([host], ["node-2 pod failed"])
+    assert result["thp_madvise"]["status"] == "warning"
+    assert result["thp_madvise"]["hosts"]
+    assert result["thp_madvise"]["coverageComplete"] is False
+    assert result["hugepage_allocation"]["status"] == "skipped"
 
 
 def test_slurm_controller_ships_collector_and_marks_partial_coverage(monkeypatch, capsys):
@@ -165,7 +182,7 @@ def test_slurm_controller_ships_collector_and_marks_partial_coverage(monkeypatch
     monkeypatch.setattr(transport, "run_command", run)
     assert hp.main(["--harness", "slurm"]) == 0
     data = json.loads(capsys.readouterr().out)
-    assert data["thp_madvise"]["status"] == "unknown"
+    assert data["thp_madvise"]["status"] == "warning"
     assert "Expected 2 workers" in data["thp_madvise"]["message"]
 
 

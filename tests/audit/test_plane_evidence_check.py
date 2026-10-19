@@ -95,6 +95,15 @@ class PortAttrsTests(unittest.TestCase):
 
 
 class ParserTests(unittest.TestCase):
+    def test_hostname_prefix_does_not_match_another_worker(self) -> None:
+        text = IBNETDISCOVER_P.replace("worker-7", "worker-70")
+        self.assertEqual(nic.parse_ibnetdiscover(text, "", "worker-7")["matched"], [])
+
+    def test_guid_match_takes_precedence_over_hostname_matches(self) -> None:
+        other = IBNETDISCOVER_P.replace("0xb8cef603002fd0ee", "0x1234567890123456")
+        summary = nic.parse_ibnetdiscover(IBNETDISCOVER_P + other, "b8ce:f603:002f:d0ee", "worker-7")
+        self.assertTrue(summary["matched"])
+        self.assertTrue(all("0x1234567890123456" not in line for line in summary["matched"]))
     def test_mlxconfig_keeps_plane_and_sriov_keys_only(self) -> None:
         fields = nic.parse_mlxconfig(MLXCONFIG_OK)
         self.assertEqual(fields["LINK_TYPE_P1"], "IB(1)")
