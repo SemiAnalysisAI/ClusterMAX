@@ -32,7 +32,7 @@ def run_worker(stubs: dict[str, str], env: dict[str, str] | None = None) -> bash
     run = bashtest.run_bash(
         WORKER_BLOCK,
         env=env,
-        stubs={**stubs, "timeout": 'shift; "$@"'},
+        stubs={"sudo": "exit 127", **stubs, "timeout": 'shift; "$@"'},
     )
     assert run.returncode == 0, run.stderr
     return run
@@ -69,6 +69,19 @@ def test_worker_queries_the_sa_and_sm_without_claiming_remote_key_state() -> Non
     )
     assert run.calls("saquery") == [["NodeRecord"]]
     assert run.calls("sminfo") == [[]]
+
+
+def test_worker_retries_saquery_with_noninteractive_sudo():
+    run = run_worker({
+        "saquery": '[[ "${SAQUERY_PRIVILEGED:-}" == 1 ]] || exit 1; printf "NodeDescription A\\n"',
+        "sudo": '[[ "$1" == -n ]] || exit 99; shift; export SAQUERY_PRIVILEGED=1; exec "$@"',
+        "sminfo": "exit 1", "pgrep": "exit 1",
+    })
+    values = dict(line.split("=", 1) for line in run.stdout.splitlines())
+    assert values["WORKER_SAQUERY_STATUS"] == "pass"
+    assert values["WORKER_SAQUERY_NODE_RECORDS"] == "1"
+    assert values["WORKER_SAQUERY_ACCESS"] == "sudo"
+    assert run.calls("sudo") == [["-n", "saquery", "NodeRecord"]]
 
 
 def test_local_subnet_manager_configuration_can_prove_a_nonzero_key(tmp_path: Path) -> None:
