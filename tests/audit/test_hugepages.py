@@ -77,6 +77,7 @@ def test_missing_counters_are_unknown_and_zero_is_neutral(tmp_path):
 @pytest.mark.parametrize("mode,expected,restored", [
     ("success", "pass", True), ("gigantic", "pass", True), ("partial", "incomplete", True),
     ("denied", "error", True), ("signal", "error", True),
+    ("hangup", "error", True), ("interrupt", "error", True), ("quit", "error", True),
     ("cleanup", "error", False), ("busy", "skipped", None),
     ("low-memory", "skipped", None), ("large-size", "skipped", None),
     ("concurrent", "error", False),
@@ -97,9 +98,13 @@ def test_allocation_verifies_growth_and_restores_even_on_failure(monkeypatch, mo
         if len(writes) == 1:
             if mode == "denied":
                 raise PermissionError("denied")
-            state["pages"] = 20 if mode in {"partial", "signal"} else value
-            if mode == "signal":
-                signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+            state["pages"] = 20 if mode in {"partial", "signal", "hangup", "interrupt", "quit"} else value
+            sig = {
+                "signal": signal.SIGTERM, "hangup": signal.SIGHUP,
+                "interrupt": signal.SIGINT, "quit": signal.SIGQUIT,
+            }.get(mode)
+            if sig is not None:
+                signal.getsignal(sig)(sig, None)
         elif mode == "cleanup":
             raise OSError("read-only")
         else:
@@ -108,14 +113,66 @@ def test_allocation_verifies_growth_and_restores_even_on_failure(monkeypatch, mo
     monkeypatch.setattr(hp, "meminfo", info)
     monkeypatch.setattr(hp, "number", lambda _: state["pages"])
     monkeypatch.setattr(Path, "write_text", writer)
-    handler = signal.getsignal(signal.SIGTERM)
+    handlers = {
+        sig: signal.getsignal(sig)
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)
+    }
     result = hp._allocation_trial(Path("/"))
     assert result["status"] == expected
     assert result["restored"] is restored
-    assert signal.getsignal(signal.SIGTERM) == handler
+    assert {sig: signal.getsignal(sig) for sig in handlers} == handlers
     assert writes == ([] if expected == "skipped" else [522] if mode == "concurrent" else [11, 10] if mode == "gigantic" else [522, 10])
     if mode in {"success", "gigantic"}:
         assert result["allocated_bytes"] == hp.GIB
+
+
+def test_real_hangup_restores_a_simulated_pool_in_an_isolated_process():
+    # All pool I/O is replaced before running the trial. No host writes occur.
+    script = r'''
+import importlib.util
+import json
+import os
+import signal
+import sys
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("isolated_hugepages", sys.argv[1])
+hp = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(hp)
+state = {"pages": 10}
+writes = []
+hp.meminfo = lambda root: {
+    "Hugepagesize": 2048, "HugePages_Total": state["pages"],
+    "HugePages_Free": state["pages"], "HugePages_Rsvd": 0,
+    "HugePages_Surp": 0, "MemAvailable": 8388608,
+}
+hp.number = lambda path: state["pages"]
+def simulated_write(path, text):
+    assert str(path) == "/proc/sys/vm/nr_hugepages"
+    state["pages"] = int(text)
+    writes.append(state["pages"])
+    if len(writes) == 1:
+        os.kill(os.getpid(), signal.SIGHUP)
+    return len(text)
+Path.write_text = simulated_write
+signal.signal(signal.SIGHUP, signal.SIG_DFL)
+result = hp._allocation_trial(Path("/"))
+print(json.dumps({
+    "result": result, "pages": state["pages"], "writes": writes,
+    "handler_restored": signal.getsignal(signal.SIGHUP) == signal.SIG_DFL,
+}))
+'''
+    proc = subprocess.run(
+        [sys.executable, "-c", script, str(CHECK)],
+        text=True, capture_output=True, timeout=10, check=True,
+    )
+    result = json.loads(proc.stdout)
+    assert result["result"]["status"] == "error"
+    assert result["result"]["restored"] is True
+    assert result["pages"] == 10
+    assert result["writes"] == [522, 10]
+    assert result["handler_restored"] is True
+    assert "received signal" in result["result"]["message"]
 
 
 def test_passive_worker_runs_from_stdin_and_never_attempts_allocation(tmp_path):
