@@ -200,7 +200,7 @@ class PublicCliTests(unittest.TestCase):
             result = cli.main(["audit", "hardware", "-s"])
 
         self.assertEqual(result, 0)
-        self.assertIn("[hardware] Hardware (8 checks)", out.getvalue())
+        self.assertIn("[hardware] Hardware (11 checks)", out.getvalue())
         self.assertNotIn("[versions]", out.getvalue())
         run.assert_not_called()
 

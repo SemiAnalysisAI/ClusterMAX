@@ -240,12 +240,17 @@ class AuditCommonTests(unittest.TestCase):
             selected["hardware"],
             {
                 "gpu/vboost.py",
+                "system/hugepages.py",
                 "system/arm-smmu-virtualization-check.py",
                 "system/hbm_memory_exposure.py",
                 "system/vm-iommu-check.py",
             },
         )
-        self.assertEqual(selected["full"], set(run_checks.CHECK_PROFILES))
+        self.assertEqual(
+            selected["full"],
+            {name for name in run_checks.CHECK_PROFILES
+             if "slurm" in run_checks.CHECK_HARNESSES[name]},
+        )
 
     def test_standalone_omits_scale_out_checks(self) -> None:
         check_root = AUDIT_SCRIPTS / "checks"
