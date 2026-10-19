@@ -279,8 +279,8 @@ def nvidia_driver_verdict(version: str) -> Verdict:
         # value that does not look like an NVIDIA driver branch must never
         # reach that rule, because it would turn a foreign or malformed reading
         # into a confident pass on a security check. The vendor-neutral
-        # gpus.driverVersion field carries the amdgpu version on AMD clusters
-        # (6.16.13 on oracle-mi355x), so a value like that does reach here
+        # gpus.driverVersion field carries the amdgpu version on AMD clusters,
+        # so a foreign version can reach this check
         # whenever the gpu_vendor gate is bypassed. The gate is the real
         # defense; this is the second one, and it fails towards unknown.
         if not lowest_branch <= branch <= MAX_DRIVER_BRANCH:

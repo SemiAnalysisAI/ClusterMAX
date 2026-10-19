@@ -1434,8 +1434,8 @@ class AuditReportTests(unittest.TestCase):
 class VersionDetailReportTests(unittest.TestCase):
     """Version checks show the evidence they graded, and absence skips.
 
-    The reported defect: a real standalone run rendered
-    ``observed version unknown unknown`` for ConnectX firmware (the
+    A placeholder ConnectX firmware record must not render
+    ``observed version unknown unknown`` (the
     collector's placeholder device printed as if it were a reading) and
     ``installed=false; version=unknown`` for a toolkit that is simply not
     there, and warned on checks whose subject the scan proved absent.
@@ -1495,9 +1495,8 @@ class VersionDetailReportTests(unittest.TestCase):
 
     def test_placeholder_device_entries_never_print_unknown_unknown(self) -> None:
         # The collector pads an unreadable inventory with one entry whose
-        # device and version are both "unknown". That is the real
-        # 20260827-134338 run shape, and it rendered as the literal
-        # "observed version unknown unknown".
+        # device and version are both "unknown". Construct that placeholder
+        # directly without copying a run record.
         by_key = self.evaluate_by_key(
             {
                 "securityVersions": {
