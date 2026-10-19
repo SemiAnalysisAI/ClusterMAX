@@ -113,3 +113,99 @@ def test_amd_inventory_does_not_become_a_topology_failure_or_nvlink_proof(vendor
         assert payload["nvlink_topology"]["hosts"]["synthetic-nvidia"] == {
             "checked": True, "exposed": True,
         }
+
+
+@pytest.mark.parametrize(
+    "nvidia_namespace,amd_namespace,list_allowed",
+    [
+        ("gpu-operator", "amd-gpu-operator", True),
+        ("gpu-operator", "kube-amd-gpu", True),
+        ("synthetic-nvidia-gpu", "synthetic-amd-gpu-operator", True),
+        ("gpu-operator", "kube-amd-gpu", False),
+    ],
+)
+@pytest.mark.parametrize("amd_available", [True, False])
+def test_mixed_vendor_namespace_selection_without_a_shared_override(
+    nvidia_namespace, amd_namespace, list_allowed, amd_available,
+):
+    namespaces = {"nvidia": nvidia_namespace, "amd": amd_namespace}
+    calls = []
+
+    def runner(command, **kwargs):
+        args = command[1:]
+        calls.append(args)
+        if args[:2] == ["get", "nodes"]:
+            return completed(command, data={"items": [{
+                "metadata": {"name": f"synthetic-{vendor}"},
+                "status": {"capacity": {f"{vendor}.com/gpu": "1"}},
+            } for vendor in ("nvidia", "amd")]})
+        if args[:2] == ["get", "namespaces"]:
+            return completed(command, code=0 if list_allowed else 1, data={"items": [
+                {"metadata": {"name": name}} for name in reversed(list(namespaces.values()))
+            ]})
+        if args[:2] == ["get", "namespace"]:
+            return completed(command, code=0 if args[-1] in namespaces.values() else 1)
+        if args[:2] == ["get", "pods"]:
+            namespace = args[args.index("-n") + 1]
+            vendor = args[args.index("--field-selector") + 1].rsplit("-", 1)[1]
+            if namespace != namespaces[vendor] or (vendor == "amd" and not amd_available):
+                return completed(command, data={"items": []})
+            return completed(command, data={"items": [{
+                "metadata": {"name": f"{vendor}-device-plugin-synthetic"},
+                "spec": {
+                    "containers": [{
+                        "name": "synthetic-plugin", "securityContext": {"privileged": True},
+                        "volumeMounts": [{"name": "host", "mountPath": "/host"}],
+                    }],
+                    "volumes": [{"name": "host", "hostPath": {"path": "/"}}],
+                },
+                "status": {"phase": "Running"},
+            }]})
+        if args[0] == "exec":
+            vendor = "amd" if "amd-device-plugin-synthetic" in args else "nvidia"
+            assert args[args.index("-n") + 1] == namespaces[vendor]
+            topo = "GPU0 X" if vendor == "nvidia" else ""
+            return completed(command, text=(
+                f"@@TOPO_BEGIN@@\n{topo}\n@@TOPO_END@@\n"
+                "@@HCA@@\tsynthetic_rdma\t100 Gb/sec\tEthernet\t4: ACTIVE\n"
+            ))
+        raise AssertionError(args)
+
+    records, errors = nic.k8s_records(env={}, runner=runner)
+    assert {record["host"] for record in records} == (
+        {"synthetic-nvidia", "synthetic-amd"} if amd_available else {"synthetic-nvidia"}
+    )
+    assert len([args for args in calls if args[:2] == ["get", "namespaces"]]) == 1
+    if amd_available:
+        assert errors == []
+        amd, = [record for record in records if record["gpu_vendor"] == "amd"]
+        assert amd["topo_applicable"] is False
+    else:
+        assert len(errors) == 1
+        assert "synthetic-amd: no running amd" in errors[0]
+
+
+@pytest.mark.parametrize(
+    "vendor,pod",
+    [
+        ("amd", "nvidia-driver-synthetic"),
+        ("amd", "gpu-feature-discovery-synthetic"),
+        ("nvidia", "amd-device-plugin-synthetic"),
+    ],
+)
+def test_pods_for_a_different_gpu_vendor_cannot_satisfy_the_check(vendor, pod):
+    def runner(command, **kwargs):
+        assert command[1:3] == ["get", "pods"]
+        return completed(command, data={"items": [{
+            "metadata": {"name": pod},
+            "spec": {"containers": [{
+                "name": "synthetic-plugin", "securityContext": {"privileged": True},
+            }]},
+            "status": {"phase": "Running"},
+        }]})
+
+    record, error = nic.run_k8s_node_check(
+        "synthetic-shared", "synthetic-node", runner=runner, gpu_vendor=vendor,
+    )
+    assert record is None
+    assert "no running GPU Operator system pod" in error

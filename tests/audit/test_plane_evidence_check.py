@@ -302,7 +302,8 @@ class K8sPlaneBlockTests(unittest.TestCase):
 class PayloadTests(unittest.TestCase):
     def test_plane_evidence_by_host_keeps_only_hosts_with_evidence(self) -> None:
         records = [
-            {"host": "worker-0", "nics": [], "plane_evidence": [{"ibdev": "mlx5_ib0"}]},
+            {"host": "worker-0", "nics": [{"name": "mlx5_ib0", "role": "fabric"}],
+             "plane_evidence": [{"ibdev": "mlx5_ib0"}]},
             {"host": "worker-1", "nics": []},
             {"host": "", "plane_evidence": [{"ibdev": "mlx5_ib0"}]},
         ]

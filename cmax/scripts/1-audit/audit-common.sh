@@ -935,6 +935,28 @@ count_snodes_states() {
     ' <<< "$snodes_out"
 }
 
+snodes_inventory() {
+    # This table does not carry GRES counts. Keep unknown distinct from zero.
+    local hostlist state partition hosts host
+    awk 'NR > 1 && NF >= 6 {
+        partition = $1
+        sub(/\*$/, "", partition)
+        printf "%s|%s|%s\n", $6, $5, partition
+    }' <<< "${1:-}" | while IFS='|' read -r hostlist state partition; do
+        [[ "$hostlist" == "(null)" || "$hostlist" == "n/a" ]] && continue
+        hosts="$hostlist"
+        if [[ "$hostlist" == *"["* || "$hostlist" == *","* ]]; then
+            # Hostlist expansion is local to the Slurm client, even when
+            # controller inventory queries are unavailable.
+            hosts=$(scontrol show hostnames "$hostlist" 2>/dev/null) || hosts=""
+        fi
+        while IFS= read -r host; do
+            [[ -n "$host" ]] && printf '%s|%s|%s\n' "$host" "$state" "$partition"
+        done <<< "$hosts"
+    done | jq -Rn '[inputs | split("|") |
+        {name: .[0], state: .[1], partition: .[2], cpus: 0, memory: 0, gpus: null}]'
+}
+
 # Select two usable compute nodes for the worker-to-worker SSH probe. Prefer
 # GPU nodes when the inventory identifies at least two of them. Put the worker
 # that supplied the host check first when it is present in the candidate set.
@@ -944,7 +966,9 @@ select_worker_ssh_nodes() {
     # null means a standalone invocation; [] means allocation scope is unknown
     # or empty, so no worker may be selected.
     local allocated_nodes_json="${3:-null}"
-    jq -r --arg preferred "$preferred_source" --argjson allocated "$allocated_nodes_json" '
+    local gpu_partition="${4:-}"
+    jq -r --arg preferred "$preferred_source" --argjson allocated "$allocated_nodes_json" \
+        --arg partition "$gpu_partition" '
         def usable:
             ((.state // "") | test("[*~#$!%@^]")) as $flagged
             | ($flagged | not)
@@ -956,7 +980,11 @@ select_worker_ssh_nodes() {
                 or . == "NO_RESPOND" or . == "NOT_RESPONDING"
                 or . == "POWERED_DOWN" or . == "POWERING_DOWN" or . == "POWER_DOWN"
             )) | not));
-        [.[] | select(usable)
+        (if $allocated == null and $partition != "" and $partition != "none"
+                and any(.[]; has("partition"))
+         then [.[] | select(.partition == $partition)]
+         else . end)
+        | [.[] | select(usable)
              | select($allocated == null or (.name as $name | $allocated | index($name) != null))] as $usable
         | [$usable[] | select((.gpus // 0) > 0)] as $gpu
         | (if ($gpu | length) >= 2 then $gpu else $usable end) as $pool
