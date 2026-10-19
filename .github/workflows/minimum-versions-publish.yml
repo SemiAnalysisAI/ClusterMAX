@@ -5,7 +5,7 @@ name: minimum-versions-publish
 # A "minimum" is the lowest version of a component that has no known applicable
 # vulnerability.
 #
-# The website repository is SemiAnalysisAI/clustermax-web. This job writes the
+# The website repository is SemiAnalysisAI/clustermax-web-oss. This job writes the
 # table to `data/minimum-versions.json` there. The site serves those bytes at
 # https://www.clustermax.ai/minimum-versions.json, and its /minimum-versions
 # page refetches that address on load.
@@ -70,7 +70,7 @@ concurrency:
 env:
   MINIMUMS_PATH: cmax/scripts/1-audit/minimum-versions.json
   REFRESH_WORKFLOW: minimum-versions-refresh.yml
-  WEB_REPO: SemiAnalysisAI/clustermax-web
+  WEB_REPO: SemiAnalysisAI/clustermax-web-oss
   WEB_PATH: data/minimum-versions.json
   # The route file that serves the public path. The publish stops when it is
   # absent, because the address would answer 404 and every fetch would fail.
