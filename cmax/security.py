@@ -1334,9 +1334,8 @@ def _observability(audit: dict[str, Any]) -> tuple[str, str, str]:
         # oversized endpoint list, which sends the operator to the wrong fix.
         return (
             WARNING,
-            f"{skipped} endpoint(s) not checked; check budget exhausted" + context,
-            "The request budget ran out, or a backend accepted the connection and "
-            "answered nothing until the unanswered-time allowance was spent, so "
+            f"{skipped} endpoint(s) not fully checked; check limit reached" + context,
+            "The target cap, request budget, or unanswered-time allowance was reached, so "
             "not every endpoint was checked and the result is incomplete. Narrow "
             "the endpoint list with CLUSTERMAX_OBS_TARGETS and re-run to assess "
             "the remainder.",
@@ -1854,6 +1853,7 @@ def _inject_observability(
         emit("  discovery: reading audit evidence, local services, and Kubernetes services")
         discovery = obs_discovery.discover(
             values,
+            max_targets=None,
             services=None if target and target.harness == "k8s" else {},
         )
         targets = _canonical_targets(discovery.urls())

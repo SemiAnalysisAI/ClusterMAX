@@ -959,13 +959,16 @@ select_worker_ssh_nodes() {
         [.[] | select(usable)
              | select($allocated == null or (.name as $name | $allocated | index($name) != null))] as $usable
         | [$usable[] | select((.gpus // 0) > 0)] as $gpu
-        | (if ($gpu | length) >= 2 then $gpu else $usable end)
-        | map(.name) | unique as $names
-        | (if ($names | index($preferred)) != null
-           then [$preferred] + [$names[] | select(. != $preferred)]
-           else $names
-           end)
-        | .[:2][]
+        | (if ($gpu | length) >= 2 then $gpu else $usable end) as $pool
+        | (if $allocated == null
+           then [$pool[] | select(((.state // "") | ascii_upcase | split("+")[0]) == "IDLE")]
+           else $pool end) as $sources
+        | ($sources | map(.name) | unique) as $source_names
+        | (if ($source_names | index($preferred)) != null then $preferred
+           else $source_names[0] end) as $source
+        | if $source == null then empty
+          else $source, ([$pool[].name | select(. != $source)] | unique | .[0] // empty)
+          end
     ' <<< "$nodes_json"
 }
 
@@ -1120,6 +1123,27 @@ collect_monitoring_evidence() {
         print_detail "monitoring platforms: ${platform_list}"
     fi
     return 0
+}
+
+# Worker loopback listeners are not reachable from the controller. Wildcard
+# listeners use the checked worker address, never the controller loopback.
+worker_monitoring_addresses() {
+    local listening="${1:-}" worker="${2:-}" address host port plain_host
+    while IFS= read -r address; do
+        host="${address%:*}"
+        port="${address##*:}"
+        plain_host="${host#[}"
+        plain_host="${plain_host%]}"
+        [[ "$port" =~ ^[0-9]+$ && "$plain_host" =~ ^[[:alnum:]._:%*-]+$ ]] || continue
+        case "$host" in
+            127.*|::1|\[::1\]) continue ;;
+            "*"|"0.0.0.0"|"::"|"[::]")
+                [[ -n "$worker" && "$worker" != "unknown" ]] || continue
+                host="$worker"
+                ;;
+        esac
+        printf '%s:%s\n' "$host" "$port"
+    done <<< "${listening//|/$'\n'}"
 }
 
 gpu_error_scan_script() {
@@ -1468,6 +1492,7 @@ build_audit_json() {
     "ibSmKeyCheckScope": "${IB_SM_KEY_CHECK_SCOPE:-unknown}",
     "ibControlPlane": {
       "saqueryStatus": "${WORKER_SAQUERY_STATUS:-not-checked}",
+      "saqueryAccess": "${WORKER_SAQUERY_ACCESS:-unverified}",
       "saNodeRecords": ${WORKER_SAQUERY_NODE_RECORDS:-0},
       "sminfoStatus": "${WORKER_SMINFO_STATUS:-not-checked}",
       "smLid": "${WORKER_SM_LID:-unknown}",

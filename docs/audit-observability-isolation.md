@@ -13,6 +13,12 @@ It verifies TLS certificates and refuses redirects except a same-host HTTPS
 upgrade that preserves the endpoint path and port.
 Set `CMAX_OWN_NAMESPACE` to the audited tenant namespace when it is not `default`.
 
+Each run checks at most eight unique targets, in discovery or operator-supplied
+order. Extra targets count as skipped, as do checks cut short by request or time
+limits. Incomplete coverage produces a WARNING, never PASS; a confirmed exposure
+still produces a failure. Use `CLUSTERMAX_OBS_TARGETS` to check the remaining
+approved endpoints in batches of eight or fewer.
+
 The command stores counts, booleans, platform names, and authentication schemes.
 It does not store metric series, foreign tenant names, or credentials.
 An unreachable endpoint or absent target does not establish isolation.

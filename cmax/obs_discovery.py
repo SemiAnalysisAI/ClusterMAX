@@ -422,7 +422,7 @@ def collect_kubernetes_services() -> Mapping[str, object]:
 def discover(
     values: Mapping[str, object] | None = None,
     *,
-    max_targets: int = MAX_TARGETS,
+    max_targets: int | None = MAX_TARGETS,
     sockets: str | None = None,
     processes: str | None = None,
     services: Mapping[str, object] | None = None,
@@ -432,6 +432,7 @@ def discover(
     Every input can be injected, so the whole decision path is testable without
     a cluster. Ordering is audit -> sockets -> processes -> Kubernetes Services,
     so the highest-confidence vantage fills the target budget first.
+    Pass None to retain all candidates for coverage accounting by the caller.
     """
     endpoints: list[Endpoint] = []
     platforms: list[str] = []
