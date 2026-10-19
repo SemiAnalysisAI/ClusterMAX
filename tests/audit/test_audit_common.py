@@ -244,7 +244,8 @@ class AuditCommonTests(unittest.TestCase):
         )
         self.assertEqual(
             selected["full"],
-            set(run_checks.CHECK_PROFILES) - {"system/kubernetes_nodes_proxy.py"},
+            {name for name in run_checks.CHECK_PROFILES
+             if "slurm" in run_checks.CHECK_HARNESSES[name]},
         )
 
     def test_standalone_omits_scale_out_checks(self) -> None:
