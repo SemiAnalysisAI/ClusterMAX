@@ -1458,6 +1458,44 @@ def _observability(audit: dict[str, Any]) -> tuple[str, str, str]:
 
 CHECK_SPECS: tuple[CheckSpec, ...] = (
     CheckSpec(
+        "qemu-virtio-serial",
+        "QEMU virtio-serial security fix",
+        "A vulnerable host QEMU process can be attacked by a guest through an exposed virtio-serial device.",
+        "Upgrade the physical host QEMU package to the fixed vendor release.",
+        _references(
+            ("Ubuntu CVE-2024-3446", "https://ubuntu.com/security/CVE-2024-3446"),
+            ("NVD CVE-2024-3446", "https://nvd.nist.gov/vuln/detail/CVE-2024-3446"),
+        ),
+        _status_evaluator(
+            "security.qemuCve20243446.status",
+            critical={"fail"},
+            warning={"host-version-required", "unknown"},
+            passing={"pass", "not-applicable", "not_applicable"},
+            missing_assessment="QEMU applicability or the physical-host package version could not be verified.",
+        ),
+    ),
+    CheckSpec(
+        "vmscape",
+        "VMSCAPE host mitigation",
+        "Affected KVM hosts can leak host memory through speculative execution across the guest boundary.",
+        "Install the fixed physical-host kernel and confirm the VMSCAPE mitigation is active.",
+        _references(
+            (
+                "Ubuntu VMSCAPE guidance",
+                "https://ubuntu.com/security/vulnerabilities/vmscape",
+            ),
+            ("Ubuntu CVE-2025-40300", "https://ubuntu.com/security/CVE-2025-40300"),
+        ),
+        _status_evaluator(
+            "security.vmscape.status",
+            critical={"fail"},
+            warning={"host-mitigation-required", "unknown"},
+            passing={"pass", "not-applicable", "not_applicable"},
+            missing_assessment="VMSCAPE applicability or the physical-host mitigation could not be verified.",
+        ),
+    ),
+
+    CheckSpec(
         "observability-isolation",
         "Observability backend tenant isolation",
         "A shared metrics backend that filters tenants only in the dashboard lets "
