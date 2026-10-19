@@ -5,9 +5,9 @@ pools on workers. Routine audit collection does not change host memory settings.
 Slurm uses streamed source. Kubernetes mounts host paths read-only.
 
 The collector also supports a separate `--collect-host --try-allocate` trial.
-This requires root on an explicitly approved idle host. It changes the HugeTLB
-pool temporarily, allocates and touches a page, and attempts to restore the
-original pool on normal completion, errors, and handled signals. No program can
+This requires root on an explicitly approved idle host. It temporarily grows the
+default HugeTLB pool by 1 GiB and attempts to restore the original pool on normal
+completion, errors, SIGINT, SIGTERM, SIGHUP, and SIGQUIT. No program can
 guarantee cleanup after SIGKILL or host failure. Do not run it on a production
 host without a maintenance plan.
 

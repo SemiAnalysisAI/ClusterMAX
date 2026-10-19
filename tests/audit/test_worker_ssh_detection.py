@@ -171,6 +171,106 @@ def test_login_node_probe_does_not_launch_on_fully_allocated_workers():
     assert run.calls("srun") == []
 
 
+def test_snodes_unknown_gpu_counts_use_partition_scope_and_request_gpu_gres():
+    # Invent individual table rows. No GPU counts are available in this format.
+    snodes = "\n".join([
+        "PARTITION AVAIL TIMELIMIT NODES STATE NODELIST",
+        "synthetic-cpu up infinite 1 idle aaa-cpu",
+        "synthetic-gpu* up infinite 1 idle synthetic-a",
+        "synthetic-gpu up infinite 1 idle synthetic-b",
+    ])
+    script = (
+        bashtest.extract_function(COMMON, "snodes_inventory")
+        + '\nNODES_JSON=$(snodes_inventory "$SNODES_OUT")\n'
+        + PROBE_SCRIPT.replace(
+            "GPU_SRUN_SCOPE_ARGS=()", 'GPU_SRUN_SCOPE_ARGS=(-p "$GPU_PARTITION")'
+        )
+    )
+    run = bashtest.run_bash(
+        script,
+        env={"SNODES_OUT": snodes, "GPU_PARTITION": "synthetic-gpu", "SLURM_JOB_ID": ""},
+        stubs={
+            "srun": '[[ " $* " == *" --gres=gpu:1 "* ]] || exit 99; echo CMAX_SSH_STATUS=true',
+            **PRINT_STUBS,
+        },
+    )
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "true|enabled|synthetic-a|synthetic-b|worker-to-worker"
+    call, = run.calls("srun")
+    assert call[:2] == ["-p", "synthetic-gpu"]
+    assert call[call.index("-w") + 1] == "synthetic-a"
+    assert "--gres=gpu:1" in call
+
+
+def test_grouped_snodes_inventory_expands_to_individual_probe_workers():
+    run = bashtest.run_bash(
+        bashtest.extract_function(COMMON, "snodes_inventory")
+        + '\nNODES_JSON=$(snodes_inventory "$SNODES_OUT")\n' + PROBE_SCRIPT,
+        env={
+            "SNODES_OUT": "PARTITION AVAIL TIMELIMIT NODES STATE NODELIST\n"
+                          "synthetic-gpu up infinite 2 idle synthetic-[1-2]",
+            "GPU_PARTITION": "synthetic-gpu", "SLURM_JOB_ID": "",
+        },
+        stubs={
+            "scontrol": "printf 'synthetic-1\\nsynthetic-2\\n'",
+            "srun": '[[ " $* " == *" --gres=gpu:1 "* ]] || exit 99; echo CMAX_SSH_STATUS=true',
+            **PRINT_STUBS,
+        },
+    )
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "true|enabled|synthetic-1|synthetic-2|worker-to-worker"
+    assert run.calls("scontrol") == [["show", "hostnames", "synthetic-[1-2]"]]
+
+
+def test_unexpandable_snodes_hostlists_do_not_become_ssh_hostnames():
+    run = bashtest.run_bash(
+        bashtest.extract_function(COMMON, "snodes_inventory")
+        + '\nsnodes_inventory "$SNODES_OUT"\n',
+        env={
+            "SNODES_OUT": "PARTITION AVAIL TIMELIMIT NODES STATE NODELIST\n"
+                          "synthetic-gpu up infinite 2 idle synthetic-[1-2]",
+        },
+        stubs={"scontrol": "exit 1"},
+    )
+    assert run.returncode == 0, run.stderr
+    assert json.loads(run.stdout) == []
+
+
+@pytest.mark.parametrize("gpu_count", [0, None])
+def test_cpu_or_unscoped_unknown_inventory_does_not_request_gpu_gres(gpu_count):
+    nodes = [dict(node, gpus=gpu_count) for node in TWO_WORKERS]
+    run = bashtest.run_bash(
+        PROBE_SCRIPT,
+        env={"NODES_JSON": json.dumps(nodes), "SLURM_JOB_ID": "", "GPU_PARTITION": ""},
+        stubs={"srun": "echo CMAX_SSH_STATUS=true", **PRINT_STUBS},
+    )
+    assert run.returncode == 0, run.stderr
+    assert "--gres=none" in run.calls("srun")[0]
+    assert "--gres=gpu:1" not in run.calls("srun")[0]
+
+
+def test_allocated_unknown_gpu_counts_remain_in_the_allocation_without_new_gres():
+    nodes = [
+        dict(node, gpus=None, state="ALLOCATED", partition="synthetic-gpu")
+        for node in TWO_WORKERS
+    ]
+    run = bashtest.run_bash(
+        PROBE_SCRIPT,
+        env={
+            "NODES_JSON": json.dumps(nodes), "SLURM_JOB_ID": "1",
+            "SLURM_JOB_NODELIST": "gpu-[a-b]", "GPU_PARTITION": "synthetic-gpu",
+        },
+        stubs={
+            "scontrol": "printf 'gpu-a\\ngpu-b\\n'",
+            "srun": "echo CMAX_SSH_STATUS=true", **PRINT_STUBS,
+        },
+    )
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "true|enabled|gpu-a|gpu-b|worker-to-worker"
+    assert "--gres=none" in run.calls("srun")[0]
+    assert "--gres=gpu:1" not in run.calls("srun")[0]
+
+
 def test_unknown_allocation_never_falls_back_to_cluster_inventory():
     run = bashtest.run_bash(
         PROBE_SCRIPT,
