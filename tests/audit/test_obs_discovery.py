@@ -190,6 +190,64 @@ class AuditEvidenceTests(unittest.TestCase):
 
 
 class KubernetesDiscoveryTests(unittest.TestCase):
+    def test_synthetic_helm_release_prefix_does_not_consume_the_target_budget(self) -> None:
+        # Invent a full chart layout without copying any deployment inventory.
+        prefix = "synthetic-prometheus-stack-"
+        scrape_components = [
+            "kubelet", "coredns", "kube-dns", "kube-state-metrics",
+            "kube-proxy", "kube-controller-manager", "kube-scheduler",
+            "metrics-server", "node-exporter", "operator", "alertmanager",
+        ]
+        items = [{
+            "metadata": {"name": prefix + component, "namespace": "synthetic"},
+            "spec": {"ports": [{"name": "http", "port": 9090}]},
+        } for component in scrape_components]
+        items += [{
+            "metadata": {"name": prefix + component, "namespace": "synthetic"},
+            "spec": {"ports": [{"name": "http", "port": port}]},
+        } for component, port in (("grafana", 3000), ("prometheus", 9090))]
+        result = obs_discovery.discover(
+            {}, sockets="", processes="", services={"items": items}
+        )
+        self.assertEqual([(e.url, e.platform) for e in result.endpoints], [
+            (f"http://{prefix}grafana.synthetic.svc.cluster.local:3000", "grafana"),
+            (f"http://{prefix}prometheus.synthetic.svc.cluster.local:9090", "prometheus"),
+        ])
+
+    def test_release_tokens_cannot_claim_unrelated_service_components(self) -> None:
+        for name in (
+            "synthetic-prometheus-stack-kubelet",
+            "synthetic-prometheus-stack-coredns",
+            "synthetic-prometheus-stack-kube-state-metrics",
+            "synthetic-grafana-stack-database",
+            "synthetic-mimir-stack-memcached",
+            "synthetic-vmselect-stack-kubelet",
+            "synthetic-victoria-metrics-cluster-vmstorage",
+            "synthetic-thanos-store",
+            "synthetic-thanos-receive",
+        ):
+            with self.subTest(name=name):
+                self.assertIsNone(obs_discovery._service_platform(name))
+
+    def test_query_component_suffixes_identify_the_product(self) -> None:
+        for name, platform in (
+            ("kube-prometheus-stack-grafana", "grafana"),
+            ("synthetic-vmselect-stack-grafana", "grafana"),
+            ("kube-prometheus-stack-prometheus", "prometheus"),
+            ("synthetic-prometheus-operated", "prometheus"),
+            ("synthetic-prometheus-server", "prometheus"),
+            ("synthetic-prometheus-k8s", "prometheus"),
+            ("synthetic-thanos-query", "thanos"),
+            ("synthetic-thanos-query-frontend", "thanos"),
+            ("synthetic-vmselect", "vmselect"),
+            ("synthetic-vmsingle", "victoriametrics"),
+            ("synthetic-victoria-metrics-single-server", "victoriametrics"),
+            ("synthetic-mimir-query-frontend", "mimir"),
+            ("synthetic-cortex-querier", "cortex"),
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(obs_discovery._service_platform(name), platform)
+
     def test_https_metadata_survives_nonstandard_service_port(self) -> None:
         for port in (
             {"name": "https", "port": 8443},
