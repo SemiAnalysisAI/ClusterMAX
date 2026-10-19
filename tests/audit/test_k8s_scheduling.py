@@ -1,4 +1,4 @@
-"""Verify retained scheduling evidence and explicit collection failures."""
+"""Verify scheduling evidence with independent synthetic resource fixtures."""
 
 import importlib.util
 import json
@@ -16,6 +16,122 @@ CHECK = WORKLOAD / "checks/system/k8s_scheduling.py"
 spec = importlib.util.spec_from_file_location("k8s_scheduling", CHECK)
 scheduling = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(scheduling)
+
+
+@pytest.mark.parametrize(
+    "quantity",
+    [
+        0, 0.0, "0", "+0", "-0", "0.000", ".0", "000",
+        "0n", "0u", "0m", "0k", "0K", "0M", "0G", "0T", "0P", "0E",
+        "0Ki", "0Mi", "0Gi", "0Ti", "0Pi", "0Ei", "0.0Gi",
+        "0e6", "0E-4", "-0.00e+7",
+    ],
+)
+def test_zero_quota_includes_valid_unit_suffixes(quantity):
+    def read(resource, namespace="", name=""):
+        items = []
+        if resource == "nodes":
+            items = [{"metadata": {"name": "synthetic-node"}}]
+        elif resource == f"clusterqueues.{scheduling.GROUP}":
+            items = [{
+                "metadata": {"name": "synthetic-queue"},
+                "spec": {"resourceGroups": [{"flavors": [{
+                    "name": "synthetic-flavor",
+                    "resources": [{"name": "memory", "nominalQuota": quantity}],
+                }]}]},
+            }]
+        return {
+            "resource": resource, "namespace": namespace,
+            "status": "collected" if items else "empty",
+            "complete": True, "items": items,
+        }
+
+    with patch.object(scheduling, "read_resource", side_effect=read):
+        result = scheduling.collect("synthetic-tenant")
+    messages = [finding["message"] for finding in result["findings"]]
+    assert len(messages) == 1
+    assert "zero nominal quota for memory" in messages[0]
+    assert result["status"] == "warning"
+
+
+@pytest.mark.parametrize(
+    "quantity",
+    [
+        None, False, "", "0bogus", "0GiGi", "NaN", "Infinity", " 0Gi",
+        1, "1m", "0.001Gi", "1e-999999", "-1Gi", ".01",
+    ],
+)
+def test_zero_quota_does_not_round_or_accept_invalid_quantities(quantity):
+    assert scheduling.zero_quantity(quantity) is False
+
+
+def synthetic_controller_volumes():
+    return [
+        {
+            "name": "kube-api-access-synthetic",
+            "projected": {"sources": [
+                {"serviceAccountToken": {"path": "token"}},
+                {"configMap": {"name": "kube-root-ca.crt"}},
+                {"downwardAPI": {"items": []}},
+            ]},
+        },
+        {"name": "configuration", "configMap": {"name": "synthetic-config"}},
+    ]
+
+
+def test_controller_configmaps_exclude_default_ca_in_all_volume_forms():
+    controller = {
+        "metadata": {"name": "kueue-synthetic", "namespace": "synthetic-system"},
+        "spec": {"template": {"spec": {
+            "volumes": synthetic_controller_volumes() + [
+                {"name": "ca-copy", "configMap": {"name": "kube-root-ca.crt"}},
+                {"name": "extra", "projected": {"sources": [
+                    {"configMap": {"name": "synthetic-extra"}},
+                ]}},
+            ],
+        }}},
+    }
+    selected = scheduling.select(controller, "controllers")
+    assert selected["configMaps"] == ["synthetic-config", "synthetic-extra"]
+
+
+@pytest.mark.parametrize("config_complete", [True, False])
+def test_default_ca_is_never_read_or_reported_as_controller_config(config_complete):
+    calls = []
+
+    def read(resource, namespace="", name=""):
+        calls.append((resource, namespace, name))
+        row = {
+            "resource": resource, "namespace": namespace, "status": "empty",
+            "complete": True, "items": [],
+        }
+        if resource == "nodes":
+            row.update(status="collected", items=[{"metadata": {"name": "synthetic-node"}}])
+        elif resource == "deployments.apps":
+            row.update(status="collected", items=[{
+                "metadata": {"name": "kueue-synthetic", "namespace": "synthetic-system"},
+                "spec": {"template": {"spec": {"volumes": synthetic_controller_volumes()}}},
+            }])
+        elif resource == "configmaps":
+            assert name == "synthetic-config", "default CA must not be queried"
+            row.update(
+                status="collected" if config_complete else "forbidden",
+                complete=config_complete,
+                items=[{
+                    "metadata": {"name": name},
+                    "data": {"config.yaml": "apiVersion: config.kueue.x-k8s.io/v1beta1\n"},
+                }] if config_complete else [],
+            )
+        return row
+
+    with patch.object(scheduling, "read_resource", side_effect=read):
+        result = scheduling.collect("synthetic-tenant")
+    config_reads = [call for call in calls if call[0] == "configmaps"]
+    assert config_reads == [("configmaps", "synthetic-system", "synthetic-config")]
+    assert [config["name"] for config in result["controllerConfigs"]] == ["synthetic-config"]
+    assert len(result["findings"]) == (0 if config_complete else 1)
+    if not config_complete:
+        assert "synthetic-config read is forbidden" in result["findings"][0]["message"]
 
 
 def test_entrypoint_uses_tenant_namespace_over_benchmark_namespace(monkeypatch, capsys):
