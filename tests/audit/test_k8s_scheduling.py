@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import runpy
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -15,6 +16,22 @@ CHECK = WORKLOAD / "checks/system/k8s_scheduling.py"
 spec = importlib.util.spec_from_file_location("k8s_scheduling", CHECK)
 scheduling = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(scheduling)
+
+
+def test_entrypoint_uses_tenant_namespace_over_benchmark_namespace(monkeypatch, capsys):
+    calls = []
+    def run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, '{"items":[]}', "")
+    monkeypatch.setenv("CLUSTERMAX_AUDIT_HARNESS", "k8s")
+    monkeypatch.setenv("CLUSTERMAX_AUDIT_TENANT_NAMESPACE", "tenant-a")
+    monkeypatch.setenv("K8S_NAMESPACE", "bench-b")
+    monkeypatch.setattr(subprocess, "run", run)
+    runpy.run_path(str(CHECK), run_name="__main__")
+    capsys.readouterr()
+    scoped = [args for args in calls if args[2].startswith(("localqueues", "workloads", "resourcequotas", "limitranges"))]
+    assert scoped
+    assert all(args[args.index("-n") + 1] == "tenant-a" for args in scoped)
 
 
 @pytest.mark.parametrize(
@@ -29,6 +46,7 @@ spec.loader.exec_module(scheduling)
             True,
         ),
         (1, "", "Error from server (Forbidden)", "forbidden", False),
+        (1, "", 'Error from server (NotFound): namespaces "missing" not found', "error", False),
         (
             1,
             "",
