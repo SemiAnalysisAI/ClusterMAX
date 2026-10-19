@@ -17,7 +17,7 @@ TWO_WORKERS = [
     {"name": "gpu-b", "state": "IDLE", "gpus": 8},
 ]
 EXPECTED_SRUN_CALL = [
-    "--immediate=10", "-w", "gpu-a", "-N1", "--ntasks=1", "--gres=gpu:1",
+    "--immediate=10", "-w", "gpu-a", "-N1", "--ntasks=1", "--gres=none",
     "--time=1:00", "bash", "-s", "--", "gpu-b",
 ]
 PRINT_STUBS = dict.fromkeys(
@@ -68,19 +68,20 @@ def test_node_selection_prefers_the_checked_gpu_worker() -> None:
     [
         (
             TWO_WORKERS,
-            "printf 'gpu-b\\n'",
+            "printf 'CMAX_SSH_STATUS=true\\n'",
             "true|enabled|gpu-a|gpu-b|worker-to-worker",
             True,
         ),
         (TWO_WORKERS[:1], "exit 99", "unknown|unknown|||unverified", False),
         (
             TWO_WORKERS,
-            "exit 1",
+            "printf 'CMAX_SSH_STATUS=false\\n'",
             "false|disabled|gpu-a|gpu-b|worker-to-worker",
             True,
         ),
+        (TWO_WORKERS, "exit 1", "unknown|unknown|gpu-a|gpu-b|unverified", True),
     ],
-    ids=("success", "one-worker", "failure"),
+    ids=("success", "one-worker", "failure", "scheduling-failure"),
 )
 def test_ssh_probe(
     nodes: list[dict[str, object]],
