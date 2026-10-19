@@ -209,7 +209,8 @@ def test_collector_builder_preserves_json_and_no_container_driver_fallback():
 
 
 def collect(tmp_path, *, policy=None, installed_src="SYNTHETIC123", dkms=False,
-            owner=True, built_src="SYNTHETIC123"):
+            owner=True, built_src="SYNTHETIC123",
+            dkms_status="amdgpu/test-version, test-kernel, x86_64: installed"):
     root = tmp_path
     sysfs = root / "sys/module/amdgpu"
     sysfs.mkdir(parents=True)
@@ -248,7 +249,7 @@ def collect(tmp_path, *, policy=None, installed_src="SYNTHETIC123", dkms=False,
         "dpkg-query": dpkg,
         "apt-cache": f"printf '%s' {shlex.quote(policy)}",
         "uname": "echo test-kernel",
-        "dkms": "echo 'amdgpu/test-version, test-kernel, x86_64: installed'",
+        "dkms": f"printf '%s\\n' {shlex.quote(dkms_status)}",
     }
     # The generic shell-function helper stops at a Python dict's closing brace.
     source = (WORKLOAD / "host-check.sh").read_text()
@@ -282,3 +283,125 @@ def test_host_collection_never_binds_ambiguous_installations(tmp_path, kwargs):
     sample = collect(tmp_path, **kwargs)
     assert sample["packageBoundToModule"] is False
     assert security.amd_driver_verdict("MI300X", sample).status == "unknown"
+
+
+@pytest.mark.parametrize("suffix", [
+    "", " (original_module exists)",
+    " (WARNING! Diff between built and installed module!)",
+    " (original_module exists) (WARNING! Diff between built and installed module!)",
+])
+def test_dkms_installed_annotations_keep_fingerprint_binding(tmp_path, suffix):
+    sample = collect(
+        tmp_path, dkms=True,
+        dkms_status="amdgpu/test-version, test-kernel, x86_64: installed" + suffix)
+    assert sample["packageBoundToModule"] is True
+    assert security.amd_driver_verdict("MI300X", sample).status == "pass"
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"dkms_status": "amdgpu/test-version, other-kernel, x86_64: installed (original_module exists)"},
+    {"dkms_status": "amdgpu/test-version, test-kernel, other-arch: installed (original_module exists)"},
+    {"dkms_status": "amdgpu/test-version, test-kernel, x86_64: built"},
+    {"dkms_status": "amdgpu/test-version, test-kernel, x86_64: added"},
+    {"dkms_status": "amdgpu/test-version, test-kernel, x86_64: installed-but-broken"},
+    {"dkms_status": "amdgpu/test-version, test-kernel, x86_64: not installed"},
+    {"dkms_status": "amdgpu/test-version, test-kernel, x86_64: installed (original_module exists)",
+     "built_src": "OTHER_BUILD"},
+    {"dkms_status": "amdgpu/test-version, test-kernel, x86_64: installed (original_module exists)",
+     "owner": False},
+])
+def test_dkms_annotations_do_not_bypass_binding_checks(tmp_path, kwargs):
+    sample = collect(tmp_path, dkms=True, **kwargs)
+    assert sample["packageBoundToModule"] is False
+
+
+def detect_model(tmp_path, devices, *, pci_output="", pci_exit=0, cli=None):
+    for index, (vendor, device_class, product) in enumerate(devices):
+        device = tmp_path / f"sys/bus/pci/devices/0000:{index:02x}:00.0"
+        device.mkdir(parents=True)
+        (device / "vendor").write_text(vendor)
+        (device / "class").write_text(device_class)
+        if product is not None:
+            (device / "product_name").write_text(product)
+    source = (WORKLOAD / "host-check.sh").read_text()
+    # Execute the real model emission path with both CLIs genuinely absent.
+    block = source.split("detect_amd_gpu_model_without_cli() {", 1)[1]
+    block = "detect_amd_gpu_model_without_cli() {" + block.split(
+        "# Tool-free fallback:", 1)[0]
+    command = (
+        'command() { if [[ "$1" == -v && ( "$2" == rocm-smi || "$2" == amd-smi ) ]]; '
+        'then return 1; else builtin command "$@"; fi; }\n'
+    )
+    stubs = {
+        "lspci": f"printf '%s\\n' {shlex.quote(pci_output)}; exit {pci_exit}",
+    }
+    if cli:
+        command = ""
+        stubs.update({"rocm-smi": cli, "amd-smi": "exit 1"})
+    run = bashtest.run_bash(
+        command + block, stubs=stubs, env={"CLUSTERMAX_AUDIT_ROOT": str(tmp_path)})
+    assert run.returncode == 0, run.stderr
+    models = [line.split("=", 1)[1] for line in run.stdout.splitlines()
+              if line.startswith("WORKER_AMD_GPU_MODEL=")]
+    assert len(models) == 1
+    return models[0]
+
+
+def test_driver_only_host_model_can_be_graded(tmp_path, fixture_policy):
+    model = detect_model(tmp_path, [("0x1002", "0x030200", "AMD Instinct MI355X")])
+    assert model == "MI355X"
+    assert security.amd_driver_verdict(model, evidence()).status == "pass"
+    assert security.amd_driver_verdict(model, evidence("31.30")).status == "fail"
+
+
+def test_driver_only_model_uses_exact_pci_device_name(tmp_path):
+    model = detect_model(
+        tmp_path, [("0x1002", "0x120000", None)],
+        pci_output='0000:00:00.0 "Processing accelerators" "AMD" "Instinct MI300X"')
+    assert model == "MI300X"
+
+
+@pytest.mark.parametrize("output,exit_code", [
+    ("", 0), ("", 1), ("", 127),
+    ('0000:01:00.0 "Display controller" "AMD" "Instinct MI300X"', 0),
+    ('0000:00:00.0 "Display controller" "AMD" "Device 74a1" "AMD" "Instinct MI300X"', 0),
+    ('0000:00:00.0 "Display controller" "AMD" "Aqua Vanjaram"', 0),
+    ('0000:00:00.0 "Display controller" "AMD" "MI300X / MI325X"', 0),
+    ('0000:00:00.0 "unterminated', 0),
+    ('0000:00:00.0 "Display controller" "AMD" "MI300X"\n'
+     '0000:01:00.0 "Display controller" "AMD" "MI355X"', 0),
+])
+def test_missing_or_ambiguous_model_stays_unknown(tmp_path, output, exit_code):
+    assert detect_model(
+        tmp_path, [("0x1002", "0x030200", None)],
+        pci_output=output, pci_exit=exit_code) == "unknown"
+
+
+def test_model_fallback_ignores_non_amd_and_non_gpu_devices(tmp_path):
+    assert detect_model(tmp_path, [
+        ("0x10de", "0x030200", "MI300X"),
+        ("0x1002", "0x060000", "MI300X"),
+    ]) == "unknown"
+
+
+def test_model_fallback_preserves_mixed_and_unidentified_devices(tmp_path, fixture_policy):
+    model = detect_model(tmp_path, [
+        ("0x1002", "0x030200", "MI300X"),
+        ("0x1002", "0x120000", "MI355X"),
+        ("0x1002", "0x030200", None),
+    ])
+    assert model == "MI300X-MI355X-unknown"
+    assert security.amd_driver_verdict(model, evidence()).status == "unknown"
+    assert security.amd_driver_verdict(model, evidence("31.30")).status == "fail"
+
+
+def test_existing_cli_model_still_takes_precedence(tmp_path):
+    assert detect_model(
+        tmp_path, [("0x1002", "0x030200", "MI300X")],
+        cli="echo 'GPU[0] : Card Series: AMD Instinct MI355X'") == "AMD-Instinct-MI355X"
+
+
+def test_unusable_cli_model_falls_back_to_host(tmp_path):
+    assert detect_model(
+        tmp_path, [("0x1002", "0x030200", "MI300X")],
+        cli="echo 'GPU[0] : Card Series: unknown'") == "MI300X"

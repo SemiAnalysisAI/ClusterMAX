@@ -1690,7 +1690,9 @@ def amd_driver_verdict(
                         "ROCm and raw module versions do not establish remediation")
     # A mixed inventory with any proven vulnerable GPU must still fail.
     below = numeric_version(version) < numeric_version(minimum)
-    if not below and programs.difference(floors):
+    if not below and (
+        programs.difference(floors) or re.search(r"\bunknown\b", model, re.IGNORECASE)
+    ):
         return _unknown(version, minimum, advisory,
                         f"{detail}. Inventory includes an unassessed AMD model")
     return Verdict(version, "fail" if below else "pass", minimum, advisory,

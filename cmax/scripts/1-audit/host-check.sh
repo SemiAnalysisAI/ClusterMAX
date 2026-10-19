@@ -1103,13 +1103,60 @@ fi
 # --- AMD GPU stack (rocm-smi, amd-smi, ROCm container toolkit) ---
 # Model / driver / count: prefer rocm-smi when present, else fall back to
 # amd-smi. MI350-series (CDNA4) on ROCm 7.x may ship ONLY amd-smi, so these
-# facts must be derivable from either tool. amd-smi CSV column names vary across
+# facts must be derivable from either tool. Without either tool, model detection
+# uses sysfs product names or the exact PCI device's descriptive name.
+# amd-smi CSV column names vary across
 # ROCm releases; if a field below reads "unknown" on a real node, confirm the
 # `amd-smi static --asic --csv` / `amd-smi list --csv` output there.
 # Driver version is collected into _amd_drv from whichever source is available
 # and emitted exactly once below, so the sysfs fallback can fill it when no ROCm
 # CLI is on the host (the downstream head -1 parser would otherwise keep an
 # earlier "unknown" emitted from a branch).
+detect_amd_gpu_model_without_cli() {
+    python3 - <<'PY'
+import os
+import re
+import shlex
+import subprocess
+from pathlib import Path
+
+def read(path):
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return ""
+
+root = Path(os.environ.get("CLUSTERMAX_AUDIT_ROOT", "") or "/")
+models = set()
+for device in (root / "sys/bus/pci/devices").glob("*"):
+    if read(device / "vendor").lower() != "0x1002":
+        continue
+    # Display controllers and processing accelerators, not AMD chipset devices.
+    if read(device / "class").lower()[:4] not in ("0x03", "0x12"):
+        continue
+    name = read(device / "product_name")
+    products = set(re.findall(r"\bMI\d+[A-Z]*\b", name.upper()))
+    if not products:
+        # Look up this exact device, never a model from another GPU or a
+        # subsystem field. Numeric IDs/codenames alone cannot establish a SKU.
+        try:
+            output = subprocess.check_output(
+                ["lspci", "-D", "-s", device.name, "-mm"], text=True,
+                stderr=subprocess.DEVNULL, timeout=5,
+                env={**os.environ, "LC_ALL": "C"},
+            )
+            fields = shlex.split(output)
+            if len(output.splitlines()) == 1 and len(fields) >= 4 and fields[0] == device.name:
+                products = set(re.findall(r"\bMI\d+[A-Z]*\b", fields[3].upper()))
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+    # Preserve unidentified devices in a mixed inventory instead of silently
+    # treating the one identifiable device as the whole host.
+    models.add(next(iter(products)) if len(products) == 1 else "unknown")
+print(" ".join(sorted(models)) or "unknown")
+PY
+}
+
 detect_amd_gpu_model() {
     local model=""
     if command -v rocm-smi &>/dev/null; then
@@ -1130,6 +1177,11 @@ detect_amd_gpu_model() {
             fi
             ;;
     esac
+    case "${model,,}" in
+        ""|"n/a"|"unknown"|"not-found"|"none")
+            model=$(detect_amd_gpu_model_without_cli)
+            ;;
+    esac
     model=$(printf '%s\n' "$model" \
         | sed 's/[[:space:]]\+/ /g;s/^ //;s/ $//' \
         | tr ' ' '-')
@@ -1143,7 +1195,6 @@ if command -v rocm-smi &>/dev/null; then
     # second colon and tab padding, e.g. "GPU[0] : Card Series:   AMD Instinct
     # MI355X". Match case-insensitively and squeeze whitespace so the model
     # resolves (e.g. AMD-Instinct-MI355X) instead of "unknown".
-    echo "WORKER_AMD_GPU_MODEL=$(detect_amd_gpu_model)"
     _amd_drv=$(rocm-smi --showdriverversion 2>/dev/null | grep -ioP 'Driver version:\s*\K.+' | head -1)
     # rocm-smi prints several lines per GPU (Device Name/ID/Rev/Subsystem/GUID),
     # so count UNIQUE GPU[n] indices, not matching lines (the latter over-counts
@@ -1154,7 +1205,6 @@ if command -v rocm-smi &>/dev/null; then
     [[ -n "$_amd_vram_b" ]] && echo "WORKER_AMD_GPU_MEMORY=$(( _amd_vram_b / 1048576 ))"
 elif command -v amd-smi &>/dev/null; then
     echo "WORKER_ROCM_SMI_PATH="
-    echo "WORKER_AMD_GPU_MODEL=$(detect_amd_gpu_model)"
     _amd_drv=$(amd-smi static --driver --csv 2>/dev/null | awk -F, 'NR==1{for(i=1;i<=NF;i++) if($i ~ /version/) c=i} NR==2 && c{print $c}' | tr -d '"')
     [[ -z "$_amd_drv" ]] && _amd_drv=$(amd-smi static --driver 2>/dev/null | grep -m1 -ioP 'version\s*[:=]?\s*\K.+')
     # Count: one data row per GPU from `amd-smi list`.
@@ -1164,6 +1214,7 @@ elif command -v amd-smi &>/dev/null; then
 else
     echo "WORKER_ROCM_SMI_PATH="
 fi
+echo "WORKER_AMD_GPU_MODEL=$(detect_amd_gpu_model)"
 # Tool-free fallback: the amdgpu KERNEL driver exposes its version in sysfs
 # whenever the module is loaded - independent of the ROCm userspace CLI and of
 # the AMD GPU Operator - and it is the same value rocm-smi --showdriverversion
@@ -1219,7 +1270,9 @@ if e["loadedSrcversion"] and e["loadedSrcversion"] == e["installedSrcversion"]:
         # and the built module for this exact kernel, not the installer package.
         kernel = run("uname", "-r")
         for line in run("dkms", "status", "-m", "amdgpu").splitlines():
-            m = re.fullmatch(r"amdgpu/([^,]+), ([^,]+), ([^:]+): installed", line)
+            m = re.fullmatch(
+                r"amdgpu/([^,]+), ([^,]+), ([^:]+): installed"
+                r"(?:\s+\([^()\r\n]*\))*\s*", line)
             if not m or m[2] != kernel:
                 continue
             owner = run("dpkg-query", "-S", f"/usr/src/amdgpu-{m[1]}/dkms.conf")
