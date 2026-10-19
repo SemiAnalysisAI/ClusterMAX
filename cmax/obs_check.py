@@ -663,7 +663,8 @@ def _check_prometheus(
 def _check_grafana(base: str, header: str, budget: list) -> dict:
     result = {"reachable": True, "unauth_query_ok": False, "admin_api_exposed": False,
               "datasources_listable": False, "labels": {}, "requests": 0,
-              "platform": "grafana", "auth_scheme": "", "query_ok": False}
+              "platform": "grafana", "auth_scheme": "", "query_ok": False,
+              "label_groups": []}
     if not want_request(result, budget):
         return result
     result["requests"] += 1
@@ -678,6 +679,8 @@ def _check_grafana(base: str, header: str, budget: list) -> dict:
         if ident is None:
             continue
         proxy = f"/api/datasources/proxy/{ident}"
+        source_labels: dict[str, set[str]] = {}
+        result["label_groups"].append(source_labels)
         for index, key in enumerate(TENANT_LABEL_KEYS):
             # The proxy sweep is the shape that can hang: `_check_grafana` starts
             # `reachable` at True, so the reachability abort cannot fire here and a
@@ -703,6 +706,7 @@ def _check_grafana(base: str, header: str, budget: list) -> dict:
             vals = extract_label_values(s, b)
             if vals:
                 result["labels"].setdefault(key, set()).update(vals)
+                source_labels.setdefault(key, set()).update(vals)
     return result
 
 
@@ -1005,7 +1009,8 @@ def check(
     budget = [MAX_REQUESTS, MAX_UNANSWERED_PER_TARGET_MS, MAX_UNANSWERED_MS]
     reachable = 0
     unauth = admin = datasources = False
-    merged: dict[str, set[str]] = {}
+    cross_tenant = False
+    foreign_counts: dict[str, int] = {}
     requests = 0
     checked = 0
     answered = 0
@@ -1069,6 +1074,15 @@ def check(
         if scheme:
             auth_schemes[scheme] = auth_schemes.get(scheme, 0) + 1
         labels = r.get("labels", {})
+        # Classify each actual query store independently. Grafana can proxy
+        # several isolated data sources, and endpoint aliases can overlap.
+        own_cross = False
+        for group in r.get("label_groups", [labels]):
+            group_cross, group_counts = classify_cross_tenant(group, own_namespace)
+            own_cross = own_cross or group_cross
+            for key, count in group_counts.items():
+                foreign_counts[key] = max(foreign_counts.get(key, 0), count)
+        cross_tenant = cross_tenant or own_cross
         # The operator's own credential is excluded from attribution, because a
         # read it made says nothing about ordinary tenant access. Every other
         # source is recorded, INCLUDING `process-env`, which `security.py` then
@@ -1081,18 +1095,9 @@ def check(
         # The sweep keeps going past both non-tenant reads, so a tenant-owned
         # source that also reads is the one recorded here.
         if accepted and accepted != OPERATOR_CREDENTIAL_SOURCE:
-            # Attribute the cross-tenant read per target. `merged` combines every
-            # target, so an OPEN target can supply the foreign series while a
-            # different guarded target merely accepted a credential. Claiming the
-            # credential read the data would then name the wrong source for
-            # reproduction, so this asks whether THIS target's own labels are
-            # cross-tenant.
-            own_cross, _own_counts = classify_cross_tenant(labels, own_namespace)
+            # Attribute only the evidence returned by this target.
             if own_cross:
                 cross_tenant_sources[accepted] = cross_tenant_sources.get(accepted, 0) + 1
-        for key, vals in labels.items():
-            merged.setdefault(key, set()).update(vals)
-    cross_tenant, foreign_counts = classify_cross_tenant(merged, own_namespace)
     return {
         "configured": True,
         "authenticated": bool(credential_sources),
@@ -1109,6 +1114,7 @@ def check(
         "admin_api_exposed": admin,
         "grafana_datasources_listable": datasources,
         "foreign_tenant_counts": foreign_counts,  # counts only; no values
+        "foreign_tenant_count_scope": "maximum-per-query-store",
         "backend_platforms": platforms,  # product name -> endpoint count
         "auth_schemes": auth_schemes,  # scheme name -> endpoint count
         "auth_required": any(scheme in GUARDED_SCHEMES for scheme in auth_schemes),

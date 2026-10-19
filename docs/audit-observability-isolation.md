@@ -9,13 +9,16 @@ Per-node exporters are inventory evidence, not tenant-isolation targets.
 Set `CLUSTERMAX_OBS_TARGETS` to a comma-separated list of approved HTTP(S)
 endpoints to bypass discovery. The CLI issues bounded read-only requests.
 It does not run deletion operations or change backend configuration.
-It verifies TLS certificates and refuses redirects.
+It verifies TLS certificates and refuses redirects except a same-host HTTPS
+upgrade that preserves the endpoint path and port.
 Set `CMAX_OWN_NAMESPACE` to the audited tenant namespace when it is not `default`.
 
 The command stores counts, booleans, platform names, and authentication schemes.
 It does not store metric series, foreign tenant names, or credentials.
 An unreachable endpoint or absent target does not establish isolation.
 Visible shared infrastructure labels alone do not prove a tenant breach.
+Each query backend or Grafana data source is graded separately. Counts are the
+largest observed count per query store, not a union of separate stores.
 The result is evidence from the operator's current network vantage, not proof of
 access from every tenant pod.
 
