@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import pytest
+
 from cmax import audit_report, obs_check, obs_discovery, runtime_paths, security
 
 
@@ -29,3 +31,48 @@ def test_captured_cross_tenant_result_reaches_both_reports(monkeypatch):
 def test_missing_observability_evidence_is_not_a_pass():
     rows = security.evaluate_security({})
     assert next(c for c in rows if c.id == "observability-isolation").status == security.WARNING
+
+
+@pytest.mark.parametrize("discovered", [False, True])
+@pytest.mark.parametrize("exposure", [False, True])
+def test_target_cap_preserves_incomplete_coverage_and_exposure(monkeypatch, discovered, exposure):
+    targets = [f"http://metrics-{i}:9090" for i in range(obs_check.MAX_TARGETS + 2)]
+    values = {}
+    if discovered:
+        monkeypatch.delenv("CLUSTERMAX_OBS_TARGETS", raising=False)
+        monkeypatch.setenv("CLUSTERMAX_OBS_DISCOVER", "1")
+        values = {"audit_data": {"healthChecks": {"monitoringStack": {
+            "endpoints": [target.removeprefix("http://") for target in targets],
+        }}}}
+    else:
+        # Duplicate aliases must not consume the target cap.
+        monkeypatch.setenv("CLUSTERMAX_OBS_TARGETS", ",".join(targets + [targets[0] + "/"]))
+    messages = []
+    with patch.object(obs_discovery, "collect_local_sockets", return_value=""), \
+         patch.object(obs_discovery, "collect_local_processes", return_value=""), \
+         patch.object(obs_check, "check_endpoint", return_value={
+             "reachable": True, "query_ok": True, "requests": 1,
+             "unauth_query_ok": exposure,
+         }) as endpoint:
+        security._inject_observability(
+            values, progress=messages.append,
+            target=security.SecurityTarget("slurm", "bare-metal"),
+        )
+    summary = values["audit_data"]["security"]["observability"]
+    assert summary["targets_found"] == len(targets)
+    assert summary["targets_checked"] == obs_check.MAX_TARGETS
+    assert summary["targets_skipped"] == 2
+    assert endpoint.call_count == obs_check.MAX_TARGETS
+    assert any("2 target(s) skipped" in message for message in messages)
+    result = next(c for c in security.evaluate_security(values) if c.id == "observability-isolation")
+    assert result.status == (security.CRITICAL if exposure else security.WARNING)
+
+
+def test_target_cap_and_budget_skips_are_added():
+    with patch.object(obs_check, "check_endpoint", return_value={"budget_exhausted": True}):
+        summary = obs_check.check(
+            [f"http://metrics-{i}:9090" for i in range(obs_check.MAX_TARGETS + 2)],
+            own_namespace="default",
+        )
+    assert summary["targets_checked"] == obs_check.MAX_TARGETS
+    assert summary["targets_skipped"] == obs_check.MAX_TARGETS + 2

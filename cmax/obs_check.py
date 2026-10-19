@@ -1015,14 +1015,17 @@ def check(
     requests = 0
     checked = 0
     answered = 0
-    skipped = 0
+    all_targets = list(targets)
+    skipped = max(0, len(all_targets) - MAX_TARGETS)
     platforms: dict[str, int] = {}
     auth_schemes: dict[str, int] = {}
     credential_sources: dict[str, int] = {}
     # Credential sources whose OWN target returned another tenant's series, which
     # is a stronger claim than "this credential was accepted somewhere".
     cross_tenant_sources: dict[str, int] = {}
-    candidates = list(targets)[:MAX_TARGETS]
+    candidates = all_targets[:MAX_TARGETS]
+    if skipped and progress:
+        progress(f"{skipped} target(s) skipped: limit of {MAX_TARGETS} per run")
     for index, base in enumerate(candidates, start=1):
         # Refill this target's share. The run total at index 2 is never refilled, so
         # it stays the ceiling on wasted time. Refilling is what stops one hanging
@@ -1107,7 +1110,7 @@ def check(
         # Backends whose query path actually answered. Reachability alone proves
         # nothing about tenancy, so only this count licenses a PASS.
         "queries_answered": answered,
-        # Targets the request budget could not reach. A non-zero count means the
+        # Targets omitted by the target cap or request/time budgets. A non-zero count means the
         # run is incomplete and must not report a clean result.
         "targets_skipped": skipped,
         "unauth_query_ok": unauth,
