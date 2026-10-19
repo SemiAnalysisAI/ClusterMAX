@@ -250,8 +250,8 @@ def _vboost_check_unavailable(audit: dict[str, Any]) -> bool:
 
     The check aggregates to ``gpu_controls.vboost.status`` = "unavailable" when
     every per-node result is a check failure (nvidia-smi missing, a stub /
-    wrong-arch binary raising OSError, or a timeout), e.g. the GCore Soperator
-    login node the audit falls back to outside an allocation. The sibling
+    wrong-arch binary raising OSError, or a timeout), including a non-GPU
+    login node used outside an allocation. The sibling
     ``allowed`` = false is then missing data, not a provider denial, so the
     "not allowed" finding must stay silent.
     """
@@ -269,8 +269,7 @@ def _vboost_unsupported_gpu(audit: dict[str, Any]) -> bool:
 
     B300 and GB300 do not implement the ``nvidia-smi boost-slider --vboost``
     interface: the command returns "Invalid Argument" on every node no matter
-    what the provider allows (observed on Crusoe and CoreWeave HGX B300
-    workers and on Google and GMI GB300 NVL72). The resulting
+    what the provider allows. The resulting
     ``allowed=false`` is a hardware capability gap, not a provider policy
     block, so the "not allowed" finding must stay silent on these GPUs.
     """
