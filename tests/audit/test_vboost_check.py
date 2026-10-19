@@ -7,6 +7,7 @@ import importlib.util
 import json
 import subprocess
 import unittest
+from unittest import mock
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,17 @@ vboost = load_check_module()
 
 
 class VboostCheckTests(unittest.TestCase):
+    def test_missing_worker_results_never_run_local_vboost(self) -> None:
+        for harness in ("slurm", "k8s"):
+            with mock.patch.object(vboost, "slurm_vboost_results", return_value=([], {"status": "missing"})), \
+                    mock.patch.object(vboost, "k8s_vboost_results", return_value=([], ["missing"])), \
+                    mock.patch.object(vboost, "local_vboost_result") as local:
+                result = vboost.build_check_payload(harness=harness, env={})["gpu_controls"]["vboost"]
+            local.assert_not_called()
+            self.assertFalse(result["checked"])
+            self.assertEqual(result["checked_nodes"], 0)
+            self.assertEqual(result["status"], "not_checked")
+            self.assertEqual(result["mode"], harness)
     def test_b300_family_is_not_applicable_without_running_vboost(self) -> None:
         def runner(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
             raise AssertionError(f"vboost must not run on B300: {command}")
