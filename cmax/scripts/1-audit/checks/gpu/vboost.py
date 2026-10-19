@@ -159,23 +159,25 @@ def slurm_vboost_results(
     runner: Runner = subprocess.run,
     which: Which = shutil.which,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    if not env.get("SLURM_JOB_ID") or not which("srun"):
-        return [], None
+    if not env.get("SLURM_JOB_ID"):
+        return [], {
+            "status": "slurm_unavailable",
+            "message": "SLURM_JOB_ID is not set; no compute node was checked for vboost",
+        }
+    if not which("srun"):
+        return [], {
+            "status": "slurm_unavailable",
+            "message": "srun is not available; no compute node was checked for vboost",
+        }
 
     node_count = env.get("SLURM_NNODES") or "1"
-    command = [
-        "srun",
-        "--overlap",
-        "-N",
-        node_count,
-        "--ntasks-per-node=1",
-        "python3",
-        str(Path(__file__).resolve()),
-        "--worker",
-    ]
+    command = load_fanout().slurm_python_command(
+        node_count=node_count, worker_args=["--worker"]
+    )
     try:
         proc = runner(
             command,
+            input=Path(__file__).read_text(),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -197,6 +199,15 @@ def slurm_vboost_results(
             "exit_code": proc.returncode,
             "stdout": clipped(proc.stdout),
             "stderr": clipped(proc.stderr),
+        }
+    if not results:
+        return [], {
+            "status": "slurm_empty",
+            "command": display_command(command),
+            "exit_code": proc.returncode,
+            "stdout": clipped(proc.stdout),
+            "stderr": clipped(proc.stderr),
+            "message": "srun returned no worker vboost result",
         }
     return results, None
 

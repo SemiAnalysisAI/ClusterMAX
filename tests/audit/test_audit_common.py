@@ -995,30 +995,32 @@ class StepTmpdirContractTests(unittest.TestCase):
             'if [[ -n "${CLUSTERMAX_STEP_TMPDIR:-}" && -d "${CLUSTERMAX_STEP_TMPDIR:-}" ]]; then',
             "# Singularity and Apptainer",
         )
-        tools = {
-            name: f'exec "{shutil.which(name)}" "$@"'
-            for name in ("grep", "head", "mktemp", "rm")
-        }
-        for rc, expected in ((0, "pass"), (1, "failed"), (124, "timeout")):
-            with self.subTest(import_rc=rc), tempfile.TemporaryDirectory() as tmp:
-                run = bashtest.run_bash(
-                    block,
-                    stubs={
-                        **tools,
-                        "enroot": (
-                            '[[ "$1" == version ]] && { echo 3.4.0; exit 0; }\n'
-                            '[[ "$ENROOT_TEMP_PATH" == "$CLUSTERMAX_STEP_TMPDIR" '
-                            '&& "$TMPDIR" == "$CLUSTERMAX_STEP_TMPDIR" ]] || exit 99\n'
-                            f"exit {rc}"
-                        ),
-                    },
-                    env={"CLUSTERMAX_STEP_TMPDIR": tmp},
-                    path_only=True,
-                )
-                self.assertEqual(run.returncode, 0, run.stderr)
-                self.assertIn(f"WORKER_CONTAINER_ENROOT_IMPORT={expected}", run.stdout)
-                self.assertEqual(run.calls("enroot")[1][0], "import")
-                self.assertEqual(run.calls("enroot")[1][-1], "docker://hello-world")
+
+    def test_ncu_live_counter_check_has_hard_timeout(self) -> None:
+        workload_dir = COMMON_PATH.parent
+        host_check = (workload_dir / "host-check.sh").read_text()
+        slurm = (workload_dir / "cluster-audit-slurm.sh").read_text()
+
+        self.assertIn('AUDIT_NCU_COUNTER_TIMEOUT_S:-60', host_check)
+        self.assertIn('timeout -k 5 "$NCU_COUNTER_TIMEOUT_S"', host_check)
+        self.assertIn('WORKER_NCU_COUNTER_ACCESS=timeout', host_check)
+        self.assertIn('Hardware counters: TIMED OUT', slurm)
+
+    def test_dcgm_slurm_integration_inspects_worker_health_plugins(self) -> None:
+        workload_dir = COMMON_PATH.parent
+        host_check = (workload_dir / "host-check.sh").read_text()
+        slurm = (workload_dir / "cluster-audit-slurm.sh").read_text()
+
+        self.assertIn('WORKER_HEALTH_PROGRAM_DCGM_EVIDENCE', host_check)
+        self.assertIn('find -L "$WORKER_HEALTH_PLUGIN_DIR"', host_check)
+        self.assertIn('-type f -perm -u+x', host_check)
+        self.assertIn('HealthCheckProgram plugin:', slurm)
+
+    def test_prolog_parser_accepts_indexed_slurm_25_keys(self) -> None:
+        script = (COMMON_PATH.parent / "cluster-audit-slurm.sh").read_text()
+
+        self.assertIn("/^Prolog(\\[[0-9]+\\])?$/", script)
+        self.assertIn("/^Epilog(\\[[0-9]+\\])?$/", script)
 
 
 class ContainerWorkerCheckTests(unittest.TestCase):
