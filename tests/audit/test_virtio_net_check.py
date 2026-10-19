@@ -644,14 +644,8 @@ class EscalationReasonTests(unittest.TestCase):
 class PrivilegedModeReadTests(CheckHarness):
     """`mlxconfig` needs root, so the mode read escalates with `sudo -n`.
 
-    Observed on prime-b300-slurm (2026-07-31): the operator account held
-    passwordless sudo, `mlxconfig` answered under `sudo` and failed with `-E-
-    Failed to open the device` without it, and the check reported `incomplete`.
-    Both criteria that depend on the read graded `unknown`: the controller
-    criterion lost the platform mode, and DPU host isolation lost
-    `INTERNAL_CPU_RSHIM`, its only non-filesystem evidence. On that host the
-    escalated read proves NIC mode and an enabled RShim, so the audit reports a
-    latent controller and a reachable DPU control plane instead of two unknowns.
+    Synthetic stubs require sudo for the mode read. A successful retry must
+    expose NIC mode and the RShim setting to both dependent criteria.
     """
 
     def test_a_tenant_mode_read_escalates_and_settles_the_scope(self) -> None:
@@ -700,7 +694,7 @@ class PrivilegedModeReadTests(CheckHarness):
         self.assertIsNone(evidence["modeError"])
 
     def test_an_enabled_rshim_is_proven_rather_than_left_unknown(self) -> None:
-        # The prime-b300-slurm reading: INTERNAL_CPU_RSHIM=ENABLED(0). The
+        # The synthetic fixture sets INTERNAL_CPU_RSHIM=ENABLED(0). The
         # evaluator grades this as a reachable DPU control plane, so leaving it
         # unreadable turned a proven finding into "posture unknown".
         self.stub_output("lspci", BLUEFIELD3_LSPCI)
@@ -1313,9 +1307,7 @@ class KubernetesNamespaceTests(unittest.TestCase):
         self.check = module
 
     def test_common_nvidia_namespace_is_discovered(self) -> None:
-        # Azure run 20260731-210243-907 reached this current-master check, but
-        # it reported an incomplete fleet because the GPU Operator is in the
-        # common `nvidia` namespace that this check did not search.
+        # Construct a cluster with the GPU Operator in the `nvidia` namespace.
         calls = []
 
         def runner(command, **kwargs):
@@ -1332,7 +1324,7 @@ class KubernetesNamespaceTests(unittest.TestCase):
         namespaces = {
             "items": [
                 {"metadata": {"name": "default"}},
-                {"metadata": {"name": "cw-nvidia-gpu-operator"}},
+                {"metadata": {"name": "example-nvidia-gpu-operator"}},
             ]
         }
 
@@ -1345,7 +1337,7 @@ class KubernetesNamespaceTests(unittest.TestCase):
 
         namespace = self.check.k8s_namespace(env={}, runner=runner)
 
-        self.assertEqual(namespace, "cw-nvidia-gpu-operator")
+        self.assertEqual(namespace, "example-nvidia-gpu-operator")
 
     def test_privileged_device_plugin_collects_from_host_root(self) -> None:
         pods = {
@@ -1384,7 +1376,7 @@ class KubernetesNamespaceTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, collector, "")
 
         record, error = self.check.run_k8s_node_check(
-            "cw-nvidia-gpu-operator", "gpu-1", runner=runner
+            "example-nvidia-gpu-operator", "gpu-1", runner=runner
         )
 
         self.assertIsNone(error)

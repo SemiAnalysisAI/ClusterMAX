@@ -127,8 +127,7 @@ def local_vboost_result(
     except OSError as exc:
         # nvidia-smi was found on PATH but cannot be executed (e.g. a stub or
         # wrong-arch binary on a non-GPU login node: "Exec format error").
-        # Observed on GCore's Soperator login when `bench audit` is run outside
-        # an salloc, where vboost falls back to the local host. Report it as a
+        # Outside an allocation, vboost can fall back to a login host. Report a
         # check failure instead of crashing the whole audit.
         return {
             "host": hostname(),
