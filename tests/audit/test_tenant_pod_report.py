@@ -41,3 +41,7 @@ def test_absent_rdma_devices_do_not_crash_report(ports):
     checks = audit_report.evaluate(values, ROOT, harness="k8s")
     check = next(c for c in checks if c.key == "tenant_pod_defaults.checks.rdmaDevices.status")
     assert check.status == (audit_report.WARNING if ports in (2, "2") else audit_report.SKIPPED)
+    if ports == 0:
+        assert "no active RDMA" in check.assessment
+    elif ports in (None, "unknown"):
+        assert "unverified" in check.assessment.lower()
