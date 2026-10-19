@@ -1,6 +1,6 @@
 # Observability tenant isolation
 
-The full and security profiles discover metrics and dashboard query backends
+The full, security, and isolation profiles discover metrics and dashboard query backends
 from collected monitoring evidence and local sockets and process names.
 Kubernetes audits also inspect Services in the selected kube context.
 Slurm and standalone audits do not inspect an unrelated kube context.

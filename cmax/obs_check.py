@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import base64
 import json
+from http.client import HTTPException
 import ssl
 import time
 import urllib.error
@@ -339,7 +340,7 @@ def _get(url: str, header: str, _upgraded: bool = False) -> tuple[int | None, st
             if upgrade:
                 return _get(upgrade, header, _upgraded=True)
         return exc.code, "", response_headers
-    except (urllib.error.URLError, OSError, ValueError):
+    except (urllib.error.URLError, OSError, ValueError, HTTPException):
         return None, "", {}
 
 
