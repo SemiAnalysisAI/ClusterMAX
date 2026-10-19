@@ -3084,7 +3084,7 @@ WORKER_SSH
         SSH_CHECK_SCOPE="worker-to-worker"
         SSH_TO_COMPUTE="true"
         PASSWORDLESS_SSH="enabled"
-        print_info "SSH from ${SSH_SOURCE_NODE} to ${SSH_TARGET_NODE}: SUCCESS (returned hostname: ${SSH_RESULT})"
+        print_info "SSH from ${SSH_SOURCE_NODE} to ${SSH_TARGET_NODE}: SUCCESS"
     elif [[ "$SSH_RESULT" == *"CMAX_SSH_STATUS=false"* ]]; then
         SSH_CHECK_SCOPE="worker-to-worker"
         SSH_TO_COMPUTE="false"

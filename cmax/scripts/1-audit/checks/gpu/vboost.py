@@ -400,21 +400,15 @@ def build_check_payload(
 
     if harness == "slurm":
         nodes, error = slurm_vboost_results(env=env, runner=runner, which=which)
-        if nodes:
-            mode = "slurm"
-        else:
-            if error:
-                errors.append(error)
-            nodes = [local_vboost_result(runner=runner, which=which)]
+        mode = "slurm"
+        if error:
+            errors.append(error)
     elif harness == "k8s":
         k8s_nodes, k8s_errors = k8s_vboost_results(env=env, runner=runner)
         for message in k8s_errors:
             errors.append({"status": "k8s", "message": message})
-        if k8s_nodes:
-            mode = "k8s"
-            nodes = k8s_nodes
-        else:
-            nodes = [local_vboost_result(runner=runner, which=which)]
+        mode = "k8s"
+        nodes = k8s_nodes
     else:
         nodes = [local_vboost_result(runner=runner, which=which)]
 
