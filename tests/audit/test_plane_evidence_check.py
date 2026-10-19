@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Unit tests for the Tier A/B plane-evidence arm of the NIC topology check.
+"""Synthetic tests for the Tier A/B plane-evidence NIC topology check.
 
 Covers the parsers (mlxconfig / mlxlink / lldp / ibnetdiscover / port attrs),
 the tri-state evidence assembly, the bounded local collector, and the k8s
 @@PLANE@@ block parser. For the public audit contract,
 every derived value must be ok / not-determined-with-reason, never a crash.
+All parser inputs below are hand-built test data, not collected tool output.
 """
 
 from __future__ import annotations
@@ -35,10 +36,6 @@ def completed(command: list[str], *, returncode: int = 0, stdout: str = "", stde
 
 
 MLXCONFIG_OK = """
-Device #1:
-----------
-
-Device type:    ConnectX8
 Configurations:                              Next Boot
          LINK_TYPE_P1                        IB(1)
          SRIOV_EN                            True(1)
@@ -48,34 +45,30 @@ Configurations:                              Next Boot
 """
 
 MLXLINK_OK = """
-Operational Info
-----------------
 State                           : Active
 Physical state                  : LinkUp
 Speed                           : NDR
 Width                           : 4x
 
-Module Info
------------
 Identifier                      : OSFP
 Vendor Name                     : NVIDIA
-Vendor Part Number              : MMS4X00-NS
-Vendor Serial Number            : MT2345XZ0001
+Vendor Part Number              : TEST-PART-001
+Vendor Serial Number            : TEST-SERIAL-001
 """
 
 LLDP_OK = """Chassis ID TLV
-\tMAC: 1c:34:da:00:00:01
+\tMAC: 02:00:00:00:00:01
 Port ID TLV
-\tIfname: Ethernet1/17/1
+\tIfname: Ethernet1/1/1
 Port Description TLV
-\tleaf17:plane2 cage17 sub1
+\tsynthetic switch port
 System Name TLV
-\tplane2-leaf17
+\tsynthetic-switch-a
 """
 
-IBNETDISCOVER_P = """CA    43  1 0xb8cef603002fd0ee 4x XDR - SW     2 27 0xfc6a1c0300a1b2c3 ( 'worker-7 mlx5_ib0' - 'plane0-leaf3' )
-SW     2 27 0xfc6a1c0300a1b2c3 4x XDR - CA    43  1 0xb8cef603002fd0ee ( 'plane0-leaf3' - 'worker-7 mlx5_ib0' )
-SW     2 40 0xfc6a1c0300a1b2c3 4x XDR - SW     9  3 0xfc6a1c0300d4e5f6 ( 'plane0-leaf3' - 'plane0-spine1' )
+IBNETDISCOVER_P = """CA     1  1 0x00000000000000a1 4x XDR - SW     2 1 0x00000000000000b1 ( 'synthetic-worker-a mlx5_ib0' - 'synthetic-switch-a' )
+SW     2 1 0x00000000000000b1 4x XDR - CA     1  1 0x00000000000000a1 ( 'synthetic-switch-a' - 'synthetic-worker-a mlx5_ib0' )
+SW     2 2 0x00000000000000b1 4x XDR - SW     3 1 0x00000000000000b2 ( 'synthetic-switch-a' - 'synthetic-switch-b' )
 """
 
 
@@ -96,14 +89,14 @@ class PortAttrsTests(unittest.TestCase):
 
 class ParserTests(unittest.TestCase):
     def test_hostname_prefix_does_not_match_another_worker(self) -> None:
-        text = IBNETDISCOVER_P.replace("worker-7", "worker-70")
-        self.assertEqual(nic.parse_ibnetdiscover(text, "", "worker-7")["matched"], [])
+        text = IBNETDISCOVER_P.replace("synthetic-worker-a", "synthetic-worker-a0")
+        self.assertEqual(nic.parse_ibnetdiscover(text, "", "synthetic-worker-a")["matched"], [])
 
     def test_guid_match_takes_precedence_over_hostname_matches(self) -> None:
-        other = IBNETDISCOVER_P.replace("0xb8cef603002fd0ee", "0x1234567890123456")
-        summary = nic.parse_ibnetdiscover(IBNETDISCOVER_P + other, "b8ce:f603:002f:d0ee", "worker-7")
+        other = IBNETDISCOVER_P.replace("0x00000000000000a1", "0x00000000000000c1")
+        summary = nic.parse_ibnetdiscover(IBNETDISCOVER_P + other, "0000:0000:0000:00a1", "synthetic-worker-a")
         self.assertTrue(summary["matched"])
-        self.assertTrue(all("0x1234567890123456" not in line for line in summary["matched"]))
+        self.assertTrue(all("0x00000000000000c1" not in line for line in summary["matched"]))
     def test_mlxconfig_keeps_plane_and_sriov_keys_only(self) -> None:
         fields = nic.parse_mlxconfig(MLXCONFIG_OK)
         self.assertEqual(fields["LINK_TYPE_P1"], "IB(1)")
@@ -115,23 +108,23 @@ class ParserTests(unittest.TestCase):
     def test_mlxlink_keeps_identity_keys(self) -> None:
         fields = nic.parse_mlxlink(MLXLINK_OK)
         self.assertEqual(fields["Speed"], "NDR")
-        self.assertEqual(fields["Vendor Serial Number"], "MT2345XZ0001")
+        self.assertEqual(fields["Vendor Serial Number"], "TEST-SERIAL-001")
         self.assertEqual(fields["Identifier"], "OSFP")
         self.assertNotIn("Physical state", fields)
 
     def test_lldp_keeps_neighbor_tlvs(self) -> None:
         fields = nic.parse_lldp(LLDP_OK)
-        self.assertEqual(fields["System Name TLV"], "plane2-leaf17")
-        self.assertEqual(fields["Port ID TLV"], "Ifname: Ethernet1/17/1")
+        self.assertEqual(fields["System Name TLV"], "synthetic-switch-a")
+        self.assertEqual(fields["Port ID TLV"], "Ifname: Ethernet1/1/1")
         self.assertNotIn("Chassis ID TLV", fields)
 
     def test_ibnetdiscover_counts_switches_and_matches_guid(self) -> None:
-        summary = nic.parse_ibnetdiscover(IBNETDISCOVER_P, "b8ce:f603:002f:d0ee", "other-host")
+        summary = nic.parse_ibnetdiscover(IBNETDISCOVER_P, "0000:0000:0000:00a1", "other-host")
         self.assertEqual(summary["switch_count"], 2)
         self.assertEqual(len(summary["matched"]), 2)
 
     def test_ibnetdiscover_falls_back_to_hostname(self) -> None:
-        summary = nic.parse_ibnetdiscover(IBNETDISCOVER_P, "", "worker-7")
+        summary = nic.parse_ibnetdiscover(IBNETDISCOVER_P, "", "synthetic-worker-a")
         self.assertEqual(len(summary["matched"]), 2)
 
 
@@ -177,7 +170,7 @@ class EvidenceAssemblyTests(unittest.TestCase):
         record = nic.evidence_from_raw(
             "mlx5_ib0", "InfiniBand", "800 Gb/sec (4X XDR)",
             {"mlxconfig": (MLXCONFIG_OK, None), "mlxlink": (MLXLINK_OK, None), "ibnetdiscover": (IBNETDISCOVER_P, None)},
-            node_guid="b8ce:f603:002f:d0ee", host="worker-7",
+            node_guid="0000:0000:0000:00a1", host="synthetic-worker-a",
         )
         self.assertEqual(record["presentation"]["status"], "ok")
         self.assertEqual(record["presentation"]["fields"], {"SPLIT_MODE": "SPLIT_2X(1)"})
@@ -213,7 +206,7 @@ class EvidenceAssemblyTests(unittest.TestCase):
             {"mlxconfig": ("", "tool not installed"), "mlxlink": ("", "tool not installed"), "lldp": (LLDP_OK, None)},
         )
         self.assertEqual(record["neighbor"]["method"], "lldp")
-        self.assertEqual(record["neighbor"]["fields"]["System Name TLV"], "plane2-leaf17")
+        self.assertEqual(record["neighbor"]["fields"]["System Name TLV"], "synthetic-switch-a")
 
     def test_unattempted_tools_are_not_determined(self) -> None:
         record = nic.evidence_from_raw("mlx5_ib3", "InfiniBand", "", {})
@@ -271,7 +264,7 @@ class CollectPlaneEvidenceTests(unittest.TestCase):
 class K8sPlaneBlockTests(unittest.TestCase):
     SAMPLE = "\n".join(
         [
-            "@@PLANEGUID@@\tmlx5_ib0\tb8ce:f603:002f:d0ee",
+            "@@PLANEGUID@@\tmlx5_ib0\t0000:0000:0000:00a1",
             "@@PLANE@@ mlx5_ib0 mlxconfig BEGIN",
             "         SPLIT_MODE                          SPLIT_2X(1)",
             "@@PLANE@@ mlx5_ib0 mlxconfig END 0",
@@ -289,7 +282,7 @@ class K8sPlaneBlockTests(unittest.TestCase):
     def test_blocks_parse_to_evidence_raws(self) -> None:
         raws, guids = nic._parse_k8s_plane(self.SAMPLE)
 
-        self.assertEqual(guids, {"mlx5_ib0": "b8ce:f603:002f:d0ee"})
+        self.assertEqual(guids, {"mlx5_ib0": "0000:0000:0000:00a1"})
         raw, reason = raws["mlx5_ib0"]["mlxconfig"]
         self.assertIsNone(reason)
         self.assertIn("SPLIT_MODE", raw)
@@ -331,7 +324,7 @@ class PayloadTests(unittest.TestCase):
                 "  NIC0: mlx5_ib0",
                 "@@TOPO_END@@",
                 "@@HCA@@\tmlx5_ib0\t800 Gb/sec (4X XDR)\tInfiniBand\t4: ACTIVE",
-                "@@PLANEGUID@@\tmlx5_ib0\tb8ce:f603:002f:d0ee",
+                "@@PLANEGUID@@\tmlx5_ib0\t0000:0000:0000:00a1",
                 "@@PLANE@@ mlx5_ib0 mlxconfig MISSING",
                 "@@PLANE@@ mlx5_ib0 mlxlink MISSING",
                 "@@PLANE@@ mlx5_ib0 ibnetdiscover MISSING",
