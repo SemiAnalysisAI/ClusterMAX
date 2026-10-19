@@ -34,7 +34,6 @@ KNOWN_GAPS = frozenset(
         "ib-tenant-isolation",
         "fabric-class",
         "helm-access",
-        "security-observability-isolation",
         "gpu-drivers",
         "cpu-power-governor",
         "gang-scheduling",
@@ -70,6 +69,7 @@ class CriteriaParityTests(unittest.TestCase):
         mapping = audit_findings.CHECK_CRITERIA
         rule_keys = {rule.key for rule in audit_findings.RULES}
         extension_ids = {
+            "observability-isolation",
             "bmc-ipmi",
             "kubernetes-nodes-proxy",
             "nvlink-boundary",

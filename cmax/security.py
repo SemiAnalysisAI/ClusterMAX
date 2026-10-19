@@ -1340,7 +1340,146 @@ def minimum_freshness(
     return state
 
 
+def _observability_context(obs: dict[str, Any]) -> str:
+    """Render the backend product, guard, and discovery vantage for the report.
+
+    An operator who must reproduce or escalate a finding needs to know which
+    product answered, what guards it, and how the check found it.
+    """
+    parts: list[str] = []
+    platforms = obs.get("backend_platforms")
+    if not isinstance(platforms, dict) or not platforms:
+        detected = obs.get("platforms_detected")
+        if isinstance(detected, list) and detected:
+            parts.append("detected " + ",".join(str(name) for name in detected))
+    else:
+        parts.append(
+            "platform " + ",".join(f"{name}={count}" for name, count in sorted(platforms.items()))
+        )
+    schemes = obs.get("auth_schemes")
+    if isinstance(schemes, dict) and schemes:
+        parts.append("auth " + ",".join(sorted(schemes)))
+    source = obs.get("discovery")
+    if source:
+        parts.append(f"via {source}")
+    return f" [{'; '.join(parts)}]" if parts else ""
+
+def _observability(audit: dict[str, Any]) -> tuple[str, str, str]:
+    """Evaluate the sanitized observability-backend check result.
+
+    Facts live at `security.observability` and are populated by
+    run_security_audit whenever a target was named or discovered. Counts only;
+    the check never records other tenants' identities.
+
+    A PASS needs an ANSWERED query. Reachability alone proves nothing: a backend
+    that refuses every read is reachable, so grading it as enforced tenancy would
+    be a vacuous green check.
+    """
+    obs = _get(audit, "security.observability")
+    if not isinstance(obs, dict) or not obs.get("configured"):
+        return (
+            WARNING,
+            "not assessed (no backend found)",
+            "Observability isolation was not tested. Auto-discovery found no "
+            "metrics or Grafana endpoint from the audit evidence, this node's "
+            "listening sockets and processes, or Kubernetes Services. Set "
+            "CLUSTERMAX_OBS_TARGETS to the endpoint to assess whether the backend "
+            "enforces per-tenant query isolation.",
+        )
+    reachable = int(obs.get("backends_reachable") or 0)
+    cross = bool(obs.get("cross_tenant_series_visible"))
+    unauth = bool(obs.get("unauth_query_ok"))
+    admin = bool(obs.get("admin_api_exposed"))
+    counts = obs.get("foreign_tenant_counts") or {}
+    detail = ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "none"
+    context = _observability_context(obs)
+    if cross or unauth or admin:
+        flags = []
+        if cross:
+            flags.append(f"cross-tenant series visible (foreign label values: {detail})")
+        if unauth:
+            flags.append("query answered with no authentication")
+        if admin:
+            flags.append("administrative/delete API exposed")
+        if cross:
+            assessment = (
+                "The monitoring backend does not enforce per-tenant query isolation. "
+                "The query path exposed data from other tenants, so client-side "
+                "dashboard filtering is not a security boundary."
+            )
+        elif unauth:
+            assessment = (
+                "The monitoring backend allowed anonymous reads on the query path."
+            )
+        else:
+            assessment = (
+                "The monitoring backend exposed an administrative or delete API "
+                "without authentication."
+            )
+        return (CRITICAL, "; ".join(flags) + context, assessment)
+    answered = int(obs.get("queries_answered") or 0)
+    skipped = int(obs.get("targets_skipped") or 0)
+    if skipped:
+        # An incomplete run must never read as clean. Bounding the check is
+        # correct; hiding what the bound dropped is not. Two bounds can drop a
+        # target, and naming only the request budget described a hung backend as an
+        # oversized endpoint list, which sends the operator to the wrong fix.
+        return (
+            WARNING,
+            f"{skipped} endpoint(s) not checked; check budget exhausted" + context,
+            "The request budget ran out, or a backend accepted the connection and "
+            "answered nothing until the unanswered-time allowance was spent, so "
+            "not every endpoint was checked and the result is incomplete. Narrow "
+            "the endpoint list with CLUSTERMAX_OBS_TARGETS and re-run to assess "
+            "the remainder.",
+        )
+    if answered:
+        return (
+            PASS,
+            f"{answered} of {reachable} backend(s) answered a query; "
+            "no cross-tenant data returned" + context,
+            "A monitoring backend answered the query path and returned only our "
+            "own tenant's data, so the query path enforced tenancy.",
+        )
+    if reachable:
+        # Reachability alone proves nothing. A backend that refuses every read
+        # is reachable, and calling that "enforced tenancy" is a vacuous pass.
+        return (
+            WARNING,
+            f"{reachable} backend(s) reachable but refused every read" + context,
+            "The monitoring backend was reachable but answered no query, so "
+            "tenancy on the query path was not assessed.",
+        )
+    return (
+        WARNING,
+        f"{int(obs.get('targets_found') or 0)} endpoint(s) not reachable" + context,
+        "The observability endpoint was not reachable from this vantage, so "
+        "isolation could not be assessed.",
+    )
+
 CHECK_SPECS: tuple[CheckSpec, ...] = (
+    CheckSpec(
+        "observability-isolation",
+        "Observability backend tenant isolation",
+        "A shared metrics backend that filters tenants only in the dashboard lets "
+        "any authenticated tenant read every tenant's metrics by querying the "
+        "backend directly, exposing a map of the whole platform.",
+        "Enforce per-tenant scoping in the query path on the server (tenant "
+        "derived from an authenticated identity, not a client-supplied filter). "
+        "Auto-discovery finds a local or in-cluster backend; set "
+        "CLUSTERMAX_OBS_TARGETS for an endpoint that only a URL reaches.",
+        _references(
+            (
+                "Grafana data source permissions",
+                "https://grafana.com/docs/grafana/latest/administration/data-source-management/",
+            ),
+            (
+                "Mimir multi-tenancy",
+                "https://grafana.com/docs/mimir/latest/manage/secure/authentication-and-authorization/",
+            ),
+        ),
+        _observability,
+    ),
     CheckSpec(
         "nvidia-driver",
         "NVIDIA driver minimum version",
@@ -1716,6 +1855,124 @@ def _minimum_bound_details(
         )
     return remediation, (*references, *spec.references)
 
+
+
+
+def _canonical_targets(urls: Iterable[str]) -> list[str]:
+    """Strip trailing slashes and drop repeats, keeping first-seen order.
+
+    `obs_check.check` strips a trailing slash when it builds each request path, so
+    `http://prom:9090/` and `http://prom:9090` are the same backend to the check but
+    two different strings to a membership test. Deduplicating on the raw string
+    therefore let one backend take two slots: a provisioned datasource URL written
+    with a trailing slash, plus the same host from Service discovery. Both were
+    checked, which doubled that backend's share of the shared request budget and
+    could push a real target past MAX_TARGETS or into `targets_skipped` on a run
+    that was otherwise complete.
+
+    Order is preserved because operator-named targets outrank discovered ones.
+    """
+    seen: set[str] = set()
+    canonical: list[str] = []
+    for url in urls:
+        stripped = url.strip().rstrip("/")
+        if not stripped or stripped in seen:
+            continue
+        seen.add(stripped)
+        canonical.append(stripped)
+    return canonical
+
+def _inject_observability(
+    values: dict[str, Any], *, progress: Callable[[str], None] | None = None,
+    target: SecurityTarget | None = None,
+) -> None:
+    """Run the observability-backend check and stash the sanitized result.
+
+    Targets come from CLUSTERMAX_OBS_TARGETS (comma/space separated) when the
+    operator names them. Otherwise `cmax.obs_discovery` finds them from evidence
+    already on the machine: the audit's monitoring-stack block, this node's
+    listening sockets and process names, and Kubernetes Services. Discovery keeps
+    the check from reporting "not assessed" on a cluster whose audit just
+    reported a running Prometheus or Grafana.
+
+    Set CLUSTERMAX_OBS_DISCOVER=0 to check only what the operator names.
+    Discovery reads local evidence only; every network request belongs to the
+    check, is a bounded read-only GET, and goes only to a backend that this
+    machine or this cluster already exposes.
+
+    The check sends anonymous requests only.
+    Writes a SANITIZED counts-only summary to audit_data.security.observability
+    for _observability to evaluate. A no-op when no target is named and discovery
+    finds none, which leaves the check as a WARNING and never a silent pass.
+    """
+    from cmax import obs_check
+
+    def emit(message: str) -> None:
+        if progress:
+            progress(message)
+
+    emit("# ClusterMAX observability isolation check")
+
+    raw = os.environ.get("CLUSTERMAX_OBS_TARGETS", "").strip()
+    targets = _canonical_targets(re.split(r"[,\s]+", raw) if raw else [])
+    discovery = None
+    if targets:
+        discovery_label = "operator"
+        platforms: list[str] = []
+        emit(f"  discovery: using {len(targets)} operator-named target(s)")
+    else:
+        if os.environ.get("CLUSTERMAX_OBS_DISCOVER", "1").strip() in ("0", "false", "no"):
+            emit("  discovery: disabled by CLUSTERMAX_OBS_DISCOVER")
+            return
+        from cmax import obs_discovery
+
+        emit("  discovery: reading audit evidence, local services, and Kubernetes services")
+        discovery = obs_discovery.discover(
+            values,
+            services=None if target and target.harness == "k8s" else {},
+        )
+        targets = _canonical_targets(discovery.urls())
+        discovery_label = discovery.source_label()
+        platforms = list(discovery.platforms)
+        emit(f"  discovery: found {len(targets)} target(s) via {discovery_label}")
+    if not targets:
+        emit("  backend check: no targets found; nothing to check")
+        return
+
+    own_ns = os.environ.get("CMAX_OWN_NAMESPACE", "default")
+    selected_targets = targets[: obs_check.MAX_TARGETS]
+    emit(
+        f"  backend check: {len(selected_targets)} target(s); "
+        f"{obs_check.REQUEST_TIMEOUT_S:g}s per request; "
+        f"up to {obs_check.MAX_UNANSWERED_PER_TARGET_MS // 1000}s unanswered "
+        "time per target"
+    )
+    check_options: dict[str, Any] = {}
+    if progress:
+        check_options["progress"] = lambda message: emit(f"  {message}")
+    summary = obs_check.check(
+        targets,
+        own_namespace=own_ns,
+        **check_options,
+    )
+    emit(
+        "  backend check: complete; "
+        f"{summary.get('request_count', 0)} request(s), "
+        f"{summary.get('backends_reachable', 0)}/{len(selected_targets)} reachable"
+    )
+    summary["discovery"] = discovery_label
+    summary["targets_found"] = len(targets)
+    if platforms:
+        # Platforms seen by discovery, including a backend the check could not
+        # reach. "Grafana is running but did not answer" must stay visible.
+        summary["platforms_detected"] = platforms
+    audit = values.setdefault("audit_data", {})
+    if not isinstance(audit, dict):
+        audit = values["audit_data"] = {}
+    security = audit.setdefault("security", {})
+    if not isinstance(security, dict):
+        security = audit["security"] = {}
+    security["observability"] = summary
 
 def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
     audit = (
