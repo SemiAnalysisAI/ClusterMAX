@@ -21,6 +21,20 @@ LISTEN 0      4096   0.0.0.0:22          0.0.0.0:*
 
 
 class SocketDiscoveryTests(unittest.TestCase):
+    def test_unbracketed_ipv6_listener_preserves_complete_host(self) -> None:
+        cases = {
+            "::1:9090": "http://[::1]:9090",
+            "2001:db8::1:9090": "http://[2001:db8::1]:9090",
+            "::ffff:127.0.0.1:9090": "http://[::ffff:127.0.0.1]:9090",
+            "fe80::1%eth0:9090": "http://[fe80::1%25eth0]:9090",
+            "[::1]:9090": "http://[::1]:9090",
+        }
+        for address, expected in cases.items():
+            with self.subTest(address=address):
+                endpoints = obs_discovery.endpoints_from_sockets(
+                    f"tcp6 0 0 {address} :::* LISTEN"
+                )
+                self.assertEqual([e.url for e in endpoints], [expected])
     def test_query_ports_become_targets_and_wildcards_become_localhost(self) -> None:
         endpoints = obs_discovery.endpoints_from_sockets(SS_OUTPUT)
         urls = [endpoint.url for endpoint in endpoints]
