@@ -3066,25 +3066,32 @@ if [[ "${#SSH_NODES[@]}" -ge 2 ]]; then
     SSH_SOURCE_NODE="${SSH_NODES[0]}"
     SSH_TARGET_NODE="${SSH_NODES[1]}"
     FIRST_COMPUTE_NODE="$SSH_TARGET_NODE"
-    SSH_CHECK_SCOPE="worker-to-worker"
     print_detail "Testing SSH from ${SSH_SOURCE_NODE} to ${SSH_TARGET_NODE}"
     SSH_RESULT=$(srun "${AUDIT_SRUN_FLAGS[@]}" "${GPU_SRUN_SCOPE_ARGS[@]}" \
-        --immediate=10 -w "$SSH_SOURCE_NODE" -N1 --ntasks=1 --gres=gpu:1 --time=1:00 \
+        --immediate=10 -w "$SSH_SOURCE_NODE" -N1 --ntasks=1 --gres=none --time=1:00 \
         bash -s -- "$SSH_TARGET_NODE" 2>/dev/null <<'WORKER_SSH'
 target="$1"
-ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes \
-    "$target" hostname
+if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes \
+    "$target" hostname >/dev/null 2>&1; then
+    echo CMAX_SSH_STATUS=true
+else
+    echo CMAX_SSH_STATUS=false
+fi
 WORKER_SSH
-    ) || SSH_RESULT="ssh-failed"
-    if [[ -n "$SSH_RESULT" && "$SSH_RESULT" != "ssh-failed" ]]; then
+    ) || SSH_RESULT=""
+    if [[ "$SSH_RESULT" == *"CMAX_SSH_STATUS=true"* ]]; then
+        SSH_CHECK_SCOPE="worker-to-worker"
         SSH_TO_COMPUTE="true"
         PASSWORDLESS_SSH="enabled"
         print_info "SSH from ${SSH_SOURCE_NODE} to ${SSH_TARGET_NODE}: SUCCESS (returned hostname: ${SSH_RESULT})"
-    else
+    elif [[ "$SSH_RESULT" == *"CMAX_SSH_STATUS=false"* ]]; then
+        SSH_CHECK_SCOPE="worker-to-worker"
         SSH_TO_COMPUTE="false"
         PASSWORDLESS_SSH="disabled"
         print_error "SSH from ${SSH_SOURCE_NODE} to ${SSH_TARGET_NODE}: FAILED"
         print_detail "Passwordless SSH between nodes is required for MPI and NCCL jobs"
+    else
+        print_warn "SSH test did not run on the source worker; connectivity remains unknown"
     fi
 else
     print_warn "SSH test: Two usable compute nodes were not available"
