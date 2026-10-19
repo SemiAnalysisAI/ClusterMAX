@@ -459,16 +459,21 @@ def parse_ibnetdiscover(text: str, node_guid: str, host: str) -> dict:
     Also counts distinct `SW`-typed lines as the plane's visible switch count.
     """
     guid_hex = (node_guid or "").replace(":", "").lower().lstrip("0")
-    matched: list[str] = []
+    guid_matches: list[str] = []
+    host_matches: list[str] = []
+    host_pattern = re.compile(r"(?<![a-z0-9_.-])" + re.escape(host.lower()) + r"(?![a-z0-9_.-])") if host else None
     switches = 0
     for line in text.splitlines():
         stripped = line.strip()
         if stripped.startswith("SW"):
             switches += 1
         low = stripped.lower()
-        if (guid_hex and guid_hex in low.replace("0x", "")) or (host and host.lower() in low):
-            if len(matched) < PLANE_MATCH_CAP:
-                matched.append(stripped[:200])
+        guids = {value.lstrip("0") for value in re.findall(r"\b0x([0-9a-f]+)\b", low)}
+        if guid_hex and guid_hex in guids and len(guid_matches) < PLANE_MATCH_CAP:
+            guid_matches.append(stripped[:200])
+        if host_pattern and host_pattern.search(low) and len(host_matches) < PLANE_MATCH_CAP:
+            host_matches.append(stripped[:200])
+    matched = guid_matches or host_matches
     return {"switch_count": switches, "matched": matched}
 
 
