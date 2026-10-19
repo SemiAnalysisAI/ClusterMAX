@@ -1256,18 +1256,21 @@ RULES: tuple[Rule, ...] = (
         "Tenant default-pod check could not run; unprivileged workload defaults are unverified (not evidence of absence)",
         CONFIG,
         _status_is("unknown"),
+        harnesses=frozenset({"k8s"}),
     ),
     Rule(
         "tenant_pod_defaults.checks.memlock.status",
         "Default tenant pod locked-memory limit is too low for RDMA memory registration (UCX, NCCL, NVSHMEM, CUDA-aware MPI)",
         CONFIG,
         _status_is("warning"),
+        harnesses=frozenset({"k8s"}),
     ),
     Rule(
         "tenant_pod_defaults.checks.shm.status",
         "Default tenant pod /dev/shm is too small for multi-GPU shared-memory transports",
         CONFIG,
         _status_is("warning"),
+        harnesses=frozenset({"k8s"}),
     ),
     Rule(
         "tenant_pod_defaults.checks.rdmaDevices.status",
@@ -1290,6 +1293,7 @@ RULES: tuple[Rule, ...] = (
         "Tenant pod-spec remedy (CAP_IPC_LOCK with a memory-backed /dev/shm) is blocked or ineffective",
         CONFIG,
         _status_is("warning"),
+        harnesses=frozenset({"k8s"}),
     ),
     Rule(
         "storage_config.status",

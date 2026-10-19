@@ -38,6 +38,18 @@ MAX_BYTES = 192 * 1024
 NODE_MAX_BYTES = 1024 * 1024
 
 
+def zero_quantity(value):
+    """Recognize zero without rounding nonzero quantities or applying units."""
+    match = re.fullmatch(
+        r"(?P<number>[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+))"
+        r"(?:[eE][+-]?[0-9]+|[numkKMGTPE]|[KMGTPE]i)?",
+        str(value),
+    )
+    return match is not None and not any(
+        digit in "123456789" for digit in match["number"]
+    )
+
+
 def redact(value):
     if isinstance(value, dict):
         return {
@@ -143,7 +155,12 @@ def select(item, key):
             for s in [v, *v.get("projected", {}).get("sources", [])]
         ]
         result["configMaps"] = sorted(
-            {s["configMap"]["name"] for s in sources if "configMap" in s}
+            {
+                s["configMap"]["name"]
+                for s in sources
+                if s.get("configMap", {}).get("name")
+                and s["configMap"]["name"] != "kube-root-ca.crt"
+            }
         )
         result["status"] = item.get("status", {})
     elif key in {"nodes", "workloads"}:
@@ -281,7 +298,7 @@ def collect(namespace):
             for group in spec.get("resourceGroups", []):
                 for flavor in group.get("flavors", []):
                     for r in flavor.get("resources", []):
-                        if str(r.get("nominalQuota")) == "0":
+                        if zero_quantity(r.get("nominalQuota")):
                             findings.append(
                                 {
                                     "key": f"resources.{key}",
