@@ -1,7 +1,14 @@
 from pathlib import Path
 from unittest import mock
+import pytest
 
 from cmax import audit_profiles, audit_report, audit_runner, runtime_paths, security
+
+
+@pytest.fixture(autouse=True)
+def no_external_observability_discovery(monkeypatch):
+    from cmax import obs_discovery
+    monkeypatch.setattr(obs_discovery, "discover", lambda *a, **kw: obs_discovery.Discovery((), (), ()))
 
 
 def test_default_audit_directory_uses_private_audit_storage(tmp_path: Path) -> None:

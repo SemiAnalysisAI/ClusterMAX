@@ -69,6 +69,7 @@ _MONITORING_SACCT = (
 # checks point to the owning public category instead of claiming that a nearby
 # requirement is an exact match.
 _CHECK_ANCHORS = {
+    "observability-isolation": "security-observability-isolation",
     "thp_madvise.status": "lifecycle",
     "static_hugepages.status": "lifecycle",
     "hugepage_allocation.status": "lifecycle",

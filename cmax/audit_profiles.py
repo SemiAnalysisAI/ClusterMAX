@@ -42,7 +42,8 @@ AUDIT_CATEGORIES = (
         keys=frozenset(
             {
                 "bmc-ipmi",
-                "nvlink-boundary",
+            "nvlink-boundary",
+            "observability-isolation",
                 "pcie-passthrough",
                 "ufm-profile",
                 "securityVersions.virtioNetBluefield.exposure",

@@ -69,7 +69,6 @@ KNOWN_GAPS = frozenset(
         "fabric-class",
         # TODO: these need new collector work (mostly k8s-harness coverage).
         "helm-access",
-        "security-observability-isolation",
         "gpu-drivers",
         "cpu-power-governor",
         "gang-scheduling",
@@ -110,6 +109,7 @@ class CriteriaParityTests(unittest.TestCase):
         mapping = audit_findings.CHECK_CRITERIA
         rule_keys = {rule.key for rule in audit_findings.RULES}
         extension_ids = {
+            "observability-isolation",
             "bmc-ipmi",
             "nvlink-boundary",
             "pcie-passthrough",
