@@ -44,7 +44,7 @@ try:
     body = json.load(sys.stdin)
 except (json.JSONDecodeError, OSError):
     raise SystemExit(1)
-if not body.get("ip"):
+if not isinstance(body, dict) or not body.get("ip"):
     raise SystemExit(1)
 for source, target in (
     ("ip", "IP"),
@@ -54,7 +54,7 @@ for source, target in (
     ("org", "ORG"),
     ("loc", "LOC"),
 ):
-    value = str(body.get(source, "")).replace("\n", " ").replace("\r", " ")
+    value = str(body.get(source) or "").replace("\n", " ").replace("\r", " ")
     print(f"WORKER_GEO_{target}={value}")
 '); then
         echo "WORKER_GEO_CHECK_STATUS=success"
