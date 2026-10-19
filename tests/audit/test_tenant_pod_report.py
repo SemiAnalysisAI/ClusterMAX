@@ -45,3 +45,18 @@ def test_absent_rdma_devices_do_not_crash_report(ports):
         assert "no active RDMA" in check.assessment
     elif ports in (None, "unknown"):
         assert "unverified" in check.assessment.lower()
+
+
+@pytest.mark.parametrize("loaded", [False, "false", None])
+def test_gdrcopy_skip_uses_collected_host_path(loaded):
+    values = {"audit_data": {
+        "gpus": {"gdrcopy": {"gdrdrvLoaded": loaded}},
+        "tenant_pod_defaults": {"checks": {"gdrcopyDevice": {"status": "absent"}}},
+    }}
+    checks = audit_report.evaluate(values, ROOT, harness="k8s")
+    check = next(c for c in checks if c.key == "tenant_pod_defaults.checks.gdrcopyDevice.status")
+    assert check.status == audit_report.SKIPPED
+    if loaded is None:
+        assert "unverified" in check.assessment.lower()
+    else:
+        assert "gdrdrv is not loaded" in check.assessment
