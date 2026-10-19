@@ -1112,11 +1112,19 @@ else
 fi
 
 CUDA_HOME_VAL="${CUDA_HOME:-}"
+CUDA_HOME_SOURCE="not-found"
+CUDA_HOME_EXISTS="false"
 if [[ -n "$CUDA_HOME_VAL" ]]; then
+    CUDA_HOME_SOURCE="environment"
+    [[ -d "$CUDA_HOME_VAL" ]] && CUDA_HOME_EXISTS="true"
     print_info "CUDA_HOME: ${CUDA_HOME_VAL}"
-elif [[ -d "/usr/local/cuda" ]]; then
+elif [[ -d "${CLUSTERMAX_CUDA_CANONICAL_DIR:-/usr/local/cuda}" ]]; then
+    CUDA_HOME_VAL="${CLUSTERMAX_CUDA_CANONICAL_DIR:-/usr/local/cuda}"
+    CUDA_HOME_SOURCE="canonical-path"
+    CUDA_HOME_EXISTS="true"
     print_info "CUDA found: /usr/local/cuda"
 else
+    CUDA_HOME_VAL="none"
     print_detail "CUDA_HOME: Not set on head node, /usr/local/cuda not found"
 fi
 

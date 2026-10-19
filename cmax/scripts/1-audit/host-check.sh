@@ -25,6 +25,46 @@ fi
 echo "WORKER_KERNEL=$(uname -r 2>/dev/null || echo unknown)"
 
 if ! security_checks_only; then
+# --- External IP and geolocation ---
+collect_worker_geolocation() {
+    local geo_json="" geo_lines=""
+    if ! command -v curl >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+        echo "WORKER_GEO_CHECK_STATUS=unavailable"
+        return
+    fi
+    geo_json=$(curl -sf --max-time 10 "https://ipinfo.io/json" 2>/dev/null) || {
+        echo "WORKER_GEO_CHECK_STATUS=unavailable"
+        return
+    }
+    if geo_lines=$(printf '%s' "$geo_json" | python3 -c '
+import json
+import sys
+
+try:
+    body = json.load(sys.stdin)
+except (json.JSONDecodeError, OSError):
+    raise SystemExit(1)
+if not body.get("ip"):
+    raise SystemExit(1)
+for source, target in (
+    ("ip", "IP"),
+    ("city", "CITY"),
+    ("region", "REGION"),
+    ("country", "COUNTRY"),
+    ("org", "ORG"),
+    ("loc", "LOC"),
+):
+    value = str(body.get(source, "")).replace("\n", " ").replace("\r", " ")
+    print(f"WORKER_GEO_{target}={value}")
+'); then
+        echo "WORKER_GEO_CHECK_STATUS=success"
+        printf '%s\n' "$geo_lines"
+    else
+        echo "WORKER_GEO_CHECK_STATUS=invalid-response"
+    fi
+}
+collect_worker_geolocation
+
 # --- CPU inventory (model, topology, clocks, power limit) ---
 # OEMs and providers can set a CPU below its datasheet: a lowered RAPL package
 # power limit (cTDP), a capped max frequency, or a powersave governor all
@@ -1862,6 +1902,26 @@ fi
 fi
 
 # --- NVCC ---
+collect_worker_cuda_home() {
+    local canonical="${CLUSTERMAX_CUDA_CANONICAL_DIR:-/usr/local/cuda}"
+    local value="${CUDA_HOME:-}"
+    local source="environment"
+    local exists=false
+    if [[ -z "$value" && -d "$canonical" ]]; then
+        value="$canonical"
+        source="canonical-path"
+    elif [[ -z "$value" ]]; then
+        value="none"
+        source="not-found"
+    fi
+    [[ "$value" != "none" && -d "$value" ]] && exists=true
+    value=$(printf '%s' "$value" | tr '\r\n' '  ')
+    echo "WORKER_CUDA_HOME=$value"
+    echo "WORKER_CUDA_HOME_SOURCE=$source"
+    echo "WORKER_CUDA_HOME_EXISTS=$exists"
+}
+collect_worker_cuda_home
+
 NVCC_P=$(which nvcc 2>/dev/null || echo "")
 if [[ -n "$NVCC_P" ]]; then
     echo "WORKER_NVCC_PATH=$NVCC_P"
@@ -2137,6 +2197,59 @@ echo "WORKER_SHARP_CONF=${WORKER_SHARP_CONF}"
 fi
 
 if ! security_checks_only; then
+# --- Slurm worker daemon ---
+WORKER_SLURMD_RUNNING=false
+if command -v pgrep >/dev/null 2>&1 && pgrep -x slurmd >/dev/null 2>&1; then
+    WORKER_SLURMD_RUNNING=true
+fi
+echo "WORKER_SLURMD_RUNNING=${WORKER_SLURMD_RUNNING}"
+
+# --- Monitoring services ---
+WORKER_MONITORING_CHECK_OK=false
+WORKER_DCGM_EXPORTER_DETECTED=false
+WORKER_NODE_EXPORTER_DETECTED=false
+WORKER_GRAFANA_DETECTED=false
+WORKER_MONITORING_LISTENING=""
+
+if command -v ss >/dev/null 2>&1; then
+    if monitoring_output=$(ss -tln 2>/dev/null); then
+        WORKER_MONITORING_LISTENING=$(awk 'NR>1 {print $4}' <<< "$monitoring_output")
+        WORKER_MONITORING_CHECK_OK=true
+    fi
+elif command -v netstat >/dev/null 2>&1; then
+    if monitoring_output=$(netstat -tln 2>/dev/null); then
+        WORKER_MONITORING_LISTENING=$(awk 'NR>2 {print $4}' <<< "$monitoring_output")
+        WORKER_MONITORING_CHECK_OK=true
+    fi
+fi
+
+grep -qE ':9400([[:space:]]|$)' <<< "$WORKER_MONITORING_LISTENING" && WORKER_DCGM_EXPORTER_DETECTED=true
+grep -qE ':9100([[:space:]]|$)' <<< "$WORKER_MONITORING_LISTENING" && WORKER_NODE_EXPORTER_DETECTED=true
+grep -qE ':3000([[:space:]]|$)' <<< "$WORKER_MONITORING_LISTENING" && WORKER_GRAFANA_DETECTED=true
+
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl is-active dcgm-exporter >/dev/null 2>&1 && WORKER_DCGM_EXPORTER_DETECTED=true
+    systemctl is-active grafana-server >/dev/null 2>&1 && WORKER_GRAFANA_DETECTED=true
+    if systemctl is-active node-exporter >/dev/null 2>&1 \
+            || systemctl is-active prometheus-node-exporter >/dev/null 2>&1; then
+        WORKER_NODE_EXPORTER_DETECTED=true
+    fi
+fi
+
+if command -v pgrep >/dev/null 2>&1; then
+    pgrep -x dcgm-exporter >/dev/null 2>&1 && WORKER_DCGM_EXPORTER_DETECTED=true
+    pgrep -x 'node_exporter|prometheus-node' >/dev/null 2>&1 && WORKER_NODE_EXPORTER_DETECTED=true
+    if pgrep -x grafana >/dev/null 2>&1 \
+            || pgrep -x grafana-server >/dev/null 2>&1; then
+        WORKER_GRAFANA_DETECTED=true
+    fi
+fi
+
+echo "WORKER_MONITORING_CHECK_OK=${WORKER_MONITORING_CHECK_OK}"
+echo "WORKER_DCGM_EXPORTER_DETECTED=${WORKER_DCGM_EXPORTER_DETECTED}"
+echo "WORKER_NODE_EXPORTER_DETECTED=${WORKER_NODE_EXPORTER_DETECTED}"
+echo "WORKER_GRAFANA_DETECTED=${WORKER_GRAFANA_DETECTED}"
+
 # --- DCGM ---
 WORKER_HEALTH_PROGRAM_DCGM=false
 WORKER_HEALTH_PROGRAM_DCGM_EVIDENCE=none
@@ -2454,6 +2567,79 @@ else
 fi
 
 if ! security_checks_only; then
+# --- InfiniBand control-plane queries ---
+# saquery and sminfo must run from a fabric-connected compute node. The OpenSM
+# key is authoritative only when this node runs the subnet manager and exposes
+# its configuration. A compute node with no OpenSM file proves nothing about a
+# remote subnet manager.
+WORKER_SAQUERY_STATUS=not-found
+WORKER_SAQUERY_NODE_RECORDS=0
+if command -v saquery >/dev/null 2>&1; then
+    WORKER_SAQUERY_OUTPUT=$(timeout 15 saquery NodeRecord 2>/dev/null)
+    WORKER_SAQUERY_RC=$?
+    if [[ "$WORKER_SAQUERY_RC" -eq 0 ]]; then
+        WORKER_SAQUERY_STATUS=pass
+        WORKER_SAQUERY_NODE_RECORDS=$(printf '%s\n' "$WORKER_SAQUERY_OUTPUT" \
+            | grep -c 'NodeDescription' | tr -d '[:space:]' || true)
+    elif [[ "$WORKER_SAQUERY_RC" -eq 124 ]]; then
+        WORKER_SAQUERY_STATUS=timeout
+    else
+        WORKER_SAQUERY_STATUS=fail
+    fi
+fi
+
+WORKER_SMINFO_STATUS=not-found
+WORKER_SM_LID=unknown
+if command -v sminfo >/dev/null 2>&1; then
+    WORKER_SMINFO_OUTPUT=$(timeout 15 sminfo 2>/dev/null)
+    WORKER_SMINFO_RC=$?
+    if [[ "$WORKER_SMINFO_RC" -eq 0 && -n "$WORKER_SMINFO_OUTPUT" ]]; then
+        WORKER_SMINFO_STATUS=pass
+        WORKER_SM_LID=$(printf '%s\n' "$WORKER_SMINFO_OUTPUT" \
+            | sed -nE 's/.*[Ss][Mm][[:space:]_-]*[Ll][Ii][Dd][[:space:]:]*([0-9]+).*/\1/p' \
+            | head -1)
+        [[ -n "$WORKER_SM_LID" ]] || WORKER_SM_LID=unknown
+    elif [[ "$WORKER_SMINFO_RC" -eq 124 ]]; then
+        WORKER_SMINFO_STATUS=timeout
+    else
+        WORKER_SMINFO_STATUS=fail
+    fi
+fi
+
+WORKER_OPENSM_RUNNING=false
+WORKER_IB_SM_KEY_CONFIGURED=unknown
+WORKER_IB_SM_KEY_STATUS=unverified
+WORKER_IB_SM_KEY_CHECK_SCOPE=remote-sm-unavailable
+if command -v pgrep >/dev/null 2>&1 && pgrep -x opensm >/dev/null 2>&1; then
+    WORKER_OPENSM_RUNNING=true
+    WORKER_OPENSM_CONF="${CLUSTERMAX_OPENSM_CONF:-/etc/opensm/opensm.conf}"
+    WORKER_IB_SM_KEY_CHECK_SCOPE=local-subnet-manager
+    if [[ -r "$WORKER_OPENSM_CONF" ]]; then
+        WORKER_SM_KEY_VAL=$(grep -E '^[[:space:]]*sm_key[[:space:]]+' \
+            "$WORKER_OPENSM_CONF" 2>/dev/null | awk '{print $2}' | head -1)
+        if [[ -n "$WORKER_SM_KEY_VAL" \
+                && "$WORKER_SM_KEY_VAL" != "0x0000000000000000" \
+                && "$WORKER_SM_KEY_VAL" != "0" ]]; then
+            WORKER_IB_SM_KEY_CONFIGURED=true
+            WORKER_IB_SM_KEY_STATUS=configured
+        else
+            WORKER_IB_SM_KEY_CONFIGURED=false
+            WORKER_IB_SM_KEY_STATUS=unsecured
+        fi
+    else
+        WORKER_IB_SM_KEY_STATUS=config-unreadable
+    fi
+fi
+
+echo "WORKER_SAQUERY_STATUS=${WORKER_SAQUERY_STATUS}"
+echo "WORKER_SAQUERY_NODE_RECORDS=${WORKER_SAQUERY_NODE_RECORDS}"
+echo "WORKER_SMINFO_STATUS=${WORKER_SMINFO_STATUS}"
+echo "WORKER_SM_LID=${WORKER_SM_LID}"
+echo "WORKER_OPENSM_RUNNING=${WORKER_OPENSM_RUNNING}"
+echo "WORKER_IB_SM_KEY_CONFIGURED=${WORKER_IB_SM_KEY_CONFIGURED}"
+echo "WORKER_IB_SM_KEY_STATUS=${WORKER_IB_SM_KEY_STATUS}"
+echo "WORKER_IB_SM_KEY_CHECK_SCOPE=${WORKER_IB_SM_KEY_CHECK_SCOPE}"
+
 # --- Storage / Drive Config ---
 # Boot device
 W_BOOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null || df / 2>/dev/null | tail -1 | awk '{print $1}')
