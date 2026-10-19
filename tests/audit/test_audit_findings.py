@@ -199,6 +199,10 @@ class DetectFindingsTests(unittest.TestCase):
         self.assertIn("distributed GPU jobs", topology.recommendation)
 
     def test_worker_check_unavailable_is_inconclusive_not_missing(self) -> None:
+        # Synthetic case: the srun worker check cannot schedule, so the
+        # container.* booleans hold their stale `false` defaults. That is
+        # inconclusive, not "not installed": no MISSING/VERSION finding should
+        # fire, only a CONFIG attestation note keyed on workerCheckOk.
         audit_data = {
             "containers": {
                 "workerCheckOk": False,
@@ -219,6 +223,7 @@ class DetectFindingsTests(unittest.TestCase):
         self.assertIn("attestation", note.title.lower())
 
     def test_worker_check_present_with_working_runtime_has_no_false_missing(self) -> None:
+        # Construct a successful worker check with every container prerequisite.
         audit_data = {
             "containers": {
                 "workerCheckOk": True,
@@ -625,6 +630,10 @@ class DetectFindingsTests(unittest.TestCase):
         self.assertIn("could not be checked", finding.title.lower())
 
     def test_vboost_unavailable_check_does_not_flag_denial(self) -> None:
+        # Synthetic login node: nvidia-smi is a stub binary, so every
+        # per-node result is nvidia_smi_error and the check aggregates to
+        # status "unavailable" with allowed=false. That is missing data, not a
+        # provider denial; the "not allowed" finding must stay silent.
         audit_data = {
             "gpu_controls": {
                 "vboost": {
@@ -804,7 +813,7 @@ class DetectFindingsTests(unittest.TestCase):
         self.assertIn("NVIDIA Container Toolkit not installed", titles(findings))
 
     def test_source_is_stamped_on_each_finding(self) -> None:
-        src = "runs/oracle-gb300/20260612-185451/audit/audit.values.json"
+        src = "runs/synthetic-cluster/20000101-000000/audit/audit.values.json"
         findings = audit_findings.detect_findings(
             {"audit_data": {"containers": {"nvidiaContainerToolkit": False}}},
             source=src,
@@ -821,31 +830,20 @@ class DetectFindingsTests(unittest.TestCase):
             titles(findings),
         )
 
-    def test_oci_gb300_style_values_surface_expected_findings(self) -> None:
-        audit_data = {
-            "containers": {
-                "dockerVersionOk": True,
-                "nvidiaContainerToolkit": False,
-                "nvidiaContainerToolkitVersionOk": False,
-                "singularity": False,
-            },
-            "software": {"nvhpc": {"status": "fail"}},
-            "gpus": {"gdrcopy": {"installed": False}},
-            "gpu_controls": {"vboost": {"allowed": False}},
-        }
-        keyed = by_key(audit_findings.detect_findings({"audit_data": audit_data}))
-        for key in (
-            "containers.nvidiaContainerToolkit",
-            "software.nvhpc.status",
-            "gpus.gdrcopy.installed",
-            "gpu_controls.vboost.allowed",
-        ):
-            self.assertIn(key, keyed)
-        self.assertIn("containers.singularity", keyed)
-        self.assertEqual(
-            keyed["containers.singularity"].severity,
-            audit_findings.MISSING,
+    def test_synthetic_missing_components_surface_expected_findings(self) -> None:
+        cases = (
+            ("containers.nvidiaContainerToolkit", {"containers": {"nvidiaContainerToolkit": False}}),
+            ("software.nvhpc.status", {"software": {"nvhpc": {"status": "fail"}}}),
+            ("gpus.gdrcopy.installed", {"gpus": {"gdrcopy": {"installed": False}}}),
+            ("gpu_controls.vboost.allowed", {"gpu_controls": {"vboost": {"allowed": False}}}),
+            ("containers.singularity", {"containers": {"singularity": False}}),
         )
+        for key, audit_data in cases:
+            with self.subTest(key=key):
+                keyed = by_key(audit_findings.detect_findings({"audit_data": audit_data}))
+                self.assertIn(key, keyed)
+                if key == "containers.singularity":
+                    self.assertEqual(keyed[key].severity, audit_findings.MISSING)
 
 
 class DpuAndDcgmFindingTests(unittest.TestCase):

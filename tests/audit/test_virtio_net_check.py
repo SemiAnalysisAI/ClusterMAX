@@ -491,6 +491,11 @@ class EscalationPathTests(unittest.TestCase):
 
 @unittest.skipIf(os.geteuid() == 0, "a root caller holds the rights and never escalates")
 class PrivilegedModeReadTests(CheckHarness):
+    """`mlxconfig` needs root, so the mode read escalates with `sudo -n`.
+
+    Synthetic stubs require sudo for the mode read. A successful retry must
+    expose NIC mode and the RShim setting to both dependent criteria.
+    """
 
     def test_a_tenant_mode_read_escalates_and_settles_the_scope(self) -> None:
         self.stub_output("lspci", BLUEFIELD3_LSPCI)
@@ -536,7 +541,9 @@ class PrivilegedModeReadTests(CheckHarness):
         self.assertIsNone(evidence["modeError"])
 
     def test_an_enabled_rshim_is_proven_rather_than_left_unknown(self) -> None:
-
+        # The synthetic fixture sets INTERNAL_CPU_RSHIM=ENABLED(0). The
+        # evaluator grades this as a reachable DPU control plane, so leaving it
+        # unreadable turned a proven finding into "posture unknown".
         self.stub_output("lspci", BLUEFIELD3_LSPCI)
         self.stub_root_only("mlxconfig", NIC_MODE_MLXCONFIG)
         self.stub_sudo()
@@ -1055,7 +1062,7 @@ class KubernetesNamespaceTests(unittest.TestCase):
         self.check = load_check_module()
 
     def test_common_nvidia_namespace_is_discovered(self) -> None:
-
+        # Construct a cluster with the GPU Operator in the `nvidia` namespace.
         calls = []
 
         def runner(command, **kwargs):
@@ -1072,7 +1079,7 @@ class KubernetesNamespaceTests(unittest.TestCase):
         namespaces = {
             "items": [
                 {"metadata": {"name": "default"}},
-                {"metadata": {"name": "cw-nvidia-gpu-operator"}},
+                {"metadata": {"name": "example-nvidia-gpu-operator"}},
             ]
         }
 
@@ -1085,7 +1092,7 @@ class KubernetesNamespaceTests(unittest.TestCase):
 
         namespace = self.check.k8s_namespace(env={}, runner=runner)
 
-        self.assertEqual(namespace, "cw-nvidia-gpu-operator")
+        self.assertEqual(namespace, "example-nvidia-gpu-operator")
 
     def test_privileged_device_plugin_collects_from_host_root(self) -> None:
         pods = {
@@ -1124,7 +1131,7 @@ class KubernetesNamespaceTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, collector, "")
 
         record, error = self.check.run_k8s_node_check(
-            "cw-nvidia-gpu-operator", "gpu-1", runner=runner
+            "example-nvidia-gpu-operator", "gpu-1", runner=runner
         )
 
         self.assertIsNone(error)

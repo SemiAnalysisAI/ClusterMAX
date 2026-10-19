@@ -1183,7 +1183,7 @@ k8s_cluster_has_rdma_fabric() {
 # rdma/rdma_shared_device_a), excluding per-rail rdma/fabricN resources.
 # Allocatable values are Kubernetes quantities and may carry SI or binary
 # suffixes: the NVIDIA network operator shared device plugin advertises pools
-# like "1k" (seen on Hyperstack cluster42), which bare int() rejects.
+# like "1k", which bare int() rejects.
 k8s_detect_shared_rdma_resource() {
     kubectl get nodes -o json 2>/dev/null | python3 -c '
 import json, re, sys

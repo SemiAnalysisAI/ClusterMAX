@@ -90,8 +90,12 @@ def unreadable_minimum_table():
 
 
 class NvidiaDriverPolicyTests(unittest.TestCase):
-    def test_runpod_driver_is_below_its_branch_minimum_version(self) -> None:
-        verdict = security.nvidia_driver_verdict("580.126.09")
+    def test_driver_below_its_branch_minimum_version_fails(self) -> None:
+        # Derive a test version from the public minimum, not a host reading.
+        minimum = read_minimum("components.nvidiaDriver.branches.580")
+        parts = [int(part) for part in minimum.split(".")]
+        parts[-1] -= 1
+        verdict = security.nvidia_driver_verdict(".".join(map(str, parts)))
         self.assertEqual(verdict.status, "fail")
         self.assertEqual(verdict.minimum, read_minimum("components.nvidiaDriver.branches.580"))
         self.assertEqual(verdict.advisory, read_minimum("components.nvidiaDriver.advisory"))
@@ -119,7 +123,15 @@ class NvidiaDriverPolicyTests(unittest.TestCase):
         self.assertIn(str(newest + 5), verdict.detail)
 
     def test_non_nvidia_driver_version_is_never_graded_as_a_pass(self) -> None:
-        verdict = security.nvidia_driver_verdict("6.16.13")
+        """The amdgpu value that reached the driver check ungated.
+
+        An arbitrary amdgpu-shaped value occupies the vendor-neutral
+        gpus.driverVersion field. The gpu_vendor gate catches it, and this is
+        the second line: branch 6 is outside any NVIDIA branch, so the verdict
+        is unknown. Before the domain guard, a foreign value only avoided a
+        pass by being numerically below the tracked branches.
+        """
+        verdict = security.nvidia_driver_verdict("6.1.2")
         self.assertEqual(verdict.status, "unknown")
         self.assertNotEqual(verdict.status, "pass")
         self.assertIn("does not look like an NVIDIA Linux driver version", verdict.detail)
@@ -224,6 +236,8 @@ class DcgmPolicyTests(unittest.TestCase):
             "the DCGM minimums no longer disagree, so this test cannot detect a transposition",
         )
 
+        # The synthetic discriminator sits inside
+        # the window where the two minimums disagree.
         discriminator = "4.7.1"
         parsed = security.numeric_version(discriminator)
         self.assertGreaterEqual(parsed, dcgm_minimum)
@@ -231,9 +245,9 @@ class DcgmPolicyTests(unittest.TestCase):
         self.assertEqual(security.dcgm_verdict(discriminator).status, "pass")
         self.assertEqual(security.dcgm_exporter_verdict(discriminator).status, "fail")
 
-    def test_audited_cluster_tag_grades_both_components_as_failed(self) -> None:
-        self.assertEqual(security.dcgm_verdict("4.4.2").status, "fail")
-        self.assertEqual(security.dcgm_exporter_verdict("4.7.1").status, "fail")
+    def test_synthetic_old_versions_fail_for_both_components(self) -> None:
+        self.assertEqual(security.dcgm_verdict("1.0.0").status, "fail")
+        self.assertEqual(security.dcgm_exporter_verdict("1.0.0").status, "fail")
 
     def test_package_revision_suffix_does_not_change_the_verdict(self) -> None:
         self.assertEqual(security.dcgm_verdict(f"{self.dcgm_minimum}-1").status, "pass")
@@ -1810,7 +1824,14 @@ class MissingMinimumTableTests(unittest.TestCase):
 
 
 class GpuAbsentDriverPolicyTests(unittest.TestCase):
-    """A completed scan that found no NVIDIA GPU ends the driver's scope."""
+    """A completed scan that found no NVIDIA GPU ends the driver's scope.
+
+    A synthetic GPU-less standalone host with model ``no-nvidia-smi`` must
+    not grade ``unknown`` and warn, which would raise an
+    attestation request for a driver that cannot exist on that host. Only the
+    collector's positive absence claim may cause the skip, and only while the
+    driver version itself is unreadable.
+    """
 
     def evaluate_driver(self, **kwargs) -> dict:
         base = dict(

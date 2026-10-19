@@ -1381,7 +1381,7 @@ echo "WORKER_AMD_GPU_MODEL=$(detect_amd_gpu_model)"
 # whenever the module is loaded - independent of the ROCm userspace CLI and of
 # the AMD GPU Operator - and it is the same value rocm-smi --showdriverversion
 # reports. Hosts that bake the driver into the node image but ship no ROCm CLI
-# on the host (e.g. Oracle MI355X) reach this path. modinfo (reads the .ko) is a
+# on the host reach this path. modinfo (reads the .ko) is a
 # secondary source for in-tree builds where the sysfs version attribute is absent.
 if [[ -z "$_amd_drv" ]]; then
     _amd_drv=$(cat /sys/module/amdgpu/version 2>/dev/null | head -1)
@@ -2171,8 +2171,7 @@ echo "WORKER_HEALTH_PROGRAM_DCGM_EVIDENCE=${WORKER_HEALTH_PROGRAM_DCGM_EVIDENCE}
 # --- NHC (Node Health Check) ---
 # NHC runs on compute nodes via the slurm.conf HealthCheckProgram; login and
 # head nodes commonly do not carry the binary at all, so worker detection is
-# the authoritative signal (GMI GB300 was reported as a false negative from a
-# head-node-only check).
+# the authoritative signal. A head-node-only check cannot establish absence.
 WORKER_NHC_INSTALLED=false
 WORKER_NHC_PATH=none
 if command -v nhc &>/dev/null; then

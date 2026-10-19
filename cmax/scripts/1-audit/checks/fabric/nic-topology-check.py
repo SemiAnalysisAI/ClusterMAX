@@ -199,10 +199,9 @@ def fabric_affinity_fallback(hcas: list, assigned: dict) -> dict:
     where ``nvidia-smi topo -m`` failed -- recover the scale-out set:
 
     * rail naming: ACTIVE rail-named HCAs at >= 100 Gb/s are the
-      provider-labelled scale-out rails (Firmus ``mlx5_rail0..3``, OCI
-      ``rdma_vf_rail0..3``). DOWN rail PFs behind active VFs stay unpromoted.
+      scale-out candidates. DOWN rail PFs behind active VFs stay unpromoted.
     * planarized IB: else the >= 2 ACTIVE InfiniBand HCAs tied at the top IB
-      rate >= 200 Gb/s (the 4x800G XDR presentation on GB300 NVL72). A single
+      rate >= 200 Gb/s. A single
       IB HCA never promotes: it is as likely a storage NIC.
 
     Bond devices (``mlx5_bond_*``) never promote. Returns {name: reason}.

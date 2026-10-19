@@ -23,3 +23,13 @@ dist/
 *.tar
 *.tar.gz
 *.zip
+
+# Private audit evidence must not enter the public source tree.
+/.notes/
+/runs/
+/results/
+/audit-results/
+/provider-data/
+*.pcap
+*.pcapng
+*.har
