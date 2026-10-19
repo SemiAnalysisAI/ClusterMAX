@@ -94,6 +94,7 @@ GPU_OPERATOR_NAMESPACES = (
     "gpu-operator-resources",
     "nvidia-gpu-operator",
     "nvidia",
+    "amd-gpu-operator",
     "kube-amd-gpu",
     "gpu",
 )
@@ -726,7 +727,8 @@ def topo_status(records: list[dict[str, Any]]) -> dict[str, Any]:
     status: dict[str, Any] = {}
     for record in records:
         host = str(record.get("host") or "")
-        if not host or record.get("topo_collected") is not False:
+        if (not host or record.get("topo_collected") is not False
+                or record.get("topo_applicable") is False):
             continue
         entry: dict[str, Any] = {"topo_collected": False}
         topo_error = record.get("topo_error")
@@ -789,13 +791,34 @@ def k8s_gpu_namespace(*, env: dict[str, str], runner: Runner) -> str | None:
     override = env.get("CLUSTERMAX_GPU_OPERATOR_NAMESPACE")
     if override:
         return override
-    for ns in GPU_OPERATOR_NAMESPACES:
+    # Prefer known operator namespaces over the generic "gpu" fallback.
+    for ns in GPU_OPERATOR_NAMESPACES[:-1]:
         try:
             proc = kubectl(["get", "namespace", ns], runner=runner, timeout=20)
         except (OSError, subprocess.TimeoutExpired):
             continue
         if proc.returncode == 0:
             return ns
+    try:
+        proc = kubectl(["get", "namespaces", "-o", "json"], runner=runner, timeout=20)
+        data = json.loads(proc.stdout) if proc.returncode == 0 else {}
+        items = data.get("items", []) if isinstance(data, dict) else []
+        names = sorted(
+            name
+            for item in items
+            if isinstance(item, dict) and isinstance(item.get("metadata"), dict)
+            and isinstance(name := item["metadata"].get("name"), str)
+            and re.search(r"gpu-operator|nvidia-gpu", name, re.IGNORECASE)
+        )
+        if names:
+            return names[0]
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
+        pass
+    try:
+        if kubectl(["get", "namespace", "gpu"], runner=runner, timeout=20).returncode == 0:
+            return "gpu"
+    except (OSError, subprocess.TimeoutExpired):
+        pass
     return None
 
 
@@ -858,7 +881,9 @@ def k8s_driver_pod(namespace: str, node: str, *, runner: Runner) -> dict[str, An
 # classifies them. Mirrors the local sysfs reads in _collect_*_local().
 K8S_COLLECTOR_SH = r'''
 echo @@TOPO_BEGIN@@
-nvidia-smi topo -m 2>/dev/null
+if [ "${CLUSTERMAX_GPU_VENDOR:-nvidia}" = nvidia ]; then
+  nvidia-smi topo -m 2>/dev/null
+fi
 echo @@TOPO_END@@
 for d in /sys/class/infiniband/*; do
   [ -e "$d" ] || continue
@@ -1025,16 +1050,20 @@ def _parse_k8s_plane(text: str) -> tuple[dict[str, dict[str, tuple[str, str | No
     return raws, guids
 
 
-def run_k8s_node_check(namespace: str, node: str, *, runner: Runner) -> tuple[dict[str, Any] | None, str | None]:
+def run_k8s_node_check(
+    namespace: str, node: str, *, runner: Runner, gpu_vendor: str = "nvidia"
+) -> tuple[dict[str, Any] | None, str | None]:
     access = k8s_driver_pod(namespace, node, runner=runner)
     if not access:
-        return None, f"{node}: no running nvidia-smi-capable GPU Operator pod for NIC classification"
+        return None, f"{node}: no running GPU Operator system pod for NIC classification"
     exec_args = ["exec", "-i", "-n", namespace, access["name"]]
     if access["container"]:
         exec_args.extend(["-c", access["container"]])
-    exec_args.extend(["--", "sh", "-c", K8S_COLLECTOR_SH])
+    topo_applicable = gpu_vendor != "amd"
+    collector = f"CLUSTERMAX_GPU_VENDOR={'nvidia' if topo_applicable else 'amd'}\n{K8S_COLLECTOR_SH}"
+    exec_args.extend(["--", "sh", "-c", collector])
     if access["hostRoot"]:
-        exec_args[-4:] = ["--", "chroot", "/host", "sh", "-c", K8S_COLLECTOR_SH]
+        exec_args[-4:] = ["--", "chroot", "/host", "sh", "-c", collector]
     try:
         # 180s (not the default 60): the collector now also runs the bounded
         # plane-evidence tool attempts (worst case 144s when mft/ib tools are
@@ -1049,15 +1078,20 @@ def run_k8s_node_check(namespace: str, node: str, *, runner: Runner) -> tuple[di
     if proc.returncode != 0:
         return None, f"{node}: NIC check exec failed: {proc.stderr.strip()}"
     topo, hcas, netdevs = _parse_k8s_collector(proc.stdout)
+    if not topo_applicable:
+        topo = ""
     if not hcas and not netdevs:
         return None, f"{node}: NIC check returned no devices"
     record: dict[str, Any] = {
         "host": node,
+        "gpu_vendor": gpu_vendor,
         "nics": classify_nics(topo, hcas, netdevs),
         "topo_collected": bool(topo.strip()),
         "nvlinkExposed": bool(re.search(r"\bNV[0-9]+\b", topo)) if topo.strip() else None,
     }
-    if not topo.strip():
+    if not topo_applicable:
+        record["topo_applicable"] = False
+    elif not topo.strip():
         record["topo_error"] = "no output"
     plane_raws, plane_guids = _parse_k8s_plane(proc.stdout)
     rate_raws = _k8s_rate_raws(proc.stdout)
@@ -1080,7 +1114,9 @@ def run_k8s_node_check(namespace: str, node: str, *, runner: Runner) -> tuple[di
 
 def _nic_per_node(namespace: str, *, runner: Runner):
     """Per-node strategy: exec the worker inside a privileged GPU system pod."""
-    return lambda node: run_k8s_node_check(namespace, node["name"], runner=runner)
+    return lambda node: run_k8s_node_check(
+        namespace, node["name"], runner=runner, gpu_vendor=node.get("gpu_vendor", "nvidia")
+    )
 
 
 def k8s_records(
@@ -1128,9 +1164,10 @@ def build_check_payload(
     else:
         records, errors = [gather()], []
 
-    nvlink_coverage_complete = bool(records) and not errors and all(
+    nvlink_records = [r for r in records if r.get("topo_applicable") is not False]
+    nvlink_coverage_complete = bool(nvlink_records) and not errors and all(
         r.get("topo_collected") is True and isinstance(r.get("nvlinkExposed"), bool)
-        for r in records
+        for r in nvlink_records
     )
     evidence = plane_evidence_by_host(records)
     undetermined = sorted(
@@ -1160,7 +1197,8 @@ def build_check_payload(
     payload["nvlink_topology"] = {
         "hosts": {
             str(r["host"]): {"checked": r.get("topo_collected") is True,
-                             "exposed": r.get("nvlinkExposed")}
+                             "exposed": r.get("nvlinkExposed"),
+                             **({"applicable": False} if r.get("topo_applicable") is False else {})}
             for r in records if r.get("host")
         },
         "coverageComplete": nvlink_coverage_complete,
