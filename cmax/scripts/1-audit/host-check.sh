@@ -2249,6 +2249,7 @@ echo "WORKER_MONITORING_CHECK_OK=${WORKER_MONITORING_CHECK_OK}"
 echo "WORKER_DCGM_EXPORTER_DETECTED=${WORKER_DCGM_EXPORTER_DETECTED}"
 echo "WORKER_NODE_EXPORTER_DETECTED=${WORKER_NODE_EXPORTER_DETECTED}"
 echo "WORKER_GRAFANA_DETECTED=${WORKER_GRAFANA_DETECTED}"
+echo "WORKER_MONITORING_LISTENING=$(printf '%s' "$WORKER_MONITORING_LISTENING" | tr '\n' '|')"
 
 # --- DCGM ---
 WORKER_HEALTH_PROGRAM_DCGM=false
@@ -2574,19 +2575,28 @@ if ! security_checks_only; then
 # remote subnet manager.
 WORKER_SAQUERY_STATUS=not-found
 WORKER_SAQUERY_NODE_RECORDS=0
+WORKER_SAQUERY_ACCESS=unverified
+WORKER_SAQUERY_RC=127
 if command -v saquery >/dev/null 2>&1; then
     WORKER_SAQUERY_OUTPUT=$(timeout 15 saquery NodeRecord 2>/dev/null)
     WORKER_SAQUERY_RC=$?
-    if [[ "$WORKER_SAQUERY_RC" -eq 0 ]]; then
-        WORKER_SAQUERY_STATUS=pass
-        WORKER_SAQUERY_NODE_RECORDS=$(printf '%s\n' "$WORKER_SAQUERY_OUTPUT" \
-            | grep -c 'NodeDescription' | tr -d '[:space:]' || true)
-    elif [[ "$WORKER_SAQUERY_RC" -eq 124 ]]; then
-        WORKER_SAQUERY_STATUS=timeout
-    else
-        WORKER_SAQUERY_STATUS=fail
-    fi
+    [[ "$WORKER_SAQUERY_RC" -eq 0 ]] && WORKER_SAQUERY_ACCESS=current-user
 fi
+if [[ "$WORKER_SAQUERY_RC" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+    WORKER_SAQUERY_OUTPUT=$(timeout 15 sudo -n saquery NodeRecord 2>/dev/null)
+    WORKER_SAQUERY_RC=$?
+    [[ "$WORKER_SAQUERY_RC" -eq 0 ]] && WORKER_SAQUERY_ACCESS=sudo
+fi
+if [[ "$WORKER_SAQUERY_RC" -eq 0 ]]; then
+    WORKER_SAQUERY_STATUS=pass
+    WORKER_SAQUERY_NODE_RECORDS=$(printf '%s\n' "$WORKER_SAQUERY_OUTPUT" \
+        | grep -c 'NodeDescription' | tr -d '[:space:]' || true)
+elif [[ "$WORKER_SAQUERY_RC" -eq 124 ]]; then
+    WORKER_SAQUERY_STATUS=timeout
+elif [[ "$WORKER_SAQUERY_RC" -ne 127 ]]; then
+    WORKER_SAQUERY_STATUS=fail
+fi
+echo "WORKER_SAQUERY_ACCESS=${WORKER_SAQUERY_ACCESS}"
 
 WORKER_SMINFO_STATUS=not-found
 WORKER_SM_LID=unknown

@@ -2992,7 +2992,7 @@ fi
 # Record every metrics/dashboard query endpoint that listens here, plus the
 # product behind it. Exporter ports are platform evidence only: an exporter
 # serves its own host's metrics and answers no tenancy question.
-collect_monitoring_evidence "$LISTENING"
+collect_monitoring_evidence "${LISTENING}"$'\n'"$(worker_monitoring_addresses "${WORKER_MONITORING_LISTENING:-}" "${WORKER_HOSTNAME:-}")"
 
 # Report exactly one status for each monitoring component.
 if [[ "$PROMETHEUS_DETECTED" == "true" ]]; then
@@ -3078,9 +3078,14 @@ if [[ "${#SSH_NODES[@]}" -ge 2 ]]; then
     SSH_SOURCE_NODE="${SSH_NODES[0]}"
     SSH_TARGET_NODE="${SSH_NODES[1]}"
     FIRST_COMPUTE_NODE="$SSH_TARGET_NODE"
+    SSH_GRES_ARGS=(--gres=none)
+    if [[ -z "${SLURM_JOB_ID:-}" ]] \
+        && jq -e --arg node "$SSH_SOURCE_NODE" 'any(.[]; .name == $node and (.gpus // 0) > 0)' <<< "$NODES_JSON" >/dev/null; then
+        SSH_GRES_ARGS=(--gres=gpu:1)
+    fi
     print_detail "Testing SSH from ${SSH_SOURCE_NODE} to ${SSH_TARGET_NODE}"
     SSH_RESULT=$(srun "${AUDIT_SRUN_FLAGS[@]}" "${GPU_SRUN_SCOPE_ARGS[@]}" \
-        --input=all --immediate=10 -w "$SSH_SOURCE_NODE" -N1 --ntasks=1 --gres=none --time=1:00 \
+        --input=all --immediate=10 -w "$SSH_SOURCE_NODE" -N1 --ntasks=1 "${SSH_GRES_ARGS[@]}" --time=1:00 \
         bash -s -- "$SSH_TARGET_NODE" 2>/dev/null <<'WORKER_SSH'
 target="$1"
 if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes \

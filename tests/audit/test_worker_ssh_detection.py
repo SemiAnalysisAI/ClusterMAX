@@ -29,7 +29,7 @@ TWO_WORKERS = [
     {"name": "gpu-b", "state": "IDLE", "gpus": 8},
 ]
 EXPECTED_SRUN_CALL = [
-    "--input=all", "--immediate=10", "-w", "gpu-a", "-N1", "--ntasks=1", "--gres=none",
+    "--input=all", "--immediate=10", "-w", "gpu-a", "-N1", "--ntasks=1", "--gres=gpu:1",
     "--time=1:00", "bash", "-s", "--", "gpu-b",
 ]
 PRINT_STUBS = dict.fromkeys(
@@ -72,7 +72,7 @@ def test_node_selection_prefers_the_checked_gpu_worker() -> None:
     run = bashtest.run_bash(script, env={"NODES_JSON": json.dumps(nodes)})
 
     assert run.returncode == 0, run.stderr
-    assert run.stdout.splitlines() == ["gpu-b", "gpu-a"]
+    assert run.stdout.splitlines() == ["gpu-a", "gpu-b"]
 
 
 @pytest.mark.parametrize(
@@ -141,6 +141,34 @@ exec "$@"
     assert run.calls("squeue") == ([] if job_nodelist else [["-h", "-j", "123", "-o", "%N"]])
     assert run.calls("ssh")[0][-2:] == ["node-2", "hostname"]
     assert run.calls("srun")[0][run.calls("srun")[0].index("-w") + 1] == "node-3"
+    assert "--gres=none" in run.calls("srun")[0]
+
+
+def test_login_node_probe_uses_idle_gpu_source_with_required_gres():
+    nodes = [
+        {"name": "gpu-a", "state": "ALLOCATED", "gpus": 8},
+        {"name": "gpu-b", "state": "MIXED", "gpus": 8},
+        {"name": "gpu-c", "state": "IDLE", "gpus": 8},
+    ]
+    run = bashtest.run_bash(
+        PROBE_SCRIPT,
+        env={"NODES_JSON": json.dumps(nodes), "SLURM_JOB_ID": ""},
+        stubs={"srun": '[[ " $* " == *" --gres=gpu:1 "* ]] || exit 1; echo CMAX_SSH_STATUS=true', **PRINT_STUBS},
+    )
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "true|enabled|gpu-c|gpu-a|worker-to-worker"
+    assert run.calls("srun")[0][run.calls("srun")[0].index("-w") + 1] == "gpu-c"
+
+
+def test_login_node_probe_does_not_launch_on_fully_allocated_workers():
+    nodes = [dict(node, state="ALLOCATED") for node in TWO_WORKERS]
+    run = bashtest.run_bash(
+        PROBE_SCRIPT,
+        env={"NODES_JSON": json.dumps(nodes), "SLURM_JOB_ID": ""},
+        stubs={"srun": "exit 99", **PRINT_STUBS},
+    )
+    assert run.returncode == 0, run.stderr
+    assert run.calls("srun") == []
 
 
 def test_unknown_allocation_never_falls_back_to_cluster_inventory():
