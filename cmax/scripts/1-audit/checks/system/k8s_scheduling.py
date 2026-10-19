@@ -80,7 +80,6 @@ def read_resource(resource, namespace="", name=""):
             elif any(
                 s in error
                 for s in (
-                    "error from server (notfound)",
                     "doesn't have a resource type",
                     "the server could not find the requested resource",
                 )
@@ -349,7 +348,5 @@ def collect(namespace):
 
 
 if __name__ == "__main__" and os.environ.get("CLUSTERMAX_AUDIT_HARNESS") == "k8s":
-    namespace = os.environ.get("K8S_NAMESPACE") or os.environ.get(
-        "CLUSTERMAX_AUDIT_TENANT_NAMESPACE", "default"
-    )
+    namespace = os.environ.get("CLUSTERMAX_AUDIT_TENANT_NAMESPACE", "default")
     print(json.dumps({"k8s_scheduling": collect(namespace)}, indent=2))
