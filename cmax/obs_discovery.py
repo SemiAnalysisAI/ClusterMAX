@@ -72,16 +72,17 @@ PROCESS_PLATFORMS: dict[str, str] = {
     "cortex": "cortex",
 }
 
-# Kubernetes Service name substrings that identify a backend family. Kept in
-# step with the diagnostic's `discover_targets.py`.
+# Query-component names, not Helm release prefixes. An embedded "prometheus"
+# token can name an entire chart whose other Services are only scrape targets.
 SERVICE_NAME_PLATFORMS: tuple[tuple[str, str], ...] = (
-    ("thanos", "thanos"),
-    ("vmselect", "vmselect"),
-    ("victoria", "victoriametrics"),
-    ("mimir", "mimir"),
-    ("cortex", "cortex"),
-    ("prometheus", "prometheus"),
-    ("grafana", "grafana"),
+    (r"(?:^|-)vmselect(?:-(?:cluster|server))?$", "vmselect"),
+    (r"(?:^|-)vmsingle(?:-(?:cluster|server))?$", "victoriametrics"),
+    (r"(?:^|-)victoria-metrics(?:-single(?:-server)?|-server)?$", "victoriametrics"),
+    (r"(?:^|-)thanos(?:-(?:query|querier)(?:-frontend)?)?$", "thanos"),
+    (r"(?:^|-)mimir(?:-(?:query-frontend|querier|gateway|nginx))?$", "mimir"),
+    (r"(?:^|-)cortex(?:-(?:query-frontend|querier|gateway|nginx))?$", "cortex"),
+    (r"(?:^|-)grafana(?:-server)?$", "grafana"),
+    (r"(?:^|-)prometheus(?:-(?:operated|server|k8s))?$", "prometheus"),
 )
 
 # Service name substrings that mean "not a query endpoint", checked BEFORE the
@@ -315,8 +316,8 @@ def _service_platform(name: str) -> str | None:
     lowered = name.lower()
     if any(token in lowered for token in SERVICE_NAME_EXCLUDE):
         return None
-    for token, platform in SERVICE_NAME_PLATFORMS:
-        if token in lowered:
+    for pattern, platform in SERVICE_NAME_PLATFORMS:
+        if re.search(pattern, lowered):
             return platform
     return None
 
