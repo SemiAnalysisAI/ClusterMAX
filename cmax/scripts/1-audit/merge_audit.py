@@ -275,6 +275,18 @@ def remap_k8s_canonical(audit: dict[str, Any]) -> None:
     check = host_check(audit)
 
     # --- GPUDirect RDMA path (dma_buf / nvidia open / legacy peermem) ---
+    rdma_fields = {
+        "WORKER_RDMA_DEVICES": "devices",
+        "WORKER_RDMA_ACTIVE_PORTS": "activePorts",
+        "WORKER_RDMA_DRIVERS": "drivers",
+        "WORKER_RDMA_LINK_LAYERS": "linkLayers",
+        "WORKER_RDMA_MAX_RATE_GBPS": "maxRateGbps",
+    }
+    if any(key in check for key in rdma_fields):
+        rdma = _ensure_dict(_ensure_dict(audit, "networking"), "hostRdma")
+        for source, target in rdma_fields.items():
+            if source in check:
+                _set_default(rdma, target, check[source])
     gpus = _ensure_dict(audit, "gpus")
     rdma_path_present = any(
         k in check for k in ("WORKER_NVIDIA_DMABUF", "WORKER_NVIDIA_OPEN", "WORKER_PEERMEM_LEGACY")

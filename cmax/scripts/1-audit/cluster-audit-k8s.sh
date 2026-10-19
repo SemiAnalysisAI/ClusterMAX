@@ -1743,6 +1743,18 @@ RDMA_SHARED_RES=$(echo "$NODES_JSON" | jq -r '[.items[] | (.status.allocatable /
 RDMA_GENERIC=$(echo "$NODES_JSON" | jq -r '.items[] | (.status.allocatable // {}) + (.status.capacity // {}) | to_entries[] | select(.key | test("(^|/)rdma[_/]")) | .value' | sum_k8s_quantities)
 RDMA_GENERIC_RES=$(echo "$NODES_JSON" | jq -r '[.items[] | (.status.allocatable // {}) + (.status.capacity // {}) | keys[] | select(test("(^|/)rdma[_/]"))] | unique | join(",")')
 
+# Some NVIDIA Network Operator deployments name their RDMA resource
+# nvidia.com/hostdev. The name alone does not prove that it exposes RDMA, so
+# require the SR-IOV device-plugin configuration to mark its selector isRdma.
+RDMA_HOSTDEV=$(echo "$NODES_JSON" | jq -r '.items[] | (.status.allocatable // {}) + (.status.capacity // {}) | .["nvidia.com/hostdev"] // "0"' | sum_k8s_quantities)
+if [[ "$RDMA_HOSTDEV" -gt 0 ]]; then
+    SRIOV_PLUGIN_CONFIG=$(kubectl -n "${CLUSTERMAX_K8S_NETWORK_OPERATOR_NAMESPACE:-${NETWORK_NS:-nvidia-network-operator}}" get configmap network-operator-sriovdp-config -o jsonpath='{.data.config\.json}' 2>/dev/null || true)
+    if echo "$SRIOV_PLUGIN_CONFIG" | jq -e '.resourceList[]? | select(.resourcePrefix == "nvidia.com" and .resourceName == "hostdev" ) | .selectors | if type == "array" then .[] else . end | objects | select(.isRdma == true)' >/dev/null 2>&1; then
+        RDMA_GENERIC=$((RDMA_GENERIC + RDMA_HOSTDEV))
+        RDMA_GENERIC_RES="${RDMA_GENERIC_RES:+${RDMA_GENERIC_RES},}nvidia.com/hostdev"
+    fi
+fi
+
 # DigitalOcean DOKS exposes RoCE fabric via per-NIC extended resources named
 # rdma/fabric0 ... rdma/fabric15 (one per fabric NIC, 16 per fabric-connected
 # B300 node). Sum all of them so the cascade below recognizes the fabric.
