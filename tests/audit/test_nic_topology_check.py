@@ -236,13 +236,12 @@ class SlurmDispatchTests(unittest.TestCase):
 
         self.assertNotIn("nic_topology_status", payload)
 
-    def test_slurm_without_job_id_falls_back_to_local(self) -> None:
+    def test_slurm_without_job_id_does_not_substitute_local_evidence(self) -> None:
         def runner(_command: list[str], **_: Any) -> subprocess.CompletedProcess:
             raise AssertionError("srun should not run without SLURM_JOB_ID")
 
         payload = nic.build_check_payload(harness="slurm", env={}, runner=runner)
-        # Local gather still produces exactly one host entry.
-        self.assertEqual(len(payload["nic_topology"]), 1)
+        self.assertEqual(payload["nic_topology"], {})
 
 
 class K8sDispatchTests(unittest.TestCase):
