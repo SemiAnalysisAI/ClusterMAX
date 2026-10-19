@@ -1327,6 +1327,20 @@ _NO_BLUEFIELD = GuardReason(
 # a new guard lands with its classification; keys without an entry (or whose
 # clauses all miss) fall back to the unverified skip.
 GUARD_SUPPRESSIONS: dict[str, tuple[GuardReason, ...]] = {
+    "tenant_pod_defaults.checks.rdmaDevices.status": (
+        GuardReason(
+            lambda audit: str(nested_get(audit, "networking", "hostRdma", "activePorts")).strip() == "0",
+            NOT_APPLICABLE_KIND,
+            "The completed host inventory found no active RDMA ports.",
+        ),
+    ),
+    "tenant_pod_defaults.checks.gdrcopyDevice.status": (
+        GuardReason(
+            lambda audit: nested_get(audit, "software", "gdrdrvLoaded") is False,
+            NOT_APPLICABLE_KIND,
+            "The host inventory confirms that gdrdrv is not loaded.",
+        ),
+    ),
     "securityVersions.nvidiaDriver.status": (_AMD_HARDWARE,),
     "securityVersions.nvidiaContainerToolkit.status": (_AMD_HARDWARE,),
     "securityVersions.cudaToolkit.status": (_AMD_HARDWARE,),
