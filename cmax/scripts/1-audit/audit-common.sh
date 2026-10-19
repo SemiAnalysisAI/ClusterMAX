@@ -943,12 +943,16 @@ select_worker_ssh_nodes() {
     local preferred_source="${2:-}"
     jq -r --arg preferred "$preferred_source" '
         def usable:
+            ((.state // "") | test("[*~#$!%@^]")) as $flagged
+            | ($flagged | not)
+            and (
             ((.state // "") | ascii_upcase | split("+")) as $tokens
-            | (($tokens[0] | startswith("DOWN")) | not)
+            | ($tokens | any(. == "IDLE" or . == "MIXED" or . == "MIX" or . == "ALLOCATED" or . == "ALLOC"))
             and (($tokens | any(
-                . == "DRAIN" or . == "DRAINED" or . == "DRAINING"
+                . == "DRAIN" or . == "DRAINED" or . == "DRAINING" or . == "DRNG"
+                or . == "NO_RESPOND" or . == "NOT_RESPONDING"
                 or . == "POWERED_DOWN" or . == "POWERING_DOWN" or . == "POWER_DOWN"
-            )) | not);
+            )) | not));
         [.[] | select(usable)] as $usable
         | [$usable[] | select((.gpus // 0) > 0)] as $gpu
         | (if ($gpu | length) >= 2 then $gpu else $usable end)
@@ -1463,7 +1467,7 @@ build_audit_json() {
       "saNodeRecords": ${WORKER_SAQUERY_NODE_RECORDS:-0},
       "sminfoStatus": "${WORKER_SMINFO_STATUS:-not-checked}",
       "smLid": "${WORKER_SM_LID:-unknown}",
-      "opensmOnCheckedWorker": ${WORKER_OPENSM_RUNNING:-false}
+      "opensmOnCheckedWorker": $(json_bool_or_unknown "${WORKER_OPENSM_RUNNING:-unknown}")
     },
     "ibPkeyCount": ${IB_PKEY_COUNT},
     "sharpAmKeyConfigured": ${SHARP_AM_KEY_CONFIGURED},

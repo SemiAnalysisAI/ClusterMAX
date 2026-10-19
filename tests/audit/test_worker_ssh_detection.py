@@ -12,6 +12,18 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKLOAD = ROOT / "cmax/scripts/1-audit"
 COMMON = WORKLOAD / "audit-common.sh"
 SLURM = WORKLOAD / "cluster-audit-slurm.sh"
+@pytest.mark.parametrize("state", ["idle~", "drain$", "drng", "alloc*", "idle#", "down", "UNKNOWN", "IDLE+NOT_RESPONDING"])
+def test_selector_rejects_unusable_sinfo_states(state):
+    nodes = [{"name": "bad", "state": state, "gpus": 8}, *TWO_WORKERS]
+    run = bashtest.run_bash(
+        bashtest.extract_function(COMMON, "select_worker_ssh_nodes")
+        + 'select_worker_ssh_nodes "$NODES_JSON" bad',
+        env={"NODES_JSON": json.dumps(nodes)},
+    )
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.splitlines() == ["gpu-a", "gpu-b"]
+
+
 TWO_WORKERS = [
     {"name": "gpu-a", "state": "IDLE", "gpus": 8},
     {"name": "gpu-b", "state": "IDLE", "gpus": 8},
