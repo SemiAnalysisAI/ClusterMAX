@@ -61,6 +61,16 @@ def read_minimum(dotted: str):
     return value
 
 
+def _just_below(version: str) -> str:
+    """Return a release just below `version`: its last non-zero part minus one."""
+    parts = list(security.numeric_version(version, parts=3))
+    for index in reversed(range(len(parts))):
+        if parts[index] > 0:
+            parts[index] -= 1
+            break
+    return ".".join(str(part) for part in parts)
+
+
 def _shift_patch(version: str, delta: int) -> str:
     """Return the release `delta` patches from `version`, using the real parser."""
     major, minor, patch = security.numeric_version(version, parts=3)
@@ -246,11 +256,14 @@ class CudaAndDockerPolicyTests(unittest.TestCase):
         self.assertEqual(verdict.minimum, minimum)
         self.assertEqual(verdict.advisory, read_minimum("components.docker.advisory"))
 
-    def test_docker_release_before_cve_2026_17106_fix_fails(self) -> None:
-        self.assertEqual(read_minimum("components.docker.minimum"), "29.7.0")
-        self.assertEqual(security.docker_verdict("29.6.2").status, "fail")
-        self.assertEqual(security.docker_verdict("29.7.0-rc.1").status, "fail")
-        self.assertEqual(security.docker_verdict("29.7.2").status, "pass")
+    def test_docker_release_below_the_published_minimum_fails(self) -> None:
+        # The minimum comes from the table, so a refresh that moves it to a new
+        # Docker security release keeps this test valid.
+        minimum = read_minimum("components.docker.minimum")
+        self.assertEqual(security.docker_verdict(_just_below(minimum)).status, "fail")
+        self.assertEqual(security.docker_verdict(f"{minimum}-rc.1").status, "fail")
+        self.assertEqual(security.docker_verdict(minimum).status, "pass")
+        self.assertEqual(security.docker_verdict(_shift_patch(minimum, 1)).status, "pass")
 
 
 class DcgmPolicyTests(unittest.TestCase):

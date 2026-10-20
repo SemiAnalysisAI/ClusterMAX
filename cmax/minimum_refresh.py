@@ -8,7 +8,9 @@ machine-readable upstream sources only:
   * NVIDIA CSAF bulletins (GPU driver, ConnectX / BlueField firmware, CUDA
     Toolkit, Container Toolkit) from the NVIDIA/product-security repository
   * OSV for the runc branch ladder
-  * The Ubuntu security API for the Noble distro packages
+  * Canonical's Ubuntu OSV records for the Noble distro packages, read from
+    OSV.dev with the canonical/ubuntu-security-notices repository as a mirror
+    and the Ubuntu security API only for fixes that are not released yet
   * The Docker Engine release notes that Docker authors as markdown in the
     docker/docs repository
   * The AMD security bulletins for the AMD Instinct ROCm minimum, read from the
@@ -87,6 +89,16 @@ GITHUB_CONTENTS = "https://api.github.com/repos/NVIDIA/product-security/contents
 GITHUB_RELEASE = "https://api.github.com/repos/{repo}/releases/tags/{tag}"
 OSV_QUERY_URL = "https://api.osv.dev/v1/query"
 UBUNTU_CVE_URL = "https://ubuntu.com/security/cves/"
+# Canonical publishes its CVE tracker as OSV records. OSV.dev serves them, and
+# the canonical/ubuntu-security-notices repository holds the same files. The
+# Ubuntu security API above times out (HTTP 504) on CVEs with a long package
+# list such as CVE-2024-3446, so it is only a last resort for fixes that OSV
+# cannot describe yet (Ubuntu's "pending" state).
+UBUNTU_OSV_VULN_URL = "https://api.osv.dev/v1/vulns/"
+UBUNTU_OSV_RAW_URL = (
+    "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/main/osv/cve/"
+)
+UBUNTU_OSV_ECOSYSTEMS = {"noble": "Ubuntu:24.04:LTS"}
 UBUNTU_NOTICE_URL = "https://ubuntu.com/security/notices/"
 DOCKER_RELEASE_NOTES_RAW = (
     "https://raw.githubusercontent.com/docker/docs/main"
@@ -1127,8 +1139,72 @@ def ubuntu_notice_url(notice_id: str) -> str:
     return f"{UBUNTU_NOTICE_URL}{notice_id}.json"
 
 
+def ubuntu_osv_urls(cve: str) -> tuple[str, str]:
+    """The OSV.dev record and its GitHub mirror for one Ubuntu CVE."""
+    year = cve.split("-")[1]
+    return (
+        f"{UBUNTU_OSV_VULN_URL}UBUNTU-{cve}",
+        f"{UBUNTU_OSV_RAW_URL}{year}/UBUNTU-{cve}.json",
+    )
+
+
+def ubuntu_osv_notice_urls(notice_id: str) -> tuple[str, str]:
+    """The OSV.dev record and its GitHub mirror for one USN."""
+    return (
+        f"{UBUNTU_OSV_VULN_URL}{notice_id}",
+        f"{UBUNTU_OSV_RAW_URL.removesuffix('cve/')}usn/{notice_id}.json",
+    )
+
+
+def ubuntu_osv_record(cve: str, fetch: Fetcher | None = None) -> dict | None:
+    """Canonical's OSV record for one CVE, or None when no mirror answers."""
+    logger = logging.getLogger(__name__)
+    for url in ubuntu_osv_urls(cve):
+        try:
+            doc = _fetcher(fetch).get_json(url)
+        except MinimumRefreshError as exc:
+            logger.warning("ubuntu osv: %s", exc)
+            continue
+        if isinstance(doc, dict) and doc.get("id") == f"UBUNTU-{cve}":
+            return doc
+        logger.warning("ubuntu osv: %s did not return UBUNTU-%s", url, cve)
+    return None
+
+
+def _osv_fixed(record: dict, package: str, ecosystem: str) -> tuple[bool, str | None]:
+    """Return (listed, fixed) for one source package in one OSV ecosystem."""
+    listed = False
+    fixed: str | None = None
+    for affected in record.get("affected", []):
+        if not isinstance(affected, dict):
+            continue
+        pkg = affected.get("package") or {}
+        if pkg.get("ecosystem") != ecosystem or pkg.get("name") != package:
+            continue
+        listed = True
+        for rng in affected.get("ranges", []):
+            if not isinstance(rng, dict) or rng.get("type") != "ECOSYSTEM":
+                continue
+            for event in rng.get("events", []):
+                if isinstance(event, dict) and isinstance(event.get("fixed"), str):
+                    fixed = event["fixed"]
+    return listed, fixed
+
+
+def _osv_priority(record: dict) -> str | None:
+    for severity in record.get("severity", []):
+        if isinstance(severity, dict) and severity.get("type") == "Ubuntu":
+            return severity.get("score")
+    return None
+
+
+def _usn_order(notice_id: str) -> tuple[int, int]:
+    match = re.fullmatch(r"USN-(\d+)-(\d+)", notice_id)
+    return (int(match.group(1)), int(match.group(2))) if match else (0, 0)
+
+
 def ubuntu_fix_notice(
-    doc: dict,
+    notices: Sequence[dict],
     package: str,
     codename: str,
     fixed: str,
@@ -1137,19 +1213,22 @@ def ubuntu_fix_notice(
     """Return the first USN that published one exact source-package fix.
 
     The CVE publication date can precede the package fix. The grace period must
-    start from the USN that made the exact fixed version available. An unreadable
-    or malformed notice is skipped because a later matching notice still gives
-    a conservative availability date.
+    start from the USN that made the exact fixed version available. `notices`
+    holds {"id", "published"} pairs; they are read in publication order. An
+    unreadable or malformed notice is skipped because a later matching notice
+    still gives a conservative availability date.
     """
-    notices = [
-        notice
-        for notice in doc.get("notices", [])
-        if isinstance(notice, dict)
-        and isinstance(notice.get("id"), str)
-        and isinstance(notice.get("published"), str)
-    ]
-    notices.sort(key=lambda notice: notice["published"])
-    for notice in notices:
+    candidates = sorted(
+        (
+            notice
+            for notice in notices
+            if isinstance(notice, dict)
+            and isinstance(notice.get("id"), str)
+            and isinstance(notice.get("published"), str)
+        ),
+        key=lambda notice: notice["published"],
+    )
+    for notice in candidates:
         notice_id = notice["id"]
         try:
             detail = _fetcher(fetch).get_json(ubuntu_notice_url(notice_id))
@@ -1160,10 +1239,10 @@ def ubuntu_fix_notice(
         release_packages = detail.get("release_packages") or {}
         if not isinstance(release_packages, dict):
             continue
-        candidates = release_packages.get(codename, [])
-        if not isinstance(candidates, list):
+        entries = release_packages.get(codename, [])
+        if not isinstance(entries, list):
             continue
-        for candidate in candidates:
+        for candidate in entries:
             if (
                 isinstance(candidate, dict)
                 and candidate.get("is_source") is True
@@ -1176,30 +1255,71 @@ def ubuntu_fix_notice(
                     if isinstance(detail_release, str) and detail_release.strip()
                     else notice["published"]
                 )
-                return {
-                    "released": released,
-                    "fixAvailability": {
-                        "status": "confirmed",
-                        "available": released,
-                        "bulletinReleased": released,
-                        "feed": "ubuntu-security-notice",
-                        "id": notice_id,
-                        "version": fixed,
-                        "url": ubuntu_notice_url(notice_id),
-                    },
-                    "source": {
-                        "feed": "ubuntu-security-notice",
-                        "id": notice_id,
-                        "url": ubuntu_notice_url(notice_id),
-                    },
-                }
+                return _ubuntu_notice_record(
+                    released, notice_id, fixed, "ubuntu-security-notice",
+                    ubuntu_notice_url(notice_id),
+                )
     return None
 
 
-def ubuntu_entry(
-    cve: str, package: str, codename: str = UBUNTU_RELEASE, fetch: Fetcher | None = None
+def _ubuntu_notice_record(
+    released: str, notice_id: str, fixed: str, feed: str, url: str
 ) -> dict:
-    """One Ubuntu package status for one CVE on one release."""
+    return {
+        "released": released,
+        "fixAvailability": {
+            "status": "confirmed",
+            "available": released,
+            "bulletinReleased": released,
+            "feed": feed,
+            "id": notice_id,
+            "version": fixed,
+            "url": url,
+        },
+        "source": {"feed": feed, "id": notice_id, "url": url},
+    }
+
+
+def ubuntu_osv_fix_notices(
+    notice_ids: Sequence[str],
+    package: str,
+    ecosystem: str,
+    fixed: str,
+    fetch: Fetcher | None = None,
+) -> list[dict]:
+    """The OSV USN records that ship one exact fix, oldest first.
+
+    OSV.dev serves each USN as an OSV record with its publication date, so the
+    first notice can be chosen without fanning out to ubuntu.com, which drops
+    parallel connections. An unreadable record is skipped.
+    """
+
+    def read(notice_id: str) -> dict | None:
+        doc = None
+        for url in ubuntu_osv_notice_urls(notice_id):
+            try:
+                candidate = _fetcher(fetch).get_json(url)
+            except MinimumRefreshError:
+                continue
+            if isinstance(candidate, dict) and candidate.get("id") == notice_id:
+                doc = candidate
+                break
+        if doc is None:
+            return None
+        published = doc.get("published")
+        if not isinstance(published, str) or not published.strip():
+            return None
+        if _osv_fixed(doc, package, ecosystem)[1] != fixed:
+            return None
+        return {"id": notice_id, "published": published}
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        found = [notice for notice in pool.map(read, notice_ids) if notice]
+    return sorted(found, key=lambda n: (n["published"], _usn_order(n["id"])))
+
+
+def _ubuntu_api_entry(cve: str, package: str, codename: str, fetch: Fetcher | None) -> tuple[dict, list]:
+    """Read one package status from the Ubuntu security API (last resort)."""
     doc = _fetcher(fetch).get_json(f"{UBUNTU_CVE_URL}{cve}.json")
     entry = {
         "cve": cve,
@@ -1215,10 +1335,85 @@ def ubuntu_entry(
             if status.get("release_codename") == codename:
                 entry["status"] = status.get("status")
                 entry["fixed"] = status.get("description")
-    if entry["status"] == "released" and entry["fixed"]:
-        notice = ubuntu_fix_notice(doc, package, codename, entry["fixed"], fetch=fetch)
+    return entry, list(doc.get("notices", []))
+
+
+def ubuntu_entry(
+    cve: str, package: str, codename: str = UBUNTU_RELEASE, fetch: Fetcher | None = None
+) -> dict:
+    """One Ubuntu package status for one CVE on one release.
+
+    Canonical's OSV record is the primary source: it names the exact released
+    source-package fix per Ubuntu release and the USNs that shipped it. The
+    Ubuntu security API is read only when OSV is unreachable or carries no
+    released fix, because only that API reports a tracked but unreleased
+    ("pending") fix.
+    """
+    ecosystem = UBUNTU_OSV_ECOSYSTEMS.get(codename)
+    if ecosystem is None:
+        raise MinimumRefreshError(f"ubuntu: no OSV ecosystem for release {codename}")
+    record = ubuntu_osv_record(cve, fetch=fetch)
+    entry: dict | None = None
+    notices: list = []
+    if record is not None:
+        listed, fixed = _osv_fixed(record, package, ecosystem)
+        if fixed:
+            entry = {
+                "cve": cve,
+                "package": package,
+                "priority": _osv_priority(record),
+                "status": "released",
+                "fixed": fixed,
+            }
+            notices = [
+                {"id": related}
+                for related in sorted(
+                    {r for r in record.get("related", []) if isinstance(r, str) and r.startswith("USN-")},
+                    key=_usn_order,
+                )
+            ]
+    if entry is not None:
+        osv_notices = ubuntu_osv_fix_notices(
+            [notice["id"] for notice in notices], package, ecosystem, entry["fixed"],
+            fetch=fetch,
+        )
+        # Confirm the earliest notice on ubuntu.com, one request at a time, so
+        # the table keeps the USN's own URL and timestamp. When ubuntu.com
+        # cannot confirm any of them, OSV's own USN record still dates the fix.
+        notice = ubuntu_fix_notice(
+            osv_notices, package, codename, entry["fixed"], fetch=fetch
+        )
+        if notice is None and osv_notices:
+            first = osv_notices[0]
+            notice = _ubuntu_notice_record(
+                first["published"], first["id"], entry["fixed"], "ubuntu-osv",
+                f"{UBUNTU_OSV_VULN_URL}{first['id']}",
+            )
+        if notice is None:
+            # No OSV USN record could date the fix. Without a date the fix
+            # stays unconfirmed and its grace period never ends, so read the
+            # dated notice list from the Ubuntu security API as a last resort.
+            try:
+                api_entry, api_notices = _ubuntu_api_entry(
+                    cve, package, codename, fetch
+                )
+            except MinimumRefreshError as exc:
+                logging.getLogger(__name__).warning("ubuntu: %s", exc)
+            else:
+                if api_entry.get("fixed") == entry["fixed"]:
+                    notice = ubuntu_fix_notice(
+                        api_notices, package, codename, entry["fixed"], fetch=fetch
+                    )
         if notice:
             entry.update(notice)
+    else:
+        entry, notices = _ubuntu_api_entry(cve, package, codename, fetch)
+        if entry["status"] == "released" and entry["fixed"]:
+            notice = ubuntu_fix_notice(
+                notices, package, codename, entry["fixed"], fetch=fetch
+            )
+            if notice:
+                entry.update(notice)
     if entry.get("fixed") and "fixAvailability" not in entry:
         entry["fixAvailability"] = {
             "status": "unconfirmed",
@@ -1254,7 +1449,7 @@ def ubuntu_minimums(
         "release": codename,
         "packages": packages,
         "advisory": "https://ubuntu.com/security/notices",
-        "source": {"feed": "ubuntu-security-api", "url": UBUNTU_CVE_URL},
+        "source": {"feed": "ubuntu-osv", "url": UBUNTU_OSV_VULN_URL},
     }
 
 
