@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -13,6 +14,8 @@ import bashtest
 
 
 MODEL_FUNCTION = bashtest.extract_function(
+    WORKLOAD / "host-check.sh", "detect_amd_gpu_model_without_cli"
+) + bashtest.extract_function(
     WORKLOAD / "host-check.sh", "detect_amd_gpu_model"
 )
 
@@ -33,10 +36,12 @@ def run_model_check(
             f"  printf '%b\\n' {amd_csv_output!r}\n"
             "fi"
         )
-    return bashtest.run_bash(
-        MODEL_FUNCTION + "\ndetect_amd_gpu_model",
-        stubs=stubs,
-    )
+    with tempfile.TemporaryDirectory() as root:
+        return bashtest.run_bash(
+            MODEL_FUNCTION + "\ndetect_amd_gpu_model",
+            stubs=stubs,
+            env={"CLUSTERMAX_AUDIT_ROOT": root},
+        )
 
 
 def test_rocm_smi_na_falls_back_to_amd_smi_market_name() -> None:

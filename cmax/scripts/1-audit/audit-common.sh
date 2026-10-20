@@ -443,6 +443,20 @@ build_security_version_audit() {
     cuda="${cuda:-unknown}"
     local -a args=(--driver "$driver" --nct "$nct" --runc "$runc" --docker "$docker" --cuda "$cuda" --gpu-vendor "$gpu_vendor")
     local line dev fw vendor
+    local amd_model amd_evidence
+    amd_model=$(printf '%s\n' "$check_output" | sed -n 's/^WORKER_AMD_GPU_MODEL=//p' | head -1)
+    amd_evidence=$(printf '%s\n' "$check_output" | sed -n 's/^WORKER_AMD_DRIVER_EVIDENCE=//p' | head -1)
+    # Never pair a model from one worker with a package from another.
+    local amd_key amd_count
+    for amd_key in WORKER_HOSTNAME WORKER_AMD_GPU_MODEL WORKER_AMD_DRIVER_EVIDENCE; do
+        amd_count=$(printf '%s\n' "$check_output" | grep -c "^${amd_key}=" || true)
+        if [[ "$amd_count" -gt 1 ]]; then
+            amd_evidence='{"collectionError":"Multiple host records require per-host grading"}'
+            break
+        fi
+    done
+    [[ -n "$amd_evidence" ]] || amd_evidence='{}'
+    args+=(--amd-model "${amd_model:-unknown}" --amd-driver-evidence "$amd_evidence")
 
     # BlueField VIRTIO-Net controller (NVIDIA a_id 5815, CVE-2026-65094). The
     # version lives on the DPU ARM side, so it comes from the fabric check
@@ -531,7 +545,7 @@ build_security_version_audit() {
         && args+=(--dpu-isolation-json "$VIRTIO_NET_ISOLATION_JSON")
 
     if [[ ! -f "$policy" ]] || ! command -v python3 >/dev/null 2>&1; then
-        printf '%s\n' '{"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"}}'
+        printf '%s\n' '{"amdDriver":{"status":"unknown"},"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"}}'
         return 0
     fi
 
@@ -576,7 +590,7 @@ build_security_version_audit() {
     done <<< "$check_output"
 
     python3 "$policy" "${args[@]}" 2>/dev/null \
-        || printf '%s\n' '{"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"}}'
+        || printf '%s\n' '{"amdDriver":{"status":"unknown"},"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"}}'
 }
 
 amd_gpu_check_present() {
