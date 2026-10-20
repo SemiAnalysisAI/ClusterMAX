@@ -587,6 +587,28 @@ def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
+def pwnescape_fleet_coverage(value: dict[str, Any]) -> str:
+    """Summarize which worker and control-plane hosts the fleet check read."""
+    control = value.get("controlPlane") if isinstance(value.get("controlPlane"), dict) else {}
+    roles = value.get("roles") if isinstance(value.get("roles"), dict) else {}
+    plane = roles.get("control-plane") if isinstance(roles.get("control-plane"), dict) else {}
+    if control.get("discovered"):
+        control_text = f"control plane checked {plane.get('checked', 0)}/{plane.get('total', 0)}"
+    else:
+        control_text = "control plane not visible to the audit"
+    text = (
+        f"hosts checked {value.get('nodesChecked', 0)}/{value.get('nodesTotal', 0)}; "
+        f"{control_text}; kernels {', '.join(value.get('runningKernels') or []) or 'unknown'}"
+    )
+    for label, key in (("failing", "failingNodes"), ("unassessed", "unassessedNodes")):
+        nodes = value.get(key) or []
+        if nodes:
+            shown = ", ".join(str(node) for node in nodes[:10])
+            more = f" and {len(nodes) - 10} more" if len(nodes) > 10 else ""
+            text += f"; {label} {shown}{more}"
+    return text
+
+
 def _pwnescape(audit: dict[str, Any]) -> tuple[str, str, str]:
     value = _get(audit, "security.pwnescape")
     if not isinstance(value, dict):
@@ -598,6 +620,8 @@ def _pwnescape(audit: dict[str, Any]) -> tuple[str, str, str]:
         f"local={value.get('localKernelStatus', 'unknown')}; "
         f"scope={value.get('scope', 'unknown')}"
     )
+    if value.get("scope") == "fleet":
+        observed += "; " + pwnescape_fleet_coverage(value)
     return status, observed, str(value.get("reason") or "Host patch evidence is required.")
 
 
