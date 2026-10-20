@@ -309,30 +309,31 @@
     },
     "docker": {
       "advisories": [
-        "GHSA-hfg8-hc9c-6c3h"
+        "GHSA-8647-2jxj-p2rc",
+        "GHSA-hc94-p972-ch66",
+        "GHSA-vwhp-8p66-mq4f"
       ],
-      "advisory": "https://docs.docker.com/engine/release-notes/29/#2970",
+      "advisory": "https://docs.docker.com/engine/release-notes/29/#2991",
       "cves": [
-        "CVE-2026-17106"
+        "CVE-2026-95839"
       ],
       "fixAvailability": {
-        "available": "2026-07-30T00:00:00Z",
-        "bulletinReleased": "2026-07-30T21:33:46Z",
-        "commit": "34dfa2b7389ef29b28ee9147cf4bbdaf4bf765f6",
+        "available": "2026-10-14T00:00:00Z",
+        "bulletinReleased": "2026-10-14T00:00:00Z",
         "feed": "docker-release-notes",
-        "id": "docker-engine-29.7.0",
+        "id": "docker-engine-29.9.1",
         "status": "confirmed",
-        "url": "https://docs.docker.com/engine/release-notes/29/#2970",
-        "version": "29.7.0"
+        "url": "https://docs.docker.com/engine/release-notes/29/#2991",
+        "version": "29.9.1"
       },
       "kind": "minimum",
-      "minimum": "29.7.0",
+      "minimum": "29.9.1",
       "source": {
         "feed": "docker-release-notes",
         "majors": [
           29
         ],
-        "released": "2026-07-30T00:00:00Z",
+        "released": "2026-10-14T00:00:00Z",
         "url": "https://docs.docker.com/engine/release-notes/29/"
       }
     },
@@ -372,20 +373,24 @@
       }
     },
     "nvidiaDriver": {
-      "advisory": "https://nvidia.custhelp.com/app/answers/detail/a_id/5821/",
+      "advisory": "https://nvidia.custhelp.com/app/answers/detail/a_id/5861/",
       "branchSources": {
         "535": 5821,
         "570": 5747,
-        "580": 5821,
+        "580": 5861,
         "590": 5747,
-        "595": 5821
+        "595": 5861,
+        "610": 5861,
+        "615": 5861
       },
       "branches": {
         "535": "535.309.01",
         "570": "570.211.01",
-        "580": "580.159.03",
+        "580": "580.178.04",
         "590": "590.48.01",
-        "595": "595.71.05"
+        "595": "595.91.07",
+        "610": "610.57.04",
+        "615": "615.71.09"
       },
       "floorAvailability": {
         "535": {
@@ -409,14 +414,14 @@
           "version": "570.211.01"
         },
         "580": {
-          "available": "2026-04-28T18:06:04Z",
-          "bulletinReleased": "2026-05-19T00:00:00Z",
+          "available": "2026-08-03T21:26:50Z",
+          "bulletinReleased": "2026-09-30T00:00:00Z",
           "feed": "github-release",
           "repo": "NVIDIA/open-gpu-kernel-modules",
           "status": "confirmed",
-          "tag": "580.159.03",
-          "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/releases/tag/580.159.03",
-          "version": "580.159.03"
+          "tag": "580.178.04",
+          "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/releases/tag/580.178.04",
+          "version": "580.178.04"
         },
         "590": {
           "available": "2025-12-18T17:17:52Z",
@@ -429,23 +434,43 @@
           "version": "590.48.01"
         },
         "595": {
-          "available": "2026-04-28T15:59:29Z",
-          "bulletinReleased": "2026-05-19T00:00:00Z",
+          "available": "2026-08-03T21:39:37Z",
+          "bulletinReleased": "2026-09-30T00:00:00Z",
           "feed": "github-release",
           "repo": "NVIDIA/open-gpu-kernel-modules",
           "status": "confirmed",
-          "tag": "595.71.05",
-          "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/releases/tag/595.71.05",
-          "version": "595.71.05"
+          "tag": "595.91.07",
+          "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/releases/tag/595.91.07",
+          "version": "595.91.07"
+        },
+        "610": {
+          "available": "2026-08-03T21:42:57Z",
+          "bulletinReleased": "2026-09-30T00:00:00Z",
+          "feed": "github-release",
+          "repo": "NVIDIA/open-gpu-kernel-modules",
+          "status": "confirmed",
+          "tag": "610.57.04",
+          "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/releases/tag/610.57.04",
+          "version": "610.57.04"
+        },
+        "615": {
+          "available": "2026-09-09T18:57:49Z",
+          "bulletinReleased": "2026-09-30T00:00:00Z",
+          "feed": "github-release",
+          "repo": "NVIDIA/open-gpu-kernel-modules",
+          "status": "confirmed",
+          "tag": "615.71.09",
+          "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/releases/tag/615.71.09",
+          "version": "615.71.09"
         }
       },
       "kind": "branchMap",
       "source": {
-        "aId": 5821,
+        "aId": 5861,
         "feed": "nvidia-csaf",
-        "released": "2026-05-19T00:00:00Z",
-        "title": "Security Bulletin: GPU Display Driver - May 2026",
-        "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5821/5821.json"
+        "released": "2026-09-30T00:00:00Z",
+        "title": "Security Bulletin: GPU Display Driver \u2013 September 2026",
+        "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5861/5861.json"
       },
       "sources": [
         {
@@ -461,6 +486,13 @@
           "released": "2026-05-19T00:00:00Z",
           "title": "Security Bulletin: GPU Display Driver - May 2026",
           "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5821/5821.json"
+        },
+        {
+          "aId": 5861,
+          "feed": "nvidia-csaf",
+          "released": "2026-09-30T00:00:00Z",
+          "title": "Security Bulletin: GPU Display Driver \u2013 September 2026",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5861/5861.json"
         }
       ]
     },
@@ -756,46 +788,6 @@
         ]
       },
       "floorAvailability": {
-        "0.1": {
-          "available": "2016-04-12T21:48:04Z",
-          "bulletinReleased": "2021-12-20T18:21:34Z",
-          "feed": "github-release",
-          "repo": "opencontainers/runc",
-          "status": "confirmed",
-          "tag": "v0.1.0",
-          "url": "https://github.com/opencontainers/runc/releases/tag/v0.1.0",
-          "version": "0.1.0"
-        },
-        "1.0": {
-          "available": "2021-12-06T04:31:14Z",
-          "bulletinReleased": "2021-12-07T21:22:39Z",
-          "feed": "github-release",
-          "repo": "opencontainers/runc",
-          "status": "confirmed",
-          "tag": "v1.0.3",
-          "url": "https://github.com/opencontainers/runc/releases/tag/v1.0.3",
-          "version": "1.0.3"
-        },
-        "1.1": {
-          "available": "2024-09-03T01:26:22Z",
-          "bulletinReleased": "2024-09-03T19:49:32Z",
-          "feed": "github-release",
-          "repo": "opencontainers/runc",
-          "status": "confirmed",
-          "tag": "v1.1.14",
-          "url": "https://github.com/opencontainers/runc/releases/tag/v1.1.14",
-          "version": "1.1.14"
-        },
-        "1.2": {
-          "available": "2025-11-05T09:16:04Z",
-          "bulletinReleased": "2025-11-05T16:37:15Z",
-          "feed": "github-release",
-          "repo": "opencontainers/runc",
-          "status": "confirmed",
-          "tag": "v1.2.8",
-          "url": "https://github.com/opencontainers/runc/releases/tag/v1.2.8",
-          "version": "1.2.8"
-        },
         "1.3": {
           "available": "2026-06-13T17:23:17Z",
           "bulletinReleased": "2026-06-22T20:01:35Z",
@@ -828,20 +820,12 @@
         }
       },
       "floorSources": {
-        "0.1": "GHSA-q3j5-32m5-58c2",
-        "1.0": "GHSA-v95c-p5hm-xq8f",
-        "1.1": "GHSA-jfvp-7x6p-h2pv",
-        "1.2": "GHSA-9493-h29p-rfm2",
         "1.3": "GHSA-xjvp-4fhw-gc47",
         "1.4": "GHSA-xjvp-4fhw-gc47",
         "1.5": "GHSA-xjvp-4fhw-gc47"
       },
       "kind": "ladder",
       "ladder": {
-        "0.1": "0.1.0",
-        "1.0": "1.0.3",
-        "1.1": "1.1.14",
-        "1.2": "1.2.8",
         "1.3": "1.3.6",
         "1.4": "1.4.3",
         "1.5": "1.5.0-rc.3"
@@ -980,12 +964,6 @@
             "CVE-2026-43284",
             "CVE-2026-43500"
           ],
-          "released": "2026-06-02T17:12:50.716867",
-          "source": {
-            "feed": "ubuntu-security-notice",
-            "id": "USN-8373-1",
-            "url": "https://ubuntu.com/security/notices/USN-8373-1.json"
-          },
           "status": "released"
         },
         "linuxJanuscape": {
@@ -1046,12 +1024,6 @@
           "fixed": "1:8.2.2+ds-0ubuntu1.10",
           "package": "qemu",
           "priority": "medium",
-          "released": "2025-09-11T12:41:28.262010",
-          "source": {
-            "feed": "ubuntu-security-notice",
-            "id": "USN-7744-1",
-            "url": "https://ubuntu.com/security/notices/USN-7744-1.json"
-          },
           "status": "released"
         }
       },
@@ -1129,7 +1101,7 @@
       }
     }
   },
-  "generated": "2026-09-25T04:03:23Z",
+  "generated": "2026-10-20T19:00:00Z",
   "gracePeriodDays": 3,
   "maxAgeDays": 10,
   "schemaVersion": 1

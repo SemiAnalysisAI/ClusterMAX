@@ -110,9 +110,14 @@ NVHPC_RELEASE_RE = re.compile(r"\bHPC SDK\s+([0-9]{2}\.[0-9]{1,2})\b", re.IGNORE
 # branch that a newer one dropped without lowering the branches the newer one
 # still covers. The order inside a tuple carries no meaning.
 BULLETINS: dict[str, tuple[dict[str, Any], ...]] = {
-    # 5821 (May 2026) covers R535 / R580 / R595. 5747 (January 2026) is the
-    # only source for R570 and R590 and is superseded on R535 and R580.
-    "nvidiaDriver": ({"year": 2026, "aId": 5821}, {"year": 2026, "aId": 5747}),
+    # 5861 (September 2026) covers R580 / R595 / R610 / R615. 5821 (May 2026)
+    # is the newest source for R535. 5747 (January 2026) is the only source for
+    # R570 and R590.
+    "nvidiaDriver": (
+        {"year": 2026, "aId": 5861},
+        {"year": 2026, "aId": 5821},
+        {"year": 2026, "aId": 5747},
+    ),
     "connectxFirmware": ({"year": 2026, "aId": 5699},),
     "cudaToolkit": ({"year": 2026, "aId": 5755},),
     "nvidiaContainerToolkit": ({"year": 2026, "aId": 5850},),
@@ -1016,6 +1021,25 @@ def osv_package_vulns(
     )
 
 
+def _floor_still_affected(
+    floor: str, advisory_ranges: dict[str, list[dict[str, str]]]
+) -> bool:
+    """Return whether any advisory range still holds ``floor``."""
+    floor_key = version_key(floor)
+    for entries in advisory_ranges.values():
+        for entry in entries:
+            introduced = entry.get("introduced", "0")
+            if introduced != "0" and version_key(introduced) > floor_key:
+                continue
+            fixed = entry.get("fixed")
+            if fixed and floor_key < version_key(fixed):
+                return True
+            last_affected = entry.get("lastAffected")
+            if last_affected and floor_key <= version_key(last_affected):
+                return True
+    return False
+
+
 def runc_ladder(fetch: Fetcher | None = None) -> dict:
     """Highest fixed release per major.minor across every runc GHSA advisory.
 
@@ -1084,6 +1108,15 @@ def runc_ladder(fetch: Fetcher | None = None) -> dict:
                         ladder[key] = fixed
         if ranges:
             advisory_ranges[vuln_id] = ranges
+    # A rung is the highest fix any advisory published on that branch. It is
+    # only a valid minimum if no advisory still holds it. GHSA-xjvp-4fhw-gc47
+    # affects everything below 1.3.6 and has no fix on the 1.2 line, so 1.2.8
+    # stays vulnerable and the 1.2 rung would pass a host that is exposed.
+    # Drop such a rung: the audit grades a branch below the ladder as
+    # unmaintained and names the nearest maintained branch minimum instead.
+    for key in [key for key, floor in ladder.items() if _floor_still_affected(floor, advisory_ranges)]:
+        del ladder[key]
+        candidates.pop(key, None)
     minimum_sources: dict[str, str] = {}
     for key, fixed in ladder.items():
         matching = [source for candidate, source in candidates[key] if candidate == fixed]
@@ -2050,6 +2083,26 @@ def _minimum_downgrades(name: str, label: str, new_map: dict, old_map: dict) -> 
     return problems
 
 
+def _ladder_downgrades(name: str, new_ladder: dict, old_ladder: dict) -> list[str]:
+    """Report ladder rungs the rebuild would lower or drop in a loosening way.
+
+    The audit fails every branch below the lowest rung and names the nearest
+    maintained branch minimum. Removing a rung that sits below every remaining
+    rung therefore tightens the grade: that branch moves from "pass at the old
+    minimum" to "fail". A rung removed from between or above the remaining
+    rungs would still loosen the grade, so it stays a hard error.
+    """
+    if not new_ladder:
+        return _minimum_downgrades(name, "ladder rung", new_ladder, old_ladder)
+    lowest = min(version_key(key) for key in new_ladder)
+    kept = {
+        key: value
+        for key, value in (old_ladder or {}).items()
+        if key in new_ladder or version_key(key) > lowest
+    }
+    return _minimum_downgrades(name, "ladder rung", new_ladder, kept)
+
+
 def verify(doc: dict, existing: dict | None = None) -> None:
     """Fail closed on any component that lost its data.
 
@@ -2113,7 +2166,7 @@ def verify(doc: dict, existing: dict | None = None) -> None:
             continue
         if kind == "ladder":
             problems.extend(
-                _minimum_downgrades(name, "ladder rung", payload, old_block.get("ladder"))
+                _ladder_downgrades(name, payload, old_block.get("ladder"))
             )
             continue
         if kind == "minimum":

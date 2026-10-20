@@ -928,9 +928,10 @@ esac
         # after the lookup.
         runc_minimum = minimum_versions.get("components.runc.ladder")["1.3"]
         docker_minimum = minimum_versions.get("components.docker.minimum")
+        driver_minimum = minimum_versions.get("components.nvidiaDriver.branches")["580"]
         command = (
             'source "$1"; WORKLOAD_DIR="$2"; '
-            f'build_security_version_audit "$3" 580.159.03 1.19.1 '
+            f'build_security_version_audit "$3" {driver_minimum} 1.19.1 '
             f'{runc_minimum} {docker_minimum}'
         )
         result = subprocess.run(

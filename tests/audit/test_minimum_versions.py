@@ -219,15 +219,28 @@ class MinimumTableContractTests(unittest.TestCase):
                 self.assertTrue(minimums.component(name).get("advisory", "").startswith("http"))
 
     def test_docker_grace_period_starts_on_release_note_publication(self) -> None:
-        grace = minimums.active_grace_period("docker", today=date(2026, 7, 31))
+        # The Docker minimum moves whenever upstream ships a fix, so the dates
+        # come from the committed table. The policy under test is fixed: the
+        # clock starts on the later of the release-note publication and the
+        # confirmed fix, and enforcement starts gracePeriodDays + 1 days later.
+        block = minimums.component("docker")
+        availability = block["fixAvailability"]
+        self.assertEqual(availability["status"], "confirmed")
+        start = max(
+            datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            for stamp in (availability["available"], availability["bulletinReleased"])
+        )
+        days = minimums.grace_period_days()
+        enforcement = start.date() + timedelta(days=days + 1)
+        grace = minimums.active_grace_period("docker", today=start.date() + timedelta(days=1))
         self.assertIsNotNone(grace)
         assert grace is not None
-        self.assertEqual(grace["fixAvailable"], "2026-07-30T00:00:00Z")
-        self.assertEqual(grace["graceStart"], "2026-07-30T21:33:46Z")
-        self.assertEqual(grace["enforcementDate"], "2026-08-03")
-        self.assertIsNone(
-            minimums.active_grace_period("docker", today=date(2026, 8, 3))
+        self.assertEqual(grace["fixAvailable"], availability["available"])
+        self.assertEqual(
+            datetime.fromisoformat(grace["graceStart"].replace("Z", "+00:00")), start
         )
+        self.assertEqual(grace["enforcementDate"], enforcement.isoformat())
+        self.assertIsNone(minimums.active_grace_period("docker", today=enforcement))
 
     def test_generated_policy_grades_each_published_minimum(self) -> None:
         """The regression that catches a bad regeneration of the table.

@@ -175,25 +175,26 @@ class NvidiaDriverPolicyTests(unittest.TestCase):
         self.assertEqual(verdict.status, "pass")
         self.assertEqual(verdict.minimum, minimum)
 
-    def test_observed_r610_fleet_stays_above_every_tracked_branch(self) -> None:
-        # 610.43.02 is the most common driver in committed runs. It is an
-        # observed version, not a minimum, so it stays a literal. It must keep the
-        # newer-than-newest pass with its caveat: regressing it to unknown would
-        # move a large share of qualified clusters to "requires attestation"
-        # with no new evidence.
-        newest = max(int(key) for key in read_minimum("components.nvidiaDriver.branches"))
-        self.assertGreater(
-            610,
-            newest,
-            "R610 is now assessed by the bulletin table, so this sample no longer "
-            "exercises the newer-than-newest path",
-        )
+    def test_observed_r610_fleet_below_the_5861_minimum_grades_fail(self) -> None:
+        """610.43.02 is the most common driver in committed runs.
+
+        It is an observed version, not a minimum, so it stays a literal. It used
+        to pass as newer than every tracked branch. Bulletin 5861 publishes an
+        R610 minimum above it, so the same hosts now grade as failures.
+        """
+        minimum = read_minimum("components.nvidiaDriver.branches.610")
         verdict = security.nvidia_driver_verdict("610.43.02")
+        self.assertEqual(verdict.status, "fail")
+        self.assertEqual(verdict.minimum, minimum)
+
+    def test_a_branch_above_every_tracked_branch_passes_cleanly(self) -> None:
         # A clean pass, not a provisional one. The audit grades against
-        # published minimums, and no minimum exists for this branch yet, so there is
-        # nothing for an operator to act on. The daily refresh regrades the same
-        # reading once a minimum is published, so the detail must not ask a reader
-        # to re-verify by hand.
+        # published minimums, and no minimum exists for this branch yet, so there
+        # is nothing for an operator to act on. The daily refresh regrades the
+        # same reading once a minimum is published, so the detail must not ask a
+        # reader to re-verify by hand.
+        newest = max(int(key) for key in read_minimum("components.nvidiaDriver.branches"))
+        verdict = security.nvidia_driver_verdict(f"{newest + 5}.10.01")
         self.assertEqual(verdict.status, "pass")
         self.assertNotIn("re-verify", verdict.detail)
         self.assertIn(str(newest), verdict.detail)
@@ -246,11 +247,18 @@ class CudaAndDockerPolicyTests(unittest.TestCase):
         self.assertEqual(verdict.minimum, minimum)
         self.assertEqual(verdict.advisory, read_minimum("components.docker.advisory"))
 
-    def test_docker_release_before_cve_2026_17106_fix_fails(self) -> None:
-        self.assertEqual(read_minimum("components.docker.minimum"), "29.7.0")
-        self.assertEqual(security.docker_verdict("29.6.2").status, "fail")
-        self.assertEqual(security.docker_verdict("29.7.0-rc.1").status, "fail")
-        self.assertEqual(security.docker_verdict("29.7.2").status, "pass")
+    def test_docker_release_before_the_published_minimum_fails(self) -> None:
+        # The minimum moves with each Docker security release, so it is read
+        # from the table rather than pinned here.
+        minimum = read_minimum("components.docker.minimum")
+        major, minor, patch = (int(part) for part in minimum.split("."))
+        below = f"{major}.{minor - 1}.9" if patch == 0 else f"{major}.{minor}.{patch - 1}"
+        self.assertEqual(security.docker_verdict(below).status, "fail")
+        self.assertEqual(security.docker_verdict(f"{minimum}-rc.1").status, "fail")
+        self.assertEqual(security.docker_verdict(minimum).status, "pass")
+        self.assertEqual(
+            security.docker_verdict(f"{major}.{minor}.{patch + 1}").status, "pass"
+        )
 
 
 class DcgmPolicyTests(unittest.TestCase):
@@ -402,10 +410,21 @@ class RuncLadderPolicyTests(unittest.TestCase):
         # clear while they stay exposed.
         verdict = security.runc_verdict("1.2.7")
         self.assertEqual(verdict.status, "fail")
-        self.assertEqual(verdict.minimum, self.ladder["1.2"])
+        # 1.2 has no release that fixes GHSA-xjvp-4fhw-gc47, so the way out is
+        # the nearest maintained branch minimum, not a 1.2 release.
+        self.assertNotIn("1.2", self.ladder)
+        self.assertEqual(verdict.minimum, self.ladder["1.3"])
         self.assertIn("GHSA-xjvp-4fhw-gc47 (fixed in 1.3.6)", verdict.detail)
         self.assertIn("GHSA-9493-h29p-rfm2 (fixed in 1.2.8)", verdict.detail)
         self.assertNotIn("GHSA-xjvp-4fhw-gc47 (fixed in 1.2.8)", verdict.detail)
+
+    def test_the_highest_1_2_fix_still_fails(self) -> None:
+        # 1.2.8 carries every fix published on the 1.2 line but not the 1.3.6
+        # fix for GHSA-xjvp-4fhw-gc47, so 1.2.x users must move to 1.3.6.
+        verdict = security.runc_verdict("1.2.8")
+        self.assertEqual(verdict.status, "fail")
+        self.assertEqual(verdict.minimum, self.ladder["1.3"])
+        self.assertIn("GHSA-xjvp-4fhw-gc47 (fixed in 1.3.6)", verdict.detail)
 
     def test_a_distro_rebuild_suffix_does_not_lift_the_version_above_its_fix(self) -> None:
         # 1.3.3-0ubuntu1~22.04.3 is a rebuild of 1.3.3, not a release above

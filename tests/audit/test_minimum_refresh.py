@@ -96,6 +96,7 @@ class StubFetcher(fr.Fetcher):
         self.calls: list[str] = []
         self.post_bodies: list[dict] = []
         self.json_by_url: dict[str, object] = {
+            fr.bulletin_url(2026, 5861): fixture("nvidia-driver-5861.json"),
             fr.bulletin_url(2026, 5821): fixture("nvidia-driver-5821.json"),
             fr.bulletin_url(2026, 5747): fixture("nvidia-driver-5747.json"),
             fr.bulletin_url(2026, 9999): fixture("nvidia-driver-lexical-trap.json"),
@@ -106,7 +107,7 @@ class StubFetcher(fr.Fetcher):
             fr.bulletin_url(2026, 5857): fixture("nvidia-dcgm-5857.json"),
             fr.GITHUB_CONTENTS.format(year=2026): fixture("github-contents-2026.json"),
         }
-        for bulletin in (5821, 5747):
+        for bulletin in (5861, 5821, 5747):
             driver = self.json_by_url[fr.bulletin_url(2026, bulletin)]
             for version, release in driver.get("_releases", {}).items():
                 self.json_by_url[
@@ -227,23 +228,27 @@ class ExtractorTest(unittest.TestCase):
         # Both fixtures carry Windows, vGPU guest driver, and gaming branches
         # next to the Linux data-center ones.
         block = fr.nvidia_driver_minimums(fetch=self.stub)
-        self.assertEqual(sorted(block["branches"]), ["535", "570", "580", "590", "595"])
+        self.assertEqual(
+            sorted(block["branches"]), ["535", "570", "580", "590", "595", "610", "615"]
+        )
         for windows in ("596.36", "591.59"):
             self.assertNotIn(windows, block["branches"].values())
 
     def test_driver_branches_take_the_highest_version_across_bulletins(self) -> None:
-        # 5821 (May 2026) and 5747 (January 2026) both publish R535 and R580.
-        # 5821 is higher on both, and it is the only source of R595. 5747 is
-        # the only source of R570 and R590.
+        # 5861 (September 2026) raises R580 and R595 above 5821 and is the
+        # only source of R610 and R615. 5821 (May 2026) is the newest source of
+        # R535. 5747 (January 2026) is the only source of R570 and R590.
         block = fr.nvidia_driver_minimums(fetch=self.stub)
         self.assertEqual(
             block["branches"],
             {
                 "535": "535.309.01",
                 "570": "570.211.01",
-                "580": "580.159.03",
+                "580": "580.178.04",
                 "590": "590.48.01",
-                "595": "595.71.05",
+                "595": "595.91.07",
+                "610": "610.57.04",
+                "615": "615.71.09",
             },
         )
 
@@ -276,19 +281,29 @@ class ExtractorTest(unittest.TestCase):
 
     def test_a_branch_from_a_single_bulletin_still_appears(self) -> None:
         block = fr.nvidia_driver_minimums(fetch=self.stub)
-        # R595 comes only from 5821, R590 only from 5747.
-        self.assertEqual(block["branches"]["595"], "595.71.05")
+        # R615 comes only from 5861, R590 only from 5747.
+        self.assertEqual(block["branches"]["615"], "615.71.09")
         self.assertEqual(block["branches"]["590"], "590.48.01")
 
     def test_driver_records_which_bulletin_produced_each_branch(self) -> None:
         block = fr.nvidia_driver_minimums(fetch=self.stub)
         self.assertEqual(
             block["branchSources"],
-            {"535": 5821, "570": 5747, "580": 5821, "590": 5747, "595": 5821},
+            {
+                "535": 5821,
+                "570": 5747,
+                "580": 5861,
+                "590": 5747,
+                "595": 5861,
+                "610": 5861,
+                "615": 5861,
+            },
         )
-        self.assertEqual([item["aId"] for item in block["sources"]], [5747, 5821])
+        self.assertEqual(
+            [item["aId"] for item in block["sources"]], [5747, 5821, 5861]
+        )
         # `source` stays the newest bulletin, so the single-source shape holds.
-        self.assertEqual(block["source"]["aId"], 5821)
+        self.assertEqual(block["source"]["aId"], 5861)
 
     def test_connectx_trains_come_from_the_bulletin(self) -> None:
         block = fr.connectx_minimums(fetch=self.stub)
@@ -324,15 +339,24 @@ class ExtractorTest(unittest.TestCase):
         self.assertEqual(
             block["ladder"],
             {
-                "0.1": "0.1.0",
-                "1.0": "1.0.3",
-                "1.1": "1.1.14",
-                "1.2": "1.2.8",
                 "1.3": "1.3.6",
                 "1.4": "1.4.3",
                 "1.5": "1.5.0-rc.3",
             },
         )
+
+    def test_a_rung_an_advisory_still_holds_is_not_a_minimum(self) -> None:
+        """GHSA-xjvp-4fhw-gc47 affects everything below 1.3.6.
+
+        It has no fix on the 1.2 line, so 1.2.8 (the highest 1.2 fix any
+        advisory publishes) is still vulnerable. A 1.2 rung would grade that
+        host as a pass. The same holds for every branch below 1.3.
+        """
+        block = fr.runc_ladder(fetch=self.stub)
+        for branch in ("0.1", "1.0", "1.1", "1.2"):
+            self.assertNotIn(branch, block["ladder"])
+            self.assertNotIn(branch, block["floorAvailability"])
+        self.assertEqual(min(block["ladder"], key=fr.version_key), "1.3")
 
     def test_runc_advisory_ranges_carry_each_advisorys_affected_ranges(self) -> None:
         """The audit is offline, so the table must carry applicability evidence.
@@ -433,7 +457,7 @@ class ExtractorTest(unittest.TestCase):
         )
         block = fr.runc_ladder(fetch=self.stub)
         self.assertIn("GHSA-jfvp-7x6p-h2pv", block["advisories"])
-        self.assertEqual(block["ladder"]["1.1"], "1.1.14")
+        self.assertIn("GHSA-jfvp-7x6p-h2pv", block["advisoryRanges"])
 
     def test_a_stable_release_outranks_its_own_release_candidate(self) -> None:
         """The defect in its real setting: two advisories, one branch.
@@ -1315,7 +1339,7 @@ class FailClosedTest(unittest.TestCase):
     def test_a_bulletin_set_that_would_lower_a_branch_minimum_fails(self) -> None:
         """A driver minimum only moves up. This is the point of the merge policy.
 
-        Tracking only 5747 would take R580 from 580.159.03 down to 580.126.09
+        Tracking only 5747 would take R580 from 580.178.04 down to 580.126.09
         and would drop R595 entirely, which would grade a vulnerable fleet as
         patched. The whole rebuild must fail instead.
         """
@@ -1329,7 +1353,7 @@ class FailClosedTest(unittest.TestCase):
                 )
         message = str(caught.exception)
         self.assertIn("nvidiaDriver.580", message)
-        self.assertIn("580.159.03", message)
+        self.assertIn("580.178.04", message)
         self.assertIn("580.126.09", message)
         self.assertIn("nvidiaDriver.595", message)
 
@@ -1416,7 +1440,7 @@ class FailClosedTest(unittest.TestCase):
         doc = fr.build_minimums(
             generated="2026-07-30T00:00:00Z", existing=existing, fetch=StubFetcher()
         )
-        self.assertEqual(doc["components"]["nvidiaDriver"]["branches"]["580"], "580.159.03")
+        self.assertEqual(doc["components"]["nvidiaDriver"]["branches"]["580"], "580.178.04")
 
     def test_write_leaves_no_file_when_the_rebuild_fails_closed(self) -> None:
         stub = StubFetcher(toolkit="nvidia-container-toolkit-5850-reworded.json")
@@ -1450,7 +1474,7 @@ class CliTest(unittest.TestCase):
             target.write_text(json.dumps(table, indent=2, sort_keys=True) + "\n")
             code, out, err = self.run_cli(["--check", str(target)])
             self.assertEqual(code, 1)
-            self.assertIn("595.71.05", out)
+            self.assertIn("595.91.07", out)
             self.assertIn("differs", err)
 
     def test_print_pins_the_generated_timestamp(self) -> None:
@@ -1496,7 +1520,7 @@ class DetectNewBulletinsTest(unittest.TestCase):
         ids = {item["id"] for item in self.scan(fetch=stub)}
         self.assertNotIn(5851, ids)  # Jetson AGX Orin: not a graded product line.
         self.assertNotIn(5869, ids)  # No markdown file in the fixture set.
-        for known in (5699, 5755, 5815, 5821, 5850, 5857):
+        for known in (5699, 5755, 5815, 5821, 5850, 5857, 5861):
             self.assertNotIn(known, ids)
             self.assertNotIn(f"/{known}/{known}.md", " ".join(stub.calls))
 
