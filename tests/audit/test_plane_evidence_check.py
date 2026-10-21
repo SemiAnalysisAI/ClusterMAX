@@ -262,6 +262,19 @@ class ToolDeviceTests(unittest.TestCase):
         # ibnetdiscover takes the ibdev name.
         self.assertEqual(by_tool["ibnetdiscover"][2], "ibp0")
 
+    def test_mlxlink_fields_drop_color_codes(self) -> None:
+        text = "State : \x1b[32mActive\x1b[0m\nSpeed : \x1b[32mIB-NDR\x1b[0m\n"
+        self.assertEqual(nic.parse_mlxlink(text), {"State": "Active", "Speed": "IB-NDR"})
+
+    def test_failure_reason_skips_mstflint_lockfile_warning(self) -> None:
+        raws, _ = nic._parse_k8s_plane(
+            "@@PLANE@@ ibp0 mlxlink BEGIN\n"
+            "Warrning: Failed to create lockfile: /tmp/mstflint_lockfiles/x (parallel access not supported)\n"
+            "\n-E- Device is busy\n"
+            "@@PLANE@@ ibp0 mlxlink END 1"
+        )
+        self.assertEqual(raws["ibp0"]["mlxlink"][1], "exit 1: -E- Device is busy")
+
     def test_failure_reason_skips_color_only_lines(self) -> None:
         text = "\x1b[31m\n\x1b[0m-E- Failed to open device: \"ibp0\", No such file or directory"
         raws, _ = nic._parse_k8s_plane(
