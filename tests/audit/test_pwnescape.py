@@ -4,7 +4,6 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import re
 import subprocess
 import sys
 
@@ -122,9 +121,7 @@ def test_old_audit_missing_facts_warns():
 
 
 def test_read_only_collector_re_roots_facts(tmp_path):
-    # Invoke only the new passive function, never the whole hardware collector.
-    source = (WORKLOAD / "host-check.sh").read_text()
-    function = re.search(r"^collect_pwnescape_facts\(\) \{.*?^\}", source, re.M | re.S).group()
+    function = bashtest.extract_function(WORKLOAD / "host-check.sh", "collect_pwnescape_facts")
     (tmp_path / "sys/kernel/livepatch").mkdir(parents=True)
     (tmp_path / "sys/class/net/eth0/device").mkdir(parents=True)
     (tmp_path / "sys/class/net/eth0/device/driver").symlink_to("/sys/bus/virtio/drivers/virtio_net")
@@ -143,10 +140,18 @@ def test_read_only_collector_re_roots_facts(tmp_path):
     assert "WORKER_PWNESCAPE_LIVEPATCH=active-or-unreadable" in output
 
 
-@pytest.mark.parametrize("collector", ["k8s", "common"])
+@pytest.mark.parametrize("collector", ["k8s", "common", "security"])
 @pytest.mark.parametrize("version,expected", [("6.12.112", "fail"), ("6.12.113", "pass")])
-def test_k8s_and_worker_collectors_feed_their_actual_host_facts(collector, version, expected):
-    if collector == "k8s":
+def test_collectors_feed_their_actual_host_facts(collector, version, expected):
+    if collector == "security":
+        target = "SECURITY_ADVISORY_JSON"
+        raw_variable = "WORKER_CHECK_OUTPUT"
+        call = bashtest.extract_block(
+            WORKLOAD / "cluster-audit-slurm-security.sh",
+            "SECURITY_ADVISORY_JSON=$(printf",
+            "    | jq 'del(._end)')",
+        )
+    elif collector == "k8s":
         script = WORKLOAD / "cluster-audit-k8s.sh"
         target = "SECURITY_ADVISORY_JSON"
         raw_variable = "HOST_CHECK_OUT"
@@ -156,7 +161,8 @@ def test_k8s_and_worker_collectors_feed_their_actual_host_facts(collector, versi
         target = "security_advisory_json"
         raw_variable = "WORKER_CHECK_OUTPUT"
         end = '--vmscape-status "${WORKER_VMSCAPE_STATUS:-unknown}")'
-    call = bashtest.extract_block(script, target + "=$(build_security_advisory_json \\", end)
+    if collector != "security":
+        call = bashtest.extract_block(script, target + "=$(build_security_advisory_json \\", end)
     raw = "\n".join(f"{key}={value}" for key, value in facts(version).items())
     run = bashtest.run_bash(
         f'source "{WORKLOAD}/audit-common.sh"\n' + call + f'\nprintf "%s\\n" "${target}"',
@@ -164,10 +170,12 @@ def test_k8s_and_worker_collectors_feed_their_actual_host_facts(collector, versi
             raw_variable: raw,
             "HP_JANUSCAPE_EXPOSED_JSON": '"unknown"',
             "januscape_exposed_json": '"unknown"',
+            "JANUSCAPE_EXPOSED_JSON": '"unknown"',
         },
     )
     assert run.returncode == 0, run.stderr
-    value = json.loads("{" + run.stdout + '"sentinel": null}')["pwnescape"]
+    payload = run.stdout if collector == "security" else "{" + run.stdout + '"sentinel": null}'
+    value = json.loads(payload)["pwnescape"]
     assert value["runningKernel"] == version
     assert value["status"] == expected
 
@@ -211,21 +219,6 @@ def test_immediate_findings_keep_unknown_distinct_from_version_failure():
         assert len(found) == (0 if severity is None else 1)
         if found:
             assert found[0].severity == severity
-
-
-def test_security_only_collector_includes_raw_host_facts():
-    block = bashtest.extract_block(
-        WORKLOAD / "cluster-audit-slurm-security.sh",
-        "SECURITY_ADVISORY_JSON=$(printf",
-        "    | jq 'del(._end)')",
-    )
-    raw = "\n".join(f"{key}={value}" for key, value in facts().items())
-    run = bashtest.run_bash(
-        f'source "{WORKLOAD}/audit-common.sh"\n' + block + '\nprintf "%s\\n" "$SECURITY_ADVISORY_JSON"',
-        env={"WORKER_CHECK_OUTPUT": raw, "JANUSCAPE_EXPOSED_JSON": '"unknown"'},
-    )
-    assert run.returncode == 0, run.stderr
-    assert json.loads(run.stdout)["pwnescape"]["status"] == "pass"
 
 
 @pytest.mark.parametrize("guest,expected", [("false", audit_report.PASS), ("true", audit_report.WARNING)])

@@ -27,7 +27,6 @@ def node(name: str, state: str) -> dict:
 
 class SlurmNodeStateCountTests(unittest.TestCase):
     def test_powered_down_cloud_nodes_are_idle_not_down(self) -> None:
-        """Use the smallest fixture that contains all three relevant states."""
         nodes = [
             node("synthetic-a", "IDLE+CLOUD+POWERED_DOWN"),
             node("synthetic-b", "ALLOCATED+CLOUD"),

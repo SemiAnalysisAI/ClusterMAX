@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import unittest
 
 import bashtest
 
@@ -124,3 +126,26 @@ def test_collector_reports_missing_sm_query_as_detail() -> None:
 
     assert run.calls("print_warn") == []
     assert any("SM query was not available" in " ".join(call) for call in run.calls("print_detail"))
+
+
+COMMON = Path(__file__).resolve().parents[2] / "cmax/scripts/1-audit/audit-common.sh"
+
+class OpenSMJsonTests(unittest.TestCase):
+    def test_opensm_json_preserves_missing_evidence(self):
+        source = COMMON.read_text()
+        begin = source.index('    "ibControlPlane": {')
+        end = source.index("\n    },", begin) + len("\n    },")
+        block = source[begin:end]
+        script = (
+            bashtest.extract_function(COMMON, "json_bool_or_unknown")
+            + "\ncat <<EOF\n{" + block + '\n"sentinel": null}\nEOF'
+        )
+        for state, expected in [
+            ("", "unknown"), ("unknown", "unknown"), ("false", False), ("true", True),
+        ]:
+            with self.subTest(state=state):
+                run = bashtest.run_bash(script, env={"WORKER_OPENSM_RUNNING": state})
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(
+                    json.loads(run.stdout)["ibControlPlane"]["opensmOnCheckedWorker"], expected,
+                )

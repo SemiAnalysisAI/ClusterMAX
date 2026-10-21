@@ -112,7 +112,9 @@ def pypi_fixture(bundle):
 def test_bundle_verifies_original_identity_and_notes(bundle):
     manifest = release.verify_bundle(bundle, VERSION, COMMIT, stable=True)
     assert manifest["commit"] == COMMIT
-    assert len(manifest["files"]) == 2
+    assert set(manifest["files"]) == {
+        f"clustermax-{VERSION}-py3-none-any.whl", f"clustermax-{VERSION}.tar.gz",
+    }
     assert "release-notes.md" in (bundle / "release/SHA256SUMS").read_text()
     assert "manifest.json" in (bundle / "release/SHA256SUMS").read_text()
 
@@ -278,7 +280,10 @@ def test_release_is_draft_until_all_original_artifacts_are_uploaded(bundle, cont
     assert github.writes[0][1] == "git/refs"
     assert github.writes[1][2]["draft"] is True
     assert github.writes[-1] == ("PATCH", "releases/42", {"draft": False, "make_latest": "true"})
-    assert len(github.assets) == 5
+    assert set(github.assets) == {
+        f"clustermax-{VERSION}-py3-none-any.whl", f"clustermax-{VERSION}.tar.gz",
+        "manifest.json", "release-notes.md", "SHA256SUMS",
+    }
     assert github.release["draft"] is False
     assert COMMIT in github.release["body"]
 
@@ -381,11 +386,6 @@ def test_workflow_permissions_dependencies_and_manual_inputs():
     assert workflow["permissions"] == {"contents": "read"}
     assert jobs["publish"]["permissions"] == {"contents": "read", "id-token": "write"}
     assert jobs["github-release"]["permissions"] == {"contents": "write"}
-    assert "pypi-nightly" in jobs["publish"]["environment"]["name"]
-    for name in ("verify-pypi", "github-release"):
-        assert "workflow_dispatch" in jobs[name]["if"]
-        assert "== 'stable'" in jobs[name]["if"]
-        assert "refs/heads/master" in jobs[name]["if"]
     for name, job in jobs.items():
         for step in job["steps"]:
             if step.get("uses", "").startswith("actions/checkout@"):

@@ -115,8 +115,6 @@ def test_allocated_probe_forwards_script_and_uses_slurm_node_names(job_nodelist)
         {"name": name, "state": "ALLOCATED", "gpus": 8}
         for name in ("node-1", "node-2", "node-3")
     ]
-    # Simulate Slurm dropping stdin unless --input=all is explicitly requested,
-    # then execute the actual shipped shell script and stub only remote SSH.
     srun = """
 [[ " $* " == *" --input=all "* ]] || exit 0
 while [[ "$1" != bash ]]; do shift; done
@@ -172,7 +170,6 @@ def test_login_node_probe_does_not_launch_on_fully_allocated_workers():
 
 
 def test_snodes_unknown_gpu_counts_use_partition_scope_and_request_gpu_gres():
-    # Invent individual table rows. No GPU counts are available in this format.
     snodes = "\n".join([
         "PARTITION AVAIL TIMELIMIT NODES STATE NODELIST",
         "synthetic-cpu up infinite 1 idle aaa-cpu",

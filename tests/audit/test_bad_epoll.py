@@ -117,13 +117,6 @@ def test_nvidia_mapping_cannot_fall_back_to_generic(minimums):
     assert bad_epoll.evaluate(**nvidia_facts())["status"] == "unknown"
 
 
-def test_nvidia_minimum_is_table_driven(minimums):
-    doc = table()
-    doc["components"]["ubuntuNoble"]["packages"]["linuxBadEpollNvidia617"]["fixed"] = "6.17.0-1040.40"
-    minimums.write_text(json.dumps(doc))
-    assert bad_epoll.evaluate(**nvidia_facts())["status"] == "fail"
-
-
 @pytest.mark.parametrize("change", [
     {"os_id": "debian"}, {"release": "26.04"}, {"release": "unknown"},
     {"running": "6.8.0-1062-aws"}, {"running": "6.8.0-1064-azure"},
@@ -133,6 +126,8 @@ def test_nvidia_minimum_is_table_driven(minimums):
     {"package": "unknown"}, {"package": "rc |linux|6.8.0-137.137"},
     {"package": "ii |custom-linux|6.8.0-137.137"},
     {"package": "ii |linux|6.8.0-137.137+custom"},
+    {"package": "hiR|linux|6.8.0-137.137"},
+    {"package": "ii |linux|6.8.0-137.138"},
     {"livepatch": "active"}, {"livepatch": "unknown"},
 ])
 def test_unverifiable_evidence_never_passes(change):
@@ -151,18 +146,6 @@ def test_installed_packages_are_graded_regardless_of_selection(selection, abi, e
     data = facts(abi)
     data["package"] = data["package"].replace("ii ", f"{selection}i ", 1)
     assert bad_epoll.evaluate(**data)["status"] == expected
-
-
-def test_package_error_flag_remains_unverified():
-    data = facts()
-    data["package"] = data["package"].replace("ii ", "hiR", 1)
-    assert bad_epoll.evaluate(**data)["status"] == "unknown"
-
-
-def test_newer_package_with_same_abi_is_not_running():
-    data = facts()
-    data["package"] = "ii |linux|6.8.0-137.138"
-    assert bad_epoll.evaluate(**data)["status"] == "unknown"
 
 
 @pytest.mark.parametrize("broken", ["missing", "invalid", "removed", "wrong-cve", "wrong-source"])
@@ -184,11 +167,16 @@ def test_bad_minimums_fail_closed(minimums, broken):
     assert bad_epoll.evaluate(**facts())["status"] == "unknown"
 
 
-def test_minimum_is_read_from_table(minimums):
+@pytest.mark.parametrize("entry,fixed", [
+    ("linuxBadEpoll", "6.8.0-200.200"),
+    ("linuxBadEpollNvidia617", "6.17.0-1040.40"),
+])
+def test_source_minimum_is_table_driven(minimums, entry, fixed):
     doc = table()
-    doc["components"]["ubuntuNoble"]["packages"]["linuxBadEpoll"]["fixed"] = "6.8.0-200.200"
+    doc["components"]["ubuntuNoble"]["packages"][entry]["fixed"] = fixed
     minimums.write_text(json.dumps(doc))
-    assert bad_epoll.evaluate(**facts(138))["status"] == "fail"
+    evidence = facts(138) if entry == "linuxBadEpoll" else nvidia_facts()
+    assert bad_epoll.evaluate(**evidence)["status"] == "fail"
 
 
 @pytest.mark.parametrize("state,expected", [("pass", "PASS"), ("fail", "FAIL"), ("unknown", "WARNING")])

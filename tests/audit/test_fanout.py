@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import shlex
 import threading
 import unittest
 from pathlib import Path
 from typing import Any
+
+import bashtest
 
 
 MODULE_PATH = (
@@ -211,17 +215,17 @@ class SlurmPythonCommandTests(unittest.TestCase):
             node_count="4",
             worker_args=["--collect-host"],
         )
-        self.assertEqual(
-            command,
-            [
-                "srun",
-                "--overlap",
-                "--input=all",
-                "-N",
-                "4",
-                "--ntasks-per-node=1",
-                "python3",
-                "-",
-                "--collect-host",
-            ],
+        script = 'import json, sys; print(json.dumps({"worker_args": sys.argv[1:]}))'
+        run = bashtest.run_bash(
+            f"printf '%s\\n' {shlex.quote(script)} | {shlex.join(command)}",
+            stubs={
+                "srun": (
+                    '[[ " $* " == *" --input=all "* ]] || exit 2\n'
+                    'while [[ "$1" != python3 ]]; do shift; done\n'
+                    'exec "$@"'
+                )
+            },
         )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(json.loads(run.stdout), {"worker_args": ["--collect-host"]})
+        self.assertIn("--input=all", run.calls("srun")[0])

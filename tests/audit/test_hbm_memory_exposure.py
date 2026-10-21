@@ -369,26 +369,21 @@ class RunSlurmCheckTests(unittest.TestCase):
         self.assertEqual(aggregate["message"], "HBM exposure check passed")
 
     def test_command_streams_source_to_each_compute_node(self) -> None:
-        captured: dict[str, Any] = {}
-
-        def run_command(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
-            captured["command"] = command
-            captured["input_text"] = kwargs.get("input_text")
-            return subprocess.CompletedProcess(command, 0, self.HOST_JSON + "\n", "")
-
         with mock.patch.dict(
             hbm_memory_exposure.os.environ,
             {"SLURM_JOB_ID": "42", "SLURM_NNODES": "2"},
         ), mock.patch.object(
             hbm_memory_exposure,
             "run_command",
-            side_effect=run_command,
-        ):
+            return_value=subprocess.CompletedProcess(["srun"], 0, self.HOST_JSON + "\n", ""),
+        ) as runner:
             hbm_memory_exposure.run_slurm_check("slurm")
 
-        self.assertIn("--input=all", captured["command"])
+        command = runner.call_args.args[0]
+        self.assertIn("--input=all", command)
+        self.assertTrue(runner.call_args.kwargs["input_text"])
         self.assertNotIn(
-            str(Path(hbm_memory_exposure.__file__).resolve()), captured["command"]
+            str(Path(hbm_memory_exposure.__file__).resolve()), command
         )
 
     def test_nonzero_exit_still_records_stderr(self) -> None:

@@ -203,7 +203,11 @@ def test_aggregate_and_terminal_preserve_neutral_and_unknown(tmp_path):
     }
     assert "2 skipped" in audit_report.format_report(checks, color=False)
     assert data["static_hugepages"]["message"] in audit_report.format_report(checks, verbosity=3)
-    assert hp.aggregate([report], ["worker missing"])["thp_madvise"]["status"] == "warning"
+    partial = hp.aggregate([report], ["worker missing"])
+    assert partial["thp_madvise"]["status"] == "warning"
+    assert partial["thp_madvise"]["hosts"]
+    assert partial["thp_madvise"]["coverageComplete"] is False
+    assert partial["hugepage_allocation"]["status"] == "skipped"
 
 
 def test_mixed_per_size_thp_policies_do_not_pass(tmp_path):
@@ -213,18 +217,8 @@ def test_mixed_per_size_thp_policies_do_not_pass(tmp_path):
     assert hp.thp_report(tmp_path)["status"] != "pass"
 
 
-def test_partial_collection_retains_valid_evidence(tmp_path):
-    write(tmp_path, f"{hp.THP}/enabled", "always [madvise] never")
-    host = hp.collect_host(tmp_path)
-    result = hp.aggregate([host], ["node-2 pod failed"])
-    assert result["thp_madvise"]["status"] == "warning"
-    assert result["thp_madvise"]["hosts"]
-    assert result["thp_madvise"]["coverageComplete"] is False
-    assert result["hugepage_allocation"]["status"] == "skipped"
-
-
 def test_slurm_controller_ships_collector_and_marks_partial_coverage(monkeypatch, capsys):
-    sys.path.insert(0, str(CHECK.parent))
+    monkeypatch.syspath_prepend(str(CHECK.parent))
     import hbm_memory_exposure as transport
     monkeypatch.setenv("SLURM_JOB_ID", "123")
     monkeypatch.setenv("SLURM_NNODES", "2")
@@ -244,7 +238,7 @@ def test_slurm_controller_ships_collector_and_marks_partial_coverage(monkeypatch
 
 
 def test_k8s_transport_uses_read_only_host_paths_and_custom_source(monkeypatch):
-    sys.path.insert(0, str(CHECK.parent))
+    monkeypatch.syspath_prepend(str(CHECK.parent))
     import hbm_memory_exposure as transport
     calls = []
     def kubectl(command, **kwargs):

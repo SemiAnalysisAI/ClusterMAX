@@ -518,7 +518,6 @@ class ExtractorTest(unittest.TestCase):
         self.assertEqual(blocks["dcgm"]["source"], blocks["dcgmExporter"]["source"])
         self.assertEqual(blocks["dcgm"]["source"]["aId"], 5857)
 
-
     def test_bad_epoll_uses_release_and_source_package_specific_fixes(self) -> None:
         noble = fr.ubuntu_minimums(fetch=self.stub)
         self.assertEqual(
