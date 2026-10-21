@@ -28,11 +28,6 @@ KNOWN_GAPS = frozenset(
         "mpi-srun-pmix",  # software.mpi.srunPmixAvailable is collected
         "prolog-fast",  # healthChecks.prologFast is collected
         "resource-limits",  # resourceLimits.* is collected
-        # TODO: these need graded verdict fields from the collectors first.
-        # idle-thermals: collectors emit only raw idleTempMax/idlePowerMax
-        # strings; the per-class idle power ceilings (Hopper 150 W, Blackwell
-        # SXM 250 W, Grace-Blackwell 300 W) live only in the slurm collector
-        # log, so any flat rule threshold false-fails healthy B200/GB300 parts.
         "idle-thermals",
         "ib-tenant-isolation",
         "fabric-class",
