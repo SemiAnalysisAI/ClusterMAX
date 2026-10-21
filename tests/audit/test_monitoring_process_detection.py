@@ -1,21 +1,8 @@
-"""Behavioral tests for the collectors' monitoring-stack detection block.
-
-Executes the real detection block from the slurm and standalone collectors
-with stubbed ss / systemctl / pgrep, instead of pinning source fragments.
-The guarded incident: containerized and tarball Grafana installs run without
-a systemd unit, and unprivileged `ss -p` hides process details, so detection
-must fall back to the procfs comm name (pgrep -x).
-
-`MonitoringEvidenceTests` executes the shared `collect_monitoring_evidence`
-helper from `audit-common.sh`. That helper records the ADDRESS and the PRODUCT
-NAME of each monitoring backend, not only a boolean. The security audit's
-observability-isolation check reads that evidence to check a backend with no
-operator configuration, so an address dropped here becomes a check that reports
-"not assessed" on a cluster that clearly runs Prometheus.
-"""
+"""Worker, service and endpoint evidence for monitoring detection."""
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -28,12 +15,12 @@ import pytest
 
 AUDIT_DIR = Path(__file__).resolve().parent
 WORKLOAD = SCRIPT_DIR
-sys.path.insert(0, str(AUDIT_DIR.parents[1] / "shared"))
+sys.path.insert(0, str(AUDIT_DIR))
 import bashtest
 
 COLLECTORS = ("cluster-audit-slurm.sh", "cluster-audit-standalone.sh")
 
-PRINT_STUBS = {"print_section": "", "print_info": "", "print_detail": ""}
+PRINT_STUBS = {"print_section": "", "print_info": "", "print_detail": "", "curl": "exit 7"}
 
 REPORT = (
     '\nprintf "prom=%s dcgm=%s node=%s grafana=%s head=%s worker=%s\\n" '
@@ -42,6 +29,7 @@ REPORT = (
     '"${GRAFANA_HEAD_NODE_DETECTED:-unknown}" '
     '"${GRAFANA_WORKER_NODE_DETECTED:-unknown}"'
 )
+
 
 def detection_block(collector: str) -> str:
     end_anchor = (
@@ -54,6 +42,7 @@ def detection_block(collector: str) -> str:
         "# Monitoring stack detection:",
         end_anchor,
     )
+
 
 @pytest.mark.parametrize("collector", COLLECTORS)
 def test_grafana_without_systemd_is_detected_via_comm_name(collector: str) -> None:
@@ -70,7 +59,6 @@ def test_grafana_without_systemd_is_detected_via_comm_name(collector: str) -> No
     assert "grafana=true" in run.stdout
     if collector == "cluster-audit-slurm.sh":
         assert "head=true" in run.stdout
-    # The fallback must match on the exact executable comm name.
     assert run.calls("pgrep")[0] == ["-x", "grafana"]
 
 
@@ -92,6 +80,7 @@ def test_nothing_running_detects_nothing(collector: str) -> None:
         else "prom=false dcgm=false node=false grafana=false head=unknown worker=unknown"
     )
     assert run.stdout.strip() == expected
+
 
 @pytest.mark.parametrize("collector", COLLECTORS)
 def test_listening_ports_detect_visible_monitoring_services(collector: str) -> None:
@@ -165,6 +154,7 @@ def test_slurm_reports_one_status_for_each_detected_exporter() -> None:
     setup = (
         "PROMETHEUS_DETECTED=unknown; DCGM_EXPORTER_DETECTED=true; "
         "NODE_EXPORTER_DETECTED=true; GRAFANA_DETECTED=unknown; "
+        "DCGM_EXPORTER_EVIDENCE='on compute node worker-1'; "
         "GRAFANA_HEAD_NODE_DETECTED=false; GRAFANA_WORKER_NODE_DETECTED=unknown; "
         "SLURM_EXPORTER_DETECTED=false; WORKER_HOSTNAME=worker-1\n"
     )
@@ -257,15 +247,12 @@ class TestMonitoringEvidence:
     def test_query_ports_are_recorded_as_checkable_addresses(self) -> None:
         run = run_evidence("0.0.0.0:9090\n127.0.0.1:3000\n")
         assert run.returncode == 0, run.stderr
-        # A wildcard listen address is reachable on this node as localhost.
         assert '"127.0.0.1:9090"' in run.stdout
         assert '"127.0.0.1:3000"' in run.stdout
         assert '"prometheus"' in run.stdout
         assert '"grafana"' in run.stdout
 
     def test_exporter_ports_are_platform_evidence_and_never_endpoints(self) -> None:
-        # An exporter publishes only its own host's metrics, so checking it can
-        # never answer a cross-tenant question.
         run = run_evidence("0.0.0.0:9400\n0.0.0.0:9100\n")
         assert run.returncode == 0, run.stderr
         assert "endpoints=[]" in run.stdout
@@ -288,19 +275,11 @@ class TestMonitoringEvidence:
         assert 'platforms=["prometheus"]' in run.stdout
 
     def test_process_only_backend_is_recorded_as_a_platform(self) -> None:
-        # A containerized Grafana has no listening socket visible to an
-        # unprivileged ss, so the comm name is the only remaining signal.
         run = run_evidence("", pgrep_body='[[ "$2" == grafana* ]] && exit 0\nexit 1')
         assert run.returncode == 0, run.stderr
         assert 'platforms=["grafana"]' in run.stdout
 
     def test_build_suffixed_and_truncated_binaries_are_matched(self) -> None:
-        # `pgrep -x` matches the kernel comm. Two things follow, and the stub
-        # models both, because they are the only inputs a real host produces:
-        #   - vmselect-prod keeps its build suffix, so a bare name misses it;
-        #   - victoria-metrics-prod is 21 characters, and comm is capped at 15,
-        #     so it arrives as victoria-metric, which the 16-character name
-        #     cannot match even with the suffix group.
         pgrep = (
             'name="$2"\n'
             'printf "%s\\n" victoria-metric vmselect-prod '
@@ -313,8 +292,6 @@ class TestMonitoringEvidence:
         assert '"vmselect"' in run.stdout
 
     def test_a_truncated_exporter_name_is_not_matched(self) -> None:
-        # `prometheus-node` is the 15-character comm truncation of
-        # prometheus-node-exporter and must not read as a Prometheus server.
         pgrep = (
             'name="$2"\n'
             'printf "%s\\n" prometheus-node | grep -qE "^${name}$" && exit 0\n'
@@ -328,3 +305,121 @@ class TestMonitoringEvidence:
         run = run_evidence("")
         assert run.returncode == 0, run.stderr
         assert run.stdout.strip() == "endpoints=[] platforms=[]"
+
+
+SERVICE_URL = "http://nvidia-dcgm-exporter.gpu-operator.svc:9400/metrics"
+POD_RESOLV = "search slurm.svc.cluster.local svc.cluster.local cluster.local\nnameserver 10.96.0.10\n"
+HOST_RESOLV = "search example.internal\nnameserver 10.0.0.2\n"
+DCGM_METRICS = 'DCGM_FI_DEV_GPU_TEMP{gpu="0"} 41\n'
+
+def service_probe_block() -> str:
+    return (
+        EVIDENCE_SOURCE
+        + bashtest.extract_function(COMMON, "worker_monitoring_addresses")
+        + bashtest.extract_block(
+            WORKLOAD / "cluster-audit-slurm.sh",
+            "# Monitoring stack detection:",
+            "# Auto-remediation:",
+        )
+    )
+
+def run_service_probe(
+    tmp_path: Path, resolv: str, curl: str, env: dict[str, str] | None = None
+) -> bashtest.BashRun:
+    resolv_conf = tmp_path / "resolv.conf"
+    resolv_conf.write_text(resolv)
+    return bashtest.run_bash(
+        service_probe_block() + REPORT + EVIDENCE_REPORT,
+        stubs={
+            **PRINT_STUBS,
+            "ss": 'printf "%b" "${SERVICE_TEST_LISTENING:-}"',
+            "systemctl": "exit 1",
+            "pgrep": "exit 1",
+            "curl": curl,
+        },
+        env={"CLUSTERMAX_RESOLV_CONF": str(resolv_conf), **(env or {})},
+    )
+
+def test_pod_head_node_detects_exporter_service(tmp_path: Path) -> None:
+    run = run_service_probe(tmp_path, POD_RESOLV, f"printf '{DCGM_METRICS}'")
+    assert run.returncode == 0, run.stderr
+    assert "dcgm=true" in run.stdout
+    assert run.calls("curl")[0][-1] == SERVICE_URL
+    assert ["dcgm-exporter: detected via DCGM metrics at " + SERVICE_URL] in run.calls("print_info")
+    assert 'platforms=["dcgm-exporter"]' in run.stdout
+    assert "endpoints=[]" in run.stdout
+    assert sum("dcgm-exporter:" in call[0] for call in run.calls("print_info")) == 1
+
+@pytest.mark.parametrize(
+    "curl",
+    ["printf 'node_load1 0.5\\n'", "exit 7"],
+    ids=["not-dcgm-metrics", "unreachable"],
+)
+def test_service_without_dcgm_metrics_is_not_detected(tmp_path: Path, curl: str) -> None:
+    run = run_service_probe(tmp_path, POD_RESOLV, curl)
+    assert run.returncode == 0, run.stderr
+    assert "dcgm=unknown" in run.stdout
+
+def test_bare_metal_head_node_does_not_query_service(tmp_path: Path) -> None:
+    run = run_service_probe(tmp_path, HOST_RESOLV, f"printf '{DCGM_METRICS}'")
+    assert run.returncode == 0, run.stderr
+    assert "dcgm=unknown" in run.stdout
+    assert run.calls("curl") == []
+
+def test_exporter_url_override_is_queried(tmp_path: Path) -> None:
+    url = "http://dcgm-exporter.monitoring.svc:9400/metrics"
+    run = run_service_probe(
+        tmp_path,
+        HOST_RESOLV,
+        f"printf '{DCGM_METRICS}'",
+        env={"CLUSTERMAX_DCGM_EXPORTER_URL": url},
+    )
+    assert run.returncode == 0, run.stderr
+    assert "dcgm=true" in run.stdout
+    assert run.calls("curl")[0][-1] == url
+
+
+@pytest.mark.parametrize("exporter_listener", [False, True], ids=["append", "deduplicate"])
+def test_service_preserves_existing_backend_platform_and_query_endpoint(
+    tmp_path: Path, exporter_listener: bool
+) -> None:
+    run = run_service_probe(
+        tmp_path,
+        POD_RESOLV,
+        f"printf '{DCGM_METRICS}'",
+        env={
+            "SERVICE_TEST_LISTENING": (
+                "State Header\nLISTEN 0 128 127.0.0.1:9090 peer\n"
+            ) + ("LISTEN 0 128 127.0.0.1:9400 peer\n" if exporter_listener else ""),
+        },
+    )
+    assert run.returncode == 0, run.stderr
+    evidence = run.stdout.splitlines()[-1]
+    endpoint_json, platform_json = evidence.removeprefix("endpoints=").split(" platforms=")
+    assert json.loads(endpoint_json) == ["127.0.0.1:9090"]
+    assert json.loads(platform_json) == ["prometheus", "dcgm-exporter"]
+
+
+@pytest.mark.parametrize(
+    ("curl", "expected"),
+    [(f"printf '{DCGM_METRICS}'", "true"), ("exit 7", "false")],
+    ids=["verified-service", "unreachable-service"],
+)
+def test_service_evidence_combines_with_a_negative_worker_host_scan(
+    tmp_path: Path, curl: str, expected: str
+) -> None:
+    run = run_service_probe(
+        tmp_path,
+        POD_RESOLV,
+        curl,
+        env={
+            "WORKER_CHECK_OK": "true",
+            "WORKER_MONITORING_CHECK_OK": "true",
+            "WORKER_CONTAINER_RUNTIME_SCOPE": "host",
+            "WORKER_DCGM_EXPORTER_DETECTED": "false",
+            "WORKER_NODE_EXPORTER_DETECTED": "false",
+            "WORKER_GRAFANA_DETECTED": "false",
+        },
+    )
+    assert run.returncode == 0, run.stderr
+    assert f"dcgm={expected}" in run.stdout
