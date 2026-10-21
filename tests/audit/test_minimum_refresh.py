@@ -96,17 +96,20 @@ class StubFetcher(fr.Fetcher):
         self.calls: list[str] = []
         self.post_bodies: list[dict] = []
         self.json_by_url: dict[str, object] = {
+            fr.NVIDIA_CSAF_TREE: fixture("nvidia-csaf-tree.json"),
             fr.bulletin_url(2026, 5821): fixture("nvidia-driver-5821.json"),
             fr.bulletin_url(2026, 5747): fixture("nvidia-driver-5747.json"),
+            fr.bulletin_url(2026, 5861): fixture("nvidia-driver-5861.json"),
             fr.bulletin_url(2026, 9999): fixture("nvidia-driver-lexical-trap.json"),
             fr.bulletin_url(2026, 5699): fixture("nvidia-connectx-5699.json"),
+            fr.bulletin_url(2026, 5847): fixture("nvidia-connectx-5847.json"),
             fr.bulletin_url(2026, 5755): fixture("nvidia-cuda-5755.json"),
             fr.bulletin_url(2026, 5850): fixture(toolkit),
             fr.bulletin_url(2026, 5815): fixture("nvidia-virtio-net-5815.json"),
             fr.bulletin_url(2026, 5857): fixture("nvidia-dcgm-5857.json"),
             fr.GITHUB_CONTENTS.format(year=2026): fixture("github-contents-2026.json"),
         }
-        for bulletin in (5821, 5747):
+        for bulletin in (5821, 5747, 5861):
             driver = self.json_by_url[fr.bulletin_url(2026, bulletin)]
             for version, release in driver.get("_releases", {}).items():
                 self.json_by_url[
@@ -153,6 +156,12 @@ class StubFetcher(fr.Fetcher):
             self.json_by_url[fr.ubuntu_osv_urls(cve)[0]] = ubuntu_osv["cves"][cve]
         for notice_id, notice in ubuntu_osv["notices"].items():
             self.json_by_url[f"{fr.UBUNTU_OSV_VULN_URL}{notice_id}"] = notice
+        self.json_by_url[
+            fr.ubuntu_notices_query_url("linux", fr.UBUNTU_RELEASE)
+        ] = fixture("ubuntu-notices-linux.json")
+        self.json_by_url[
+            fr.ubuntu_notices_query_url("qemu", fr.UBUNTU_RELEASE)
+        ] = fixture("ubuntu-notices-qemu.json")
         self.osv = fixture("osv-runc.json")
         for version, release in self.osv.get("_releases", {}).items():
             self.json_by_url[
@@ -173,10 +182,24 @@ class StubFetcher(fr.Fetcher):
                 FIXTURES / "amd-product-security-index.html"
             ).read_text(),
         }
-        for sb_id in (*fr.AMD_BULLETINS, *fr.AMD_DRIVER_BULLETINS):
+        for sb_id in (
+            "amd-sb-6018",
+            "amd-sb-6024",
+            "amd-sb-6027",
+            "amd-sb-6033",
+            "amd-sb-6034",
+        ):
             self.text_by_url[fr.amd_bulletin_page(sb_id)] = (
                 FIXTURES / f"{sb_id}.html"
             ).read_text()
+        amd_non_instinct = (FIXTURES / "amd-non-instinct.html").read_text()
+        for sb_id in (
+            "amd-sb-6025",
+            "amd-sb-6026",
+            "amd-sb-6031",
+            "amd-sb-6032",
+        ):
+            self.text_by_url[fr.amd_bulletin_page(sb_id)] = amd_non_instinct
 
     def get_json(self, url: str):
         self.calls.append(url)
@@ -217,8 +240,8 @@ class StubFetcher(fr.Fetcher):
 
 # Built once at import, and deliberately not on first use. A lazy build would
 # run inside whichever test called baseline() first. Several tests patch
-# fr.BULLETINS, so a first call under such a patch would record a partial table
-# that every later test then read, which makes the suite order-dependent.
+# the source fixtures, so a first call under such a patch would record a partial
+# table that every later test then read, which makes the suite order-dependent.
 _BASELINE_JSON = fr.serialize(
     fr.build_minimums(generated=GENERATED, existing={}, fetch=StubFetcher())
 )
@@ -241,7 +264,10 @@ class ExtractorTest(unittest.TestCase):
         # Both fixtures carry Windows, vGPU guest driver, and gaming branches
         # next to the Linux data-center ones.
         block = fr.nvidia_driver_minimums(fetch=self.stub)
-        self.assertEqual(sorted(block["branches"]), ["535", "570", "580", "590", "595"])
+        self.assertEqual(
+            sorted(block["branches"]),
+            ["535", "570", "580", "590", "595", "610", "615"],
+        )
         for windows in ("596.36", "591.59"):
             self.assertNotIn(windows, block["branches"].values())
 
@@ -255,9 +281,11 @@ class ExtractorTest(unittest.TestCase):
             {
                 "535": "535.309.01",
                 "570": "570.211.01",
-                "580": "580.159.03",
+                "580": "580.178.04",
                 "590": "590.48.01",
-                "595": "595.71.05",
+                "595": "595.91.07",
+                "610": "610.57.04",
+                "615": "615.71.09",
             },
         )
 
@@ -291,18 +319,26 @@ class ExtractorTest(unittest.TestCase):
     def test_a_branch_from_a_single_bulletin_still_appears(self) -> None:
         block = fr.nvidia_driver_minimums(fetch=self.stub)
         # R595 comes only from 5821, R590 only from 5747.
-        self.assertEqual(block["branches"]["595"], "595.71.05")
+        self.assertEqual(block["branches"]["595"], "595.91.07")
         self.assertEqual(block["branches"]["590"], "590.48.01")
 
     def test_driver_records_which_bulletin_produced_each_branch(self) -> None:
         block = fr.nvidia_driver_minimums(fetch=self.stub)
         self.assertEqual(
             block["branchSources"],
-            {"535": 5821, "570": 5747, "580": 5821, "590": 5747, "595": 5821},
+            {
+                "535": 5821,
+                "570": 5747,
+                "580": 5861,
+                "590": 5747,
+                "595": 5861,
+                "610": 5861,
+                "615": 5861,
+            },
         )
-        self.assertEqual([item["aId"] for item in block["sources"]], [5747, 5821])
+        self.assertEqual([item["aId"] for item in block["sources"]], [5747, 5821, 5861])
         # `source` stays the newest bulletin, so the single-source shape holds.
-        self.assertEqual(block["source"]["aId"], 5821)
+        self.assertEqual(block["source"]["aId"], 5861)
 
     def test_connectx_trains_come_from_the_bulletin(self) -> None:
         block = fr.connectx_minimums(fetch=self.stub)
@@ -310,12 +346,28 @@ class ExtractorTest(unittest.TestCase):
             [str(train) for train in block["trains"]],
             ["28", "32", "35", "39", "43", "46"],
         )
+        self.assertEqual(block["trains"]["35"], 8002)
+        self.assertEqual([item["aId"] for item in block["sources"]], [5699])
         self.assertTrue(
             all(
                 item["status"] == "confirmed"
                 for item in block["floorAvailability"].values()
             )
         )
+
+    def test_network_bulletin_for_legacy_products_is_not_applied(self) -> None:
+        doc = fixture("nvidia-connectx-5847.json")
+        self.assertEqual(fr.connectx_trains_in(doc), {})
+
+    def test_a_truncated_nvidia_tree_fails_closed(self) -> None:
+        self.stub.json_by_url[fr.NVIDIA_CSAF_TREE]["truncated"] = True
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "truncated"):
+            fr.nvidia_csaf_documents(fetch=self.stub)
+
+    def test_an_unreadable_enumerated_csaf_document_fails_closed(self) -> None:
+        del self.stub.json_by_url[fr.bulletin_url(2026, 5861)]
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "5861"):
+            fr.nvidia_csaf_documents(fetch=self.stub)
 
     def test_cuda_toolkit_minimum_and_cves(self) -> None:
         block = fr.simple_product_minimum(2026, 5755, fetch=self.stub)
@@ -332,6 +384,50 @@ class ExtractorTest(unittest.TestCase):
         self.assertEqual(
             block["fixAvailability"]["available"], "2026-05-21T23:32:36Z"
         )
+
+    def test_catalog_routes_every_graded_nvidia_product_without_an_id_allowlist(
+        self,
+    ) -> None:
+        documents = fr.nvidia_csaf_documents(fetch=self.stub)
+        simple = fr.nvidia_simple_product_minimums(documents, fetch=self.stub)
+        dcgm = fr.nvidia_dcgm_minimums(documents, fetch=self.stub)
+        virtio = fr.nvidia_virtio_net_minimums(documents)
+        self.assertFalse(hasattr(fr, "BULLETINS"))
+        self.assertEqual(simple["cudaToolkit"]["source"]["aId"], 5755)
+        self.assertEqual(simple["nvidiaContainerToolkit"]["source"]["aId"], 5850)
+        self.assertEqual(dcgm["dcgm"]["source"]["aId"], 5857)
+        self.assertEqual(dcgm["dcgmExporter"]["source"]["aId"], 5857)
+        self.assertEqual(virtio["source"]["aId"], 5815)
+
+    def test_new_cuda_bulletin_raises_the_floor_without_a_code_change(self) -> None:
+        original = copy.deepcopy(self.stub.json_by_url[fr.bulletin_url(2026, 5755)])
+        newer = copy.deepcopy(original)
+        for _arch, kids in fr.csaf_arch_branches(newer):
+            for kid in kids:
+                kid["product"]["name"] = kid["product"]["name"].replace("13.1", "13.2")
+        blocks = fr.nvidia_simple_product_minimums(
+            [
+                ({"year": 2026, "aId": 5755}, original),
+                ({"year": 2026, "aId": 5904}, newer),
+            ],
+            fetch=self.stub,
+        )
+        self.assertEqual(blocks["cudaToolkit"]["minimum"], "13.2")
+        self.assertEqual(blocks["cudaToolkit"]["source"]["aId"], 5904)
+        self.assertEqual(
+            [item["aId"] for item in blocks["cudaToolkit"]["sources"]],
+            [5755, 5904],
+        )
+
+    def test_applicable_cuda_document_with_unknown_grammar_fails_closed(self) -> None:
+        doc = copy.deepcopy(self.stub.json_by_url[fr.bulletin_url(2026, 5755)])
+        for _arch, kids in fr.csaf_arch_branches(doc):
+            for kid in kids:
+                kid["product"]["name"] = "All affected versions"
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "cudaToolkit"):
+            fr.nvidia_simple_product_minimums(
+                [({"year": 2026, "aId": 5904}, doc)], fetch=self.stub
+            )
 
     def test_runc_ladder_and_advisories(self) -> None:
         block = fr.runc_ladder(fetch=self.stub)
@@ -483,7 +579,7 @@ class ExtractorTest(unittest.TestCase):
         self.assertNotIn("1.13", block["ladder"])
 
     def test_virtio_net_release_lines_come_from_the_bulletin(self) -> None:
-        block = fr.virtio_net_minimums(fetch=self.stub)
+        block = fr.virtio_net_minimums(2026, 5815, fetch=self.stub)
         self.assertEqual(block["cves"], ["CVE-2026-65094"])
         self.assertEqual(
             block["lines"],
@@ -496,18 +592,18 @@ class ExtractorTest(unittest.TestCase):
         )
 
     def test_virtio_net_line_names_come_from_the_bulletin(self) -> None:
-        block = fr.virtio_net_minimums(fetch=self.stub)
+        block = fr.virtio_net_minimums(2026, 5815, fetch=self.stub)
         self.assertEqual(sorted(block["lines"]), ["GA", "LTS23", "LTS24", "LTS25"])
 
     def test_virtio_net_trailing_comma_stays_out_of_the_version(self) -> None:
         # Upstream publishes "24.10.50 or newer," for LTS24.
-        block = fr.virtio_net_minimums(fetch=self.stub)
+        block = fr.virtio_net_minimums(2026, 5815, fetch=self.stub)
         self.assertEqual(block["lines"]["LTS24"], {"fixed": "24.10.50"})
 
     def test_virtio_net_records_the_retired_scheme_separately(self) -> None:
         # "1.7.21 and older versions" marks a retired 1.x scheme as affected.
         # It must never become the minimum of the LTS23 line.
-        block = fr.virtio_net_minimums(fetch=self.stub)
+        block = fr.virtio_net_minimums(2026, 5815, fetch=self.stub)
         self.assertEqual(
             block["lines"]["LTS23"],
             {"fixed": "23.10.23", "legacyAffectedThrough": "1.7.21"},
@@ -566,10 +662,16 @@ class ExtractorTest(unittest.TestCase):
         }
         block = fr.ubuntu_minimums(fetch=self.stub)
         qemu = block["packages"]["qemu"]
-        self.assertEqual(qemu["fixed"], "1:8.2.2+ds-0ubuntu1.10")
-        self.assertEqual(qemu["source"]["id"], "USN-7744-1")
-        self.assertEqual(qemu["released"], "2025-09-11T12:41:28.262010")
-        self.assertEqual(qemu["priority"], "medium")
+        self.assertEqual(qemu["fixed"], "1:8.2.2+ds-0ubuntu1.16")
+        self.assertEqual(qemu["source"]["id"], "USN-8161-1")
+        self.assertEqual(qemu["released"], "2026-04-09T14:22:10.893048")
+        linux = block["packages"]["linux"]
+        self.assertEqual(linux["fixed"], "6.8.0-147.147")
+        self.assertEqual(linux["abi"], 147)
+        self.assertEqual(linux["source"]["id"], "USN-8917-1")
+        self.assertEqual(linux["coverage"]["matchedNotices"], 2)
+        self.assertEqual(linux["cveCount"], 2)
+        self.assertEqual(qemu["cve"], "CVE-2024-3446")
         self.assertEqual(block["packages"]["linuxVmscape"]["source"]["id"], "USN-7861-1")
         self.assertEqual(block["packages"]["linuxFragnesia"]["abi"], 124)
         self.assertEqual(block["packages"]["linuxJanuscape"]["status"], "pending")
@@ -581,6 +683,28 @@ class ExtractorTest(unittest.TestCase):
         # pending Janus fix, which OSV cannot describe, may read that API.
         api_calls = [url for url in self.stub.calls if url.startswith(fr.UBUNTU_CVE_URL)]
         self.assertEqual(api_calls, [f"{fr.UBUNTU_CVE_URL}CVE-2026-53359.json"])
+
+    def test_ubuntu_notice_discovery_fails_closed_on_incomplete_pagination(self) -> None:
+        first_url = fr.ubuntu_notices_query_url("qemu", fr.UBUNTU_RELEASE)
+        second_url = fr.ubuntu_notices_query_url(
+            "qemu", fr.UBUNTU_RELEASE, fr.UBUNTU_NOTICE_PAGE_LIMIT
+        )
+        self.stub.json_by_url[first_url]["total_results"] = 21
+        self.stub.json_by_url[second_url] = {
+            "limit": fr.UBUNTU_NOTICE_PAGE_LIMIT,
+            "offset": fr.UBUNTU_NOTICE_PAGE_LIMIT,
+            "total_results": 21,
+            "notices": [],
+        }
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "unique candidates"):
+            fr.ubuntu_package_notices("qemu", "qemu", fetch=self.stub)
+
+    def test_ubuntu_notice_discovery_requires_an_exact_source_package(self) -> None:
+        url = fr.ubuntu_notices_query_url("qemu", fr.UBUNTU_RELEASE)
+        for notice in self.stub.json_by_url[url]["notices"]:
+            notice["release_packages"]["noble"][0]["name"] = "qemu-utils"
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "no qemu source-package"):
+            fr.ubuntu_package_notices("qemu", "qemu", fetch=self.stub)
 
     def test_ubuntu_reads_the_github_mirror_when_osv_dev_fails(self) -> None:
         api_url, mirror_url = fr.ubuntu_osv_urls("CVE-2024-3446")
@@ -970,52 +1094,49 @@ class AmdRocmMinimumTest(unittest.TestCase):
         self.stub.text_by_url[fr.amd_bulletin_page(sb_id)] = text
 
     def test_each_program_keeps_the_highest_release_across_bulletins(self) -> None:
-        # amd-sb-6018 names ROCm 6.4 for every program, amd-sb-6024 moves the
-        # fleet to 6.4.2, and amd-sb-6027 moves MI210, MI250, and MI300A to
-        # 7.0.1 while it names only 6.3.1 for MI300X and MI325X. The merge
-        # keeps the maximum per program, never the newest bulletin's value.
+        # Earlier bulletins force different legacy floors. AMD-SB-6033 moves
+        # every currently named Instinct program to ROCm 7.14, so the reducer
+        # keeps that highest applicable release for each program.
         block = fr.amd_rocm_minimums(fetch=self.stub)
         self.assertEqual(block["kind"], "programMap")
         self.assertEqual(
             block["programs"],
             {
-                "MI210": "7.0.1",
-                "MI250": "7.0.1",
-                "MI300A": "7.0.1",
-                "MI300X": "6.4.2",
-                "MI308X": "6.4.2",
-                "MI325X": "6.4.2",
+                "MI210": "7.14",
+                "MI250": "7.14",
+                "MI250X": "7.14",
+                "MI300A": "7.14",
+                "MI300X": "7.14",
+                "MI308X": "7.14",
+                "MI325X": "7.14",
+                "MI350X": "7.14",
+                "MI355X": "7.14",
             },
         )
         self.assertEqual(
             block["programSources"],
             {
-                "MI210": "AMD-SB-6027",
-                "MI250": "AMD-SB-6027",
-                "MI300A": "AMD-SB-6027",
-                "MI300X": "AMD-SB-6024",
-                "MI308X": "AMD-SB-6027",
-                "MI325X": "AMD-SB-6024",
+                "MI210": "AMD-SB-6033",
+                "MI250": "AMD-SB-6033",
+                "MI250X": "AMD-SB-6033",
+                "MI300A": "AMD-SB-6033",
+                "MI300X": "AMD-SB-6033",
+                "MI308X": "AMD-SB-6033",
+                "MI325X": "AMD-SB-6033",
+                "MI350X": "AMD-SB-6033",
+                "MI355X": "AMD-SB-6033",
             },
         )
-        self.assertEqual(
-            block["cves"],
-            [
-                "CVE-2025-21940",
-                "CVE-2025-66660",
-                "CVE-2025-66664",
-                "CVE-2026-0428",
-            ],
-        )
+        self.assertEqual(block["cves"], ["CVE-2026-43598"])
         self.assertEqual(
             [source["aId"] for source in block["sources"]],
-            ["AMD-SB-6018", "AMD-SB-6024", "AMD-SB-6027"],
+            ["AMD-SB-6018", "AMD-SB-6024", "AMD-SB-6027", "AMD-SB-6033"],
         )
-        self.assertEqual(block["source"]["aId"], "AMD-SB-6027")
-        self.assertEqual(block["source"]["released"], "2026-05-12T00:00:00Z")
+        self.assertEqual(block["source"]["aId"], "AMD-SB-6033")
+        self.assertEqual(block["source"]["released"], "2026-09-30T00:00:00Z")
         self.assertEqual(
             block["advisory"],
-            "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6027.html",
+            "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6033.html",
         )
 
     def test_the_minimum_availability_carries_the_mitigation_date(self) -> None:
@@ -1027,22 +1148,25 @@ class AmdRocmMinimumTest(unittest.TestCase):
         self.assertEqual(
             available,
             {
-                "MI210": "2025-09-15T00:00:00Z",
-                "MI250": "2025-09-15T00:00:00Z",
-                "MI300A": "2025-10-06T00:00:00Z",
-                "MI300X": "2025-07-21T00:00:00Z",
-                "MI308X": "2025-06-09T00:00:00Z",
-                "MI325X": "2025-07-21T00:00:00Z",
+                "MI210": "2026-07-15T00:00:00Z",
+                "MI250": "2026-07-15T00:00:00Z",
+                "MI250X": "2026-07-15T00:00:00Z",
+                "MI300A": "2026-07-15T00:00:00Z",
+                "MI300X": "2026-07-15T00:00:00Z",
+                "MI308X": "2026-07-15T00:00:00Z",
+                "MI325X": "2026-07-15T00:00:00Z",
+                "MI350X": "2026-07-15T00:00:00Z",
+                "MI355X": "2026-07-15T00:00:00Z",
             },
         )
         mi210 = block["floorAvailability"]["MI210"]
         self.assertEqual(mi210["status"], "confirmed")
-        self.assertEqual(mi210["version"], "7.0.1")
+        self.assertEqual(mi210["version"], "7.14")
         self.assertEqual(mi210["feed"], "amd-security-bulletin")
-        self.assertEqual(mi210["aId"], "AMD-SB-6027")
+        self.assertEqual(mi210["aId"], "AMD-SB-6033")
         self.assertEqual(
             mi210["url"],
-            "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6027.html",
+            "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6033.html",
         )
 
     def test_wording_variants_parse_to_one_exact_release(self) -> None:
@@ -1177,7 +1301,7 @@ class AmdRocmMinimumTest(unittest.TestCase):
         # The three tracked bulletins write the mitigation header three ways.
         # Each committed fixture keeps its live wording, so a parse of each
         # single bulletin proves the header matcher covers all three.
-        for sb_id in fr.AMD_BULLETINS:
+        for sb_id in ("amd-sb-6018", "amd-sb-6024", "amd-sb-6027"):
             with self.subTest(sb_id=sb_id):
                 block = fr.amd_rocm_minimums(bulletins=[sb_id], fetch=self.stub)
                 self.assertTrue(block["programs"])
@@ -1210,7 +1334,7 @@ class AmdRocmMinimumTest(unittest.TestCase):
         )
         with self.assertRaises(fr.MinimumRefreshError) as caught:
             fr.amd_rocm_minimums(bulletins=["amd-sb-6027"], fetch=self.stub)
-        self.assertIn("found no dated mitigation table", str(caught.exception))
+        self.assertIn("outside the dated mitigation tables", str(caught.exception))
 
     def test_a_page_without_an_initial_publication_revision_fails_closed(self) -> None:
         self.set_page(
@@ -1246,8 +1370,8 @@ class AmdRocmMinimumTest(unittest.TestCase):
     def test_malformed_rows_in_a_dated_table_fail_closed(self) -> None:
         cases = {
             "fewer than four cells": [["AMD Instinct MI300X", "CVE-2025-11111", "ROCm 6.4"]],
-            "names no Instinct program": [
-                ["AMD Radeon RX 7900", "CVE-2025-11111", "ROCm 6.4", "2025-01-02"]
+            "names no recognized MI program": [
+                ["AMD Instinct accelerator", "CVE-2025-11111", "ROCm 6.4", "2025-01-02"]
             ],
             "carries no CVE identifier": [
                 ["AMD Instinct MI300X", "N/A", "ROCm 6.4", "2025-01-02"]
@@ -1272,7 +1396,21 @@ class AmdRocmMinimumTest(unittest.TestCase):
         # A rebuild from amd-sb-6018 alone computes 6.4 for every program,
         # below the published minimums, and the shared verify() rejects it.
         existing = baseline()
-        with mock.patch.object(fr, "AMD_BULLETINS", ("amd-sb-6018",)):
+        rocm_catalog = [
+            {
+                "aId": "AMD-SB-6018",
+                "url": fr.amd_bulletin_page("amd-sb-6018"),
+            }
+        ]
+        driver_catalog = [
+            {
+                "aId": "AMD-SB-6034",
+                "url": fr.amd_bulletin_page("amd-sb-6034"),
+            }
+        ]
+        with mock.patch.object(
+            fr, "amd_bulletin_catalog", side_effect=[rocm_catalog, driver_catalog]
+        ):
             with self.assertRaises(fr.MinimumRefreshError) as caught:
                 fr.build_minimums(
                     generated=GENERATED, existing=existing, fetch=self.stub
@@ -1295,7 +1433,21 @@ class AmdRocmMinimumTest(unittest.TestCase):
             ]
         )
         self.set_page("amd-sb-6027", page)
-        with mock.patch.object(fr, "AMD_BULLETINS", ("amd-sb-6027",)):
+        rocm_catalog = [
+            {
+                "aId": "AMD-SB-6027",
+                "url": fr.amd_bulletin_page("amd-sb-6027"),
+            }
+        ]
+        driver_catalog = [
+            {
+                "aId": "AMD-SB-6034",
+                "url": fr.amd_bulletin_page("amd-sb-6034"),
+            }
+        ]
+        with mock.patch.object(
+            fr, "amd_bulletin_catalog", side_effect=[rocm_catalog, driver_catalog]
+        ):
             with self.assertRaises(fr.MinimumRefreshError) as caught:
                 fr.build_minimums(
                     generated=GENERATED, existing=existing, fetch=self.stub
@@ -1376,6 +1528,12 @@ class FailClosedTest(unittest.TestCase):
         stub = StubFetcher()
         url = fr.bulletin_url(2026, 5857)
         doc = copy.deepcopy(stub.json_by_url[url])
+        doc["vulnerabilities"][0]["product_status"] = {
+            "fixed": [
+                "all4_5_dcgm_4_5_3",
+                "all4_8_dcgm_exporter_4_8_2",
+            ]
+        }
         vendor = doc["product_tree"]["branches"][0]
         vendor["branches"] = [
             arch for arch in vendor["branches"] if arch["name"] != "All(4.8)"
@@ -1406,21 +1564,22 @@ class FailClosedTest(unittest.TestCase):
     def test_a_bulletin_set_that_would_lower_a_branch_minimum_fails(self) -> None:
         """A driver minimum only moves up. This is the point of the merge policy.
 
-        Tracking only 5747 would take R580 from 580.159.03 down to 580.126.09
+        Tracking only 5747 would take R580 from 580.178.04 down to 580.126.09
         and would drop R595 entirely, which would grade a vulnerable fleet as
         patched. The whole rebuild must fail instead.
         """
         stub = StubFetcher()
-        with mock.patch.dict(
-            fr.BULLETINS, {"nvidiaDriver": ({"year": 2026, "aId": 5747},)}
-        ):
-            with self.assertRaises(fr.MinimumRefreshError) as caught:
-                fr.build_minimums(
-                    generated="2026-07-30T00:00:00Z", existing=baseline(), fetch=stub
-                )
+        stub.json_by_url[fr.NVIDIA_CSAF_TREE]["tree"] = [
+            {"path": "2026/5699/5699.json", "type": "blob"},
+            {"path": "2026/5747/5747.json", "type": "blob"},
+        ]
+        with self.assertRaises(fr.MinimumRefreshError) as caught:
+            fr.build_minimums(
+                generated="2026-07-30T00:00:00Z", existing=baseline(), fetch=stub
+            )
         message = str(caught.exception)
         self.assertIn("nvidiaDriver.580", message)
-        self.assertIn("580.159.03", message)
+        self.assertIn("580.178.04", message)
         self.assertIn("580.126.09", message)
         self.assertIn("nvidiaDriver.595", message)
 
@@ -1430,13 +1589,14 @@ class FailClosedTest(unittest.TestCase):
             target = write_baseline(tmp)
             before = target.read_text()
             err = io.StringIO()
-            with mock.patch.dict(
-                fr.BULLETINS, {"nvidiaDriver": ({"year": 2026, "aId": 5747},)}
-            ):
-                with mock.patch.object(fr, "_DEFAULT_FETCHER", stub), redirect_stderr(err):
-                    code = fr.main(
-                        ["--write", str(target), "--generated", "2026-07-30T00:00:00Z"]
-                    )
+            stub.json_by_url[fr.NVIDIA_CSAF_TREE]["tree"] = [
+                {"path": "2026/5699/5699.json", "type": "blob"},
+                {"path": "2026/5747/5747.json", "type": "blob"},
+            ]
+            with mock.patch.object(fr, "_DEFAULT_FETCHER", stub), redirect_stderr(err):
+                code = fr.main(
+                    ["--write", str(target), "--generated", "2026-07-30T00:00:00Z"]
+                )
             self.assertEqual(code, 2)
             self.assertEqual(target.read_text(), before)
             self.assertIn("nvidiaDriver.580", err.getvalue())
@@ -1507,7 +1667,7 @@ class FailClosedTest(unittest.TestCase):
         doc = fr.build_minimums(
             generated="2026-07-30T00:00:00Z", existing=existing, fetch=StubFetcher()
         )
-        self.assertEqual(doc["components"]["nvidiaDriver"]["branches"]["580"], "580.159.03")
+        self.assertEqual(doc["components"]["nvidiaDriver"]["branches"]["580"], "580.178.04")
 
     def test_write_leaves_no_file_when_the_rebuild_fails_closed(self) -> None:
         stub = StubFetcher(toolkit="nvidia-container-toolkit-5850-reworded.json")
@@ -1541,7 +1701,7 @@ class CliTest(unittest.TestCase):
             target.write_text(json.dumps(table, indent=2, sort_keys=True) + "\n")
             code, out, err = self.run_cli(["--check", str(target)])
             self.assertEqual(code, 1)
-            self.assertIn("595.71.05", out)
+            self.assertIn("595.91.07", out)
             self.assertIn("differs", err)
 
     def test_print_pins_the_generated_timestamp(self) -> None:
@@ -1654,6 +1814,13 @@ class DetectNewBulletinsTest(unittest.TestCase):
         self.assertIn("4.5.5 LTS train", snap4["reason"])
         self.assertNotIn(5744, [item["id"] for item in found if item["status"] == "new"])
 
+    def test_5847_is_not_applicable_to_supported_networking_products(self) -> None:
+        found = self.scan()
+        item = next(item for item in found if item["id"] == 5847)
+        self.assertEqual(item["status"], "not_applicable")
+        self.assertIn("BlueField-3", item["reason"])
+        self.assertNotIn(5847, [item["id"] for item in found if item["status"] == "new"])
+
     def test_a_deferred_only_result_exits_zero_and_still_names_the_bulletin(self) -> None:
         with mock.patch.dict(fr.DEFERRED_BULLETINS, {"5871": "parser work pending"}):
             code, out, err = self.detect_cli()
@@ -1680,12 +1847,10 @@ class DetectNewBulletinsTest(unittest.TestCase):
         self.assertEqual(missing["reason"], "retired product line")
 
     def test_a_bulletin_that_is_tracked_and_deferred_raises(self) -> None:
-        with mock.patch.dict(fr.DEFERRED_BULLETINS, {"5821": "cannot be both"}):
+        with mock.patch.dict(fr.DEFERRED_BULLETINS, {"5755": "cannot be both"}):
             with self.assertRaises(fr.MinimumRefreshError) as caught:
-                fr.validate_bulletin_lists()
-            self.assertIn("5821", str(caught.exception))
-            with self.assertRaises(fr.MinimumRefreshError):
                 self.scan()
+            self.assertIn("5755", str(caught.exception))
 
     def test_a_deferred_bulletin_without_a_reason_raises(self) -> None:
         for reason in ("", "   "):
@@ -1695,19 +1860,7 @@ class DetectNewBulletinsTest(unittest.TestCase):
                         fr.validate_bulletin_lists()
                     self.assertIn("4002", str(caught.exception))
 
-    def test_tracked_and_deferred_amd_bulletins_are_not_reported_as_new(self) -> None:
-        # The fixture index carries every tracked and every deferred GPU
-        # bulletin, so a correct scan reports no new AMD item.
-        found = self.scan()
-        self.assertFalse(
-            [
-                item
-                for item in found
-                if item["status"] == "new" and item["product"] == "AMD Instinct GPU"
-            ]
-        )
-
-    def test_an_untracked_amd_gpu_bulletin_is_reported_as_new(self) -> None:
+    def test_a_new_amd_bulletin_automatically_changes_the_floor(self) -> None:
         stub = StubFetcher()
         row = (
             "<tr><td>AMD-SB-6099</td>"
@@ -1718,69 +1871,42 @@ class DetectNewBulletinsTest(unittest.TestCase):
         )
         stub.text_by_url[fr.AMD_SECURITY_INDEX] = stub.text_by_url[
             fr.AMD_SECURITY_INDEX
-        ].replace("</tbody>", row + "</tbody>")
-        items = [
-            item
-            for item in self.scan(fetch=stub)
-            if item["product"] == "AMD Instinct GPU"
-        ]
-        self.assertEqual([item["id"] for item in items], ["amd-sb-6099"])
-        self.assertEqual(items[0]["status"], "new")
-        self.assertEqual(
-            items[0]["title"], "AMD Instinct GPU Vulnerabilities"
+        ].replace(
+            "Showing 1 to 27 of 27 entries", "Showing 1 to 28 of 28 entries"
+        ).replace("</tbody>", row + "</tbody>")
+        stub.text_by_url[fr.amd_bulletin_page("amd-sb-6099")] = amd_page(
+            [
+                [
+                    "AMD Instinct MI350",
+                    "CVE-2026-11111",
+                    "ROCm 8.0",
+                    "2026-06-01",
+                ]
+            ]
         )
-        self.assertEqual(items[0]["url"], fr.amd_bulletin_page("amd-sb-6099"))
+        block = fr.amd_rocm_minimums(fetch=stub)
+        self.assertEqual(block["programs"]["MI350"], "8.0")
+        self.assertEqual(block["floorAvailability"]["MI350"]["aId"], "AMD-SB-6099")
 
-    def test_non_gpu_amd_bulletins_are_ignored(self) -> None:
-        # The fixture index carries two non-GPU rows the scan must skip.
-        ids = {item["id"] for item in self.scan()}
-        self.assertNotIn("amd-sb-7064", ids)
-        self.assertNotIn("amd-sb-8015", ids)
+    def test_non_6000_amd_bulletin_families_are_ignored(self) -> None:
+        ids = {item["aId"] for item in fr.amd_bulletin_catalog(StubFetcher())}
+        self.assertNotIn("AMD-SB-7064", ids)
+        self.assertNotIn("AMD-SB-8015", ids)
 
-    def test_an_unreadable_amd_index_does_not_crash_the_scan(self) -> None:
+    def test_an_unreadable_amd_index_fails_closed(self) -> None:
         stub = StubFetcher()
         del stub.text_by_url[fr.AMD_SECURITY_INDEX]
-        self.assertEqual(fr.untracked_amd_bulletins(fetch=stub), [])
-        new = [item for item in self.scan(fetch=stub) if item["status"] == "new"]
-        self.assertEqual([item["id"] for item in new], [5871])
+        with self.assertRaises(fr.MinimumRefreshError):
+            fr.amd_bulletin_catalog(fetch=stub)
 
-    def test_amd_deferred_bulletins_are_reported_every_run(self) -> None:
-        found = self.scan()
-        item = next(entry for entry in found if entry["id"] == "amd-sb-6005")
-        self.assertEqual(item["status"], "deferred")
-        self.assertIn("6.3.2, below the tracked minimums", item["reason"])
-
-    def test_cli_exit_three_tells_the_operator_where_to_track_an_amd_bulletin(
-        self,
-    ) -> None:
+    def test_a_paginated_amd_index_fails_closed(self) -> None:
         stub = StubFetcher()
-        row = (
-            "<tr><td>AMD-SB-6099</td>"
-            "<td>AMD Instinct GPU Vulnerabilities</td>"
-            "<td>Security Bulletin</td><td>CVE-2026-11111</td>"
-            "<td>Jun 01, 2026</td><td>Jun 01, 2026</td></tr>"
-        )
         stub.text_by_url[fr.AMD_SECURITY_INDEX] = stub.text_by_url[
             fr.AMD_SECURITY_INDEX
-        ].replace("</tbody>", row + "</tbody>")
-        code, out, err = self.detect_cli(stub)
-        self.assertEqual(code, 3)
-        self.assertIn("amd-sb-6099", out)
-        self.assertIn("AMD_BULLETINS", err)
-
-    def test_an_amd_bulletin_that_is_tracked_and_deferred_raises(self) -> None:
-        with mock.patch.dict(
-            fr.AMD_DEFERRED_BULLETINS, {"amd-sb-6027": "cannot be both"}
-        ):
-            with self.assertRaises(fr.MinimumRefreshError) as caught:
-                fr.validate_bulletin_lists()
-            self.assertIn("amd-sb-6027", str(caught.exception))
-
-    def test_an_amd_deferred_bulletin_without_a_reason_raises(self) -> None:
-        with mock.patch.dict(fr.AMD_DEFERRED_BULLETINS, {"amd-sb-9999": "   "}):
-            with self.assertRaises(fr.MinimumRefreshError) as caught:
-                fr.validate_bulletin_lists()
-            self.assertIn("amd-sb-9999", str(caught.exception))
+        ].replace("Showing 1 to 27 of 27 entries", "Showing 1 to 10 of 27 entries")
+        with self.assertRaises(fr.MinimumRefreshError) as caught:
+            fr.amd_bulletin_catalog(fetch=stub)
+        self.assertIn("paginated or truncated", str(caught.exception))
 
     def test_the_committed_lists_are_consistent(self) -> None:
         fr.validate_bulletin_lists()
