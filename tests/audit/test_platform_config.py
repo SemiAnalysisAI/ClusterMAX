@@ -1401,7 +1401,6 @@ class LocalFallbackVantageTests(unittest.TestCase):
             self.assertFalse(platform_config.vantage_is_local_only([]))
 
     def test_missing_slurm_workers_never_substitute_local_reads(self) -> None:
-        """Missing worker evidence stays missing on each transport failure."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_bare_metal(root)

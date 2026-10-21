@@ -2994,6 +2994,32 @@ fi
 # serves its own host's metrics and answers no tenancy question.
 collect_monitoring_evidence "${LISTENING}"$'\n'"$(worker_monitoring_addresses "${WORKER_MONITORING_LISTENING:-}" "${WORKER_HOSTNAME:-}")"
 
+# Slurm on Kubernetes runs the head node as a pod. The GPU Operator runs
+# dcgm-exporter as a DaemonSet in other pods on the GPU nodes, so this pod has
+# no listener on :9400 and no systemd unit. Query the exporter Service and
+# count it only when it serves DCGM metrics. Cluster search domains in
+# resolv.conf identify a pod: `su -` login shells drop KUBERNETES_SERVICE_HOST.
+# CLUSTERMAX_DCGM_EXPORTER_URL sets the URL for other namespaces or exporters.
+# Run this after worker scope resolution so its positive service evidence is
+# not overwritten by a worker socket scan that cannot see a DaemonSet pod.
+DCGM_EXPORTER_EVIDENCE="on compute node ${WORKER_HOSTNAME}"
+if [[ "$DCGM_EXPORTER_DETECTED" != "true" ]] && command -v curl &>/dev/null; then
+    DCGM_EXPORTER_URL="${CLUSTERMAX_DCGM_EXPORTER_URL:-}"
+    if [[ -z "$DCGM_EXPORTER_URL" ]] \
+        && grep -qE '^search[[:space:]].*\.svc\.' "${CLUSTERMAX_RESOLV_CONF:-/etc/resolv.conf}" 2>/dev/null; then
+        DCGM_EXPORTER_URL="http://nvidia-dcgm-exporter.gpu-operator.svc:9400/metrics"
+    fi
+    if [[ -n "$DCGM_EXPORTER_URL" ]] \
+        && DCGM_EXPORTER_METRICS=$(curl -fsS --max-time 5 "$DCGM_EXPORTER_URL" 2>/dev/null) \
+        && grep -q '^DCGM_FI_' <<<"$DCGM_EXPORTER_METRICS"; then
+        DCGM_EXPORTER_DETECTED="true"
+        DCGM_EXPORTER_EVIDENCE="via DCGM metrics at $DCGM_EXPORTER_URL"
+        if [[ "$MONITORING_PLATFORMS" != *'"dcgm-exporter"'* ]]; then
+            MONITORING_PLATFORMS="${MONITORING_PLATFORMS:+${MONITORING_PLATFORMS},}\"dcgm-exporter\""
+        fi
+    fi
+fi
+
 # Report exactly one status for each monitoring component.
 if [[ "$PROMETHEUS_DETECTED" == "true" ]]; then
     print_info "Prometheus: detected in a tenant-visible node environment"
@@ -3001,7 +3027,7 @@ else
     print_detail "Prometheus: not visible from tenant nodes; provider verification required"
 fi
 case "$DCGM_EXPORTER_DETECTED" in
-    true) print_info "dcgm-exporter: detected on compute node ${WORKER_HOSTNAME}" ;;
+    true) print_info "dcgm-exporter: detected ${DCGM_EXPORTER_EVIDENCE}" ;;
     false) print_detail "dcgm-exporter: not detected on compute node ${WORKER_HOSTNAME}" ;;
     *) print_detail "dcgm-exporter: worker deployment unverified from this tenant scope" ;;
 esac
