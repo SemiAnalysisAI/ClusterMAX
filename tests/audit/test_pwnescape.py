@@ -539,3 +539,13 @@ def test_fleet_report_names_failing_and_unread_hosts():
     report = next(c for c in checks if c.key == "security.pwnescape.status")
     assert report.status == audit_report.FAIL
     assert "failing cp-1" in report.observed
+
+
+def test_coverage_incomplete_report_requests_provider_evidence():
+    value = {"status": "coverage-incomplete", "controlPlaneVisible": False}
+    checks = audit_report.evaluate({"audit_data": {"security": {"pwnescape": value}}}, ROOT / "cmax")
+    report = next(c for c in checks if c.key == "security.pwnescape.status")
+    assert report.status == audit_report.WARNING
+    assert "not a pass" in report.assessment
+    assert "control-plane" in report.recommendation
+    assert "Correct the reported configuration" not in report.recommendation
