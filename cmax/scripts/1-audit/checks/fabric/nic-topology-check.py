@@ -321,12 +321,11 @@ def classify_nics(topo: str, hcas: list, netdevs: list) -> list:
 
 PLANE_TOOL_TIMEOUT_S = 10
 # Without the MST kernel driver (/dev/mst absent, the usual case), MFT reads
-# the device through PCI config space in sysfs: about 9,000 config reads and
-# writes per parameter, so a full `mlxconfig query` (185 parameters on a
-# ConnectX-7) takes about 7.4s, versus 0.4s for mlxlink. It needs its own longer bound.
+# the device through PCI config space in sysfs, with thousands of config reads
+# and writes per parameter. A full `mlxconfig query` reads every parameter, so
+# it can take several seconds, far longer than mlxlink. It needs its own bound.
 PLANE_MLXCONFIG_TIMEOUT_S = 20
-# About 10s per HCA in practice (mlxconfig 7.4s, ibnetdiscover 1.9s, mlxlink
-# 0.4s), so 90s covers an 8-rail node. The budget is checked before each HCA,
+# Sized for an 8-rail node with each HCA well inside its tool timeouts. The budget is checked before each HCA,
 # so the worst case is 90s + one HCA at its timeouts (20+10+10s) = 130s,
 # inside SLURM_TIMEOUT_S.
 PLANE_BUDGET_S = 90.0
@@ -411,7 +410,7 @@ def tool_device(sysfs_root: str, dev: str) -> str:
     """PCI address for an RDMA device, falling back to its ibdev name.
 
     mlxconfig and mlxlink resolve mlx5_N names, but not names that udev or a
-    provider renamed (for example ibp0). The PCI function always resolves.
+    provider renamed (for example rail0). The PCI function always resolves.
     """
     target = os.path.realpath(f"{sysfs_root}/{dev}/device")
     name = os.path.basename(target)
@@ -996,7 +995,7 @@ done
 # reason as tri-state instead of failing. Bounded so a hung tool can never
 # kill the exec and lose the classification above: `timeout 8` per command
 # (`timeout 20` for mlxconfig, whose full query reads PCI config space and
-# takes about 7.4s without the MST driver), at most 8 HCAs, and tools are
+# can take several seconds without the MST driver), at most 8 HCAs, and tools are
 # SKIPPED outright when the pod image has no timeout(1) to enforce the bound
 # (worst case 8 x (20 + 8 + 8)s = 288s, inside this check's 360s exec window).
 TO=""; command -v timeout >/dev/null 2>&1 && TO="timeout 8"
@@ -1037,7 +1036,7 @@ for d in /sys/class/infiniband/*; do
   g=$(cat "$d/node_guid" 2>/dev/null)
   printf '@@PLANEGUID@@\t%s\t%s\n' "$n" "$g"
   l=$(cat "$d/ports/1/link_layer" 2>/dev/null)
-  # Renamed ibdevs (for example ibp0) do not resolve in the mlx tools; the
+  # Renamed ibdevs (for example rail0) do not resolve in the mlx tools; the
   # PCI function does.
   td=$(basename "$(readlink -f "$d/device" 2>/dev/null)" 2>/dev/null)
   case "$td" in [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]:*.[0-7]) ;; *) td="$n";; esac
