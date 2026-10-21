@@ -970,6 +970,35 @@ count_snodes_states() {
     ' <<< "$snodes_out"
 }
 
+scontrol_node_inventory() {
+    # Preserve partition membership from each one-line node record.
+    awk '
+        {
+            delete fields
+            for (i = 1; i <= NF; i++) {
+                equal = index($i, "=")
+                if (equal > 0) fields[substr($i, 1, equal - 1)] = substr($i, equal + 1)
+            }
+            if (fields["NodeName"] == "") next
+            gpu = 0
+            count = split(fields["Gres"], gres, ",")
+            for (i = 1; i <= count; i++) {
+                if (match(gres[i], /^gpu(:[A-Za-z0-9_.-]+)?:[0-9]+/)) {
+                    value = substr(gres[i], RSTART, RLENGTH)
+                    sub(/^.*:/, "", value)
+                    gpu += value
+                }
+            }
+            partition = fields["Partitions"]
+            if (partition == "(null)") partition = ""
+            printf "%s|%s|%d|%d|%d|%s\n", fields["NodeName"], fields["State"],
+                fields["CPUTot"], fields["RealMemory"], gpu, partition
+        }
+    ' <<< "${1:-}" | jq -Rn '[inputs | split("|") |
+        {name: .[0], state: .[1], cpus: (.[2] | tonumber),
+         memory: (.[3] | tonumber), gpus: (.[4] | tonumber), partition: .[5]}]'
+}
+
 snodes_inventory() {
     # This table does not carry GRES counts. Keep unknown distinct from zero.
     local hostlist state partition hosts host
@@ -1016,8 +1045,7 @@ select_worker_ssh_nodes() {
                 or . == "POWERED_DOWN" or . == "POWERING_DOWN" or . == "POWER_DOWN"
             )) | not));
         (if $allocated == null and $partition != "" and $partition != "none"
-                and any(.[]; has("partition"))
-         then [.[] | select(.partition == $partition)]
+         then [.[] | select(((.partition // "") | split(",") | index($partition)) != null)]
          else . end)
         | [.[] | select(usable)
              | select($allocated == null or (.name as $name | $allocated | index($name) != null))] as $usable
