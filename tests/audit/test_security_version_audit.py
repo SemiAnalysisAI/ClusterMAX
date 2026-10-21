@@ -91,7 +91,6 @@ def unreadable_minimum_table():
 
 class NvidiaDriverPolicyTests(unittest.TestCase):
     def test_driver_below_its_branch_minimum_version_fails(self) -> None:
-        # Derive a test version from the public minimum, not a host reading.
         minimum = read_minimum("components.nvidiaDriver.branches.580")
         parts = [int(part) for part in minimum.split(".")]
         parts[-1] -= 1
@@ -123,14 +122,6 @@ class NvidiaDriverPolicyTests(unittest.TestCase):
         self.assertIn(str(newest + 5), verdict.detail)
 
     def test_non_nvidia_driver_version_is_never_graded_as_a_pass(self) -> None:
-        """The amdgpu value that reached the driver check ungated.
-
-        An arbitrary amdgpu-shaped value occupies the vendor-neutral
-        gpus.driverVersion field. The gpu_vendor gate catches it, and this is
-        the second line: branch 6 is outside any NVIDIA branch, so the verdict
-        is unknown. Before the domain guard, a foreign value only avoided a
-        pass by being numerically below the tracked branches.
-        """
         verdict = security.nvidia_driver_verdict("6.1.2")
         self.assertEqual(verdict.status, "unknown")
         self.assertNotEqual(verdict.status, "pass")
@@ -236,8 +227,6 @@ class DcgmPolicyTests(unittest.TestCase):
             "the DCGM minimums no longer disagree, so this test cannot detect a transposition",
         )
 
-        # The synthetic discriminator sits inside
-        # the window where the two minimums disagree.
         discriminator = "4.7.1"
         parsed = security.numeric_version(discriminator)
         self.assertGreaterEqual(parsed, dcgm_minimum)
@@ -388,19 +377,26 @@ class ConnectxFirmwarePolicyTests(unittest.TestCase):
         self.assertIn("Meets", passing.detail)
 
     def test_patched_connectx4_firmware_is_not_graded_as_a_fail(self) -> None:
-        # 12.28.4702 is a patched ConnectX-4 image. The retired policy compared
-        # every unlisted train against the GA train and reported it as failed.
         verdict = security.connectx_firmware_verdict("12.28.4702")
         self.assertEqual(verdict.status, "pass")
 
     def test_train_newer_than_the_bulletin_requires_advisory_evidence(self) -> None:
-        # The fixture bulletin explicitly includes this product in a GA
-        # "46.3008 or newer" range; a missing range is tested separately.
         train = max(self.trains) + 1
         verdict = security.connectx_firmware_verdict(f"40.{train}.2526")
         self.assertEqual(verdict.status, "pass")
         self.assertIn("explicit ConnectX-8 GA fixed range", verdict.detail)
         self.assertIn(str(max(self.trains)), verdict.detail)
+
+    def test_unlisted_train_without_explicit_ga_range_stays_unknown(self) -> None:
+        component = minimums.component
+        block = dict(component("connectxFirmware"))
+        block.pop("gaRanges", None)
+        with mock.patch.object(
+            minimums, "component",
+            side_effect=lambda name: block if name == "connectxFirmware" else component(name),
+        ):
+            verdict = security.connectx_firmware_verdict(f"40.{max(self.trains) + 1}.2526")
+        self.assertEqual(verdict.status, "unknown")
 
     def test_older_unassessed_train_is_unknown_rather_than_failed(self) -> None:
         train = next(
@@ -581,7 +577,6 @@ class VirtioNetPlatformModeTests(unittest.TestCase):
     def test_nic_mode_passes_current_exposure_without_certifying_stored_firmware(
         self,
     ) -> None:
-        """Current exposure and the stored firmware grade stay separate."""
         below = _shift_patch(min(
             self.fixed.values(), key=lambda value: security.numeric_version(value, parts=3)
         ), -1)
@@ -608,6 +603,7 @@ class VirtioNetPlatformModeTests(unittest.TestCase):
         self.assertEqual(record["exposure"], "none")
         self.assertIn("does not certify stored", record["detail"])
         self.assertEqual(record["versionUnavailableReason"], "not-observed")
+        self.assertEqual(record["floorStatus"], "unknown")
         self.assertEqual(
             record["versionUnavailableDetail"], "virtnet is not installed on the host"
         )
@@ -642,11 +638,6 @@ class VirtioNetPlatformModeTests(unittest.TestCase):
                 )
                 self.assertEqual(record["floorStatus"], "fail")
                 self.assertEqual(record["exposure"], "none" if coverage else "latent")
-
-    def test_an_unread_version_on_an_idle_card_retains_unknown_floor(self) -> None:
-        record = security.virtio_net_result("unknown", mode="nic")
-        self.assertEqual(record["floorStatus"], "unknown")
-        self.assertEqual(record["exposure"], "none")
 
     def test_dpu_mode_below_the_minimum_is_a_live_exposure(self) -> None:
         below = _shift_patch(min(
@@ -1824,14 +1815,7 @@ class MissingMinimumTableTests(unittest.TestCase):
 
 
 class GpuAbsentDriverPolicyTests(unittest.TestCase):
-    """A completed scan that found no NVIDIA GPU ends the driver's scope.
-
-    A synthetic GPU-less standalone host with model ``no-nvidia-smi`` must
-    not grade ``unknown`` and warn, which would raise an
-    attestation request for a driver that cannot exist on that host. Only the
-    collector's positive absence claim may cause the skip, and only while the
-    driver version itself is unreadable.
-    """
+    """A completed scan that found no NVIDIA GPU ends the driver's scope."""
 
     def evaluate_driver(self, **kwargs) -> dict:
         base = dict(

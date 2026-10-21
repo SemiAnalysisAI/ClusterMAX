@@ -601,8 +601,7 @@ class SecurityReportTests(unittest.TestCase):
             Path("/tmp/report"),
         )
         self.assertIn("# ClusterMAX security audit report", report)
-        # CUDA, ConnectX, and the absent bare-metal NVLink boundary do not apply.
-        self.assertIn("3 failed, 7 warnings, 4 passed, 3 skipped", report)
+        self.assertIn("3 failed, 8 warnings, 4 passed, 3 skipped", report)
         self.assertIn("Action required: 3 critical findings.", report)
         self.assertNotIn("critical findings are known exposure", report)
         self.assertIn("NVIDIA driver minimum version", report)
@@ -1140,14 +1139,12 @@ class MinimumFreshnessTests(unittest.TestCase):
             security.counts(stale_checks),
             {
                 security.PASS: 3,
-                security.WARNING: 7,
+                security.WARNING: 8,
                 security.CRITICAL: 4,
                 security.NOT_APPLICABLE: 3,
             },
         )
-        self.assertEqual(sum(security.counts(stale_checks).values()), 17)
-        # A stale table is a notice, so a run with no critical finding still
-        # exits 0 and no check is graded critical by staleness alone.
+        self.assertEqual(sum(security.counts(stale_checks).values()), 18)
         self.assertEqual(clean_exit, 0)
         report = self._report(now=self.generated + timedelta(days=40), verbosity=3)
         self.assertNotIn("minimum-version-freshness", report)
@@ -1202,8 +1199,8 @@ class MinimumFreshnessTests(unittest.TestCase):
 
     def test_minimum_freshness_is_not_a_graded_criterion(self) -> None:
         ids = [spec.id for spec in security.CHECK_SPECS]
-        self.assertEqual(len(ids), 17)
-        self.assertEqual(len(set(ids)), 17)
+        self.assertEqual(len(ids), 18)
+        self.assertEqual(len(set(ids)), 18)
         self.assertEqual(
             ids,
             [

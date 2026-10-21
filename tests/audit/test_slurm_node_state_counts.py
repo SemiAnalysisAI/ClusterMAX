@@ -1,8 +1,5 @@
 
-Slurm joins a node base state and its flags with "+", for example
-"IDLE+CLOUD+POWERED_DOWN". These hand-built synthetic fixtures distinguish
-power-save flags from actual down/drained states. No scheduler logs are used.
-"""
+"""Unit tests for Slurm node-state counting in the cluster audit."""
 
 from __future__ import annotations
 
@@ -108,7 +105,6 @@ class SlurmNodeStateCountTests(unittest.TestCase):
 
 class SnodesStateCountTests(unittest.TestCase):
     def test_sinfo_power_save_suffix_counts_as_idle(self) -> None:
-        """Hand-written synthetic rows cover a flag, a base state and zero."""
         rows = "\n".join(
             [
                 "PARTITION AVAIL  TIMELIMIT  NODES  STATE NODELIST",

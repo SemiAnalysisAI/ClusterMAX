@@ -310,6 +310,7 @@ _REPRODUCTION_COMMANDS = {
     "securityVersions.runc.status": "on the audited worker: `runc --version`",
     "securityVersions.dcgm.status": "on the audited worker: `dcgmi --version`",
     "security.fragnesia.status": "on the audited worker: `uname -r`",
+    "security.ubuntuNobleKernelMinimum.status": "on the audited worker: `uname -r`",
     "security.pwnescape.status": (
         "on the audited worker: `uname -r`; inspect `/sys/kernel/livepatch`; "
         "request provider patch evidence when the physical host is hidden"

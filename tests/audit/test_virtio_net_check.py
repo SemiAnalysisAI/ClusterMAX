@@ -491,11 +491,6 @@ class EscalationPathTests(unittest.TestCase):
 
 @unittest.skipIf(os.geteuid() == 0, "a root caller holds the rights and never escalates")
 class PrivilegedModeReadTests(CheckHarness):
-    """`mlxconfig` needs root, so the mode read escalates with `sudo -n`.
-
-    Synthetic stubs require sudo for the mode read. A successful retry must
-    expose NIC mode and the RShim setting to both dependent criteria.
-    """
 
     def test_a_tenant_mode_read_escalates_and_settles_the_scope(self) -> None:
         self.stub_output("lspci", BLUEFIELD3_LSPCI)
@@ -541,9 +536,7 @@ class PrivilegedModeReadTests(CheckHarness):
         self.assertIsNone(evidence["modeError"])
 
     def test_an_enabled_rshim_is_proven_rather_than_left_unknown(self) -> None:
-        # The synthetic fixture sets INTERNAL_CPU_RSHIM=ENABLED(0). The
-        # evaluator grades this as a reachable DPU control plane, so leaving it
-        # unreadable turned a proven finding into "posture unknown".
+
         self.stub_output("lspci", BLUEFIELD3_LSPCI)
         self.stub_root_only("mlxconfig", NIC_MODE_MLXCONFIG)
         self.stub_sudo()
@@ -569,7 +562,6 @@ class PrivilegedModeReadTests(CheckHarness):
         self.assertIn("sudo -n retry did not answer", record["reason"])
 
     def test_failed_mode_read_never_loads_host_kernel_modules(self) -> None:
-        # Missing tool access stays unknown; a security audit must not start MST.
         self.stub_output("lspci", BLUEFIELD3_LSPCI)
         self.stub("mlxconfig", 'echo "-E- Failed to open the device" >&2\nexit 1')
         self.stub("mst", "exit 0")
@@ -1062,7 +1054,7 @@ class KubernetesNamespaceTests(unittest.TestCase):
         self.check = load_check_module()
 
     def test_common_nvidia_namespace_is_discovered(self) -> None:
-        # Construct a cluster with the GPU Operator in the `nvidia` namespace.
+
         calls = []
 
         def runner(command, **kwargs):

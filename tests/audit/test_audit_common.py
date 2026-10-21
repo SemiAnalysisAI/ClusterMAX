@@ -1837,35 +1837,20 @@ class HostCheckGpuInventoryTests(unittest.TestCase):
             or line.startswith("WORKER_SECURITY_NVIDIA_")
         )
 
-    def test_a_listed_nvidia_device_is_present(self) -> None:
-        listing = "0000:00:1f.0 0601: 8086:a1c1\n0000:07:00.0 0302: 10de:2901\n"
-        facts = self.facts(
-            self.run_inventory(self.make_root(), lspci=f"printf '%s' '{listing}'")
-        )
-        self.assertEqual(facts["WORKER_SECURITY_GPU_INVENTORY_COMPLETE"], "true")
-        self.assertEqual(facts["WORKER_SECURITY_NVIDIA_GPU_PRESENT"], "true")
-
-    def test_a_read_bus_with_no_nvidia_device_is_absent(self) -> None:
-        listing = "0000:00:1f.0 0601: 8086:a1c1\n0000:02:00.0 0200: 1af4:1041\n"
-        facts = self.facts(
-            self.run_inventory(self.make_root(), lspci=f"printf '%s' '{listing}'")
-        )
-        self.assertEqual(facts["WORKER_SECURITY_GPU_INVENTORY_COMPLETE"], "true")
-        self.assertEqual(facts["WORKER_SECURITY_NVIDIA_GPU_PRESENT"], "false")
-
-    def test_corroborated_empty_bus_is_absent(self) -> None:
-        # Synthetic empty bus: lspci exits 0 with nothing to
-        # print and /sys/bus/pci/devices is readable and empty.
-        facts = self.facts(
-            self.run_inventory(self.make_root(empty_pci_bus=True), lspci="exit 0")
-        )
-        self.assertEqual(facts["WORKER_SECURITY_GPU_INVENTORY_COMPLETE"], "true")
-        self.assertEqual(facts["WORKER_SECURITY_NVIDIA_GPU_PRESENT"], "false")
-
-    def test_uncorroborated_empty_listing_stays_unknown(self) -> None:
-        facts = self.facts(self.run_inventory(self.make_root(), lspci="exit 0"))
-        self.assertEqual(facts["WORKER_SECURITY_GPU_INVENTORY_COMPLETE"], "false")
-        self.assertEqual(facts["WORKER_SECURITY_NVIDIA_GPU_PRESENT"], "unknown")
+    def test_gpu_inventory_preserves_present_absent_and_unknown(self) -> None:
+        for label, empty_bus, listing, complete, present in (
+            ("nvidia", False, "0000:00:1f.0 0601: 8086:a1c1\n0000:07:00.0 0302: 10de:2901\n", "true", "true"),
+            ("no-nvidia", False, "0000:00:1f.0 0601: 8086:a1c1\n0000:02:00.0 0200: 1af4:1041\n", "true", "false"),
+            ("empty-confirmed", True, "", "true", "false"),
+            ("empty-unconfirmed", False, "", "false", "unknown"),
+        ):
+            with self.subTest(evidence=label):
+                facts = self.facts(self.run_inventory(
+                    self.make_root(empty_pci_bus=empty_bus),
+                    lspci=f"printf '%s' '{listing}'",
+                ))
+                self.assertEqual(facts["WORKER_SECURITY_GPU_INVENTORY_COMPLETE"], complete)
+                self.assertEqual(facts["WORKER_SECURITY_NVIDIA_GPU_PRESENT"], present)
 
     @unittest.skipIf(os.geteuid() == 0, "root can list any directory")
     def test_an_unreadable_sysfs_bus_stays_unknown(self) -> None:

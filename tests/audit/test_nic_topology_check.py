@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Unit tests with generated topology matrices and synthetic collector records."""
 
 from __future__ import annotations

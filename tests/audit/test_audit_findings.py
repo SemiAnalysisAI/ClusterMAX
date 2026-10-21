@@ -199,10 +199,6 @@ class DetectFindingsTests(unittest.TestCase):
         self.assertIn("distributed GPU jobs", topology.recommendation)
 
     def test_worker_check_unavailable_is_inconclusive_not_missing(self) -> None:
-        # Synthetic case: the srun worker check cannot schedule, so the
-        # container.* booleans hold their stale `false` defaults. That is
-        # inconclusive, not "not installed": no MISSING/VERSION finding should
-        # fire, only a CONFIG attestation note keyed on workerCheckOk.
         audit_data = {
             "containers": {
                 "workerCheckOk": False,
@@ -223,7 +219,6 @@ class DetectFindingsTests(unittest.TestCase):
         self.assertIn("attestation", note.title.lower())
 
     def test_worker_check_present_with_working_runtime_has_no_false_missing(self) -> None:
-        # Construct a successful worker check with every container prerequisite.
         audit_data = {
             "containers": {
                 "workerCheckOk": True,
@@ -630,10 +625,6 @@ class DetectFindingsTests(unittest.TestCase):
         self.assertIn("could not be checked", finding.title.lower())
 
     def test_vboost_unavailable_check_does_not_flag_denial(self) -> None:
-        # Synthetic login node: nvidia-smi is a stub binary, so every
-        # per-node result is nvidia_smi_error and the check aggregates to
-        # status "unavailable" with allowed=false. That is missing data, not a
-        # provider denial; the "not allowed" finding must stay silent.
         audit_data = {
             "gpu_controls": {
                 "vboost": {

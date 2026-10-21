@@ -874,26 +874,8 @@ class DcgmVersionTests(TempDirMixin):
 
 
 class SecurityGpuVendorGateTests(unittest.TestCase):
-    """The vendor handed to the minimum versions must depend on the vendor alone.
-
-    `build_security_version_audit`'s 6th positional argument decides whether the
-    NVIDIA driver minimums apply at all. Both the slurm and standalone collectors
-    used to require `DRIVER_VERSION == unknown` as well as `AMD_GPUS_PRESENT`,
-    which made the gate depend on the AMD driver promotion *not* existing on
-    those two harnesses. A promoted amdgpu version in the vendor-neutral
-    gpus.driverVersion field must not flip an AMD cluster back to "nvidia".
-
-    Standalone was the worse case: it passes DRIVER_VERSION itself as the
-    security driver version, so the promoted amdgpu version would have been
-    graded directly against NVIDIA's driver minimums.
-
-    This class is the coverage that was missing. test_audit_common.py never
-    passed a 6th positional argument, so the derivation had no executable test
-    at all and both bugs survived.
-    """
 
     GATES = (("slurm", SLURM_VENDOR_GATE), ("standalone", STANDALONE_VENDOR_GATE))
-    # Arbitrary synthetic amdgpu-shaped version.
     AMD_DRIVER_VERSION = "6.1.2"
 
     def vendor(self, gate: str, **variables: str) -> str:

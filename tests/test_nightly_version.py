@@ -1,10 +1,9 @@
 import importlib.util
 from pathlib import Path
 
-from packaging.version import Version
+import pytest
 import yaml
-
-from cmax import __version__
+from packaging.version import Version
 
 
 SCRIPT_PATH = Path(__file__).parents[1] / ".github" / "scripts" / "nightly_version.py"
@@ -14,38 +13,24 @@ NIGHTLY_VERSION = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(NIGHTLY_VERSION)
 
 
-class NightlyVersionTests(unittest.TestCase):
-    def test_formats_the_first_daily_sequence_with_two_digits(self) -> None:
-        self.assertEqual(
-            NIGHTLY_VERSION.nightly_version("0.3.0", "20260826", 1),
-            "0.3.0.dev2026082601",
-        )
+def test_workflow_nightly_version_sorts_after_stable() -> None:
+    from cmax import __version__
 
-    def test_keeps_a_run_number_longer_than_two_digits(self) -> None:
-        self.assertEqual(
-            NIGHTLY_VERSION.nightly_version("0.3.0", "20260826", 123),
-            "0.3.0.dev20260826123",
-        )
+    workflow = yaml.safe_load(
+        (SCRIPT_PATH.parents[1] / "workflows" / "python-nightly.yml").read_text()
+    )
+    configured_base = workflow["env"]["NIGHTLY_VERSION"]
+    nightly = NIGHTLY_VERSION.nightly_version(configured_base, "20260826", 1)
+    assert Version(nightly) > Version(__version__)
+    assert Version(nightly) < Version(configured_base)
 
-    def test_next_release_nightly_is_newer_than_current_stable(self) -> None:
-        workflow = SCRIPT_PATH.parents[1] / "workflows" / "python-nightly.yml"
-        configured_base = yaml.safe_load(workflow.read_text())["env"]["NIGHTLY_VERSION"]
-        nightly = NIGHTLY_VERSION.nightly_version(configured_base, "20260826", 1)
 
-        self.assertGreater(Version(nightly), Version(__version__))
-        self.assertLess(Version(nightly), Version(configured_base))
-
-    def test_rejects_an_invalid_release_version(self) -> None:
-        with self.assertRaisesRegex(ValueError, "X.Y.Z"):
-            NIGHTLY_VERSION.nightly_version("0.2", "20260826", 1)
-
-    def test_rejects_an_invalid_calendar_date(self) -> None:
-        with self.assertRaisesRegex(ValueError, "valid UTC calendar date"):
-            NIGHTLY_VERSION.nightly_version("0.3.0", "20260230", 1)
-
-    def test_rejects_a_nonpositive_run_number(self) -> None:
-        with self.assertRaisesRegex(ValueError, "positive integer"):
-            NIGHTLY_VERSION.nightly_version("0.3.0", "20260826", 0)
+@pytest.mark.parametrize(
+    ("run", "expected"),
+    [(1, "0.3.0.dev2026082601"), (123, "0.3.0.dev20260826123")],
+)
+def test_formats_daily_sequence(run: int, expected: str) -> None:
+    assert NIGHTLY_VERSION.nightly_version("0.3.0", "20260826", run) == expected
 
 
 @pytest.mark.parametrize(

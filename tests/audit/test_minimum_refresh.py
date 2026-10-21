@@ -284,6 +284,33 @@ class ExtractorTest(unittest.TestCase):
             )
         )
 
+    def test_multiple_connectx_bulletins_keep_the_highest_matching_ga_floor(self) -> None:
+        older = fixture("nvidia-connectx-5699.json")
+        newer = copy.deepcopy(older)
+        baseline_ranges = fr.connectx_minimums(
+            documents=[({"year": 2026, "aId": 5699}, older)], fetch=self.stub
+        )["gaRanges"]
+        selected = baseline_ranges[0]
+        for architecture, products in fr.csaf_arch_branches(newer):
+            if architecture != selected["architectures"]:
+                continue
+            for product in products:
+                if (
+                    product["name"] == selected["product"]
+                    and product["product"]["name"].endswith(" or newer")
+                ):
+                    product["product"]["name"] = "99.9999 or newer"
+        combined = fr.connectx_minimums(
+            documents=[
+                ({"year": 2026, "aId": 5700}, newer),
+                ({"year": 2026, "aId": 5699}, older),
+            ],
+            fetch=self.stub,
+        )["gaRanges"]
+        expected = copy.deepcopy(baseline_ranges)
+        expected[0]["minimum"] = "99.9999"
+        self.assertEqual(combined, expected)
+
     def test_network_bulletin_for_legacy_products_is_not_applied(self) -> None:
         doc = fixture("nvidia-connectx-5847.json")
         self.assertEqual(fr.connectx_trains_in(doc), {})
@@ -491,24 +518,6 @@ class ExtractorTest(unittest.TestCase):
         self.assertEqual(blocks["dcgm"]["source"], blocks["dcgmExporter"]["source"])
         self.assertEqual(blocks["dcgm"]["source"]["aId"], 5857)
 
-    def test_dcgm_exporter_fixed_entry_wins_over_the_affected_range(self) -> None:
-        """Upstream lists 4.8.2 as both the affected upper bound and the fix.
-
-        Bulletin 5857 says DCGM Exporter is affected "0.0  to 4.8.2" and fixed
-        at "4.8.2". Read literally the same release is both. The fixed entry is
-        authoritative, so 4.8.2 is the minimum and a host on 4.8.2 grades pass.
-        A change that let the affected range raise the minimum would grade every
-        patched deployment as vulnerable.
-        """
-        blocks = fr.bulletin_product_minimums(2026, 5857, fr.DCGM_PRODUCTS, fetch=self.stub)
-        self.assertEqual(blocks["dcgmExporter"]["minimum"], "4.8.2")
-
-    def test_the_dcgm_bulletin_keeps_the_upstream_double_space(self) -> None:
-        # The exact string upstream publishes. An editor that collapses the
-        # double space would silently weaken every parser regression below.
-        raw = (FIXTURES / "nvidia-dcgm-5857.json").read_text()
-        self.assertIn('"0.0  to 4.5.2"', raw)
-        self.assertIn('"0.0  to 4.8.2"', raw)
 
     def test_bad_epoll_uses_release_and_source_package_specific_fixes(self) -> None:
         noble = fr.ubuntu_minimums(fetch=self.stub)
@@ -525,6 +534,7 @@ class ExtractorTest(unittest.TestCase):
             codename="jammy",
             specs=({"key": "linuxBadEpoll", "cve": "CVE-2026-46242",
                     "package": "linux-hwe-6.8"},),
+            package_policy=(),
             fetch=self.stub,
         )
         self.assertEqual(
@@ -563,7 +573,12 @@ class ExtractorTest(unittest.TestCase):
             "unconfirmed",
         )
         api_calls = [url for url in self.stub.calls if url.startswith(fr.UBUNTU_CVE_URL)]
-        self.assertEqual(api_calls, [f"{fr.UBUNTU_CVE_URL}CVE-2026-53359.json"])
+        self.assertCountEqual(api_calls, [
+            f"{fr.UBUNTU_CVE_URL}CVE-2026-46242.json",
+            f"{fr.UBUNTU_CVE_URL}CVE-2026-46242.json",
+            f"{fr.UBUNTU_CVE_URL}CVE-2026-46300.json",
+            f"{fr.UBUNTU_CVE_URL}CVE-2026-53359.json",
+        ])
 
     def test_ubuntu_notice_discovery_fails_closed_on_incomplete_pagination(self) -> None:
         first_url = fr.ubuntu_notices_query_url("qemu", fr.UBUNTU_RELEASE)

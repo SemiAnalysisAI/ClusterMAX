@@ -104,7 +104,10 @@ UBUNTU_OSV_VULN_URL = "https://api.osv.dev/v1/vulns/"
 UBUNTU_OSV_RAW_URL = (
     "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/main/osv/cve/"
 )
-UBUNTU_OSV_ECOSYSTEMS = {"noble": "Ubuntu:24.04:LTS"}
+UBUNTU_OSV_ECOSYSTEMS = {
+    "noble": "Ubuntu:24.04:LTS",
+    "jammy": "Ubuntu:22.04:LTS",
+}
 UBUNTU_NOTICE_URL = "https://ubuntu.com/security/notices/"
 UBUNTU_NOTICES_URL = "https://ubuntu.com/security/notices.json"
 UBUNTU_NOTICE_PAGE_LIMIT = 20
@@ -844,30 +847,13 @@ def nvidia_driver_minimums(
     }
 
 
-def connectx_minimums(
-    year: int | None = None, a_id: int | None = None, fetch: Fetcher | None = None
-) -> dict:
-    """ConnectX / BlueField firmware trains, keyed by the train number."""
-    year = year if year is not None else bulletin_ref("connectxFirmware")["year"]
-    a_id = a_id if a_id is not None else bulletin_ref("connectxFirmware")["aId"]
-    doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
-    trains: dict[str, int] = {}
-    ga_ranges: list[dict[str, str]] = []
+def connectx_document_applies(doc: dict) -> bool:
+    """Whether a networking bulletin covers ClusterMAX's supported hardware."""
     for arch, kids in csaf_arch_branches(doc):
-        # Keep the vendor's explicit GA range, including architectures without
-        # parenthesized train numbers. LTS floors remain train-specific.
-        for kid in kids:
-            product = str(kid.get("name") or "")
-            phrase = str(kid.get("product", {}).get("name") or "")
-            match = re.fullmatch(r"(\d+\.\d+)\s+or newer", phrase.strip(), re.I)
-            if product in {"ConnectX GA", "BlueField GA"} and match:
-                ga_ranges.append({
-                    "product": product, "architectures": arch,
-                    "minimum": match.group(1), "relation": "or-newer",
-                })
-        # "BlueField-2(46), BlueField-3(46)", "N/A(28)", or a name with no train.
-        train_ids = {int(value) for value in re.findall(r"\((\d+)\)", arch)}
-        if len(train_ids) != 1:
+        if not any(
+            product.lower() in arch.lower()
+            for product in NVIDIA_NETWORK_SUPPORTED_PRODUCTS
+        ):
             continue
         if any(
             re.match(r"^(?:connectx|bluefield)(?:\s|$)", str(kid.get("name", "")), re.I)
@@ -930,10 +916,30 @@ def connectx_minimums(
     trains: dict[str, int] = {}
     train_availability: dict[str, dict[str, Any]] = {}
     sources: list[dict] = []
+    ga_ranges: list[dict[str, str]] = []
     for ref, doc in documents:
         extracted = connectx_trains_in(doc)
         if not extracted:
             continue
+        # Preserve explicit vendor GA ranges from every applicable bulletin.
+        for arch, kids in csaf_arch_branches(doc):
+            for kid in kids:
+                product = str(kid.get("name") or "")
+                phrase = str(kid.get("product", {}).get("name") or "")
+                match = re.fullmatch(r"(\d+\.\d+)\s+or newer", phrase.strip(), re.I)
+                if product in {"ConnectX GA", "BlueField GA"} and match:
+                    ga_range = {
+                        "product": product, "architectures": arch,
+                        "minimum": match.group(1), "relation": "or-newer",
+                    }
+                    previous = next((
+                        item for item in ga_ranges
+                        if item["product"] == product and item["architectures"] == arch
+                    ), None)
+                    if previous is None:
+                        ga_ranges.append(ga_range)
+                    elif version_key(ga_range["minimum"]) > version_key(previous["minimum"]):
+                        previous["minimum"] = ga_range["minimum"]
         year, a_id = ref["year"], ref["aId"]
         source = nvidia_source(a_id, year, doc)
         sources.append(source)
@@ -952,12 +958,12 @@ def connectx_minimums(
         "kind": "trainMap",
         "trains": dict(sorted(trains.items(), key=lambda kv: int(kv[0]))),
         "gaRanges": ga_ranges,
-        "floorAvailability": {
-            train: {**availability, "version": f"{train}.{patch}"}
-            for train, patch in sorted(trains.items(), key=lambda kv: int(kv[0]))
-        },
-        "advisory": NVIDIA_ADVISORY.format(a_id=a_id),
-        "source": nvidia_source(a_id, year, doc),
+        "floorAvailability": dict(
+            sorted(train_availability.items(), key=lambda kv: int(kv[0]))
+        ),
+        "advisory": NVIDIA_ADVISORY.format(a_id=newest.get("aId", "")),
+        "source": newest,
+        "sources": sorted(sources, key=lambda item: item["aId"]),
     }
 
 
@@ -2715,6 +2721,7 @@ def build_minimums(
                 codename="jammy",
                 specs=({"key": "linuxBadEpoll", "cve": "CVE-2026-46242",
                         "package": "linux-hwe-6.8"},),
+                package_policy=(),
                 fetch=fetch,
             ),
         },

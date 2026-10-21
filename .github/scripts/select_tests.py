@@ -60,6 +60,8 @@ FULL_SUITE = (
 EXTRA_SOURCES = (
     ".github/workflows/minimum-versions-refresh.yml",
     ".github/scripts/nightly_version.py",
+    ".github/scripts/stable_release.py",
+    "tools/check_public_data.py",
     ".github/scripts/select_tests.py",
 )
 
