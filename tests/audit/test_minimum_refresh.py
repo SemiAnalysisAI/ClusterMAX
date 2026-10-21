@@ -156,6 +156,12 @@ class StubFetcher(fr.Fetcher):
             self.json_by_url[fr.ubuntu_osv_urls(cve)[0]] = ubuntu_osv["cves"][cve]
         for notice_id, notice in ubuntu_osv["notices"].items():
             self.json_by_url[f"{fr.UBUNTU_OSV_VULN_URL}{notice_id}"] = notice
+        self.json_by_url[
+            fr.ubuntu_notices_query_url("linux", fr.UBUNTU_RELEASE)
+        ] = fixture("ubuntu-notices-linux.json")
+        self.json_by_url[
+            fr.ubuntu_notices_query_url("qemu", fr.UBUNTU_RELEASE)
+        ] = fixture("ubuntu-notices-qemu.json")
         self.osv = fixture("osv-runc.json")
         for version, release in self.osv.get("_releases", {}).items():
             self.json_by_url[
@@ -656,10 +662,16 @@ class ExtractorTest(unittest.TestCase):
         }
         block = fr.ubuntu_minimums(fetch=self.stub)
         qemu = block["packages"]["qemu"]
-        self.assertEqual(qemu["fixed"], "1:8.2.2+ds-0ubuntu1.10")
-        self.assertEqual(qemu["source"]["id"], "USN-7744-1")
-        self.assertEqual(qemu["released"], "2025-09-11T12:41:28.262010")
-        self.assertEqual(qemu["priority"], "medium")
+        self.assertEqual(qemu["fixed"], "1:8.2.2+ds-0ubuntu1.16")
+        self.assertEqual(qemu["source"]["id"], "USN-8161-1")
+        self.assertEqual(qemu["released"], "2026-04-09T14:22:10.893048")
+        linux = block["packages"]["linux"]
+        self.assertEqual(linux["fixed"], "6.8.0-147.147")
+        self.assertEqual(linux["abi"], 147)
+        self.assertEqual(linux["source"]["id"], "USN-8917-1")
+        self.assertEqual(linux["coverage"]["matchedNotices"], 2)
+        self.assertEqual(linux["cveCount"], 2)
+        self.assertEqual(qemu["cve"], "CVE-2024-3446")
         self.assertEqual(block["packages"]["linuxVmscape"]["source"]["id"], "USN-7861-1")
         self.assertEqual(block["packages"]["linuxFragnesia"]["abi"], 124)
         self.assertEqual(block["packages"]["linuxJanuscape"]["status"], "pending")
@@ -671,6 +683,28 @@ class ExtractorTest(unittest.TestCase):
         # pending Janus fix, which OSV cannot describe, may read that API.
         api_calls = [url for url in self.stub.calls if url.startswith(fr.UBUNTU_CVE_URL)]
         self.assertEqual(api_calls, [f"{fr.UBUNTU_CVE_URL}CVE-2026-53359.json"])
+
+    def test_ubuntu_notice_discovery_fails_closed_on_incomplete_pagination(self) -> None:
+        first_url = fr.ubuntu_notices_query_url("qemu", fr.UBUNTU_RELEASE)
+        second_url = fr.ubuntu_notices_query_url(
+            "qemu", fr.UBUNTU_RELEASE, fr.UBUNTU_NOTICE_PAGE_LIMIT
+        )
+        self.stub.json_by_url[first_url]["total_results"] = 21
+        self.stub.json_by_url[second_url] = {
+            "limit": fr.UBUNTU_NOTICE_PAGE_LIMIT,
+            "offset": fr.UBUNTU_NOTICE_PAGE_LIMIT,
+            "total_results": 21,
+            "notices": [],
+        }
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "unique candidates"):
+            fr.ubuntu_package_notices("qemu", "qemu", fetch=self.stub)
+
+    def test_ubuntu_notice_discovery_requires_an_exact_source_package(self) -> None:
+        url = fr.ubuntu_notices_query_url("qemu", fr.UBUNTU_RELEASE)
+        for notice in self.stub.json_by_url[url]["notices"]:
+            notice["release_packages"]["noble"][0]["name"] = "qemu-utils"
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "no qemu source-package"):
+            fr.ubuntu_package_notices("qemu", "qemu", fetch=self.stub)
 
     def test_ubuntu_reads_the_github_mirror_when_osv_dev_fails(self) -> None:
         api_url, mirror_url = fr.ubuntu_osv_urls("CVE-2024-3446")

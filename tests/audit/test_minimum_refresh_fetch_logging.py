@@ -52,7 +52,7 @@ class UbuntuConcurrencyTests(unittest.TestCase):
             return {"fixed": cve}
 
         with mock.patch.object(fr, "ubuntu_entry", side_effect=entry):
-            result = fr.ubuntu_minimums(specs=specs)
+            result = fr.ubuntu_minimums(specs=specs, package_policy=())
         self.assertEqual(list(result["packages"]), ["0", "1", "2", "3"])
         self.assertEqual(result["packages"]["2"]["fixed"], "2")
 
@@ -63,7 +63,10 @@ class UbuntuConcurrencyTests(unittest.TestCase):
             ),
             self.assertRaisesRegex(fr.MinimumRefreshError, "feed unavailable"),
         ):
-            fr.ubuntu_minimums(specs=[{"key": "x", "cve": "x", "package": "x"}])
+            fr.ubuntu_minimums(
+                specs=[{"key": "x", "cve": "x", "package": "x"}],
+                package_policy=(),
+            )
 
 
 class BulletinShellTests(unittest.TestCase):

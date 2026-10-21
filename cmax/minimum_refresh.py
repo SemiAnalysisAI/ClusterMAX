@@ -8,9 +8,8 @@ machine-readable upstream sources only:
   * NVIDIA CSAF bulletins (GPU driver, ConnectX / BlueField firmware, CUDA
     Toolkit, Container Toolkit) from the NVIDIA/product-security repository
   * OSV for the runc branch ladder
-  * Canonical's Ubuntu OSV records for the Noble distro packages, read from
-    OSV.dev with the canonical/ubuntu-security-notices repository as a mirror
-    and the Ubuntu security API only for fixes that are not released yet
+  * Canonical's Ubuntu Security Notices for complete Noble package floors,
+    plus Ubuntu OSV records for named vulnerability-specific checks
   * The Docker Engine release notes that Docker authors as markdown in the
     docker/docs repository
   * The AMD security bulletins for the AMD Instinct ROCm minimum, read from the
@@ -107,6 +106,18 @@ UBUNTU_OSV_RAW_URL = (
 )
 UBUNTU_OSV_ECOSYSTEMS = {"noble": "Ubuntu:24.04:LTS"}
 UBUNTU_NOTICE_URL = "https://ubuntu.com/security/notices/"
+UBUNTU_NOTICES_URL = "https://ubuntu.com/security/notices.json"
+UBUNTU_NOTICE_PAGE_LIMIT = 20
+UBUNTU_NOTICE_MAX_PAGES = 100
+# The API has no source-package filter. `details` is only a bounded candidate
+# search; every returned notice is then matched against its structured
+# release_packages entries. These terms have been checked against Canonical's
+# complete USN repository for Noble and cover every USN for the two graded
+# source packages.
+UBUNTU_PACKAGE_POLICY: tuple[tuple[str, str], ...] = (
+    ("linux", "linux"),
+    ("qemu", "qemu"),
+)
 DOCKER_RELEASE_NOTES_RAW = (
     "https://raw.githubusercontent.com/docker/docs/main"
     "/content/manuals/engine/release-notes/{major}.md"
@@ -1358,6 +1369,194 @@ def ubuntu_notice_url(notice_id: str) -> str:
     return f"{UBUNTU_NOTICE_URL}{notice_id}.json"
 
 
+def ubuntu_notices_query_url(
+    package_term: str,
+    codename: str,
+    offset: int = 0,
+) -> str:
+    """Canonical notice-list URL used to discover package fixes."""
+
+    return UBUNTU_NOTICES_URL + "?" + urllib.parse.urlencode(
+        {
+            "release": codename,
+            "details": package_term,
+            "limit": UBUNTU_NOTICE_PAGE_LIMIT,
+            "offset": offset,
+        }
+    )
+
+
+def ubuntu_package_notices(
+    package: str,
+    package_term: str,
+    codename: str = UBUNTU_RELEASE,
+    fetch: Fetcher | None = None,
+) -> list[dict]:
+    """Return every USN that released one source package for one Ubuntu release.
+
+    Canonical's notice API cannot filter on source package. It can bound the
+    result set with a title/details search, so the policy records a search term
+    and this function then requires an exact structured source-package match.
+    Pagination is complete or the refresh fails; a source outage or a changing
+    result set cannot silently look like no new advisory.
+    """
+
+    client = _fetcher(fetch)
+    first = client.get_json(ubuntu_notices_query_url(package_term, codename))
+    total = first.get("total_results")
+    notices = first.get("notices")
+    if not isinstance(total, int) or total < 1 or not isinstance(notices, list):
+        raise MinimumRefreshError(
+            f"Ubuntu notice discovery returned malformed metadata for {package} on "
+            f"{codename}"
+        )
+    pages = (total + UBUNTU_NOTICE_PAGE_LIMIT - 1) // UBUNTU_NOTICE_PAGE_LIMIT
+    if pages > UBUNTU_NOTICE_MAX_PAGES:
+        raise MinimumRefreshError(
+            f"Ubuntu notice discovery returned {total} candidates for {package}; "
+            f"more than the {UBUNTU_NOTICE_MAX_PAGES}-page safety bound"
+        )
+
+    responses: list[dict] = [first]
+    offsets = range(UBUNTU_NOTICE_PAGE_LIMIT, total, UBUNTU_NOTICE_PAGE_LIMIT)
+    if offsets:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            responses.extend(
+                pool.map(
+                    lambda offset: client.get_json(
+                        ubuntu_notices_query_url(package_term, codename, offset)
+                    ),
+                    offsets,
+                )
+            )
+
+    candidates: dict[str, dict] = {}
+    for response in responses:
+        if response.get("total_results") != total:
+            raise MinimumRefreshError(
+                f"Ubuntu notice discovery changed while reading {package} on {codename}"
+            )
+        page = response.get("notices")
+        if not isinstance(page, list):
+            raise MinimumRefreshError(
+                f"Ubuntu notice discovery returned a malformed page for {package}"
+            )
+        for notice in page:
+            notice_id = notice.get("id") if isinstance(notice, dict) else None
+            if not isinstance(notice_id, str) or not notice_id:
+                raise MinimumRefreshError(
+                    f"Ubuntu notice discovery returned an entry without an ID for {package}"
+                )
+            candidates[notice_id] = notice
+    if len(candidates) != total:
+        raise MinimumRefreshError(
+            f"Ubuntu notice discovery returned {len(candidates)} unique candidates for "
+            f"{package}, expected {total}"
+        )
+
+    matched: list[dict] = []
+    for notice_id, notice in candidates.items():
+        # LSNs describe Canonical Livepatch delivery rather than the package
+        # version available from Noble's security pocket.
+        if not notice_id.startswith("USN-"):
+            continue
+        entries = (notice.get("release_packages") or {}).get(codename, [])
+        source = next(
+            (
+                entry
+                for entry in entries
+                if isinstance(entry, dict)
+                and entry.get("name") == package
+                and entry.get("is_source") is True
+                and isinstance(entry.get("version"), str)
+                and entry["version"].strip()
+            ),
+            None,
+        )
+        if source is None:
+            continue
+        matched.append(
+            {
+                "id": notice_id,
+                "published": notice.get("published"),
+                "version": source["version"],
+                "cves": sorted(
+                    {
+                        item.get("id")
+                        for item in notice.get("cves", [])
+                        if isinstance(item, dict)
+                        and isinstance(item.get("id"), str)
+                        and item["id"].startswith("CVE-")
+                    }
+                ),
+            }
+        )
+    if not matched:
+        raise MinimumRefreshError(
+            f"Ubuntu notice discovery found no {package} source-package fixes for {codename}"
+        )
+    return matched
+
+
+def ubuntu_package_minimum(
+    package: str,
+    package_term: str,
+    codename: str = UBUNTU_RELEASE,
+    fetch: Fetcher | None = None,
+) -> dict:
+    """Latest security-pocket source version published by an applicable USN."""
+
+    notices = ubuntu_package_notices(
+        package, package_term, codename=codename, fetch=fetch
+    )
+    minimum = max((notice["version"] for notice in notices), key=version_key)
+    forcing = sorted(
+        (notice for notice in notices if notice["version"] == minimum),
+        key=lambda notice: (str(notice.get("published") or ""), notice["id"]),
+    )[-1]
+    published = forcing.get("published")
+    if not isinstance(published, str) or not published.strip():
+        raise MinimumRefreshError(
+            f"Ubuntu notice {forcing['id']} does not date the {package} fix {minimum}"
+        )
+    url = ubuntu_notice_url(forcing["id"])
+    entry = {
+        "package": package,
+        "status": "released",
+        "fixed": minimum,
+        "cveCount": len(forcing["cves"]),
+        "released": published,
+        "source": {
+            "feed": "ubuntu-security-notice",
+            "id": forcing["id"],
+            "url": url,
+        },
+        "coverage": {
+            "feed": UBUNTU_NOTICES_URL,
+            "matchedNotices": len(notices),
+            "query": package_term,
+        },
+        "fixAvailability": {
+            "status": "confirmed",
+            "feed": "ubuntu-security-notice",
+            "id": forcing["id"],
+            "url": url,
+            "version": minimum,
+            "available": published,
+            "bulletinReleased": published,
+        },
+    }
+    if package == "linux":
+        abi = kernel_abi(minimum)
+        if abi is None:
+            raise MinimumRefreshError(
+                f"Ubuntu notice {forcing['id']} returned an unreadable kernel version "
+                f"{minimum!r}"
+            )
+        entry["abi"] = abi
+    return entry
+
+
 def ubuntu_osv_urls(cve: str) -> tuple[str, str]:
     """The OSV.dev record and its GitHub mirror for one Ubuntu CVE."""
     year = cve.split("-")[1]
@@ -1646,6 +1845,7 @@ def ubuntu_entry(
 def ubuntu_minimums(
     codename: str = UBUNTU_RELEASE,
     specs: Sequence[dict] = UBUNTU_PACKAGES,
+    package_policy: Sequence[tuple[str, str]] = UBUNTU_PACKAGE_POLICY,
     fetch: Fetcher | None = None,
 ) -> dict:
     def resolve(spec: dict) -> tuple[str, dict]:
@@ -1663,12 +1863,37 @@ def ubuntu_minimums(
     # failures: no partial package table is returned.
     with ThreadPoolExecutor(max_workers=4) as pool:
         packages = dict(pool.map(resolve, specs))
+    # Named CVE entries remain because the audit reports those findings
+    # separately. Package-wide floors are discovered from every matching Noble
+    # USN, so a new kernel or QEMU advisory cannot wait for a code edit.
+    dynamic: dict[str, dict] = {}
+    if package_policy:
+        with ThreadPoolExecutor(max_workers=len(package_policy)) as pool:
+            dynamic = dict(
+                pool.map(
+                    lambda policy: (
+                        policy[0],
+                        ubuntu_package_minimum(
+                            policy[0], policy[1], codename=codename, fetch=fetch
+                        ),
+                    ),
+                    package_policy,
+                )
+            )
+    for key, entry in dynamic.items():
+        # The QEMU collector still reports its named CVE probe even though the
+        # package floor now advances with every USN. Preserve that report
+        # metadata while replacing its stale, vulnerability-specific floor.
+        named_cve = packages.get(key, {}).get("cve")
+        if named_cve:
+            entry["cve"] = named_cve
+        packages[key] = entry
     return {
         "kind": "distroPackages",
         "release": codename,
         "packages": packages,
         "advisory": "https://ubuntu.com/security/notices",
-        "source": {"feed": "ubuntu-osv", "url": UBUNTU_OSV_VULN_URL},
+        "source": {"feed": "ubuntu-security-notices", "url": UBUNTU_NOTICES_URL},
     }
 
 
