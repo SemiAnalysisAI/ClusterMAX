@@ -5,6 +5,11 @@ need `python3`, but do not need the controller checkout or its virtual environme
 An unavailable worker produces missing evidence. The collector does not substitute
 login-node observations for worker observations.
 
+Primary `scontrol` inventory preserves all partition memberships. Login-node SSH
+probes select both workers from the requested GPU partition. Missing membership
+leaves the result unknown instead of launching a mismatched partition/node step.
+Allocation-scoped probes stay inside the existing allocation.
+
 GPU node discovery accepts NVIDIA scalar resources, NVIDIA DRA labels, and AMD
 GPU resources. Kubernetes fan-out retains the public CLI's bounded concurrency.
 

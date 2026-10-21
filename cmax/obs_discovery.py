@@ -33,6 +33,7 @@ import json
 import re
 import shutil
 import subprocess
+import urllib.parse
 from collections.abc import Iterable, Mapping, Sequence
 from typing import NamedTuple
 
@@ -269,11 +270,16 @@ def endpoints_from_processes(text: str, source: str = "processes") -> list[Endpo
     return endpoints
 
 
-def endpoints_from_audit(values: Mapping[str, object]) -> tuple[list[Endpoint], list[str]]:
+def endpoints_from_audit(
+    values: Mapping[str, object], *, local_vantage: bool = True
+) -> tuple[list[Endpoint], list[str]]:
     """Read the audit's monitoring-stack evidence into endpoints and platforms.
 
     Reads the `endpoints` list the collectors record (`host:port` strings) and
     falls back to the older booleans, which name a platform without a port.
+    Without a local vantage (a Kubernetes audit run from an operator machine),
+    loopback endpoints and the boolean default-port fallback describe this
+    machine, not the cluster, so only the platform names are kept.
     """
     stack = values
     for key in ("audit_data", "healthChecks", "monitoringStack"):
@@ -289,7 +295,10 @@ def endpoints_from_audit(values: Mapping[str, object]) -> tuple[list[Endpoint], 
     listed = stack.get("endpoints")
     if isinstance(listed, Sequence) and not isinstance(listed, (str, bytes)):
         joined = "\n".join(str(item) for item in listed)
-        endpoints.extend(endpoints_from_sockets(joined, source="audit"))
+        listed_endpoints = endpoints_from_sockets(joined, source="audit")
+        if not local_vantage:
+            listed_endpoints = [e for e in listed_endpoints if not _is_loopback_url(e.url)]
+        endpoints.extend(listed_endpoints)
         platforms.extend(platforms_from_sockets(joined))
 
     recorded = stack.get("platforms")
@@ -306,10 +315,15 @@ def endpoints_from_audit(values: Mapping[str, object]) -> tuple[list[Endpoint], 
         if platform not in platforms:
             platforms.append(platform)
         port = PLATFORM_DEFAULT_PORTS.get(platform)
-        if port is None or platform in known:
+        if port is None or platform in known or not local_vantage:
             continue
         endpoints.append(Endpoint(_url_for("127.0.0.1", port), platform, "audit"))
     return (endpoints, platforms)
+
+
+def _is_loopback_url(url: str) -> bool:
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    return host in {"localhost", "::1"} or host.startswith("127.")
 
 
 def _service_platform(name: str) -> str | None:
@@ -427,6 +441,7 @@ def discover(
     sockets: str | None = None,
     processes: str | None = None,
     services: Mapping[str, object] | None = None,
+    local_vantage: bool = True,
 ) -> Discovery:
     """Find candidate backends from audit evidence, this node, and Kubernetes.
 
@@ -434,6 +449,8 @@ def discover(
     a cluster. Ordering is audit -> sockets -> processes -> Kubernetes Services,
     so the highest-confidence vantage fills the target budget first.
     Pass None to retain all candidates for coverage accounting by the caller.
+    Set ``local_vantage=False`` when this machine is not part of the audited
+    cluster: its sockets, processes, and loopback addresses are then skipped.
     """
     endpoints: list[Endpoint] = []
     platforms: list[str] = []
@@ -451,10 +468,14 @@ def discover(
             if platform not in platforms:
                 platforms.append(platform)
 
-    audit_endpoints, audit_platforms = endpoints_from_audit(values or {})
+    audit_endpoints, audit_platforms = endpoints_from_audit(
+        values or {}, local_vantage=local_vantage
+    )
     note(audit_platforms)
     extend(audit_endpoints, "audit")
 
+    if not local_vantage:
+        sockets, processes = "", ""
     socket_text = collect_local_sockets() if sockets is None else sockets
     if socket_text:
         note(platforms_from_sockets(socket_text))

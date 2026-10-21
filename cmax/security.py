@@ -1964,10 +1964,14 @@ def _inject_observability(
         from cmax import obs_discovery
 
         emit("  discovery: reading audit evidence, local services, and Kubernetes services")
+        remote_k8s = bool(target and target.harness == "k8s")
         discovery = obs_discovery.discover(
             values,
             max_targets=None,
-            services=None if target and target.harness == "k8s" else {},
+            services=None if remote_k8s else {},
+            # A Kubernetes audit runs from an operator machine, so its local
+            # sockets, processes, and loopback addresses are not the cluster's.
+            local_vantage=not remote_k8s,
         )
         targets = _canonical_targets(discovery.urls())
         discovery_label = discovery.source_label()
@@ -1979,6 +1983,16 @@ def _inject_observability(
 
     own_ns = os.environ.get("CMAX_OWN_NAMESPACE", "default")
     selected_targets = targets[: obs_check.MAX_TARGETS]
+    if discovery is not None:
+        # Keep all candidates for skipped-target accounting, but label only
+        # sources contributing to the selected, canonical target set.
+        endpoint_sources: dict[str, str] = {}
+        for endpoint in discovery.endpoints:
+            endpoint_sources.setdefault(
+                endpoint.url.strip().rstrip("/"), endpoint.source,
+            )
+        sources = dict.fromkeys(endpoint_sources[url] for url in selected_targets)
+        discovery_label = "+".join(sources) or "none"
     emit(
         f"  backend check: {len(selected_targets)} target(s); "
         f"{obs_check.REQUEST_TIMEOUT_S:g}s per request; "
