@@ -62,6 +62,9 @@ def _harness_not_applicable(harness: str) -> str:
 
 
 _PASS_ASSESSMENTS = {
+    "securityVersions.amdDriver.status": (
+        "The loaded AMD driver on the inspected host meets the published security minimum."
+    ),
     "thp_madvise.status": "The host THP policy supports madvise.",
     "static_hugepages.status": "The static HugeTLB pool has available pages.",
     "hugepage_allocation.status": "The explicit allocation trial passed and restored the pool.",
