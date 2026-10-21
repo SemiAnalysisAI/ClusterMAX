@@ -133,3 +133,22 @@ def test_measured_admission_rejection_retains_warning_when_policy_is_unknown():
         privileged_namespace=None,
     )
     assert checks["tunedPodAdmission"]["status"] == "warning"
+
+
+@pytest.mark.parametrize("field,value", [("capIpcLock", False), ("shmMb", 128)])
+def test_measured_remedy_failure_retains_warning_when_policy_is_unknown(field, value):
+    facts = healthy_facts()
+    tuned = {
+        "attempted": True, "admitted": True, "ready": True,
+        "facts": {**facts, field: value},
+    }
+    checks = check.evaluate_checks(
+        facts, tuned, gpu_requested=True, rdma_resources=[],
+        memlock_min_mb=65536, shm_min_mb=1024, privileged_namespace=None,
+    )
+    assert checks["tunedPodAdmission"]["status"] == "warning"
+    result = check.aggregate(
+        checks, default_pod={"facts": facts}, tuned=tuned, errors=[],
+        context={"namespaceEnforcesPrivileged": None},
+    )
+    assert result["status"] == "warning"
