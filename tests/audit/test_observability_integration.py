@@ -76,3 +76,61 @@ def test_target_cap_and_budget_skips_are_added():
         )
     assert summary["targets_checked"] == obs_check.MAX_TARGETS
     assert summary["targets_skipped"] == obs_check.MAX_TARGETS + 2
+
+
+@pytest.mark.parametrize("audit_count", [obs_check.MAX_TARGETS - 1, obs_check.MAX_TARGETS])
+def test_summary_source_label_uses_selected_targets_only(monkeypatch, audit_count):
+    monkeypatch.delenv("CLUSTERMAX_OBS_TARGETS", raising=False)
+    monkeypatch.setenv("CLUSTERMAX_OBS_DISCOVER", "1")
+    values = {"audit_data": {"healthChecks": {"monitoringStack": {
+        "endpoints": [f"synthetic-metrics-{index}:9090" for index in range(audit_count)],
+    }}}}
+    services = {"items": [{
+        "metadata": {"name": "synthetic-grafana", "namespace": "synthetic-monitoring"},
+        "spec": {"ports": [{"port": 3000}]},
+    }]}
+    with patch.object(obs_discovery, "collect_local_sockets", return_value=""), \
+         patch.object(obs_discovery, "collect_local_processes", return_value=""), \
+         patch.object(obs_discovery, "collect_kubernetes_services", return_value=services), \
+         patch.object(obs_check, "check_endpoint", return_value={
+             "reachable": True, "query_ok": True, "requests": 1,
+         }) as endpoint:
+        security._inject_observability(
+            values, target=security.SecurityTarget("k8s", "bare-metal"),
+        )
+    summary = values["audit_data"]["security"]["observability"]
+    assert summary["targets_found"] == audit_count + 1
+    assert summary["targets_checked"] == obs_check.MAX_TARGETS
+    assert summary["targets_skipped"] == max(0, audit_count + 1 - obs_check.MAX_TARGETS)
+    assert endpoint.call_count == obs_check.MAX_TARGETS
+    expected = "audit" if audit_count == obs_check.MAX_TARGETS else "audit+k8s-services"
+    assert summary["discovery"] == expected
+    assert "grafana" in summary["platforms_detected"]
+
+
+def test_source_label_does_not_count_a_deduplicated_url_alias(monkeypatch):
+    monkeypatch.delenv("CLUSTERMAX_OBS_TARGETS", raising=False)
+    monkeypatch.setenv("CLUSTERMAX_OBS_DISCOVER", "1")
+    endpoints = [
+        obs_discovery.Endpoint(f"http://synthetic-{index}:9090", "prometheus", "audit")
+        for index in range(obs_check.MAX_TARGETS)
+    ]
+    endpoints.append(obs_discovery.Endpoint(
+        endpoints[0].url + "/", "prometheus", "k8s-services",
+    ))
+    discovery = obs_discovery.Discovery(
+        tuple(endpoints), ("prometheus",), ("audit", "k8s-services"),
+    )
+    values = {}
+    with patch.object(obs_discovery, "discover", return_value=discovery), \
+         patch.object(obs_check, "check_endpoint", return_value={
+             "reachable": True, "query_ok": True, "requests": 1,
+         }) as endpoint:
+        security._inject_observability(
+            values, target=security.SecurityTarget("k8s", "bare-metal"),
+        )
+    summary = values["audit_data"]["security"]["observability"]
+    assert summary["discovery"] == "audit"
+    assert summary["targets_found"] == obs_check.MAX_TARGETS
+    assert summary["targets_skipped"] == 0
+    assert endpoint.call_count == obs_check.MAX_TARGETS
