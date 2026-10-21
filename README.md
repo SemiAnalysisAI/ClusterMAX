@@ -268,6 +268,16 @@ pod can reach the same local management interface. The check examines up to 32
 worker nodes by default. Set `CLUSTERMAX_AUDIT_K8S_BMC_NODE_LIMIT` to a larger
 positive integer when a larger fleet requires complete coverage.
 
+Kubernetes full, security, and isolation audits also inspect ClusterRoles and
+ClusterRoleBindings for `get` permission on `nodes/proxy`. The report identifies
+the subjects, roles, bindings, and node-name restrictions, including wildcard
+grants. A matching grant produces `FAIL`. Administrative grants can be intentional
+and are included for review. An incomplete inventory produces `WARNING` unless
+the audit has already found a grant. This check reads RBAC configuration. It does
+not connect to kubelets or execute commands in pods. See the
+[Kubernetes kubelet authorization documentation](https://kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/)
+and [Graham Helton's nodes/proxy writeup](https://grahamhelton.com/blog/nodes-proxy-rce).
+
 The standalone audit also omits scale-out network checks. It does not inspect
 InfiniBand, RoCE, RDMA, HCA naming, PKeys, UFM, SHARP, fabric topology, or
 GPUDirect RDMA. The report marks their criteria as `SKIPPED`. Slurm and

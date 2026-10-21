@@ -338,6 +338,45 @@ class SecurityReportTests(unittest.TestCase):
             sum(security.counts(checks).values()), len(security.CHECK_SPECS)
         )
 
+    def test_kubernetes_nodes_proxy_reports_permission_evidence(self) -> None:
+        status, observed, assessment = security._kubernetes_nodes_proxy(
+            {
+                "kubernetes_nodes_proxy": {
+                    "status": "fail",
+                    "grants": [
+                        {
+                            "role": "proxy-reader",
+                            "binding": "read-proxy",
+                            "subject": {"kind": "Group", "name": "admins"},
+                            "resourceNames": [],
+                        }
+                    ],
+                    "errors": [],
+                }
+            }
+        )
+
+        self.assertEqual(status, security.CRITICAL)
+        self.assertIn("Group admins", observed)
+        self.assertIn("read-proxy", observed)
+        self.assertIn("permission", assessment)
+        self.assertNotIn("reachable", assessment)
+        self.assertNotIn("RCE", assessment)
+
+    def test_kubernetes_nodes_proxy_pass_requires_complete_clean_evidence(self) -> None:
+        clean = {"status": "pass", "grants": [], "errors": []}
+        malformed = {"status": "pass", "grants": [], "errors": ["partial list"]}
+
+        self.assertEqual(
+            security._kubernetes_nodes_proxy({"kubernetes_nodes_proxy": clean})[0],
+            security.PASS,
+        )
+        self.assertEqual(
+            security._kubernetes_nodes_proxy({"kubernetes_nodes_proxy": malformed})[0],
+            security.WARNING,
+        )
+        self.assertEqual(security._kubernetes_nodes_proxy({})[0], security.WARNING)
+
     def test_bmc_ipmi_report_names_exposed_nodes_and_privileged_scope(self) -> None:
         values = security_values()
         values["audit_data"]["security"]["bmcIpmi"] = {
@@ -590,7 +629,7 @@ class SecurityReportTests(unittest.TestCase):
         )
         self.assertIn("# ClusterMAX security audit report", report)
         # CUDA, ConnectX, and the absent bare-metal NVLink boundary do not apply.
-        self.assertIn("3 failed, 5 warnings, 4 passed, 3 skipped", report)
+        self.assertIn("3 failed, 6 warnings, 4 passed, 3 skipped", report)
         self.assertIn("Action required: 3 critical findings.", report)
         self.assertNotIn("critical findings are known exposure", report)
         self.assertIn("NVIDIA driver minimum version", report)
@@ -939,6 +978,7 @@ class SecurityCliTests(unittest.TestCase):
         self.assertEqual(plan["audit_profile"]["target"]["harness"], "standalone")
         self.assertTrue(plan["audit_profile"]["scope"]["checks"]["fabric"])
         self.assertFalse(plan["audit_profile"]["scope"]["checks"]["gpu"])
+        self.assertFalse(plan["audit_profile"]["scope"]["checks"]["system"])
         self.assertEqual(
             set(plan["audit_profile"]["checks"]),
             {
@@ -950,12 +990,22 @@ class SecurityCliTests(unittest.TestCase):
                 )
             },
         )
+
         self.assertEqual(
             plan["audit_profile"]["artifacts"],
             ["audit.out", "audit.values.json"],
         )
         self.assertTrue(plan["audit_profile"]["scope"]["standard_report"])
         self.assertNotIn("security_report", plan["audit_profile"]["scope"])
+
+    def test_kubernetes_dry_run_enables_the_system_nodes_proxy_check(self) -> None:
+        plan = security.build_security_plan(
+            runtime_paths.package_runtime_root(),
+            security.SecurityTarget("k8s", "k8s", True),
+        )
+
+        self.assertTrue(plan["audit_profile"]["scope"]["checks"]["system"])
+        self.assertIn("kubernetes-nodes-proxy", plan["audit_profile"]["checks"])
 
     def test_custom_output_directory_is_rejected_by_each_live_audit(self) -> None:
         for profile in ([], ["security"]):
@@ -1191,12 +1241,12 @@ class MinimumFreshnessTests(unittest.TestCase):
             # NVLink boundary not applicable instead of counting it as a pass.
             {
                 security.PASS: 3,
-                security.WARNING: 5,
+                security.WARNING: 6,
                 security.CRITICAL: 4,
                 security.NOT_APPLICABLE: 3,
             },
         )
-        self.assertEqual(sum(security.counts(stale_checks).values()), 15)
+        self.assertEqual(sum(security.counts(stale_checks).values()), 16)
         # A stale table is a notice, so a run with no critical finding still
         # exits 0 and no check is graded critical by staleness alone.
         self.assertEqual(clean_exit, 0)
@@ -1260,8 +1310,8 @@ class MinimumFreshnessTests(unittest.TestCase):
 
     def test_minimum_freshness_is_not_a_graded_criterion(self) -> None:
         ids = [spec.id for spec in security.CHECK_SPECS]
-        self.assertEqual(len(ids), 15)
-        self.assertEqual(len(set(ids)), 15)
+        self.assertEqual(len(ids), 16)
+        self.assertEqual(len(set(ids)), 16)
         self.assertEqual(
             ids,
             [
@@ -1275,6 +1325,7 @@ class MinimumFreshnessTests(unittest.TestCase):
                 "fragnesia",
                 "januscape",
                 "bmc-ipmi",
+                "kubernetes-nodes-proxy",
                 "ufm-profile",
                 "pcie-passthrough",
                 "nvlink-boundary",

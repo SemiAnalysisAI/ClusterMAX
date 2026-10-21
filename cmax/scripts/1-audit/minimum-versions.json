@@ -308,31 +308,27 @@
       }
     },
     "docker": {
-      "advisories": [
-        "GHSA-hfg8-hc9c-6c3h"
-      ],
-      "advisory": "https://docs.docker.com/engine/release-notes/29/#2970",
+      "advisory": "https://docs.docker.com/engine/release-notes/29/#2992",
       "cves": [
-        "CVE-2026-17106"
+        "CVE-2026-111943"
       ],
       "fixAvailability": {
-        "available": "2026-07-30T00:00:00Z",
-        "bulletinReleased": "2026-07-30T21:33:46Z",
-        "commit": "34dfa2b7389ef29b28ee9147cf4bbdaf4bf765f6",
+        "available": "2026-10-20T00:00:00Z",
+        "bulletinReleased": "2026-10-20T00:00:00Z",
         "feed": "docker-release-notes",
-        "id": "docker-engine-29.7.0",
+        "id": "docker-engine-29.9.2",
         "status": "confirmed",
-        "url": "https://docs.docker.com/engine/release-notes/29/#2970",
-        "version": "29.7.0"
+        "url": "https://docs.docker.com/engine/release-notes/29/#2992",
+        "version": "29.9.2"
       },
       "kind": "minimum",
-      "minimum": "29.7.0",
+      "minimum": "29.9.2",
       "source": {
         "feed": "docker-release-notes",
         "majors": [
           29
         ],
-        "released": "2026-07-30T00:00:00Z",
+        "released": "2026-10-20T00:00:00Z",
         "url": "https://docs.docker.com/engine/release-notes/29/"
       }
     },
@@ -1057,8 +1053,8 @@
       },
       "release": "noble",
       "source": {
-        "feed": "ubuntu-security-api",
-        "url": "https://ubuntu.com/security/cves/"
+        "feed": "ubuntu-osv",
+        "url": "https://api.osv.dev/v1/vulns/"
       }
     },
     "virtioNetBluefield": {
@@ -1129,7 +1125,7 @@
       }
     }
   },
-  "generated": "2026-09-25T04:03:23Z",
+  "generated": "2026-10-21T07:34:42Z",
   "gracePeriodDays": 3,
   "maxAgeDays": 10,
   "schemaVersion": 1

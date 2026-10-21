@@ -971,7 +971,7 @@ class AuditReportTests(unittest.TestCase):
             "Observed: observed version 580.126.09; minimum version 580.126.09",
             report,
         )
-        self.assertIn("1 failed, 5 warnings, 2 passed, 0 skipped", report)
+        self.assertIn("1 failed, 6 warnings, 2 passed, 0 skipped", report)
         self.assertIn("run 'cmax audit -vv'", report)
 
     def test_guarded_inconclusive_value_is_not_counted_as_pass(self) -> None:

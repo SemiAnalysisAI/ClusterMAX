@@ -245,7 +245,10 @@ class AuditCommonTests(unittest.TestCase):
                 "system/vm-iommu-check.py",
             },
         )
-        self.assertEqual(selected["full"], set(run_checks.CHECK_PROFILES))
+        self.assertEqual(
+            selected["full"],
+            set(run_checks.CHECK_PROFILES) - {"system/kubernetes_nodes_proxy.py"},
+        )
 
     def test_standalone_omits_scale_out_checks(self) -> None:
         check_root = AUDIT_SCRIPTS / "checks"
