@@ -38,6 +38,7 @@ IGNORED = (
     ".github/dependabot.yml",
     ".github/workflows/codeql*.yml",
     ".github/workflows/python-nightly.yml",
+    ".github/requirements/release.*",
     ".github/workflows/minimum-versions-publish.yml",
 )
 
@@ -59,8 +60,6 @@ FULL_SUITE = (
 EXTRA_SOURCES = (
     ".github/workflows/minimum-versions-refresh.yml",
     ".github/scripts/nightly_version.py",
-    ".github/requirements/release.in",
-    ".github/requirements/release.txt",
     ".github/scripts/select_tests.py",
 )
 
