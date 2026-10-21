@@ -3,6 +3,7 @@ name: python-tests
 on:
   pull_request:
     branches: [master, 'release/**', 'fix/bad-epoll-security-audit', 'port/**']
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [master, 'release/**']
     paths:
