@@ -817,6 +817,36 @@ class DetectFindingsTests(unittest.TestCase):
             ("CVE-2026-46300", "CVE-2026-43284", "CVE-2026-43500"),
         )
 
+    def test_aggregate_ubuntu_kernel_floor_is_enforced(self) -> None:
+        fail = audit_findings.detect_findings(
+            {
+                "audit_data": {
+                    "security": {
+                        "ubuntuNobleKernelMinimum": {"status": "fail"}
+                    }
+                }
+            }
+        )
+        unknown = audit_findings.detect_findings(
+            {
+                "audit_data": {
+                    "security": {
+                        "ubuntuNobleKernelMinimum": {"status": "unknown"}
+                    }
+                }
+            }
+        )
+        fail_by_key = by_key(fail)
+        unknown_by_key = by_key(unknown)
+        self.assertEqual(
+            fail_by_key["security.ubuntuNobleKernelMinimum.status"].severity,
+            audit_findings.VERSION,
+        )
+        self.assertEqual(
+            unknown_by_key["security.ubuntuNobleKernelMinimum.status"].severity,
+            audit_findings.CONFIG,
+        )
+
     def test_accepts_bare_audit_data_dict(self) -> None:
         findings = audit_findings.detect_findings(
             {"containers": {"nvidiaContainerToolkit": False}}

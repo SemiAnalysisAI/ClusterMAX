@@ -2581,6 +2581,8 @@ host_check_kv() {
 host_check_stdin() {
     printf 'CLUSTERMAX_FRAGNESIA_ABI_MINIMUM=%s\n' \
         "$(minimum_version components.ubuntuNoble.packages.linuxFragnesia.abi)"
+    printf 'CLUSTERMAX_UBUNTU_KERNEL_ABI_MINIMUM=%s\n' \
+        "$(minimum_version components.ubuntuNoble.packages.linux.abi)"
     cat "$WORKLOAD_DIR/host-check.sh"
 }
 
@@ -3351,6 +3353,9 @@ HP_GUEST_KERNEL_NEWER=$(host_check_kv "WORKER_GUEST_KERNEL_NEWER_INSTALLED")
 HP_GUEST_REBOOT_REQUIRED=$(host_check_kv "WORKER_GUEST_REBOOT_REQUIRED")
 HP_FRAGNESIA_STATUS=$(host_check_kv "WORKER_FRAGNESIA_STATUS")
 HP_FRAGNESIA_ABI_MINIMUM=$(host_check_kv "WORKER_FRAGNESIA_ABI_FLOOR")
+HP_UBUNTU_KERNEL_STATUS=$(host_check_kv "WORKER_UBUNTU_KERNEL_MINIMUM_STATUS")
+HP_UBUNTU_KERNEL_ABI=$(host_check_kv "WORKER_UBUNTU_KERNEL_ABI")
+HP_UBUNTU_KERNEL_ABI_MINIMUM=$(host_check_kv "WORKER_UBUNTU_KERNEL_ABI_FLOOR")
 
 # The provisional section 8 prints GPU facts from node labels, which managed
 # clusters (OKE/GKE/EKS) frequently omit - so it can read "unknown" there. The
@@ -3428,6 +3433,9 @@ SECURITY_VERSION_AUDIT_JSON=$(build_security_version_audit \
 SECURITY_ADVISORY_JSON=$(build_security_advisory_json \
     --fragnesia-status "${HP_FRAGNESIA_STATUS:-unknown}" \
     --fragnesia-compared-abi "${HP_FRAGNESIA_ABI_MINIMUM:-unknown}" \
+    --ubuntu-kernel-status "${HP_UBUNTU_KERNEL_STATUS:-unknown}" \
+    --ubuntu-kernel-abi "${HP_UBUNTU_KERNEL_ABI:-unknown}" \
+    --ubuntu-kernel-floor "${HP_UBUNTU_KERNEL_ABI_MINIMUM:-unknown}" \
     --januscape-cpu-exposed "${HP_NESTED_CPU:-false}" \
     --januscape-kvm-exposed "${HP_KVM_DEVICE:-false}" \
     --januscape-module "${HP_NESTED_MODULE:-none}" \

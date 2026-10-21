@@ -213,15 +213,18 @@ EOF
 }
 
 run_k8s_security_script() {
-    local fragnesia_abi_minimum
+    local fragnesia_abi_minimum ubuntu_kernel_abi_minimum
     fragnesia_abi_minimum=$(minimum_version \
         components.ubuntuNoble.packages.linuxFragnesia.abi)
+    ubuntu_kernel_abi_minimum=$(minimum_version \
+        components.ubuntuNoble.packages.linux.abi)
     kubectl exec -i -n "$K8S_SECURITY_CHECK_NS" \
         --request-timeout=300s "$K8S_SECURITY_CHECK_POD" -- \
         chroot /host env CLUSTERMAX_AUDIT_SCOPE=security \
         CLUSTERMAX_AUDIT_HARNESS=k8s \
         CLUSTERMAX_CONTAINER_RUNTIME_SCOPE=host \
-        CLUSTERMAX_FRAGNESIA_ABI_MINIMUM="$fragnesia_abi_minimum" bash -s
+        CLUSTERMAX_FRAGNESIA_ABI_MINIMUM="$fragnesia_abi_minimum" \
+        CLUSTERMAX_UBUNTU_KERNEL_ABI_MINIMUM="$ubuntu_kernel_abi_minimum" bash -s
 }
 
 k8s_bmc_record_for_current_pod() {
@@ -532,6 +535,9 @@ SECURITY_ADVISORY_JSON=$(printf '{%s "_end": null}' \
     "$(build_security_advisory_json \
         --fragnesia-status "${WORKER_FRAGNESIA_STATUS:-unknown}" \
         --fragnesia-compared-abi "${WORKER_FRAGNESIA_ABI_FLOOR:-unknown}" \
+        --ubuntu-kernel-status "${WORKER_UBUNTU_KERNEL_MINIMUM_STATUS:-unknown}" \
+        --ubuntu-kernel-abi "${WORKER_UBUNTU_KERNEL_ABI:-unknown}" \
+        --ubuntu-kernel-floor "${WORKER_UBUNTU_KERNEL_ABI_FLOOR:-unknown}" \
         --januscape-cpu-exposed "${WORKER_NESTED_CPU_EXPOSED:-false}" \
         --januscape-kvm-exposed "${WORKER_KVM_DEVICE:-false}" \
         --januscape-module "${WORKER_NESTED_MODULE:-none}" \

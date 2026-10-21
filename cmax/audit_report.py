@@ -91,6 +91,9 @@ _PASS_ASSESSMENTS = {
     "security.guestKernel.newerInstalled": (
         "The audit did not find a newer installed kernel that is waiting for a reboot."
     ),
+    "security.ubuntuNobleKernelMinimum.status": (
+        "The running Ubuntu Noble kernel meets the aggregate published security minimum."
+    ),
     "security.fragnesia.status": (
         "The running kernel does not match the affected Fragnesia or Dirty Frag ranges."
     ),
@@ -294,6 +297,7 @@ _REPRODUCTION_COMMANDS = {
     "securityVersions.runc.status": "on the audited worker: `runc --version`",
     "securityVersions.dcgm.status": "on the audited worker: `dcgmi --version`",
     "security.fragnesia.status": "on the audited worker: `uname -r`",
+    "security.ubuntuNobleKernelMinimum.status": "on the audited worker: `uname -r`",
     "software.nvhpc.status": (
         "on the audited worker: run `nvc --version`, `nvc++ --version`, and "
         "`nvfortran --version`; inspect the selected SDK release tree for NCCL, "

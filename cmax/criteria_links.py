@@ -83,6 +83,7 @@ _CHECK_ANCHORS = {
     "securityVersions.dpuHostIsolation.status": _SECURITY_ISOLATION,
     "security.januscape.status": _SECURITY_ESCALATION,
     "security.guestKernel.newerInstalled": _SECURITY_PATCHING,
+    "security.ubuntuNobleKernelMinimum.status": _SECURITY_PATCHING,
     "security.fragnesia.status": _SECURITY_PATCHING,
     "containers.nvidiaContainerToolkit": _LIFECYCLE_DRIVERS,
     "containers.workerCheckOk": "orchestration",
