@@ -90,7 +90,7 @@ class DetectFindingsTests(unittest.TestCase):
             rule for rule in audit_findings.RULES
             if rule.key.startswith("tenant_pod_defaults.")
         ]
-        self.assertEqual(len(rules), 6)
+        self.assertEqual(len(rules), 7)
         for rule in rules:
             with self.subTest(key=rule.key):
                 self.assertEqual(rule.harnesses, frozenset({"k8s"}))
