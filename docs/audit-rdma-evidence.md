@@ -8,7 +8,7 @@ failed-rail evidence instead of recording an unattempted probe.
 Workload and inventory detection both require an explicit `nvidia.com` prefix
 and a boolean `isRdma: true` selector for `nvidia.com/hostdev`. An omitted prefix
 defaults to `intel.com` in the upstream plugin, so it cannot establish this
-resource's identity ([SR-IOV device-plugin configuration](https://github.com/k8snetworkplumbingwg/sriov-network-device-plugin/blob/master/README.md)).
+identity of this resource ([SR-IOV device-plugin configuration](https://github.com/k8snetworkplumbingwg/sriov-network-device-plugin/blob/master/README.md)).
 
 The full, networking, and security profiles retain per-host NIC topology and add
 `nic_plane_evidence`. Read-only queries collect port width, rate, physical
