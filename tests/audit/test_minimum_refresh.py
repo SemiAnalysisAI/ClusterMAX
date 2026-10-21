@@ -365,6 +365,50 @@ class ExtractorTest(unittest.TestCase):
             block["fixAvailability"]["available"], "2026-05-21T23:32:36Z"
         )
 
+    def test_catalog_routes_every_graded_nvidia_product_without_an_id_allowlist(
+        self,
+    ) -> None:
+        documents = fr.nvidia_csaf_documents(fetch=self.stub)
+        simple = fr.nvidia_simple_product_minimums(documents, fetch=self.stub)
+        dcgm = fr.nvidia_dcgm_minimums(documents, fetch=self.stub)
+        virtio = fr.nvidia_virtio_net_minimums(documents)
+        self.assertFalse(hasattr(fr, "BULLETINS"))
+        self.assertEqual(simple["cudaToolkit"]["source"]["aId"], 5755)
+        self.assertEqual(simple["nvidiaContainerToolkit"]["source"]["aId"], 5850)
+        self.assertEqual(dcgm["dcgm"]["source"]["aId"], 5857)
+        self.assertEqual(dcgm["dcgmExporter"]["source"]["aId"], 5857)
+        self.assertEqual(virtio["source"]["aId"], 5815)
+
+    def test_new_cuda_bulletin_raises_the_floor_without_a_code_change(self) -> None:
+        original = copy.deepcopy(self.stub.json_by_url[fr.bulletin_url(2026, 5755)])
+        newer = copy.deepcopy(original)
+        for _arch, kids in fr.csaf_arch_branches(newer):
+            for kid in kids:
+                kid["product"]["name"] = kid["product"]["name"].replace("13.1", "13.2")
+        blocks = fr.nvidia_simple_product_minimums(
+            [
+                ({"year": 2026, "aId": 5755}, original),
+                ({"year": 2026, "aId": 5904}, newer),
+            ],
+            fetch=self.stub,
+        )
+        self.assertEqual(blocks["cudaToolkit"]["minimum"], "13.2")
+        self.assertEqual(blocks["cudaToolkit"]["source"]["aId"], 5904)
+        self.assertEqual(
+            [item["aId"] for item in blocks["cudaToolkit"]["sources"]],
+            [5755, 5904],
+        )
+
+    def test_applicable_cuda_document_with_unknown_grammar_fails_closed(self) -> None:
+        doc = copy.deepcopy(self.stub.json_by_url[fr.bulletin_url(2026, 5755)])
+        for _arch, kids in fr.csaf_arch_branches(doc):
+            for kid in kids:
+                kid["product"]["name"] = "All affected versions"
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "cudaToolkit"):
+            fr.nvidia_simple_product_minimums(
+                [({"year": 2026, "aId": 5904}, doc)], fetch=self.stub
+            )
+
     def test_runc_ladder_and_advisories(self) -> None:
         block = fr.runc_ladder(fetch=self.stub)
         self.assertEqual(
@@ -515,7 +559,7 @@ class ExtractorTest(unittest.TestCase):
         self.assertNotIn("1.13", block["ladder"])
 
     def test_virtio_net_release_lines_come_from_the_bulletin(self) -> None:
-        block = fr.virtio_net_minimums(fetch=self.stub)
+        block = fr.virtio_net_minimums(2026, 5815, fetch=self.stub)
         self.assertEqual(block["cves"], ["CVE-2026-65094"])
         self.assertEqual(
             block["lines"],
@@ -528,18 +572,18 @@ class ExtractorTest(unittest.TestCase):
         )
 
     def test_virtio_net_line_names_come_from_the_bulletin(self) -> None:
-        block = fr.virtio_net_minimums(fetch=self.stub)
+        block = fr.virtio_net_minimums(2026, 5815, fetch=self.stub)
         self.assertEqual(sorted(block["lines"]), ["GA", "LTS23", "LTS24", "LTS25"])
 
     def test_virtio_net_trailing_comma_stays_out_of_the_version(self) -> None:
         # Upstream publishes "24.10.50 or newer," for LTS24.
-        block = fr.virtio_net_minimums(fetch=self.stub)
+        block = fr.virtio_net_minimums(2026, 5815, fetch=self.stub)
         self.assertEqual(block["lines"]["LTS24"], {"fixed": "24.10.50"})
 
     def test_virtio_net_records_the_retired_scheme_separately(self) -> None:
         # "1.7.21 and older versions" marks a retired 1.x scheme as affected.
         # It must never become the minimum of the LTS23 line.
-        block = fr.virtio_net_minimums(fetch=self.stub)
+        block = fr.virtio_net_minimums(2026, 5815, fetch=self.stub)
         self.assertEqual(
             block["lines"]["LTS23"],
             {"fixed": "23.10.23", "legacyAffectedThrough": "1.7.21"},
@@ -1408,6 +1452,12 @@ class FailClosedTest(unittest.TestCase):
         stub = StubFetcher()
         url = fr.bulletin_url(2026, 5857)
         doc = copy.deepcopy(stub.json_by_url[url])
+        doc["vulnerabilities"][0]["product_status"] = {
+            "fixed": [
+                "all4_5_dcgm_4_5_3",
+                "all4_8_dcgm_exporter_4_8_2",
+            ]
+        }
         vendor = doc["product_tree"]["branches"][0]
         vendor["branches"] = [
             arch for arch in vendor["branches"] if arch["name"] != "All(4.8)"
@@ -1723,10 +1773,8 @@ class DetectNewBulletinsTest(unittest.TestCase):
     def test_a_bulletin_that_is_tracked_and_deferred_raises(self) -> None:
         with mock.patch.dict(fr.DEFERRED_BULLETINS, {"5755": "cannot be both"}):
             with self.assertRaises(fr.MinimumRefreshError) as caught:
-                fr.validate_bulletin_lists()
-            self.assertIn("5755", str(caught.exception))
-            with self.assertRaises(fr.MinimumRefreshError):
                 self.scan()
+            self.assertIn("5755", str(caught.exception))
 
     def test_a_deferred_bulletin_without_a_reason_raises(self) -> None:
         for reason in ("", "   "):

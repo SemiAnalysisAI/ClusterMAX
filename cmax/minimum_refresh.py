@@ -120,30 +120,6 @@ DOCKER_DOCS_CONTENTS = (
 NVHPC_RELEASES_PAGE = "https://developer.nvidia.com/hpc-sdk/releases"
 NVHPC_RELEASE_RE = re.compile(r"\bHPC SDK\s+([0-9]{2}\.[0-9]{1,2})\b", re.IGNORECASE)
 
-# NVIDIA components that still need product-specific parsers. The GPU driver
-# and ConnectX / BlueField firmware are intentionally absent: their inputs are
-# dynamically enumerated from NVIDIA_CSAF_TREE and routed from CSAF product
-# data. The remaining entries move to the same model as their reducers are
-# generalized.
-BULLETINS: dict[str, tuple[dict[str, Any], ...]] = {
-    "cudaToolkit": ({"year": 2026, "aId": 5755},),
-    "nvidiaContainerToolkit": ({"year": 2026, "aId": 5850},),
-    "virtioNetBluefield": ({"year": 2026, "aId": 5815},),
-    # Bulletin 5857 covers two products, so it also feeds dcgmExporter.
-    "dcgm": ({"year": 2026, "aId": 5857},),
-}
-
-
-def bulletin_ref(component: str) -> dict[str, Any]:
-    """Return the single bulletin of a component that tracks exactly one."""
-    return BULLETINS[component][0]
-
-
-def all_bulletin_refs() -> Iterator[dict[str, Any]]:
-    for refs in BULLETINS.values():
-        yield from refs
-
-
 # Bulletins that match a graded product line and that we have decided not to
 # track yet, each with the written reason. `--detect-new-bulletins` reports
 # these as a separate group and does not treat them as a discovery, so the
@@ -164,17 +140,12 @@ DEFERRED_BULLETINS: dict[str, str] = {
 def validate_bulletin_lists() -> None:
     """Fail on a contradiction between the tracked and deferred lists.
 
-    A bulletin cannot be both tracked and deferred, and a deferred bulletin
-    without a written reason is an undocumented decision.
+    A deferred bulletin without a written reason is an undocumented decision.
+    Nvidia tracked coverage is derived from the CSAF catalog, not a second
+    configuration list.
     """
     problems: list[str] = []
-    tracked = {str(ref["aId"]) for ref in all_bulletin_refs()}
     for a_id, reason in DEFERRED_BULLETINS.items():
-        if str(a_id) in tracked:
-            problems.append(
-                f"{a_id}: bulletin is tracked in BULLETINS and deferred in "
-                f"DEFERRED_BULLETINS; remove one"
-            )
         if not str(reason).strip():
             problems.append(f"{a_id}: deferred bulletin has no written reason")
     amd_tracked = {sb_id.lower() for sb_id in (*AMD_BULLETINS, *AMD_DRIVER_BULLETINS)}
@@ -192,13 +163,24 @@ def validate_bulletin_lists() -> None:
         )
 
 
-# The products bulletin 5857 covers, as component key and product label. Both
-# come out of one fetch, so the bulletin cannot produce one component and
-# silently drop the other.
+# Graded DCGM products, as component key and exact CSAF product label.
 DCGM_PRODUCTS: tuple[tuple[str, str], ...] = (
     ("dcgm", "DCGM"),
     ("dcgmExporter", "DCGM Exporter"),
 )
+NVIDIA_DCGM_PRODUCT_ID_PATTERNS: dict[str, re.Pattern[str]] = {
+    "dcgm": re.compile(r"(?:^|_)dcgm_(?!exporter(?:_|$))", re.IGNORECASE),
+    "dcgmExporter": re.compile(r"(?:^|_)dcgm_exporter(?:_|$)", re.IGNORECASE),
+}
+
+# Explicit policy labels for graded Nvidia products. Bulletin IDs and floors
+# are deliberately absent: every matching CSAF document in the catalog enters
+# the reducer automatically.
+NVIDIA_SIMPLE_PRODUCTS: tuple[tuple[str, str], ...] = (
+    ("cudaToolkit", "NVIDIA CUDA Toolkit"),
+    ("nvidiaContainerToolkit", "NVIDIA Container Toolkit"),
+)
+NVIDIA_VIRTIO_PRODUCT_PREFIX = "VIRTIO-Net"
 
 # Product lines the audit grades. A new bulletin whose title matches one of
 # these is reported by `--detect-new-bulletins`.
@@ -631,6 +613,45 @@ def csaf_arch_branches(doc: dict) -> Iterator[tuple[str, list[dict]]]:
         yield from walk(top)
 
 
+def csaf_product_labels(doc: dict) -> set[str]:
+    """Return exact product labels declared anywhere in a CSAF product tree."""
+
+    labels: set[str] = set()
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            name = value.get("name")
+            if isinstance(name, str) and name.strip():
+                labels.add(name.strip())
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(doc.get("product_tree") or {})
+    return labels
+
+
+def csaf_has_product(doc: dict, label: str) -> bool:
+    wanted = label.casefold()
+    return any(item.casefold() == wanted for item in csaf_product_labels(doc))
+
+
+def csaf_has_product_prefix(doc: dict, prefix: str) -> bool:
+    wanted = prefix.casefold()
+    return any(item.casefold().startswith(wanted) for item in csaf_product_labels(doc))
+
+
+def csaf_product_status_ids(doc: dict) -> set[str]:
+    ids: set[str] = set()
+    for vulnerability in doc.get("vulnerabilities") or []:
+        for values in (vulnerability.get("product_status") or {}).values():
+            if isinstance(values, list):
+                ids.update(str(value) for value in values)
+    return ids
+
+
 def nvidia_csaf_documents(
     fetch: Fetcher | None = None,
     *,
@@ -994,9 +1015,7 @@ def connectx_minimums(
     }
 
 
-def virtio_net_minimums(
-    year: int | None = None, a_id: int | None = None, fetch: Fetcher | None = None
-) -> dict:
+def _virtio_net_minimums_from_document(year: int, a_id: int, doc: dict) -> dict:
     """VIRTIO-Net for BlueField release lines: GA and the LTS lines.
 
     This is a separate product from the ConnectX / BlueField firmware trains
@@ -1004,9 +1023,6 @@ def virtio_net_minimums(
     is a tenant-to-host escape class defect: a VM user can reach a
     Write-What-Where condition in Virtio-Net on a BlueField-3 DPU.
     """
-    year = year if year is not None else bulletin_ref("virtioNetBluefield")["year"]
-    a_id = a_id if a_id is not None else bulletin_ref("virtioNetBluefield")["aId"]
-    doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
     fixed: dict[str, list[str]] = {}
     prior_to: dict[str, list[str]] = {}
     legacy: dict[str, list[str]] = {}
@@ -1045,11 +1061,64 @@ def virtio_net_minimums(
     }
 
 
-def simple_product_minimum(
-    year: int, a_id: int, product: str | None = None, fetch: Fetcher | None = None
-) -> dict:
-    """One Linux arch branch, one product: CUDA Toolkit and Container Toolkit."""
+def virtio_net_minimums(year: int, a_id: int, fetch: Fetcher | None = None) -> dict:
+    """Extract one VIRTIO-Net bulletin; production merges the CSAF catalog."""
+
     doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
+    return _virtio_net_minimums_from_document(year, a_id, doc)
+
+
+def nvidia_virtio_net_minimums(
+    documents: Sequence[tuple[dict[str, int], dict]],
+) -> dict:
+    """Merge every catalog document that explicitly declares VIRTIO-Net."""
+
+    lines: dict[str, dict[str, str]] = {}
+    availability: dict[str, dict[str, Any]] = {}
+    cves: set[str] = set()
+    sources: list[dict] = []
+    for ref, doc in documents:
+        if not csaf_has_product_prefix(doc, NVIDIA_VIRTIO_PRODUCT_PREFIX):
+            continue
+        block = _virtio_net_minimums_from_document(ref["year"], ref["aId"], doc)
+        if not block["lines"]:
+            raise MinimumRefreshError(
+                f"virtioNetBluefield: NVIDIA CSAF {ref['aId']} declares "
+                f"{NVIDIA_VIRTIO_PRODUCT_PREFIX} but yields no fixed release lines"
+            )
+        sources.append(block["source"])
+        cves.update(block["cves"])
+        for line, entry in block["lines"].items():
+            current = lines.get(line)
+            if current is not None and version_key(entry["fixed"]) <= version_key(
+                current["fixed"]
+            ):
+                continue
+            lines[line] = entry
+            availability[line] = block["floorAvailability"][line]
+    sources.sort(key=lambda item: (str(item["released"])[:10], item["aId"]))
+    newest = sources[-1] if sources else {}
+    result = {
+        "kind": "releaseLines",
+        "lines": dict(sorted(lines.items())),
+        "floorAvailability": dict(sorted(availability.items())),
+        "cves": sorted(cves),
+        "advisory": NVIDIA_ADVISORY.format(a_id=newest.get("aId", "")),
+        "source": newest,
+    }
+    if len(sources) > 1:
+        result["sources"] = sorted(sources, key=lambda item: item["aId"])
+    return result
+
+
+def _simple_product_minimum_from_document(
+    year: int,
+    a_id: int,
+    doc: dict,
+    *,
+    product: str,
+    fetch: Fetcher | None = None,
+) -> dict:
     best: str | None = None
     for arch, kids in csaf_arch_branches(doc):
         if "linux" not in arch.lower():
@@ -1057,17 +1126,16 @@ def simple_product_minimum(
         fixed = resolve_fixed(kids, product_filter=product)
         if fixed and (best is None or version_key(fixed) > version_key(best)):
             best = fixed
-    if best and a_id == bulletin_ref("nvidiaContainerToolkit")["aId"]:
+    source = nvidia_source(a_id, year, doc)
+    if best and product == "NVIDIA Container Toolkit":
         availability = github_release_availability(
             NVIDIA_CONTAINER_TOOLKIT_RELEASE_REPO, f"v{best}", best, fetch=fetch
         )
-        source = nvidia_source(a_id, year, doc)
         availability["bulletinReleased"] = source["released"]
     else:
         availability = nvidia_csaf_fix_availability(a_id, year, doc)
         if best:
             availability["version"] = best
-        source = nvidia_source(a_id, year, doc)
     return {
         "kind": "minimum",
         "minimum": best,
@@ -1078,23 +1146,68 @@ def simple_product_minimum(
     }
 
 
-def bulletin_product_minimums(
+def simple_product_minimum(
+    year: int, a_id: int, product: str | None = None, fetch: Fetcher | None = None
+) -> dict:
+    """Extract one Linux product bulletin; production merges the CSAF catalog."""
+
+    doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
+    return _simple_product_minimum_from_document(
+        year, a_id, doc, product=product or "", fetch=fetch
+    )
+
+
+def nvidia_simple_product_minimums(
+    documents: Sequence[tuple[dict[str, int], dict]],
+    fetch: Fetcher | None = None,
+) -> dict[str, dict]:
+    """Reduce all catalog bulletins for CUDA and Container Toolkit."""
+
+    results: dict[str, dict] = {}
+    for key, label in NVIDIA_SIMPLE_PRODUCTS:
+        candidates: list[dict] = []
+        cves: set[str] = set()
+        sources: list[dict] = []
+        for ref, doc in documents:
+            if not csaf_has_product(doc, label):
+                continue
+            block = _simple_product_minimum_from_document(
+                ref["year"], ref["aId"], doc, product=label, fetch=fetch
+            )
+            if not block["minimum"]:
+                raise MinimumRefreshError(
+                    f"{key}: NVIDIA CSAF {ref['aId']} declares {label} "
+                    "but yields no Linux minimum"
+                )
+            candidates.append(block)
+            cves.update(block["cves"])
+            sources.append(block["source"])
+        if not candidates:
+            continue
+        winner = max(candidates, key=lambda block: version_key(block["minimum"]))
+        result = {**winner, "cves": sorted(cves)}
+        if len(sources) > 1:
+            result["sources"] = sorted(sources, key=lambda item: item["aId"])
+        results[key] = result
+    return results
+
+
+def _bulletin_product_minimums_from_document(
     year: int,
     a_id: int,
+    doc: dict,
     products: Sequence[tuple[str, str]],
     fetch: Fetcher | None = None,
 ) -> dict[str, dict]:
     """One bulletin, one `minimum` component per product it covers.
 
-    Used for bulletin 5857, which covers DCGM and DCGM Exporter under one CVE.
     Every product is resolved from the same fetched document and every one
     gets a block, so a product that stops resolving yields an empty minimum
     that the fail-closed check reports, instead of disappearing.
 
-    Architecture branch names are not filtered here. Bulletin 5857 names its
-    branches "All(4.5)" and "All(4.8)", so a Linux name filter would drop both.
+    Architecture branch names are not filtered here. DCGM bulletins use
+    product-wide architecture labels such as "All(4.5)" and "All(4.8)".
     """
-    doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
     cves = [item["cve"] for item in doc.get("vulnerabilities", []) if item.get("cve")]
     source = nvidia_source(a_id, year, doc)
     blocks: dict[str, dict] = {}
@@ -1111,19 +1224,18 @@ def bulletin_product_minimums(
             "advisory": NVIDIA_ADVISORY.format(a_id=a_id),
             "source": source,
         }
-    if a_id == bulletin_ref("dcgm")["aId"]:
-        dcgm_version = blocks.get("dcgm", {}).get("minimum")
-        exporter_version = blocks.get("dcgmExporter", {}).get("minimum")
-        if dcgm_version and exporter_version:
-            tag = f"{dcgm_version}-{exporter_version}"
-            for block in blocks.values():
-                block["fixAvailability"] = github_release_availability(
-                    DCGM_EXPORTER_RELEASE_REPO,
-                    tag,
-                    str(block.get("minimum")),
-                    fetch=fetch,
-                )
-                block["fixAvailability"]["bulletinReleased"] = source["released"]
+    dcgm_version = blocks.get("dcgm", {}).get("minimum")
+    exporter_version = blocks.get("dcgmExporter", {}).get("minimum")
+    if dcgm_version and exporter_version:
+        tag = f"{dcgm_version}-{exporter_version}"
+        for block in blocks.values():
+            block["fixAvailability"] = github_release_availability(
+                DCGM_EXPORTER_RELEASE_REPO,
+                tag,
+                str(block.get("minimum")),
+                fetch=fetch,
+            )
+            block["fixAvailability"]["bulletinReleased"] = source["released"]
     for block in blocks.values():
         if "fixAvailability" not in block:
             availability = nvidia_csaf_fix_availability(a_id, year, doc)
@@ -1131,6 +1243,65 @@ def bulletin_product_minimums(
                 availability["version"] = block["minimum"]
             block["fixAvailability"] = availability
     return blocks
+
+
+def bulletin_product_minimums(
+    year: int,
+    a_id: int,
+    products: Sequence[tuple[str, str]],
+    fetch: Fetcher | None = None,
+) -> dict[str, dict]:
+    """Extract one multi-product bulletin; production merges the CSAF catalog."""
+
+    doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
+    return _bulletin_product_minimums_from_document(
+        year, a_id, doc, products, fetch=fetch
+    )
+
+
+def nvidia_dcgm_minimums(
+    documents: Sequence[tuple[dict[str, int], dict]],
+    fetch: Fetcher | None = None,
+) -> dict[str, dict]:
+    """Reduce every CSAF document that explicitly declares DCGM products."""
+
+    candidates: dict[str, list[dict]] = {key: [] for key, _label in DCGM_PRODUCTS}
+    cves: dict[str, set[str]] = {key: set() for key, _label in DCGM_PRODUCTS}
+    sources: dict[str, list[dict]] = {key: [] for key, _label in DCGM_PRODUCTS}
+    for ref, doc in documents:
+        status_ids = csaf_product_status_ids(doc)
+        applicable = [
+            (key, label)
+            for key, label in DCGM_PRODUCTS
+            if csaf_has_product(doc, label)
+            or any(NVIDIA_DCGM_PRODUCT_ID_PATTERNS[key].search(item) for item in status_ids)
+        ]
+        if not applicable:
+            continue
+        blocks = _bulletin_product_minimums_from_document(
+            ref["year"], ref["aId"], doc, applicable, fetch=fetch
+        )
+        missing = [key for key, _label in applicable if not blocks[key]["minimum"]]
+        if missing:
+            raise MinimumRefreshError(
+                f"NVIDIA CSAF {ref['aId']} yields no minimum for: "
+                + ", ".join(missing)
+            )
+        for key, _label in applicable:
+            block = blocks[key]
+            candidates[key].append(block)
+            cves[key].update(block["cves"])
+            sources[key].append(block["source"])
+    results: dict[str, dict] = {}
+    for key, _label in DCGM_PRODUCTS:
+        if not candidates[key]:
+            continue
+        winner = max(candidates[key], key=lambda block: version_key(block["minimum"]))
+        result = {**winner, "cves": sorted(cves[key])}
+        if len(sources[key]) > 1:
+            result["sources"] = sorted(sources[key], key=lambda item: item["aId"])
+        results[key] = result
+    return results
 
 
 def osv_package_vulns(
@@ -2276,21 +2447,8 @@ def build_minimums(
     nvidia_documents = nvidia_csaf_documents(fetch=fetch)
     driver = nvidia_driver_minimums(fetch=fetch, documents=nvidia_documents)
     connectx = connectx_minimums(fetch=fetch, documents=nvidia_documents)
-    cuda = simple_product_minimum(
-        bulletin_ref("cudaToolkit")["year"], bulletin_ref("cudaToolkit")["aId"], fetch=fetch
-    )
-    toolkit = simple_product_minimum(
-        bulletin_ref("nvidiaContainerToolkit")["year"],
-        bulletin_ref("nvidiaContainerToolkit")["aId"],
-        product="NVIDIA Container Toolkit",
-        fetch=fetch,
-    )
-    dcgm = bulletin_product_minimums(
-        bulletin_ref("dcgm")["year"],
-        bulletin_ref("dcgm")["aId"],
-        DCGM_PRODUCTS,
-        fetch=fetch,
-    )
+    simple_products = nvidia_simple_product_minimums(nvidia_documents, fetch=fetch)
+    dcgm = nvidia_dcgm_minimums(nvidia_documents, fetch=fetch)
     doc = {
         "schemaVersion": SCHEMA_VERSION,
         "generated": generated or _now_stamp(),
@@ -2299,11 +2457,11 @@ def build_minimums(
         "components": {
             **dcgm,
             "nvidiaDriver": driver,
-            "nvidiaContainerToolkit": toolkit,
+            "nvidiaContainerToolkit": simple_products.get("nvidiaContainerToolkit", {}),
             "nvhpc": nvhpc_release_window(fetch=fetch),
-            "cudaToolkit": cuda,
+            "cudaToolkit": simple_products.get("cudaToolkit", {}),
             "connectxFirmware": connectx,
-            "virtioNetBluefield": virtio_net_minimums(fetch=fetch),
+            "virtioNetBluefield": nvidia_virtio_net_minimums(nvidia_documents),
             "runc": runc_ladder(fetch=fetch),
             "docker": docker_minimums(fetch=fetch),
             "rocm": amd_rocm_minimums(fetch=fetch),
@@ -2392,8 +2550,8 @@ def verify(doc: dict, existing: dict | None = None) -> None:
     drop one entry.
 
     A rebuild must never lower or remove a minimum the existing table already
-    publishes. A minimum only moves up. A new bulletin, a reordered BULLETINS
-    tuple, a wider upstream query, or a parsing regression that lowered one
+    publishes. A minimum only moves up. A new bulletin, a catalog change, a
+    wider upstream query, or a parsing regression that lowered one
     would turn a vulnerable fleet green, so it is a hard error rather than a
     warning. The rule covers every keyed minimum (driver branches, ConnectX
     firmware trains, Instinct ROCm programs, runc ladder rungs, VIRTIO-Net
@@ -2546,7 +2704,7 @@ def relevant_product(title: str) -> str | None:
 
 
 def known_bulletin_ids(existing: dict | None = None) -> set[str]:
-    known = {str(ref["aId"]) for ref in all_bulletin_refs()}
+    known: set[str] = set()
     for block in ((existing or {}).get("components") or {}).values():
         a_id = (block.get("source") or {}).get("aId")
         if a_id is not None:
@@ -2648,10 +2806,14 @@ def detect_new_bulletins(
     validate_bulletin_lists()
     client = _fetcher(fetch)
     if years is None:
-        years = sorted(
-            {ref["year"] for ref in all_bulletin_refs()} | {datetime.now(timezone.utc).year}
-        )
+        years = list(range(NVIDIA_CSAF_START_YEAR, datetime.now(timezone.utc).year + 1))
     known = known_bulletin_ids(existing)
+    contradictory = sorted(set(DEFERRED_BULLETINS) & known)
+    if contradictory:
+        raise MinimumRefreshError(
+            "NVIDIA bulletins are both applied and deferred: "
+            + ", ".join(contradictory)
+        )
     found: list[dict] = []
     seen_deferred: set[str] = set()
     for year in years:
@@ -2846,8 +3008,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 print(
                     f"{len(new)} unknown bulletin(s) match a graded product line. "
-                    "Track each NVIDIA bulletin in BULLETINS in "
-                    "cmax/minimum_refresh.py, or record the reason to defer it in "
+                    "Add or repair the CSAF product policy for each applicable "
+                    "NVIDIA bulletin, or record the reason to defer it in "
                     "DEFERRED_BULLETINS. Track each Docker Engine major in "
                     "DOCKER_ENGINE_MAJORS. Track each AMD GPU bulletin in "
                     "AMD_BULLETINS, or record the reason to defer it in "
