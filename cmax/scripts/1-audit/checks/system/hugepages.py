@@ -222,7 +222,9 @@ def _allocation_trial(root: Path) -> dict:
 
 def collect_host(root: Path, *, try_allocate: bool = False) -> dict:
     return {
-        "host": read(root / "proc/sys/kernel/hostname") or socket.gethostname(),
+        # A Kubernetes check pod has its own UTS namespace, so the host-root
+        # procfs reports the pod name. The pod spec passes the node name.
+        "host": os.environ.get("NODE_NAME") or read(root / "proc/sys/kernel/hostname") or socket.gethostname(),
         "thp_madvise": thp_report(root),
         "static_hugepages": static_report(root),
         "hugepage_allocation": allocation_trial(root, enabled=try_allocate),
