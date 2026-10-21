@@ -230,15 +230,24 @@ def detection_snippet() -> str:
         ]
     )
 
-def run_detection(resources: dict[str, str]) -> bashtest.BashRun:
+def run_detection(
+    resources: dict[str, str], sriov_config: dict | None = None, namespace: str = ""
+) -> bashtest.BashRun:
     node = {
         "status": {"capacity": resources, "allocatable": resources},
         "metadata": {"labels": {}},
     }
     return bashtest.run_bash(
         detection_snippet(),
-        stubs=FUNCTION_STUBS,
-        env={"NODES_JSON": json.dumps({"items": [node]})},
+        stubs={
+            **FUNCTION_STUBS,
+            "kubectl": 'printf "%s\\n" "$CMAX_SRIOV_CONFIG"',
+        },
+        env={
+            "NODES_JSON": json.dumps({"items": [node]}),
+            "CMAX_SRIOV_CONFIG": json.dumps(sriov_config or {}),
+            "NETWORK_NS": namespace,
+        },
     )
 
 def info_lines(run: bashtest.BashRun) -> list[str]:

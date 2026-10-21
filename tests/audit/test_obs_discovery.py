@@ -343,3 +343,37 @@ class DiscoverOrderingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RemoteVantageTests(unittest.TestCase):
+    def test_remote_kubernetes_audit_skips_this_machine(self) -> None:
+        values = {
+            "audit_data": {
+                "healthChecks": {
+                    "monitoringStack": {
+                        "prometheus": True,
+                        "endpoints": ["127.0.0.1:3000", "10.0.0.5:9090"],
+                    }
+                }
+            }
+        }
+        result = obs_discovery.discover(
+            values,
+            sockets="0.0.0.0:8428\n",
+            processes="",
+            services={},
+            local_vantage=False,
+        )
+        self.assertEqual(result.urls(), ["http://10.0.0.5:9090"])
+        self.assertIn("prometheus", result.platforms)
+
+    def test_boolean_evidence_alone_yields_no_remote_target(self) -> None:
+        values = {"audit_data": {"healthChecks": {"monitoringStack": {"prometheus": True}}}}
+        result = obs_discovery.discover(values, services={}, local_vantage=False)
+        self.assertEqual(result.urls(), [])
+        self.assertEqual(result.platforms, ("prometheus",))
+
+    def test_local_vantage_keeps_default_port_fallback(self) -> None:
+        values = {"audit_data": {"healthChecks": {"monitoringStack": {"prometheus": True}}}}
+        result = obs_discovery.discover(values, sockets="", processes="", services={})
+        self.assertEqual(result.urls(), ["http://127.0.0.1:9090"])

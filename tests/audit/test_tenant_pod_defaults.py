@@ -399,3 +399,40 @@ def test_gdrcopy_skip_uses_collected_host_path(loaded):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_unreadable_namespace_policy_never_renders_as_pass():
+    detail = "the namespace pod-security policy could not be read"
+    values = {"audit_data": {"tenant_pod_defaults": {
+        "status": "unknown", "message": detail, "namespaceEnforcesPrivileged": None,
+        "checks": {"tunedPodAdmission": {"status": "unknown", "detail": detail}},
+    }}}
+    checks = audit_report.evaluate(values, REPORT_RUNTIME_ROOT, harness="k8s")
+    rows = [row for row in checks if row.key in {
+        "tenant_pod_defaults.status", "tenant_pod_defaults.checks.tunedPodAdmission.status",
+    }]
+    assert len(rows) == 2
+    assert all(row.status != audit_report.PASS for row in rows)
+    assert any("policy could not be read" in row.assessment for row in rows)
+
+
+def test_aggregate_warning_never_renders_as_pass():
+    values = {"audit_data": {"tenant_pod_defaults": {
+        "status": "warning",
+        "message": "shm: /dev/shm is 64 MiB; multi-GPU shared-memory transports need at least 1024 MiB",
+        "checks": {"shm": {"status": "warning", "detail": "/dev/shm is 64 MiB"}},
+    }}}
+    checks = audit_report.evaluate(values, REPORT_RUNTIME_ROOT, harness="k8s")
+    row = next(c for c in checks if c.key == "tenant_pod_defaults.status")
+    assert row.status == audit_report.WARNING
+    assert "64 MiB" in row.assessment
+    assert row.recommendation
+
+
+def test_aggregate_pass_still_renders_as_pass():
+    values = {"audit_data": {"tenant_pod_defaults": {
+        "status": "pass", "checks": {"shm": {"status": "pass", "detail": "8192 MiB"}},
+    }}}
+    checks = audit_report.evaluate(values, REPORT_RUNTIME_ROOT, harness="k8s")
+    row = next(c for c in checks if c.key == "tenant_pod_defaults.status")
+    assert row.status == audit_report.PASS

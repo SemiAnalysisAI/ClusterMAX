@@ -1,5 +1,10 @@
 # Observability tenant isolation
 
+The summary source label covers the canonical endpoints selected for checking.
+Endpoints beyond the eight-target cap do not contribute to that label.
+Discovery still records all detected platforms and skipped-target counts.
+URL aliases do not add another source or consume a target slot.
+
 The full, security, and isolation profiles discover metrics and dashboard query backends
 from collected monitoring evidence and local sockets and process names.
 Kubernetes audits also inspect Services in the selected kube context.

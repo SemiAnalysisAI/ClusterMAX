@@ -222,6 +222,56 @@ class CollectPlaneEvidenceTests(unittest.TestCase):
         self.assertEqual(out[1]["presentation"]["status"], "not determined")
 
 
+class ToolDeviceTests(unittest.TestCase):
+    def test_renamed_ibdev_resolves_to_pci_function(self) -> None:
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pci = Path(tmp) / "devices" / "0000:1a:00.0"
+            pci.mkdir(parents=True)
+            (Path(tmp) / "ibp0").mkdir()
+            os.symlink(pci, Path(tmp) / "ibp0" / "device")
+            self.assertEqual(nic.tool_device(tmp, "ibp0"), "0000:1a:00.0")
+            # No sysfs device link: keep the ibdev name.
+            self.assertEqual(nic.tool_device(tmp, "mlx5_0"), "mlx5_0")
+
+    def test_local_collector_passes_pci_function_to_mlx_tools(self) -> None:
+        import os
+        import tempfile
+
+        calls: list[list[str]] = []
+
+        def runner(command: Any, **_: Any):
+            calls.append(command)
+            raise FileNotFoundError(command[0])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pci = Path(tmp) / "devices" / "0000:1a:00.0"
+            pci.mkdir(parents=True)
+            (Path(tmp) / "ibp0").mkdir()
+            os.symlink(pci, Path(tmp) / "ibp0" / "device")
+            nic.collect_plane_evidence(
+                [{"name": "ibp0", "role": "fabric", "layer": "InfiniBand"}],
+                runner=runner,
+                sysfs_root=tmp,
+            )
+        by_tool = {c[0]: c for c in calls}
+        self.assertEqual(by_tool["mlxconfig"][2], "0000:1a:00.0")
+        self.assertEqual(by_tool["mlxlink"][2], "0000:1a:00.0")
+        # ibnetdiscover takes the ibdev name.
+        self.assertEqual(by_tool["ibnetdiscover"][2], "ibp0")
+
+    def test_failure_reason_skips_color_only_lines(self) -> None:
+        text = "\x1b[31m\n\x1b[0m-E- Failed to open device: \"ibp0\", No such file or directory"
+        raws, _ = nic._parse_k8s_plane(
+            "@@PLANE@@ ibp0 mlxlink BEGIN\n" + text + "\n@@PLANE@@ ibp0 mlxlink END 1"
+        )
+        reason = raws["ibp0"]["mlxlink"][1]
+        self.assertNotIn("\x1b", reason)
+        self.assertIn("Failed to open device", reason)
+
+
 class K8sPlaneBlockTests(unittest.TestCase):
     SAMPLE = "\n".join(
         [

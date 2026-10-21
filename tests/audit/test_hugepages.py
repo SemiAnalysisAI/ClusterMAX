@@ -256,3 +256,12 @@ def test_k8s_transport_uses_read_only_host_paths_and_custom_source(monkeypatch):
     record, error = transport.run_k8s_host_check("default", {"name": "n1"}, "image", worker_source=CHECK.read_text())
     assert record == {"host": "n1"} and error is None
     assert calls[-1][0] == "delete"
+
+
+def test_kubernetes_node_name_replaces_pod_uts_hostname(tmp_path, monkeypatch):
+    # In a check pod the host-root procfs reports the pod's UTS hostname.
+    write(tmp_path, "proc/sys/kernel/hostname", "clustermax-hbm-9447461b\n")
+    monkeypatch.setenv("NODE_NAME", "g144462")
+    assert hp.collect_host(tmp_path)["host"] == "g144462"
+    monkeypatch.delenv("NODE_NAME")
+    assert hp.collect_host(tmp_path)["host"] == "clustermax-hbm-9447461b"
