@@ -428,7 +428,12 @@ def evaluate_checks(
             "status": "unknown",
             "detail": f"the tuned pod was admitted and did not reach Ready: {tuned.get('reason')}",
         }
-    elif privileged_namespace is None:
+    elif (
+        privileged_namespace is None
+        and isinstance(tuned_facts, dict)
+        and tuned_facts.get("capIpcLock") is True
+        and as_int(tuned_facts.get("shmMb"), default=0) >= shm_min_mb
+    ):
         checks["tunedPodAdmission"] = {
             "status": "unknown",
             "detail": (
