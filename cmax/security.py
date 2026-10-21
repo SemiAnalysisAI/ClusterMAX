@@ -1926,10 +1926,14 @@ def _inject_observability(
         from cmax import obs_discovery
 
         emit("  discovery: reading audit evidence, local services, and Kubernetes services")
+        remote_k8s = bool(target and target.harness == "k8s")
         discovery = obs_discovery.discover(
             values,
             max_targets=None,
-            services=None if target and target.harness == "k8s" else {},
+            services=None if remote_k8s else {},
+            # A Kubernetes audit runs from an operator machine, so its local
+            # sockets, processes, and loopback addresses are not the cluster's.
+            local_vantage=not remote_k8s,
         )
         targets = _canonical_targets(discovery.urls())
         discovery_label = discovery.source_label()
