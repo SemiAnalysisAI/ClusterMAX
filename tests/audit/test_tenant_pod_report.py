@@ -32,6 +32,21 @@ def test_tenant_warning_preserves_detail_and_recommendation():
     assert result.recommendation
 
 
+def test_unreadable_namespace_policy_never_renders_as_pass():
+    detail = "the namespace pod-security policy could not be read"
+    values = {"audit_data": {"tenant_pod_defaults": {
+        "status": "unknown", "message": detail, "namespaceEnforcesPrivileged": None,
+        "checks": {"tunedPodAdmission": {"status": "unknown", "detail": detail}},
+    }}}
+    checks = audit_report.evaluate(values, ROOT, harness="k8s")
+    rows = [row for row in checks if row.key in {
+        "tenant_pod_defaults.status", "tenant_pod_defaults.checks.tunedPodAdmission.status",
+    }]
+    assert len(rows) == 2
+    assert all(row.status != audit_report.PASS for row in rows)
+    assert any("policy could not be read" in row.assessment for row in rows)
+
+
 @pytest.mark.parametrize("ports", [None, "unknown", 0, "2", 2])
 def test_absent_rdma_devices_do_not_crash_report(ports):
     values = {"audit_data": {
