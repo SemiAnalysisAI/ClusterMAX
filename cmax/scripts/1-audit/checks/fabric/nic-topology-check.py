@@ -84,7 +84,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 Runner = Callable[..., subprocess.CompletedProcess]
 
@@ -370,14 +370,40 @@ def run_evidence_tool(
     if proc.returncode != 0:
         first = ""
         for stream in (proc.stderr, proc.stdout):
-            lines = (stream or "").strip().splitlines()
-            if lines:
-                first = lines[0].strip()[:120]
+            first = _first_text_line((stream or "").splitlines())
+            if first:
                 break
         return "", _failure_reason(proc.returncode, first)
     if not proc.stdout.strip():
         return "", f"no output (exit {proc.returncode})"
     return proc.stdout, None
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def _first_text_line(lines: Iterable[str]) -> str:
+    """First line with visible text after ANSI color codes are removed.
+
+    mlxlink prints a bare color escape before its error text, which would
+    otherwise be kept as the whole failure reason.
+    """
+    for line in lines:
+        text = _ANSI_RE.sub("", line).strip()
+        if text:
+            return text[:120]
+    return ""
+
+
+def tool_device(sysfs_root: str, dev: str) -> str:
+    """PCI address for an RDMA device, falling back to its ibdev name.
+
+    mlxconfig and mlxlink resolve mlx5_N names, but not names that udev or a
+    provider renamed (for example ibp0). The PCI function always resolves.
+    """
+    target = os.path.realpath(f"{sysfs_root}/{dev}/device")
+    name = os.path.basename(target)
+    return name if re.fullmatch(r"[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]", name) else dev
 
 
 def _failure_reason(returncode: int, first_line: str) -> str:
@@ -590,9 +616,10 @@ def collect_plane_evidence(
         node_guid = _read_sysfs(f"{sysfs_root}/{dev}/node_guid")
         netdevs = sorted(glob.glob(f"{sysfs_root}/{dev}/device/net/*"))
         netdev = os.path.basename(netdevs[0]) if netdevs else ""
+        tool_dev = tool_device(sysfs_root, dev)
         raws: dict[str, tuple[str, str | None]] = {
-            "mlxconfig": run_evidence_tool(["mlxconfig", "-d", dev, "query"], runner=runner),
-            "mlxlink": run_evidence_tool(["mlxlink", "-d", dev, "-m"], runner=runner),
+            "mlxconfig": run_evidence_tool(["mlxconfig", "-d", tool_dev, "query"], runner=runner),
+            "mlxlink": run_evidence_tool(["mlxlink", "-d", tool_dev, "-m"], runner=runner),
         }
         if nic.get("layer") == "InfiniBand":
             raws["ibnetdiscover"] = run_evidence_tool(
@@ -993,8 +1020,12 @@ for d in /sys/class/infiniband/*; do
   g=$(cat "$d/node_guid" 2>/dev/null)
   printf '@@PLANEGUID@@\t%s\t%s\n' "$n" "$g"
   l=$(cat "$d/ports/1/link_layer" 2>/dev/null)
-  plane_run "$n" mlxconfig mlxconfig -d "$n" query
-  plane_run "$n" mlxlink mlxlink -d "$n" -m
+  # Renamed ibdevs (for example ibp0) do not resolve in the mlx tools; the
+  # PCI function does.
+  td=$(basename "$(readlink -f "$d/device" 2>/dev/null)" 2>/dev/null)
+  case "$td" in [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]:*.[0-7]) ;; *) td="$n";; esac
+  plane_run "$n" mlxconfig mlxconfig -d "$td" query
+  plane_run "$n" mlxlink mlxlink -d "$td" -m
   case "$l" in
     InfiniBand*)
       plane_run "$n" ibnetdiscover ibnetdiscover -C "$n" -p
@@ -1098,7 +1129,7 @@ def _parse_k8s_plane(text: str) -> tuple[dict[str, dict[str, tuple[str, str | No
                 status = int(parts[4]) if len(parts) > 4 and parts[4].lstrip("-").isdigit() else 0
                 raw = "\n".join(block)
                 if status != 0:
-                    first = next((l.strip()[:120] for l in block if l.strip()), "")
+                    first = _first_text_line(block)
                     raws.setdefault(dev, {})[tool] = ("", _failure_reason(status, first))
                 elif not raw.strip():
                     raws.setdefault(dev, {})[tool] = ("", "no output (exit 0)")
