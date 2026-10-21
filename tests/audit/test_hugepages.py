@@ -260,11 +260,11 @@ def test_k8s_transport_uses_read_only_host_paths_and_custom_source(monkeypatch):
 
 def test_kubernetes_node_name_replaces_pod_uts_hostname(tmp_path, monkeypatch):
     # In a check pod the host-root procfs reports the pod's UTS hostname.
-    write(tmp_path, "proc/sys/kernel/hostname", "clustermax-hbm-9447461b\n")
-    monkeypatch.setenv("NODE_NAME", "g144462")
-    assert hp.collect_host(tmp_path)["host"] == "g144462"
+    write(tmp_path, "proc/sys/kernel/hostname", "clustermax-hbm-0a1b2c3d\n")
+    monkeypatch.setenv("NODE_NAME", "gpu-node-a")
+    assert hp.collect_host(tmp_path)["host"] == "gpu-node-a"
     monkeypatch.delenv("NODE_NAME")
-    monkeypatch.setenv("SLURMD_NODENAME", "slurm-h100-206-077")
-    assert hp.collect_host(tmp_path)["host"] == "slurm-h100-206-077"
+    monkeypatch.setenv("SLURMD_NODENAME", "slurm-node-a")
+    assert hp.collect_host(tmp_path)["host"] == "slurm-node-a"
     monkeypatch.delenv("SLURMD_NODENAME")
-    assert hp.collect_host(tmp_path)["host"] == "clustermax-hbm-9447461b"
+    assert hp.collect_host(tmp_path)["host"] == "clustermax-hbm-0a1b2c3d"

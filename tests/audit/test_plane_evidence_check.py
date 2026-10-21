@@ -228,11 +228,11 @@ class ToolDeviceTests(unittest.TestCase):
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
-            pci = Path(tmp) / "devices" / "0000:1a:00.0"
+            pci = Path(tmp) / "devices" / "0000:aa:00.0"
             pci.mkdir(parents=True)
-            (Path(tmp) / "ibp0").mkdir()
-            os.symlink(pci, Path(tmp) / "ibp0" / "device")
-            self.assertEqual(nic.tool_device(tmp, "ibp0"), "0000:1a:00.0")
+            (Path(tmp) / "rail0").mkdir()
+            os.symlink(pci, Path(tmp) / "rail0" / "device")
+            self.assertEqual(nic.tool_device(tmp, "rail0"), "0000:aa:00.0")
             # No sysfs device link: keep the ibdev name.
             self.assertEqual(nic.tool_device(tmp, "mlx5_0"), "mlx5_0")
 
@@ -247,20 +247,20 @@ class ToolDeviceTests(unittest.TestCase):
             raise FileNotFoundError(command[0])
 
         with tempfile.TemporaryDirectory() as tmp:
-            pci = Path(tmp) / "devices" / "0000:1a:00.0"
+            pci = Path(tmp) / "devices" / "0000:aa:00.0"
             pci.mkdir(parents=True)
-            (Path(tmp) / "ibp0").mkdir()
-            os.symlink(pci, Path(tmp) / "ibp0" / "device")
+            (Path(tmp) / "rail0").mkdir()
+            os.symlink(pci, Path(tmp) / "rail0" / "device")
             nic.collect_plane_evidence(
-                [{"name": "ibp0", "role": "fabric", "layer": "InfiniBand"}],
+                [{"name": "rail0", "role": "fabric", "layer": "InfiniBand"}],
                 runner=runner,
                 sysfs_root=tmp,
             )
         by_tool = {c[0]: c for c in calls}
-        self.assertEqual(by_tool["mlxconfig"][2], "0000:1a:00.0")
-        self.assertEqual(by_tool["mlxlink"][2], "0000:1a:00.0")
+        self.assertEqual(by_tool["mlxconfig"][2], "0000:aa:00.0")
+        self.assertEqual(by_tool["mlxlink"][2], "0000:aa:00.0")
         # ibnetdiscover takes the ibdev name.
-        self.assertEqual(by_tool["ibnetdiscover"][2], "ibp0")
+        self.assertEqual(by_tool["ibnetdiscover"][2], "rail0")
 
     def test_mlxconfig_gets_the_longer_timeout(self) -> None:
         timeouts: dict[str, Any] = {}
@@ -276,7 +276,7 @@ class ToolDeviceTests(unittest.TestCase):
         )
         self.assertEqual(timeouts["mlxconfig"], nic.PLANE_MLXCONFIG_TIMEOUT_S)
         self.assertEqual(timeouts["mlxlink"], nic.PLANE_TOOL_TIMEOUT_S)
-        # A full query takes about 7.4s on ConnectX-7 without the MST driver.
+        # A full query can take several seconds without the MST driver.
         self.assertGreaterEqual(nic.PLANE_MLXCONFIG_TIMEOUT_S, 15)
         # Budget plus one HCA at its timeouts stays inside the Slurm bound.
         worst = nic.PLANE_BUDGET_S + nic.PLANE_MLXCONFIG_TIMEOUT_S + 2 * nic.PLANE_TOOL_TIMEOUT_S
@@ -288,19 +288,19 @@ class ToolDeviceTests(unittest.TestCase):
 
     def test_failure_reason_skips_mstflint_lockfile_warning(self) -> None:
         raws, _ = nic._parse_k8s_plane(
-            "@@PLANE@@ ibp0 mlxlink BEGIN\n"
+            "@@PLANE@@ rail0 mlxlink BEGIN\n"
             "Warrning: Failed to create lockfile: /tmp/mstflint_lockfiles/x (parallel access not supported)\n"
             "\n-E- Device is busy\n"
-            "@@PLANE@@ ibp0 mlxlink END 1"
+            "@@PLANE@@ rail0 mlxlink END 1"
         )
-        self.assertEqual(raws["ibp0"]["mlxlink"][1], "exit 1: -E- Device is busy")
+        self.assertEqual(raws["rail0"]["mlxlink"][1], "exit 1: -E- Device is busy")
 
     def test_failure_reason_skips_color_only_lines(self) -> None:
-        text = "\x1b[31m\n\x1b[0m-E- Failed to open device: \"ibp0\", No such file or directory"
+        text = "\x1b[31m\n\x1b[0m-E- Failed to open device: \"rail0\", No such file or directory"
         raws, _ = nic._parse_k8s_plane(
-            "@@PLANE@@ ibp0 mlxlink BEGIN\n" + text + "\n@@PLANE@@ ibp0 mlxlink END 1"
+            "@@PLANE@@ rail0 mlxlink BEGIN\n" + text + "\n@@PLANE@@ rail0 mlxlink END 1"
         )
-        reason = raws["ibp0"]["mlxlink"][1]
+        reason = raws["rail0"]["mlxlink"][1]
         self.assertNotIn("\x1b", reason)
         self.assertIn("Failed to open device", reason)
 
