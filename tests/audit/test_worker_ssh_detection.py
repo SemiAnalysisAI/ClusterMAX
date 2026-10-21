@@ -249,7 +249,8 @@ def test_cpu_or_unscoped_unknown_inventory_does_not_request_gpu_gres(gpu_count):
     assert "--gres=gpu:1" not in run.calls("srun")[0]
 
 
-def test_allocated_unknown_gpu_counts_remain_in_the_allocation_without_new_gres():
+@pytest.mark.parametrize("selected_partition", ["synthetic-gpu", "unrelated-partition"])
+def test_allocated_unknown_gpu_counts_remain_in_the_allocation_without_new_gres(selected_partition):
     nodes = [
         dict(node, gpus=None, state="ALLOCATED", partition="synthetic-gpu")
         for node in TWO_WORKERS
@@ -258,7 +259,7 @@ def test_allocated_unknown_gpu_counts_remain_in_the_allocation_without_new_gres(
         PROBE_SCRIPT,
         env={
             "NODES_JSON": json.dumps(nodes), "SLURM_JOB_ID": "1",
-            "SLURM_JOB_NODELIST": "gpu-[a-b]", "GPU_PARTITION": "synthetic-gpu",
+            "SLURM_JOB_NODELIST": "gpu-[a-b]", "GPU_PARTITION": selected_partition,
         },
         stubs={
             "scontrol": "printf 'gpu-a\\ngpu-b\\n'",
@@ -281,3 +282,75 @@ def test_unknown_allocation_never_falls_back_to_cluster_inventory():
     assert run.returncode == 0, run.stderr
     assert run.calls("srun") == []
     assert run.stdout.strip() == "unknown|unknown|||unverified"
+
+
+def test_primary_inventory_retains_partition_memberships_and_gpu_counts():
+    text = (
+        "NodeName=synthetic-a State=IDLE CPUTot=12 RealMemory=24576 "
+        "Gres=gpu:synthetic:3(S:0-2),gpu:2(S:3-4) Partitions=other,synthetic-gpu "
+        "LastBusyTime=2020-01-01T03:04:59\n"
+        "NodeName=synthetic-b State=IDLE CPUTot=6 RealMemory=12288 "
+        "Gres=(null) Partitions=(null)\n"
+    )
+    run = bashtest.run_bash(
+        bashtest.extract_function(COMMON, "scontrol_node_inventory")
+        + '\nscontrol_node_inventory "$SCONTROL_OUT"',
+        env={"SCONTROL_OUT": text},
+    )
+    assert run.returncode == 0, run.stderr
+    records = json.loads(run.stdout)
+    assert records[0] == {
+        "name": "synthetic-a", "state": "IDLE", "cpus": 12, "memory": 24576,
+        "gpus": 5, "partition": "other,synthetic-gpu",
+    }
+    assert records[1]["gpus"] == 0
+    assert records[1]["partition"] == ""
+
+
+def test_primary_inventory_drives_the_real_partition_scoped_probe():
+    text = "\n".join(
+        f"NodeName={name} State=IDLE CPUTot=12 RealMemory=24576 "
+        f"Gres=gpu:3 Partitions={partition}"
+        for name, partition in (
+            ("aaa-other", "other"), ("synthetic-b", "other,synthetic-gpu"),
+            ("synthetic-c", "synthetic-gpu"), ("zzz-other", "other"),
+        )
+    )
+    inventory_line = next(
+        line.strip() for line in SLURM.read_text().splitlines()
+        if "NODES_JSON=$(scontrol_node_inventory" in line
+    )
+    run = bashtest.run_bash(
+        bashtest.extract_function(COMMON, "scontrol_node_inventory")
+        + "\n" + inventory_line + "\n" + PROBE_SCRIPT.replace(
+            "GPU_SRUN_SCOPE_ARGS=()", 'GPU_SRUN_SCOPE_ARGS=(-p "$GPU_PARTITION")',
+        ),
+        stubs={
+            "scontrol": 'printf "%s\\n" "$SCONTROL_OUT"',
+            "srun": "echo CMAX_SSH_STATUS=true", **PRINT_STUBS,
+        },
+        env={
+            "SCONTROL_OUT": text, "SLURM_JOB_ID": "",
+            "GPU_PARTITION": "synthetic-gpu", "SLURMD_NODENAME": "aaa-other",
+        },
+    )
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "true|enabled|synthetic-b|synthetic-c|worker-to-worker"
+    args, = run.calls("srun")
+    assert args[args.index("-p") + 1] == "synthetic-gpu"
+    assert args[args.index("-w") + 1] == "synthetic-b"
+    assert "--gres=gpu:1" in args
+
+
+def test_selected_partition_never_uses_inventory_without_membership():
+    unknown = [{"name": node, "state": "IDLE", "gpus": 3} for node in ("synthetic-a", "synthetic-b")]
+    run = bashtest.run_bash(
+        PROBE_SCRIPT, env={
+            "NODES_JSON": json.dumps(unknown), "SLURM_JOB_ID": "",
+            "GPU_PARTITION": "synthetic-gpu",
+        },
+        stubs={"srun": "exit 99", **PRINT_STUBS},
+    )
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "unknown|unknown|||unverified"
+    assert run.calls("srun") == []
