@@ -1,12 +1,5 @@
-#!/usr/bin/env python3
-"""Unit tests for Slurm node-state counting in the cluster audit.
 
-Slurm joins a node base state and its flags with "+", for example
-"IDLE+CLOUD+POWERED_DOWN". The audit used a substring test on "DOWN|DRAIN",
-so the POWERED_DOWN power-save flag matched the down/drained pattern. On an
-Azure cloud cluster that scales to zero, the audit printed
-"Down/Drained: 84" while `sinfo` showed all 84 nodes as "idle~".
-"""
+"""Unit tests for Slurm node-state counting in the cluster audit."""
 
 from __future__ import annotations
 
@@ -15,11 +8,9 @@ import subprocess
 import unittest
 from pathlib import Path
 
-
 COMMON_PATH = (
     Path(__file__).resolve().parents[2] / "cmax" / "scripts" / "1-audit" / "audit-common.sh"
 )
-
 
 def run_helper(function: str, value: str) -> dict:
     command = f'source "$1"; {function} "$2"'
@@ -31,29 +22,26 @@ def run_helper(function: str, value: str) -> dict:
     )
     return json.loads(result.stdout.strip())
 
-
 def node(name: str, state: str) -> dict:
     return {"name": name, "state": state, "cpus": 8, "memory": 1024, "gpus": 0}
 
-
 class SlurmNodeStateCountTests(unittest.TestCase):
     def test_powered_down_cloud_nodes_are_idle_not_down(self) -> None:
-        """Reproduce the Azure ccw cluster: 84 idle~ nodes, 0 real failures."""
-        nodes = (
-            [node(f"ccw-gpu-{i}", "IDLE+CLOUD+POWERED_DOWN") for i in range(19, 37)]
-            + [node(f"ccw-gpu-{i}", "ALLOCATED+CLOUD") for i in range(1, 5)]
-            + [node(f"ccw-gpu-{i}", "IDLE+CLOUD") for i in range(5, 19)]
-            + [node(f"ccw-hpc-{i}", "IDLE+CLOUD+POWERED_DOWN") for i in range(1, 17)]
-            + [node(f"ccw-htc-{i}", "IDLE+CLOUD+POWERED_DOWN") for i in range(1, 51)]
-        )
+        nodes = [
+            node("gpu-1", "IDLE+CLOUD+POWERED_DOWN"),
+            node("gpu-2", "ALLOCATED+CLOUD"),
+            node("gpu-3", "IDLE+CLOUD"),
+            node("hpc-1", "IDLE+CLOUD+POWERED_DOWN"),
+            node("htc-1", "IDLE+CLOUD+POWERED_DOWN"),
+        ]
 
         counts = run_helper("count_slurm_node_states", json.dumps(nodes))
 
-        self.assertEqual(counts["total"], 102)
-        self.assertEqual(counts["idle"], 98)
-        self.assertEqual(counts["allocated"], 4)
+        self.assertEqual(counts["total"], 5)
+        self.assertEqual(counts["idle"], 4)
+        self.assertEqual(counts["allocated"], 1)
         self.assertEqual(counts["downDrained"], 0)
-        self.assertEqual(counts["poweredDown"], 84)
+        self.assertEqual(counts["poweredDown"], 3)
 
     def test_power_transition_flags_are_not_down(self) -> None:
         nodes = [
@@ -84,7 +72,6 @@ class SlurmNodeStateCountTests(unittest.TestCase):
         self.assertEqual(counts["poweredDown"], 1)
 
     def test_drained_nodes_are_excluded_from_idle_and_allocated(self) -> None:
-        """A node must appear in exactly one of the three summary counts."""
         nodes = [
             node("a", "IDLE+DRAIN"),
             node("b", "ALLOCATED+DRAIN"),
@@ -117,10 +104,8 @@ class SlurmNodeStateCountTests(unittest.TestCase):
         self.assertEqual(counts["total"], 0)
         self.assertEqual(counts["downDrained"], 0)
 
-
 class SnodesStateCountTests(unittest.TestCase):
     def test_sinfo_power_save_suffix_counts_as_idle(self) -> None:
-        """Real `sinfo` output from the Azure ccw cluster login node."""
         rows = "\n".join(
             [
                 "PARTITION AVAIL  TIMELIMIT  NODES  STATE NODELIST",
@@ -171,7 +156,6 @@ class SnodesStateCountTests(unittest.TestCase):
         self.assertEqual(counts["total"], 0)
         self.assertEqual(counts["idle"], 0)
         self.assertEqual(counts["downDrained"], 0)
-
 
 if __name__ == "__main__":
     unittest.main()

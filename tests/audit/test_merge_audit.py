@@ -25,6 +25,17 @@ def load_merge_module():
 merge_audit = load_merge_module()
 
 
+def merge_fixture(**facts) -> dict:
+    base = {
+        "audit": {"timestamp": "2026-06-02T06:17:42Z"},
+        "nodes": {"total": 1},
+        "gpus": {"total": 8, "model": "NVIDIA H100", "perNode": 8},
+        "software": {"ncclVersion": "unknown"},
+    }
+    base.update(copy.deepcopy(facts))
+    return base
+
+
 class MergeAuditTests(unittest.TestCase):
     def test_records_the_confirmed_target_environment(self) -> None:
         values = merge_audit.build_values(
@@ -34,19 +45,18 @@ class MergeAuditTests(unittest.TestCase):
         self.assertEqual(values["cluster"]["environment"], "vm")
 
     def test_k8s_promotes_host_check_and_location_fields(self) -> None:
-        audit = {
-            "audit": {"timestamp": "2026-06-02T06:17:42Z"},
-            "location": {
+        audit = merge_fixture(
+            location={
                 "region": "Virginia",
                 "country": "US",
                 "city": "Sandston",
             },
-            "nodes": {
+            nodes={
                 "total": 4,
                 "sampleCpu": "224",
                 "sampleMemory": "3699199612Ki",
             },
-            "gpus": {
+            gpus={
                 "total": 32,
                 "model": "NVIDIA B300",
                 "perNode": 8,
@@ -54,15 +64,14 @@ class MergeAuditTests(unittest.TestCase):
                 "cudaVersion": "unknown",
                 "memoryMB": "unknown",
             },
-            "software": {"ncclVersion": "unknown"},
-            "hostCheck": {
+            hostCheck={
                 "WORKER_DRIVER_VERSION": "590.48.01",
                 "WORKER_CUDA_VERSION": "13.1",
                 "WORKER_NCCL_VERSION": "2.29.3",
                 "WORKER_GPU_MEMORY": "275040",
                 "WORKER_PEERMEM": "true",
             },
-        }
+        )
 
         values = merge_audit.build_values(audit, harness="k8s", check_data={})
         cluster = values["cluster"]
@@ -78,12 +87,11 @@ class MergeAuditTests(unittest.TestCase):
         self.assertNotIn("slurm_version", cluster)
 
     def test_slurm_keeps_server_location_and_slurm_version(self) -> None:
-        audit = {
-            "audit": {"timestamp": "2026-06-03T23:33:02Z"},
-            "serverLocation": {"region": "Virginia", "country": "US"},
-            "slurm": {"version": "25.11.5"},
-            "nodes": {"total": 4, "totalCpus": 896, "totalMemoryGB": 14111},
-            "gpus": {
+        audit = merge_fixture(
+            serverLocation={"region": "Virginia", "country": "US"},
+            slurm={"version": "25.11.5"},
+            nodes={"total": 4, "totalCpus": 896, "totalMemoryGB": 14111},
+            gpus={
                 "total": 32,
                 "model": "NVIDIA-B300-SXM6-AC",
                 "perNode": 8,
@@ -92,8 +100,8 @@ class MergeAuditTests(unittest.TestCase):
                 "cudaVersion": "13.1",
                 "gpuDirectRdma": True,
             },
-            "software": {"ncclVersion": "2.29.3"},
-        }
+            software={"ncclVersion": "2.29.3"},
+        )
 
         values = merge_audit.build_values(audit, harness="slurm", check_data={})
         cluster = values["cluster"]
@@ -129,15 +137,12 @@ class MergeAuditTests(unittest.TestCase):
         self.assertEqual(values["audit_data"]["nodes"]["total"], 31)
 
     def test_slurm_module_status_requires_an_installed_gpu_or_fabric_module(self) -> None:
-        base = {
-            "audit": {"timestamp": "2026-08-27T12:00:00Z"},
-            "nodes": {"total": 1},
-            "gpus": {"total": 8, "model": "NVIDIA H100", "perNode": 8},
-            "software": {
+        base = merge_fixture(
+            software={
                 "ncclVersion": "2.28.3",
                 "lmod": {"installed": True},
             },
-        }
+        )
         available = copy.deepcopy(base)
         available["lmod"] = {
             "hasCudaModule": True,
@@ -239,17 +244,14 @@ class MergeAuditTests(unittest.TestCase):
         self.assertEqual(values["audit_data"]["location"]["region"], "Maharashtra")
 
     def test_coordinates_parsed_from_server_location(self) -> None:
-        audit = {
-            "audit": {"timestamp": "2026-06-09T02:53:44Z"},
-            "serverLocation": {
+        audit = merge_fixture(
+            serverLocation={
                 "region": "Utah",
                 "country": "US",
                 "coordinates": "40.6097,-111.9391",
             },
-            "nodes": {"total": 1},
-            "gpus": {"total": 4, "model": "NVIDIA GB300", "perNode": 4},
-            "software": {"ncclVersion": "unknown"},
-        }
+            gpus={"total": 4, "model": "NVIDIA GB300", "perNode": 4},
+        )
 
         cluster = merge_audit.build_values(audit, harness="slurm", check_data={})["cluster"]
 
@@ -275,12 +277,8 @@ class K8sCanonicalRemapTests(unittest.TestCase):
         return merge_audit.build_values(audit, harness="k8s", check_data={})["audit_data"]
 
     def test_remaps_host_check_facts_onto_canonical_paths(self) -> None:
-        audit = {
-            "audit": {"timestamp": "2026-06-02T06:17:42Z"},
-            "nodes": {"total": 1},
-            "gpus": {"total": 8, "model": "NVIDIA H100", "perNode": 8},
-            "software": {"ncclVersion": "unknown"},
-            "hostCheck": {
+        audit = merge_fixture(
+            hostCheck={
                 "WORKER_NVIDIA_DMABUF": "true",
                 "WORKER_NVIDIA_OPEN": "true",
                 "WORKER_PEERMEM_LEGACY": "false",
@@ -294,7 +292,7 @@ class K8sCanonicalRemapTests(unittest.TestCase):
                 "WORKER_IPMI_USER_ACCESS": "allowed",
                 "WORKER_IPMI_SUDO_ACCESS": "blocked",
             },
-        }
+        )
         data = self._build(audit)
 
         self.assertEqual(data["gpus"]["gpuDirectRdmaPath"]["dmaBuf"], True)
@@ -320,19 +318,18 @@ class K8sCanonicalRemapTests(unittest.TestCase):
         self.assertEqual(data["security"]["bmcIpmi"]["exposed"], True)
 
     def test_binary_local_criteria_evidence_is_normalized(self) -> None:
-        audit = {
-            "audit": {"timestamp": "2026-08-27T12:00:00Z"},
-            "nodes": {"total": 2},
-            "gpus": {"total": 16, "model": "NVIDIA H100", "perNode": 8},
-            "software": {
+        audit = merge_fixture(
+            nodes={"total": 2},
+            gpus={"total": 16, "model": "NVIDIA H100", "perNode": 8},
+            software={
                 "ncclVersion": "2.28.3",
                 "ncu": {"profilingEnabled": True},
             },
-            "storage": {"rwxCapable": True, "storageReady": True},
-            "hostCheck": {
+            storage={"rwxCapable": True, "storageReady": True},
+            hostCheck={
                 "WORKER_CUDA_VISIBLE_DEVICES": "GPU-0,GPU-1",
             },
-        }
+        )
 
         data = self._build(audit)
 
@@ -340,14 +337,10 @@ class K8sCanonicalRemapTests(unittest.TestCase):
         self.assertEqual(data["storage"]["rwxStatus"], "pass")
 
     def test_missing_worker_evidence_stays_unknown(self) -> None:
-        audit = {
-            "audit": {"timestamp": "2026-08-27T12:00:00Z"},
-            "nodes": {"total": 1},
-            "gpus": {"total": 8, "model": "NVIDIA H100", "perNode": 8},
-            "software": {"ncclVersion": "unknown"},
-            "networking": {"rdmaType": "unknown"},
-            "hostCheck": {},
-        }
+        audit = merge_fixture(
+            networking={"rdmaType": "unknown"},
+            hostCheck={},
+        )
 
         data = self._build(audit)
 
@@ -362,43 +355,30 @@ class K8sCanonicalRemapTests(unittest.TestCase):
         self.assertNotIn("sharpAmKeyStatus", data.get("security", {}))
 
     def test_gdrcopy_not_found_records_absent(self) -> None:
-        audit = {
-            "audit": {"timestamp": "2026-06-02T06:17:42Z"},
-            "nodes": {"total": 1},
-            "gpus": {"total": 8, "model": "NVIDIA H100", "perNode": 8},
-            "software": {"ncclVersion": "unknown"},
-            "hostCheck": {"WORKER_GDRCOPY_LIB": "not-found", "WORKER_GDRCOPY_GDRDRV": "false"},
-        }
+        audit = merge_fixture(
+            hostCheck={"WORKER_GDRCOPY_LIB": "not-found", "WORKER_GDRCOPY_GDRDRV": "false"},
+        )
         data = self._build(audit)
         self.assertEqual(data["gpus"]["gdrcopy"]["installed"], False)
         self.assertNotIn("libraryPath", data["gpus"]["gdrcopy"])
 
     def test_amd_only_dmesg_count_lands_without_nvidia_xid_keys(self) -> None:
-        # Bugbot #729: AMD-only hosts emit WORKER_DMESG_AMDGPU_ERRORS_COUNT with no
-        # NVIDIA Xid keys; amdgpuErrorsCount must still reach gpus.dmesgErrors.
-        audit = {
-            "audit": {"timestamp": "2026-06-02T06:17:42Z"},
-            "nodes": {"total": 1},
-            "gpus": {"total": 8, "model": "AMD MI300X", "perNode": 8},
-            "software": {"ncclVersion": "unknown"},
-            "hostCheck": {"WORKER_DMESG_AMDGPU_ERRORS_COUNT": "3"},
-        }
+        audit = merge_fixture(
+            gpus={"total": 8, "model": "AMD MI300X", "perNode": 8},
+            hostCheck={"WORKER_DMESG_AMDGPU_ERRORS_COUNT": "3"},
+        )
         data = self._build(audit)
         self.assertEqual(data["gpus"]["dmesgErrors"]["amdgpuErrorsCount"], "3")
 
     def test_monitoring_block_bridges_into_health_checks(self) -> None:
-        audit = {
-            "audit": {"timestamp": "2026-06-02T06:17:42Z"},
-            "nodes": {"total": 1},
-            "gpus": {"total": 8, "model": "NVIDIA H100", "perNode": 8},
-            "software": {"ncclVersion": "unknown"},
-            "monitoring": {
+        audit = merge_fixture(
+            monitoring={
                 "prometheus": {"installed": True},
                 "grafana": {"installed": False},
                 "dcgm": {"installed": True},
                 "components": {"nodeExporter": True, "nodeProblemDetector": True},
             },
-        }
+        )
         stack = self._build(audit)["healthChecks"]["monitoringStack"]
         self.assertEqual(stack["prometheus"], True)
         self.assertEqual(stack["grafana"], False)
@@ -407,14 +387,12 @@ class K8sCanonicalRemapTests(unittest.TestCase):
         self.assertEqual(stack["nodeProblemDetector"], True)
 
     def test_rdma_fabric_refined_to_roce_from_ethernet_topology(self) -> None:
-        audit = {
-            "audit": {"timestamp": "2026-06-24T17:35:30Z"},
-            "nodes": {"total": 4},
-            "gpus": {"total": 32, "model": "NVIDIA H100", "perNode": 8},
-            "software": {"ncclVersion": "unknown"},
-            "networking": {"rdmaType": "rdma"},
-            "security": {"ufmSecuredBareMetalCloud": {"status": "unknown", "applicable": None}},
-        }
+        audit = merge_fixture(
+            nodes={"total": 4},
+            gpus={"total": 32, "model": "NVIDIA H100", "perNode": 8},
+            networking={"rdmaType": "rdma"},
+            security={"ufmSecuredBareMetalCloud": {"status": "unknown", "applicable": None}},
+        )
         nt = {"node-01": [{"layer": "Ethernet", "name": "mlx5_0", "role": "fabric"}]}
         out = merge_audit.build_values(audit, harness="k8s", check_data={"nic_topology": nt})["audit_data"]
         self.assertEqual(out["networking"]["rdmaType"], "roce")
@@ -422,27 +400,22 @@ class K8sCanonicalRemapTests(unittest.TestCase):
         self.assertEqual(out["security"]["ufmSecuredBareMetalCloud"]["applicable"], False)
 
     def test_rdma_fabric_refined_to_ib_from_infiniband_topology(self) -> None:
-        audit = {
-            "audit": {"timestamp": "2026-06-24T17:35:30Z"},
-            "nodes": {"total": 4},
-            "gpus": {"total": 32, "model": "NVIDIA H100", "perNode": 8},
-            "software": {"ncclVersion": "unknown"},
-            "networking": {"rdmaType": "rdma"},
-            "security": {"ufmSecuredBareMetalCloud": {"status": "unknown"}},
-        }
+        audit = merge_fixture(
+            nodes={"total": 4},
+            gpus={"total": 32, "model": "NVIDIA H100", "perNode": 8},
+            networking={"rdmaType": "rdma"},
+            security={"ufmSecuredBareMetalCloud": {"status": "unknown"}},
+        )
         nt = {"node-01": [{"layer": "InfiniBand", "name": "mlx5_0", "role": "fabric"}]}
         out = merge_audit.build_values(audit, harness="k8s", check_data={"nic_topology": nt})["audit_data"]
         self.assertEqual(out["networking"]["rdmaType"], "infiniband")
         self.assertEqual(out["security"]["ufmSecuredBareMetalCloud"]["status"], "manual")
 
     def test_amd_device_metrics_exporter_bridges_as_gpu_metrics(self) -> None:
-        # AMD cluster: no NVIDIA DCGM, but device-metrics-exporter present.
-        audit = {
-            "audit": {"timestamp": "2026-06-20T07:59:09Z"},
-            "nodes": {"total": 4},
-            "gpus": {"total": 32, "model": "AMD Instinct MI355X", "perNode": 8},
-            "software": {"ncclVersion": "unknown"},
-            "monitoring": {
+        audit = merge_fixture(
+            nodes={"total": 4},
+            gpus={"total": 32, "model": "AMD Instinct MI355X", "perNode": 8},
+            monitoring={
                 "prometheus": {"installed": True},
                 "grafana": {"installed": True},
                 "dcgm": {"installed": False},
@@ -457,7 +430,7 @@ class K8sCanonicalRemapTests(unittest.TestCase):
                     "amdDeviceMetricsExporter": True,
                 },
             },
-        }
+        )
         stack = self._build(audit)["healthChecks"]["monitoringStack"]
         self.assertEqual(stack["dcgmExporter"], False)
         self.assertEqual(stack["gpuMetricsExporter"], True)
@@ -466,12 +439,10 @@ class K8sCanonicalRemapTests(unittest.TestCase):
         self.assertEqual(stack["nodeExporter"], True)
 
     def test_gpu_metrics_job_attribution_bridges(self) -> None:
-        audit = {
-            "audit": {"timestamp": "2026-06-23T21:31:31Z"},
-            "nodes": {"total": 4},
-            "gpus": {"total": 32, "model": "NVIDIA H100", "perNode": 8},
-            "software": {"ncclVersion": "unknown"},
-            "monitoring": {
+        audit = merge_fixture(
+            nodes={"total": 4},
+            gpus={"total": 32, "model": "NVIDIA H100", "perNode": 8},
+            monitoring={
                 "prometheus": {"installed": True},
                 "gpuMetricsExporter": {
                     "installed": True,
@@ -480,46 +451,35 @@ class K8sCanonicalRemapTests(unittest.TestCase):
                     "jobAttributionMethod": "dcgm-kubernetes",
                 },
             },
-        }
+        )
         stack = self._build(audit)["healthChecks"]["monitoringStack"]
         self.assertEqual(stack["gpuMetricsJobAttribution"], True)
         self.assertEqual(stack["gpuMetricsJobAttributionMethod"], "dcgm-kubernetes")
 
     def test_remap_is_additive_and_does_not_overwrite_existing(self) -> None:
-        audit = {
-            "audit": {"timestamp": "2026-06-02T06:17:42Z"},
-            "nodes": {"total": 1},
-            "gpus": {
+        audit = merge_fixture(
+            gpus={
                 "total": 8,
                 "model": "NVIDIA H100",
                 "perNode": 8,
-                # Richer pre-existing value must win over the check-derived one.
                 "gpuDirectRdmaPath": {"dmaBuf": True},
             },
-            "software": {"ncclVersion": "unknown"},
-            "hostCheck": {"WORKER_NVIDIA_DMABUF": "false"},
-        }
+            hostCheck={"WORKER_NVIDIA_DMABUF": "false"},
+        )
         data = self._build(audit)
         self.assertEqual(data["gpus"]["gpuDirectRdmaPath"]["dmaBuf"], True)
 
     def test_slurm_harness_is_not_remapped(self) -> None:
-        audit = {
-            "audit": {"timestamp": "2026-06-02T06:17:42Z"},
-            "nodes": {"total": 1},
-            "gpus": {"total": 8, "model": "NVIDIA H100", "perNode": 8},
-            "software": {"ncclVersion": "unknown"},
-            "hostCheck": {"WORKER_NVIDIA_DMABUF": "true"},
-        }
+        audit = merge_fixture(
+            hostCheck={"WORKER_NVIDIA_DMABUF": "true"},
+        )
         data = merge_audit.build_values(audit, harness="slurm", check_data={})["audit_data"]
-        # On slurm the dedicated collector owns these paths; the k8s remap must
-        # not run, so no gpuDirectRdmaPath is synthesized from the check here.
         self.assertNotIn("gpuDirectRdmaPath", data["gpus"])
 
 
 class NormalizeChipNameTests(unittest.TestCase):
     def test_strips_vendor_prefix_and_memory_packaging_suffixes(self) -> None:
         cases = {
-            # observed in the wild today
             "NVIDIA-H100-80GB-HBM3": "H100",
             "NVIDIA H100 80GB HBM3": "H100",
             "NVIDIA-B300-SXM6-AC": "B300",
@@ -527,21 +487,16 @@ class NormalizeChipNameTests(unittest.TestCase):
             "NVIDIA-GB300": "GB300",
             "NVIDIA-H200": "H200",
             "NVIDIA B300": "B300",
-            # the clean target names should pass through unchanged
             "B300": "B300",
             "B200": "B200",
             "GB300": "GB300",
             "GB200": "GB200",
             "H100": "H100",
-            # AMD: keep the variant letter attached to the model number
             "AMD-Instinct-MI300X": "MI300X",
             "AMD Instinct MI325X": "MI325X",
             "MI300X": "MI300X",
-            # extra packaging tokens
             "NVIDIA-H100-PCIE-80GB": "H100",
             "NVIDIA-GH200-480GB": "GH200",
-            # multi-token products keep their model number; two-letter
-            # packaging codes are dropped instead of being glued to the family.
             "Intel-Gaudi-3": "Gaudi-3",
             "Intel Gaudi 3": "Gaudi-3",
             "NVIDIA RTX PRO 6000": "RTX 6000 Pro",
@@ -549,7 +504,6 @@ class NormalizeChipNameTests(unittest.TestCase):
             "PRO-6000-Blackwell-Server-Edition": "RTX 6000 Pro",
             "NVIDIA-B300-SXM6-PC": "B300",
             "NVIDIA B300 SXM6 PC": "B300",
-            # underscore-separated vendor prefixes are stripped.
             "NVIDIA_H100": "H100",
             "NVIDIA_B300_SXM6_AC": "B300",
         }
@@ -563,16 +517,12 @@ class NormalizeChipNameTests(unittest.TestCase):
         self.assertEqual(merge_audit.normalize_chip_name("unknown"), "unknown")
 
     def test_build_values_records_clean_name_but_preserves_raw(self) -> None:
-        audit = {
-            "audit": {"timestamp": "2026-06-09T02:53:44Z"},
-            "nodes": {"total": 2},
-            "gpus": {"total": 16, "model": "NVIDIA-H100-80GB-HBM3", "perNode": 8},
-            "software": {"ncclVersion": "unknown"},
-        }
+        audit = merge_fixture(
+            nodes={"total": 2},
+            gpus={"total": 16, "model": "NVIDIA-H100-80GB-HBM3", "perNode": 8},
+        )
         values = merge_audit.build_values(audit, harness="slurm", check_data={})
-        # cluster.gpu_model is the bare chip name we record + show
         self.assertEqual(values["cluster"]["gpu_model"], "H100")
-        # raw string is preserved for traceability + grader branching
         self.assertEqual(values["audit_data"]["gpus"]["model"], "NVIDIA-H100-80GB-HBM3")
 
 

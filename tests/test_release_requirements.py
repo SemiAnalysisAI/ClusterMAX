@@ -7,7 +7,6 @@ REQUIREMENTS_DIR = Path(__file__).parents[1] / ".github" / "requirements"
 
 class ReleaseRequirementsTests(unittest.TestCase):
     def test_direct_release_dependencies_are_hash_locked(self) -> None:
-        """The no-isolation build must install every declared release tool."""
         declared = [
             line.strip()
             for line in (REQUIREMENTS_DIR / "release.in").read_text().splitlines()

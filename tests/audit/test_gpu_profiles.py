@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Unit tests for Kubernetes heterogeneous GPU profile selection."""
 
 from __future__ import annotations
@@ -7,11 +7,9 @@ import importlib.util
 import unittest
 from pathlib import Path
 
-
 MODULE_PATH = (
     Path(__file__).resolve().parents[2] / "cmax" / "scripts" / "1-audit" / "gpu_profiles.py"
 )
-
 
 def load_module():
     spec = importlib.util.spec_from_file_location("gpu_profiles_under_test", MODULE_PATH)
@@ -20,9 +18,7 @@ def load_module():
     spec.loader.exec_module(module)
     return module
 
-
 gpu_profiles = load_module()
-
 
 def node(name: str, model: str | None, gpus: int, cpu: str, memory: str) -> dict:
     labels = {}
@@ -39,7 +35,6 @@ def node(name: str, model: str | None, gpus: int, cpu: str, memory: str) -> dict
             }
         },
     }
-
 
 class GpuProfileTests(unittest.TestCase):
     def test_uses_shared_kubernetes_memory_quantity_parser(self) -> None:
@@ -141,7 +136,6 @@ class GpuProfileTests(unittest.TestCase):
         self.assertEqual(resolved["profiles"][0]["model"], "NVIDIA B200")
         self.assertEqual(resolved["profiles"][0]["memoryMB"], "183359")
         self.assertEqual(resolved["profiles"][1]["model"], "NVIDIA-L4")
-
 
 if __name__ == "__main__":
     unittest.main()

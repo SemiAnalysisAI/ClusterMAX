@@ -19,7 +19,7 @@ Homepage = "https://clustermax.semianalysis.com/"
 Documentation = "https://www.clustermax.ai/criteria"
 
 [project.optional-dependencies]
-dev = ["build>=1", "pytest>=8"]
+dev = ["build>=1", "pytest>=8", "pytest-xdist>=3"]
 
 [project.scripts]
 cmax = "cmax.cli:main"
@@ -39,6 +39,9 @@ cmax = [
   "scripts/1-audit/checks/gpu/*.py",
   "scripts/1-audit/checks/system/*.py",
 ]
+
+[tool.pytest.ini_options]
+addopts = "-n auto"
 
 [tool.check-wheel-contents]
 # The audit runs these Python files as package resources through their paths.
