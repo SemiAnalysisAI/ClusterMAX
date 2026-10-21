@@ -15,7 +15,8 @@ def test_shared_rdma_helper_uses_sriov_configuration(is_rdma, expected, array_se
     function = text.split("k8s_detect_shared_rdma_resource() {", 1)[1].split("# List the Multus", 1)[0]
     selectors = {"isRdma": is_rdma}
     config = {"data": {"config.json": json.dumps({"resourceList": [
-        {"resourceName": "hostdev", "selectors": [selectors] if array_selectors else selectors}
+        {"resourcePrefix": "nvidia.com", "resourceName": "hostdev",
+         "selectors": [selectors] if array_selectors else selectors}
     ]})}}
     nodes = {"items": [{"status": {"allocatable": {"nvidia.com/hostdev": "8"}}}]}
     if shared_key:
@@ -28,3 +29,41 @@ def test_shared_rdma_helper_uses_sriov_configuration(is_rdma, expected, array_se
     )
     assert run.returncode == 0, run.stderr
     assert run.stdout.strip() == expected
+
+
+@pytest.mark.parametrize("prefix", [None, "intel.com", "synthetic.example", "nvidia.com"])
+@pytest.mark.parametrize("array_selectors", [False, True])
+def test_workload_and_inventory_agree_on_hostdev_prefix(prefix, array_selectors):
+    from test_k8s_rdma_configured_resources import run_detection
+
+    resource = {
+        "resourceName": "hostdev",
+        "selectors": [{"isRdma": True}] if array_selectors else {"isRdma": True},
+    }
+    if prefix is not None:
+        resource["resourcePrefix"] = prefix
+    config = {"resourceList": [resource]}
+    function = "k8s_detect_shared_rdma_resource() {" + SCRIPT.read_text().split(
+        "k8s_detect_shared_rdma_resource() {", 1,
+    )[1].split("# List the Multus", 1)[0]
+    helper = bashtest.run_bash(
+        function + "\nk8s_detect_shared_rdma_resource",
+        env={
+            "TEST_CONFIG": json.dumps({"data": {"config.json": json.dumps(config)}}),
+            "TEST_NODES": json.dumps({"items": [{"status": {
+                "allocatable": {"nvidia.com/hostdev": "3"},
+            }}]}),
+        },
+        stubs={"kubectl": (
+            'if [[ "$2" == configmap ]]; then printf "%s" "$TEST_CONFIG"; '
+            'else printf "%s" "$TEST_NODES"; fi'
+        )},
+    )
+    inventory = run_detection({"nvidia.com/hostdev": "3"}, config)
+    assert helper.returncode == inventory.returncode == 0
+    if prefix == "nvidia.com":
+        assert helper.stdout.strip() == "nvidia.com/hostdev"
+        assert "TYPE=rdma" in inventory.stdout
+    else:
+        assert helper.stdout.strip() == ""
+        assert "TYPE=none" in inventory.stdout
