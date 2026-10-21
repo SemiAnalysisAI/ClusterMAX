@@ -71,10 +71,10 @@ def test_active_rails_take_priority_within_the_existing_tool_cap(tmp_path):
     ports = [("aaa_failed", "0 Gb/sec", "InfiniBand", "1: DOWN")]
     ports += [
         (f"synthetic_active_{index}", "200 Gb/sec", "InfiniBand", "4: ACTIVE")
-        for index in range(6)
+        for index in range(8)
     ]
     output, calls = run_collector(tmp_path, ports)
-    assert len(calls) == 12
+    assert len(calls) == 16
     assert "@@PLANE@@ aaa_failed" not in output
     assert all("aaa_failed" not in call for call in calls)
 
