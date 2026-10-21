@@ -423,7 +423,7 @@ def test_prefer_no_schedule_taint_is_retained_but_not_reported():
     nodes = [
         {
             "metadata": {"name": "gpu-0"},
-            "spec": {"taints": [{"key": "is_gpu", "value": "true", "effect": "PreferNoSchedule"}]},
+            "spec": {"taints": [{"key": "example.com/gpu", "value": "true", "effect": "PreferNoSchedule"}]},
         },
         {
             "metadata": {"name": "gpu-1"},
