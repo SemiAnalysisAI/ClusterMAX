@@ -417,3 +417,28 @@ def test_check_runner_merge_and_report_preserve_visible_findings(tmp_path):
         check=True,
     )
     assert proc.stdout == ""
+
+
+def test_prefer_no_schedule_taint_is_retained_but_not_reported():
+    nodes = [
+        {
+            "metadata": {"name": "gpu-0"},
+            "spec": {"taints": [{"key": "is_gpu", "value": "true", "effect": "PreferNoSchedule"}]},
+        },
+        {
+            "metadata": {"name": "gpu-1"},
+            "spec": {"taints": [{"key": "dedicated", "value": "b300", "effect": "NoSchedule"}]},
+        },
+    ]
+
+    def run(args, **kwargs):
+        data = {"items": nodes if args[2] == "nodes" else []}
+        return subprocess.CompletedProcess(args, 0, json.dumps(data), "")
+
+    with patch.object(scheduling.subprocess, "run", side_effect=run):
+        result = scheduling.collect("tenant")
+    messages = [finding["message"] for finding in result["findings"]]
+    assert not any("PreferNoSchedule" in message for message in messages)
+    assert "Node gpu-1 has taint dedicated=b300:NoSchedule." in messages
+    kept = result["resources"]["nodes"]["items"][0]["spec"]["taints"][0]
+    assert kept["effect"] == "PreferNoSchedule"
