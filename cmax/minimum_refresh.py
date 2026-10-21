@@ -47,11 +47,10 @@ Command line::
     python3 -m cmax.minimum_refresh --print --generated 2026-07-30T00:00:00Z
 
 Exit codes: 0 success, 1 `--check` mismatch, 2 fetch or fail-closed error,
-3 unknown relevant NVIDIA bulletins, untracked Docker Engine majors, or
-untracked AMD GPU bulletins found by `--detect-new-bulletins`. A bulletin
-listed in DEFERRED_BULLETINS or in AMD_DEFERRED_BULLETINS is reported on
-every run but is a recorded decision rather than a discovery, so it does not
-produce exit 3.
+3 unknown relevant NVIDIA bulletins or untracked Docker Engine majors found by
+`--detect-new-bulletins`. A bulletin listed in DEFERRED_BULLETINS is reported
+on every run but is a recorded decision rather than a discovery, so it does
+not produce exit 3.
 """
 
 from __future__ import annotations
@@ -148,15 +147,6 @@ def validate_bulletin_lists() -> None:
     for a_id, reason in DEFERRED_BULLETINS.items():
         if not str(reason).strip():
             problems.append(f"{a_id}: deferred bulletin has no written reason")
-    amd_tracked = {sb_id.lower() for sb_id in (*AMD_BULLETINS, *AMD_DRIVER_BULLETINS)}
-    for sb_id, reason in AMD_DEFERRED_BULLETINS.items():
-        if sb_id.lower() in amd_tracked:
-            problems.append(
-                f"{sb_id}: bulletin is tracked in AMD_BULLETINS and deferred "
-                f"in AMD_DEFERRED_BULLETINS; remove one"
-            )
-        if not str(reason).strip():
-            problems.append(f"{sb_id}: deferred bulletin has no written reason")
     if problems:
         raise MinimumRefreshError(
             "bulletin configuration is inconsistent:\n  - " + "\n  - ".join(problems)
@@ -240,21 +230,17 @@ DOCKER_NEXT_HEADING = re.compile(r"^#{2,3} ", re.MULTILINE)
 CVE_ID = re.compile(r"\bCVE-\d{4}-\d{4,}\b")
 GHSA_ID = re.compile(r"\bGHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}\b")
 
-# AMD publishes no CSAF provider and no OSV entries for ROCm, so the AMD
-# Instinct ROCm minimum comes from the consolidated graphics bulletins that AMD
-# publishes as HTML pages. AMD_BULLETINS holds the modern consolidated series,
-# oldest first. Each of these bulletins names its Instinct fixes in dated
-# mitigation tables of the shape "Program | CVE | Mitigation | Release Date".
-# Every older GPU bulletin was read once and sits in AMD_DEFERRED_BULLETINS
-# with a written reason, because no ROCm release an older bulletin names is
-# above a minimum this series forces.
+# AMD publishes no CSAF provider and no OSV entries for ROCm. The generator
+# therefore enumerates AMD's official bulletin index and evaluates every
+# 6000-series bulletin published after the policy start date. Instinct rows,
+# not bulletin titles or IDs, decide applicability.
 AMD_FEED = "amd-security-bulletin"
 AMD_SECURITY_INDEX = "https://www.amd.com/en/resources/product-security.html"
 AMD_BULLETIN_PAGE = (
     "https://www.amd.com/en/resources/product-security/bulletin/{sb_id}.html"
 )
-AMD_BULLETINS: tuple[str, ...] = ("amd-sb-6018", "amd-sb-6024", "amd-sb-6027")
-AMD_DRIVER_BULLETINS: tuple[str, ...] = ("amd-sb-6034",)
+AMD_POLICY_START_DATE = datetime(2025, 8, 1).date()
+AMD_GPU_BULLETIN_ID = re.compile(r"^AMD-SB-6\d{3}$", re.IGNORECASE)
 
 # An index row whose title matches this pattern concerns GPUs, so
 # `--detect-new-bulletins` reports the bulletin when it is neither tracked nor
@@ -273,88 +259,13 @@ AMD_ROCM_HINT = re.compile(r"\bROCm?\b", re.IGNORECASE)
 # A ROCm release outside the dated mitigation tables. Text such as "ROCm
 # ecosystem" carries no digit and does not match.
 AMD_ROCM_STRAY = re.compile(r"\bROCm?\W+\d", re.IGNORECASE)
+AMD_DRIVER_HINT = re.compile(r"\bLinux GPU Driver\b", re.IGNORECASE)
+AMD_DRIVER_STRAY = re.compile(r"\bLinux GPU Driver\W+\d", re.IGNORECASE)
 # One Instinct program token, such as MI210 or MI300A. A single program cell
 # can name two programs at once ("AMD Instinct MI210  AMD Instinct MI250").
 AMD_PROGRAM = re.compile(r"\bMI\d+[A-Za-z]*\b")
 AMD_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 AMD_TRADEMARKS = re.compile("[\u2122\u00ae]")
-
-# AMD GPU bulletins that are read and not tracked, each with the written
-# reason. The same rules as DEFERRED_BULLETINS apply: every entry is reported
-# on every `--detect-new-bulletins` run, and removing an entry puts the
-# bulletin straight back on the untracked list. "Below the tracked minimums"
-# means every ROCm release the bulletin names is at or below a minimum that
-# AMD_BULLETINS forces, so tracking it cannot move any minimum up.
-AMD_DEFERRED_BULLETINS: dict[str, str] = {
-    "amd-sb-1000": (
-        "Windows 10 graphics driver bulletin for client GPUs. It names no "
-        "ROCm release."
-    ),
-    "amd-sb-1029": (
-        "Client graphics driver bulletin from November 2022. It names no "
-        "ROCm release."
-    ),
-    "amd-sb-6003": (
-        "Client graphics driver bulletin from November 2023. It names no "
-        "ROCm release."
-    ),
-    "amd-sb-6005": (
-        "Consolidated bulletin from August 2024 in the older transposed "
-        "table format. Its highest ROCm release is 6.3.2, below the tracked "
-        "minimums."
-    ),
-    "amd-sb-6007": (
-        "Radeon Software Crimson bulletin for client GPUs. It names no ROCm "
-        "release."
-    ),
-    "amd-sb-6008": (
-        "Consolidated bulletin from February 2025. It names no ROCm release."
-    ),
-    "amd-sb-6009": (
-        "Radeon kernel driver bulletin for client GPUs. It names no ROCm "
-        "release."
-    ),
-    "amd-sb-6010": (
-        "GPU memory leak bulletin in the older per-environment table format. "
-        "Its highest ROCm release is 6.3.1, below the tracked minimums."
-    ),
-    "amd-sb-6011": (
-        "WebGPU browser side-channel note. It names no ROCm release."
-    ),
-    "amd-sb-6012": (
-        "Radeon DirectX 11 shader bulletin for client GPUs. It names no ROCm "
-        "release."
-    ),
-    "amd-sb-6013": (
-        "Uninitialized GPU register bulletin in the older per-environment "
-        "table format. Its highest ROCm release is 6.3.1, below the tracked "
-        "minimums."
-    ),
-    "amd-sb-6015": (
-        "Graphics driver installer bulletin for client GPUs. It names no "
-        "ROCm release."
-    ),
-    "amd-sb-6016": (
-        "Client GPU bulletin. It names no ROCm release."
-    ),
-    "amd-sb-6019": (
-        "Cross-process GPU memory disclosure note. It names no ROCm release."
-    ),
-    "amd-sb-6021": (
-        "Linux graphics driver bulletin in the older format. Its highest "
-        "ROCm release is 6.2, below the tracked minimums."
-    ),
-    "amd-sb-6026": (
-        "GPU timing side-channel research note. It names no ROCm release."
-    ),
-    "amd-sb-6031": (
-        "Device Metrics Exporter bulletin. The fix is an exporter release, "
-        "and the audit does not grade the exporter version."
-    ),
-    "amd-sb-7049": (
-        "GPUHammer research note. It names no ROCm release."
-    ),
-}
 
 DEFAULT_RELATIVE_PATH = runtime_paths.MINIMUMS_TABLE_RELATIVE
 
@@ -1964,7 +1875,7 @@ def nvhpc_release_window(fetch: Fetcher | None = None) -> dict:
 
 
 def amd_bulletin_page(sb_id: str) -> str:
-    return AMD_BULLETIN_PAGE.format(sb_id=sb_id)
+    return AMD_BULLETIN_PAGE.format(sb_id=sb_id.lower())
 
 
 class _HtmlTables(HTMLParser):
@@ -2065,6 +1976,55 @@ def html_tables(text: str) -> list[list[list[str]]]:
     return [_expand_rowspans(rows) for rows in parser.tables if rows]
 
 
+def amd_bulletin_catalog(fetch: Fetcher | None = None) -> list[dict[str, str]]:
+    """Enumerate AMD GPU-software bulletins covered by the current policy."""
+
+    text = _fetcher(fetch).get_text(AMD_SECURITY_INDEX)
+    page = re.search(r"Showing\s+1\s+to\s+(\d+)\s+of\s+(\d+)\s+entries", text)
+    if page and int(page.group(1)) < int(page.group(2)):
+        raise MinimumRefreshError(
+            "amd: product-security index is paginated or truncated "
+            f"({page.group(1)} of {page.group(2)} rows)"
+        )
+
+    catalog: dict[str, dict[str, str]] = {}
+    for table in html_tables(text):
+        for row in table:
+            if len(row) < 5:
+                continue
+            match = AMD_SB_ID.search(row[0])
+            if not match:
+                continue
+            sb_id = match.group(0).upper()
+            if not AMD_GPU_BULLETIN_ID.fullmatch(sb_id):
+                continue
+            try:
+                published = datetime.strptime(row[4].strip(), "%b %d, %Y").date()
+            except ValueError as exc:
+                raise MinimumRefreshError(
+                    f"amd: bulletin {sb_id} has an unparseable publication date "
+                    f"{row[4]!r}"
+                ) from exc
+            if published < AMD_POLICY_START_DATE:
+                continue
+            if sb_id in catalog:
+                raise MinimumRefreshError(
+                    f"amd: product-security index lists {sb_id} more than once"
+                )
+            catalog[sb_id] = {
+                "aId": sb_id,
+                "published": f"{published.isoformat()}T00:00:00Z",
+                "title": row[1].strip(),
+                "url": amd_bulletin_page(sb_id),
+            }
+
+    if not catalog:
+        raise MinimumRefreshError(
+            "amd: product-security index contains no in-policy 6000-series bulletins"
+        )
+    return sorted(catalog.values(), key=lambda item: (item["published"], item["aId"]))
+
+
 def _amd_mitigation_header(row: list[str]) -> bool:
     """Match the dated mitigation-table header of the tracked AMD series.
 
@@ -2097,33 +2057,40 @@ def amd_initial_publication(tables: list[list[list[str]]], url: str) -> str:
     )
 
 
-def parse_amd_bulletin(text: str, url: str) -> dict:
-    """Read one tracked AMD bulletin page.
+def parse_amd_bulletin(
+    text: str, url: str, catalog_published: str | None = None
+) -> dict:
+    """Read one in-policy AMD bulletin page.
 
-    Returns the initial publication date and every data row of every dated
-    mitigation table. The page is HTML that AMD writes by hand, so the reader
-    is strict: a bulletin without a dated mitigation table stops the refresh,
-    and so does a ROCm release that appears in any other table, because that
-    would mean the fix moved to a shape this reader does not cover.
+    A bulletin may concern another 6000-series product and have no applicable
+    Instinct mitigation table. That is a valid empty result. An Instinct ROCm
+    or Linux GPU Driver release outside the recognized table shape still stops
+    the refresh.
     """
     tables = html_tables(text)
-    published = amd_initial_publication(tables, url)
+    try:
+        published = amd_initial_publication(tables, url)
+    except MinimumRefreshError:
+        if catalog_published is None:
+            raise
+        published = catalog_published
     rows: list[list[str]] = []
-    other_tables: list[str] = []
+    other_tables: list[list[list[str]]] = []
     for table in tables:
         if _amd_mitigation_header(table[0]):
             rows.extend(table[1:])
         else:
-            other_tables.append(" ".join(" ".join(row) for row in table))
-    if not rows:
-        raise MinimumRefreshError(
-            f"rocm: found no dated mitigation table on {url}; "
-            f"the table format probably changed"
+            other_tables.append(table)
+    for table in other_tables:
+        body = AMD_TRADEMARKS.sub(
+            " ", " ".join(" ".join(row) for row in table)
         )
-    for body in other_tables:
-        if AMD_ROCM_STRAY.search(AMD_TRADEMARKS.sub(" ", body)):
+        if AMD_PROGRAM.search(body) and (
+            AMD_ROCM_STRAY.search(body) or AMD_DRIVER_STRAY.search(body)
+        ):
             raise MinimumRefreshError(
-                f"rocm: a ROCm release appears outside the dated mitigation "
+                f"amd: an Instinct ROCm or Linux GPU Driver release appears "
+                f"outside the dated mitigation "
                 f"tables on {url}; the table format probably changed"
             )
     return {"published": published, "rows": rows}
@@ -2170,24 +2137,30 @@ def _amd_program_minimums(
     release_label = "driver" if host_driver else "ROCm"
     client = _fetcher(fetch)
     if bulletins is None:
-        bulletins = AMD_DRIVER_BULLETINS if host_driver else AMD_BULLETINS
-    sources: list[dict] = []
-    records: dict[str, dict[str, Any]] = {}
-    for sb_id in bulletins:
-        url = amd_bulletin_page(sb_id)
-        parsed = parse_amd_bulletin(client.get_text(url), url)
-        sources.append(
+        catalog = amd_bulletin_catalog(client)
+    else:
+        catalog = [
             {
                 "aId": sb_id.upper(),
-                "feed": AMD_FEED,
-                "released": parsed["published"],
-                "url": url,
+                "url": amd_bulletin_page(sb_id),
             }
+            for sb_id in bulletins
+        ]
+    sources: list[dict] = []
+    records: dict[str, dict[str, Any]] = {}
+    for bulletin in catalog:
+        sb_id = bulletin["aId"]
+        url = bulletin["url"]
+        parsed = parse_amd_bulletin(
+            client.get_text(url), url, bulletin.get("published")
         )
+        used = False
         for row in parsed["rows"]:
-            # Driver bulletins also contain client tables with three columns.
-            # Only Instinct rows belong to this component.
-            if host_driver and not AMD_PROGRAM.search(row[0] if row else ""):
+            program_cell = row[0] if row else ""
+            programs = AMD_PROGRAM.findall(AMD_TRADEMARKS.sub(" ", program_cell))
+            if not programs and "instinct" not in program_cell.lower():
+                # Client products often use a shorter table shape. They are
+                # outside the graded Instinct policy and do not constrain it.
                 continue
             if len(row) < 4:
                 raise MinimumRefreshError(
@@ -2196,30 +2169,42 @@ def _amd_program_minimums(
                 )
             program_cell, cve_cell, mitigation_cell, date_cell = row[:4]
             mitigation = " ".join(AMD_TRADEMARKS.sub(" ", mitigation_cell).split())
-            match = (
-                re.fullmatch(r"Linux GPU Driver (\d+(?:\.\d+){1,2})", mitigation)
-                if host_driver else AMD_ROCM_MITIGATION.fullmatch(mitigation)
-            )
-            if not match:
-                if host_driver:
-                    raise MinimumRefreshError(
-                        f"amdDriver: unrecognized Instinct mitigation {mitigation!r} on {url}"
+            if not programs:
+                if (
+                    "instinct" in program_cell.lower()
+                    and (
+                        AMD_DRIVER_HINT.search(mitigation)
+                        if host_driver
+                        else AMD_ROCM_HINT.search(mitigation)
                     )
-                if AMD_ROCM_HINT.search(mitigation):
+                ):
+                    raise MinimumRefreshError(
+                        f"{component}: an applicable mitigation {mitigation!r} on {url} "
+                        f"names no recognized MI program in {program_cell!r}"
+                    )
+                continue
+            if host_driver:
+                if not AMD_DRIVER_HINT.search(mitigation):
+                    continue
+                match = re.fullmatch(
+                    r"Linux GPU Driver (\d+(?:\.\d+){1,2})", mitigation
+                )
+                if not match:
+                    raise MinimumRefreshError(
+                        f"amdDriver: unrecognized Instinct mitigation "
+                        f"{mitigation!r} on {url}"
+                    )
+            else:
+                if not AMD_ROCM_HINT.search(mitigation):
+                    continue
+                match = AMD_ROCM_MITIGATION.fullmatch(mitigation)
+                if not match:
                     raise MinimumRefreshError(
                         f"rocm: mitigation {mitigation_cell!r} on {url} "
                         f"mentions ROCm and does not parse as one exact "
                         f"release; the wording probably changed"
                     )
-                continue
             fixed = match.group(1)
-            programs = AMD_PROGRAM.findall(AMD_TRADEMARKS.sub(" ", program_cell))
-            if not programs:
-                raise MinimumRefreshError(
-                    f"{component}: {release_label} release {fixed} on {url} names no Instinct "
-                    f"program in {program_cell!r}; the program naming "
-                    f"probably changed"
-                )
             cves = sorted(set(CVE_ID.findall(cve_cell)))
             if not cves:
                 raise MinimumRefreshError(
@@ -2234,6 +2219,7 @@ def _amd_program_minimums(
                 )
             available = f"{date.group(0)}T00:00:00Z"
             key = version_key(fixed)
+            used = True
             for program in dict.fromkeys(programs):
                 record = records.get(program)
                 if record is None or key > record["key"]:
@@ -2251,10 +2237,19 @@ def _amd_program_minimums(
                         record["available"] = available
                         record["aId"] = sb_id.upper()
                         record["url"] = url
+        if used:
+            sources.append(
+                {
+                    "aId": sb_id.upper(),
+                    "feed": AMD_FEED,
+                    "released": parsed["published"],
+                    "url": url,
+                }
+            )
     if not records:
         raise MinimumRefreshError(
             f"{component}: extracted no {release_label} minimum from "
-            + ", ".join(amd_bulletin_page(sb_id) for sb_id in bulletins)
+            + ", ".join(item["url"] for item in catalog)
             + "; the mitigation wording probably changed"
         )
     sources.sort(key=lambda item: (str(item["released"]), item["aId"]))
@@ -2748,56 +2743,20 @@ def untracked_docker_majors(
     return sorted(found)
 
 
-def untracked_amd_bulletins(fetch: Fetcher | None = None) -> list[dict]:
-    """List GPU bulletins on the AMD security index that this module ignores.
-
-    One read of the index page. A row counts when its title matches
-    AMD_GPU_TITLE and its id is neither tracked nor deferred. An index that
-    cannot be read is skipped, because this scan is a discovery aid and the
-    minimum build fails closed on its own.
-    """
-    client = _fetcher(fetch)
-    try:
-        text = client.get_text(AMD_SECURITY_INDEX)
-    except MinimumRefreshError:
-        return []
-    known = {sb_id.lower() for sb_id in (*AMD_BULLETINS, *AMD_DRIVER_BULLETINS)} | {
-        sb_id.lower() for sb_id in AMD_DEFERRED_BULLETINS
-    }
-    found: list[dict] = []
-    seen: set[str] = set()
-    for table in html_tables(text):
-        for row in table:
-            if len(row) < 2:
-                continue
-            match = AMD_SB_ID.search(row[0])
-            if not match:
-                continue
-            sb_id = match.group(0).lower()
-            title = row[1].strip()
-            if sb_id in known or sb_id in seen or not AMD_GPU_TITLE.search(title):
-                continue
-            seen.add(sb_id)
-            found.append({"id": sb_id, "title": title})
-    return sorted(found, key=lambda item: item["id"])
-
-
 def detect_new_bulletins(
     existing: dict | None = None,
     years: Sequence[int] | None = None,
     fetch: Fetcher | None = None,
 ) -> list[dict]:
-    """Report NVIDIA bulletins that match a graded product line, Docker Engine
-    majors whose release-note page DOCKER_ENGINE_MAJORS does not track, and
-    GPU bulletins on the AMD security index that AMD_BULLETINS does not track.
+    """Report NVIDIA bulletins that match a graded product line and Docker
+    Engine majors whose release-note page DOCKER_ENGINE_MAJORS does not track.
 
     Every item carries a ``status``. ``new`` means the table does not reference
     the bulletin and nobody has decided about it, which is a discovery.
-    ``deferred`` means the bulletin is in DEFERRED_BULLETINS or in
-    AMD_DEFERRED_BULLETINS and the item carries the written ``reason``. A
-    deferred bulletin is reported on every run, whether or not the scan finds
-    it and whether or not its title still matches a graded product line, so
-    the decision stays in view.
+    ``deferred`` means the bulletin is in DEFERRED_BULLETINS and the item
+    carries the written ``reason``. A deferred bulletin is reported on every
+    run, whether or not the scan finds it and whether or not its title still
+    matches a graded product line, so the decision stays in view.
 
     One directory listing per year, then one ranged read of the first bytes of
     each candidate bulletin's markdown file. A listing or a file that cannot be
@@ -2886,29 +2845,6 @@ def detect_new_bulletins(
                 "product": "Docker Engine",
                 "title": f"Docker Engine {major} release notes",
                 "url": docker_release_notes_page(major),
-            }
-        )
-    for item in untracked_amd_bulletins(fetch=fetch):
-        found.append(
-            {
-                "id": item["id"],
-                "year": datetime.now(timezone.utc).year,
-                "status": "new",
-                "product": "AMD Instinct GPU",
-                "title": item["title"],
-                "url": amd_bulletin_page(item["id"]),
-            }
-        )
-    for sb_id, reason in AMD_DEFERRED_BULLETINS.items():
-        found.append(
-            {
-                "id": sb_id,
-                "year": datetime.now(timezone.utc).year,
-                "status": "deferred",
-                "product": None,
-                "title": None,
-                "url": amd_bulletin_page(sb_id),
-                "reason": reason,
             }
         )
     return sorted(
@@ -3011,9 +2947,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "Add or repair the CSAF product policy for each applicable "
                     "NVIDIA bulletin, or record the reason to defer it in "
                     "DEFERRED_BULLETINS. Track each Docker Engine major in "
-                    "DOCKER_ENGINE_MAJORS. Track each AMD GPU bulletin in "
-                    "AMD_BULLETINS, or record the reason to defer it in "
-                    "AMD_DEFERRED_BULLETINS.",
+                    "DOCKER_ENGINE_MAJORS.",
                     file=sys.stderr,
                 )
                 return 3

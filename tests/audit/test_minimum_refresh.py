@@ -176,10 +176,24 @@ class StubFetcher(fr.Fetcher):
                 FIXTURES / "amd-product-security-index.html"
             ).read_text(),
         }
-        for sb_id in (*fr.AMD_BULLETINS, *fr.AMD_DRIVER_BULLETINS):
+        for sb_id in (
+            "amd-sb-6018",
+            "amd-sb-6024",
+            "amd-sb-6027",
+            "amd-sb-6033",
+            "amd-sb-6034",
+        ):
             self.text_by_url[fr.amd_bulletin_page(sb_id)] = (
                 FIXTURES / f"{sb_id}.html"
             ).read_text()
+        amd_non_instinct = (FIXTURES / "amd-non-instinct.html").read_text()
+        for sb_id in (
+            "amd-sb-6025",
+            "amd-sb-6026",
+            "amd-sb-6031",
+            "amd-sb-6032",
+        ):
+            self.text_by_url[fr.amd_bulletin_page(sb_id)] = amd_non_instinct
 
     def get_json(self, url: str):
         self.calls.append(url)
@@ -1046,52 +1060,49 @@ class AmdRocmMinimumTest(unittest.TestCase):
         self.stub.text_by_url[fr.amd_bulletin_page(sb_id)] = text
 
     def test_each_program_keeps_the_highest_release_across_bulletins(self) -> None:
-        # amd-sb-6018 names ROCm 6.4 for every program, amd-sb-6024 moves the
-        # fleet to 6.4.2, and amd-sb-6027 moves MI210, MI250, and MI300A to
-        # 7.0.1 while it names only 6.3.1 for MI300X and MI325X. The merge
-        # keeps the maximum per program, never the newest bulletin's value.
+        # Earlier bulletins force different legacy floors. AMD-SB-6033 moves
+        # every currently named Instinct program to ROCm 7.14, so the reducer
+        # keeps that highest applicable release for each program.
         block = fr.amd_rocm_minimums(fetch=self.stub)
         self.assertEqual(block["kind"], "programMap")
         self.assertEqual(
             block["programs"],
             {
-                "MI210": "7.0.1",
-                "MI250": "7.0.1",
-                "MI300A": "7.0.1",
-                "MI300X": "6.4.2",
-                "MI308X": "6.4.2",
-                "MI325X": "6.4.2",
+                "MI210": "7.14",
+                "MI250": "7.14",
+                "MI250X": "7.14",
+                "MI300A": "7.14",
+                "MI300X": "7.14",
+                "MI308X": "7.14",
+                "MI325X": "7.14",
+                "MI350X": "7.14",
+                "MI355X": "7.14",
             },
         )
         self.assertEqual(
             block["programSources"],
             {
-                "MI210": "AMD-SB-6027",
-                "MI250": "AMD-SB-6027",
-                "MI300A": "AMD-SB-6027",
-                "MI300X": "AMD-SB-6024",
-                "MI308X": "AMD-SB-6027",
-                "MI325X": "AMD-SB-6024",
+                "MI210": "AMD-SB-6033",
+                "MI250": "AMD-SB-6033",
+                "MI250X": "AMD-SB-6033",
+                "MI300A": "AMD-SB-6033",
+                "MI300X": "AMD-SB-6033",
+                "MI308X": "AMD-SB-6033",
+                "MI325X": "AMD-SB-6033",
+                "MI350X": "AMD-SB-6033",
+                "MI355X": "AMD-SB-6033",
             },
         )
-        self.assertEqual(
-            block["cves"],
-            [
-                "CVE-2025-21940",
-                "CVE-2025-66660",
-                "CVE-2025-66664",
-                "CVE-2026-0428",
-            ],
-        )
+        self.assertEqual(block["cves"], ["CVE-2026-43598"])
         self.assertEqual(
             [source["aId"] for source in block["sources"]],
-            ["AMD-SB-6018", "AMD-SB-6024", "AMD-SB-6027"],
+            ["AMD-SB-6018", "AMD-SB-6024", "AMD-SB-6027", "AMD-SB-6033"],
         )
-        self.assertEqual(block["source"]["aId"], "AMD-SB-6027")
-        self.assertEqual(block["source"]["released"], "2026-05-12T00:00:00Z")
+        self.assertEqual(block["source"]["aId"], "AMD-SB-6033")
+        self.assertEqual(block["source"]["released"], "2026-09-30T00:00:00Z")
         self.assertEqual(
             block["advisory"],
-            "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6027.html",
+            "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6033.html",
         )
 
     def test_the_minimum_availability_carries_the_mitigation_date(self) -> None:
@@ -1103,22 +1114,25 @@ class AmdRocmMinimumTest(unittest.TestCase):
         self.assertEqual(
             available,
             {
-                "MI210": "2025-09-15T00:00:00Z",
-                "MI250": "2025-09-15T00:00:00Z",
-                "MI300A": "2025-10-06T00:00:00Z",
-                "MI300X": "2025-07-21T00:00:00Z",
-                "MI308X": "2025-06-09T00:00:00Z",
-                "MI325X": "2025-07-21T00:00:00Z",
+                "MI210": "2026-07-15T00:00:00Z",
+                "MI250": "2026-07-15T00:00:00Z",
+                "MI250X": "2026-07-15T00:00:00Z",
+                "MI300A": "2026-07-15T00:00:00Z",
+                "MI300X": "2026-07-15T00:00:00Z",
+                "MI308X": "2026-07-15T00:00:00Z",
+                "MI325X": "2026-07-15T00:00:00Z",
+                "MI350X": "2026-07-15T00:00:00Z",
+                "MI355X": "2026-07-15T00:00:00Z",
             },
         )
         mi210 = block["floorAvailability"]["MI210"]
         self.assertEqual(mi210["status"], "confirmed")
-        self.assertEqual(mi210["version"], "7.0.1")
+        self.assertEqual(mi210["version"], "7.14")
         self.assertEqual(mi210["feed"], "amd-security-bulletin")
-        self.assertEqual(mi210["aId"], "AMD-SB-6027")
+        self.assertEqual(mi210["aId"], "AMD-SB-6033")
         self.assertEqual(
             mi210["url"],
-            "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6027.html",
+            "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6033.html",
         )
 
     def test_wording_variants_parse_to_one_exact_release(self) -> None:
@@ -1253,7 +1267,7 @@ class AmdRocmMinimumTest(unittest.TestCase):
         # The three tracked bulletins write the mitigation header three ways.
         # Each committed fixture keeps its live wording, so a parse of each
         # single bulletin proves the header matcher covers all three.
-        for sb_id in fr.AMD_BULLETINS:
+        for sb_id in ("amd-sb-6018", "amd-sb-6024", "amd-sb-6027"):
             with self.subTest(sb_id=sb_id):
                 block = fr.amd_rocm_minimums(bulletins=[sb_id], fetch=self.stub)
                 self.assertTrue(block["programs"])
@@ -1286,7 +1300,7 @@ class AmdRocmMinimumTest(unittest.TestCase):
         )
         with self.assertRaises(fr.MinimumRefreshError) as caught:
             fr.amd_rocm_minimums(bulletins=["amd-sb-6027"], fetch=self.stub)
-        self.assertIn("found no dated mitigation table", str(caught.exception))
+        self.assertIn("outside the dated mitigation tables", str(caught.exception))
 
     def test_a_page_without_an_initial_publication_revision_fails_closed(self) -> None:
         self.set_page(
@@ -1322,8 +1336,8 @@ class AmdRocmMinimumTest(unittest.TestCase):
     def test_malformed_rows_in_a_dated_table_fail_closed(self) -> None:
         cases = {
             "fewer than four cells": [["AMD Instinct MI300X", "CVE-2025-11111", "ROCm 6.4"]],
-            "names no Instinct program": [
-                ["AMD Radeon RX 7900", "CVE-2025-11111", "ROCm 6.4", "2025-01-02"]
+            "names no recognized MI program": [
+                ["AMD Instinct accelerator", "CVE-2025-11111", "ROCm 6.4", "2025-01-02"]
             ],
             "carries no CVE identifier": [
                 ["AMD Instinct MI300X", "N/A", "ROCm 6.4", "2025-01-02"]
@@ -1348,7 +1362,21 @@ class AmdRocmMinimumTest(unittest.TestCase):
         # A rebuild from amd-sb-6018 alone computes 6.4 for every program,
         # below the published minimums, and the shared verify() rejects it.
         existing = baseline()
-        with mock.patch.object(fr, "AMD_BULLETINS", ("amd-sb-6018",)):
+        rocm_catalog = [
+            {
+                "aId": "AMD-SB-6018",
+                "url": fr.amd_bulletin_page("amd-sb-6018"),
+            }
+        ]
+        driver_catalog = [
+            {
+                "aId": "AMD-SB-6034",
+                "url": fr.amd_bulletin_page("amd-sb-6034"),
+            }
+        ]
+        with mock.patch.object(
+            fr, "amd_bulletin_catalog", side_effect=[rocm_catalog, driver_catalog]
+        ):
             with self.assertRaises(fr.MinimumRefreshError) as caught:
                 fr.build_minimums(
                     generated=GENERATED, existing=existing, fetch=self.stub
@@ -1371,7 +1399,21 @@ class AmdRocmMinimumTest(unittest.TestCase):
             ]
         )
         self.set_page("amd-sb-6027", page)
-        with mock.patch.object(fr, "AMD_BULLETINS", ("amd-sb-6027",)):
+        rocm_catalog = [
+            {
+                "aId": "AMD-SB-6027",
+                "url": fr.amd_bulletin_page("amd-sb-6027"),
+            }
+        ]
+        driver_catalog = [
+            {
+                "aId": "AMD-SB-6034",
+                "url": fr.amd_bulletin_page("amd-sb-6034"),
+            }
+        ]
+        with mock.patch.object(
+            fr, "amd_bulletin_catalog", side_effect=[rocm_catalog, driver_catalog]
+        ):
             with self.assertRaises(fr.MinimumRefreshError) as caught:
                 fr.build_minimums(
                     generated=GENERATED, existing=existing, fetch=self.stub
@@ -1784,19 +1826,7 @@ class DetectNewBulletinsTest(unittest.TestCase):
                         fr.validate_bulletin_lists()
                     self.assertIn("4002", str(caught.exception))
 
-    def test_tracked_and_deferred_amd_bulletins_are_not_reported_as_new(self) -> None:
-        # The fixture index carries every tracked and every deferred GPU
-        # bulletin, so a correct scan reports no new AMD item.
-        found = self.scan()
-        self.assertFalse(
-            [
-                item
-                for item in found
-                if item["status"] == "new" and item["product"] == "AMD Instinct GPU"
-            ]
-        )
-
-    def test_an_untracked_amd_gpu_bulletin_is_reported_as_new(self) -> None:
+    def test_a_new_amd_bulletin_automatically_changes_the_floor(self) -> None:
         stub = StubFetcher()
         row = (
             "<tr><td>AMD-SB-6099</td>"
@@ -1807,69 +1837,42 @@ class DetectNewBulletinsTest(unittest.TestCase):
         )
         stub.text_by_url[fr.AMD_SECURITY_INDEX] = stub.text_by_url[
             fr.AMD_SECURITY_INDEX
-        ].replace("</tbody>", row + "</tbody>")
-        items = [
-            item
-            for item in self.scan(fetch=stub)
-            if item["product"] == "AMD Instinct GPU"
-        ]
-        self.assertEqual([item["id"] for item in items], ["amd-sb-6099"])
-        self.assertEqual(items[0]["status"], "new")
-        self.assertEqual(
-            items[0]["title"], "AMD Instinct GPU Vulnerabilities"
+        ].replace(
+            "Showing 1 to 27 of 27 entries", "Showing 1 to 28 of 28 entries"
+        ).replace("</tbody>", row + "</tbody>")
+        stub.text_by_url[fr.amd_bulletin_page("amd-sb-6099")] = amd_page(
+            [
+                [
+                    "AMD Instinct MI350",
+                    "CVE-2026-11111",
+                    "ROCm 8.0",
+                    "2026-06-01",
+                ]
+            ]
         )
-        self.assertEqual(items[0]["url"], fr.amd_bulletin_page("amd-sb-6099"))
+        block = fr.amd_rocm_minimums(fetch=stub)
+        self.assertEqual(block["programs"]["MI350"], "8.0")
+        self.assertEqual(block["floorAvailability"]["MI350"]["aId"], "AMD-SB-6099")
 
-    def test_non_gpu_amd_bulletins_are_ignored(self) -> None:
-        # The fixture index carries two non-GPU rows the scan must skip.
-        ids = {item["id"] for item in self.scan()}
-        self.assertNotIn("amd-sb-7064", ids)
-        self.assertNotIn("amd-sb-8015", ids)
+    def test_non_6000_amd_bulletin_families_are_ignored(self) -> None:
+        ids = {item["aId"] for item in fr.amd_bulletin_catalog(StubFetcher())}
+        self.assertNotIn("AMD-SB-7064", ids)
+        self.assertNotIn("AMD-SB-8015", ids)
 
-    def test_an_unreadable_amd_index_does_not_crash_the_scan(self) -> None:
+    def test_an_unreadable_amd_index_fails_closed(self) -> None:
         stub = StubFetcher()
         del stub.text_by_url[fr.AMD_SECURITY_INDEX]
-        self.assertEqual(fr.untracked_amd_bulletins(fetch=stub), [])
-        new = [item for item in self.scan(fetch=stub) if item["status"] == "new"]
-        self.assertEqual([item["id"] for item in new], [5871])
+        with self.assertRaises(fr.MinimumRefreshError):
+            fr.amd_bulletin_catalog(fetch=stub)
 
-    def test_amd_deferred_bulletins_are_reported_every_run(self) -> None:
-        found = self.scan()
-        item = next(entry for entry in found if entry["id"] == "amd-sb-6005")
-        self.assertEqual(item["status"], "deferred")
-        self.assertIn("6.3.2, below the tracked minimums", item["reason"])
-
-    def test_cli_exit_three_tells_the_operator_where_to_track_an_amd_bulletin(
-        self,
-    ) -> None:
+    def test_a_paginated_amd_index_fails_closed(self) -> None:
         stub = StubFetcher()
-        row = (
-            "<tr><td>AMD-SB-6099</td>"
-            "<td>AMD Instinct GPU Vulnerabilities</td>"
-            "<td>Security Bulletin</td><td>CVE-2026-11111</td>"
-            "<td>Jun 01, 2026</td><td>Jun 01, 2026</td></tr>"
-        )
         stub.text_by_url[fr.AMD_SECURITY_INDEX] = stub.text_by_url[
             fr.AMD_SECURITY_INDEX
-        ].replace("</tbody>", row + "</tbody>")
-        code, out, err = self.detect_cli(stub)
-        self.assertEqual(code, 3)
-        self.assertIn("amd-sb-6099", out)
-        self.assertIn("AMD_BULLETINS", err)
-
-    def test_an_amd_bulletin_that_is_tracked_and_deferred_raises(self) -> None:
-        with mock.patch.dict(
-            fr.AMD_DEFERRED_BULLETINS, {"amd-sb-6027": "cannot be both"}
-        ):
-            with self.assertRaises(fr.MinimumRefreshError) as caught:
-                fr.validate_bulletin_lists()
-            self.assertIn("amd-sb-6027", str(caught.exception))
-
-    def test_an_amd_deferred_bulletin_without_a_reason_raises(self) -> None:
-        with mock.patch.dict(fr.AMD_DEFERRED_BULLETINS, {"amd-sb-9999": "   "}):
-            with self.assertRaises(fr.MinimumRefreshError) as caught:
-                fr.validate_bulletin_lists()
-            self.assertIn("amd-sb-9999", str(caught.exception))
+        ].replace("Showing 1 to 27 of 27 entries", "Showing 1 to 10 of 27 entries")
+        with self.assertRaises(fr.MinimumRefreshError) as caught:
+            fr.amd_bulletin_catalog(fetch=stub)
+        self.assertIn("paginated or truncated", str(caught.exception))
 
     def test_the_committed_lists_are_consistent(self) -> None:
         fr.validate_bulletin_lists()
