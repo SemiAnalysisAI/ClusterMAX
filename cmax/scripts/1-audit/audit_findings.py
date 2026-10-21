@@ -610,6 +610,18 @@ _TENANT_POD_RECOMMENDATIONS = {
 
 RULES: tuple[Rule, ...] = (
     Rule(
+        "securityVersions.amdDriver.status",
+        "AMD host driver below security minimum",
+        VERSION,
+        _status_is("fail"),
+    ),
+    Rule(
+        "securityVersions.amdDriver.status",
+        "AMD host driver patch requires provider or distribution evidence",
+        CONFIG,
+        _status_is("unknown"),
+    ),
+    Rule(
         "k8s_scheduling.status",
         "Kubernetes scheduling policy needs review",
         CONFIG,
@@ -1516,6 +1528,8 @@ def classify_suppression(key: str, audit: dict[str, Any]) -> tuple[str, str]:
 # key and security extension id appears here and that every mapped id exists
 # in the vendored catalog.
 CHECK_CRITERIA: dict[str, str | None] = {
+    # CLI-only until the criteria catalog has an AMD host-driver criterion.
+    "securityVersions.amdDriver.status": None,
     "k8s_scheduling.status": None,
     "tenant_pod_defaults.status": None,
     "tenant_pod_defaults.checks.memlock.status": None,
