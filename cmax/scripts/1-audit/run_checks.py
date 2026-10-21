@@ -25,6 +25,7 @@ CHECK_PROFILES = {
     "gpu/vboost.py": frozenset({"hardware"}),
     "system/arm-smmu-virtualization-check.py": frozenset({"hardware"}),
     "system/hbm_memory_exposure.py": frozenset({"hardware", "orchestration"}),
+    "system/kubernetes_nodes_proxy.py": frozenset({"security", "isolation"}),
     "system/vm-iommu-check.py": frozenset({"hardware"}),
 }
 CHECK_HARNESSES = {
@@ -37,6 +38,7 @@ CHECK_HARNESSES = {
         {"standalone", "slurm", "k8s"}
     ),
     "system/hbm_memory_exposure.py": frozenset({"standalone", "slurm", "k8s"}),
+    "system/kubernetes_nodes_proxy.py": frozenset({"k8s"}),
     "system/vm-iommu-check.py": frozenset({"standalone", "slurm", "k8s"}),
 }
 PLATFORM_CHECK_KEYS = {
@@ -162,6 +164,7 @@ STATUS_CHECK_KEYS = (
     "arm_smmu_virtualization",
     "nccl_topo_file",
     "nccl_ib_qps",
+    "kubernetes_nodes_proxy",
 )
 
 
