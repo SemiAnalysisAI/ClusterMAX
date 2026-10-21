@@ -264,4 +264,7 @@ def test_kubernetes_node_name_replaces_pod_uts_hostname(tmp_path, monkeypatch):
     monkeypatch.setenv("NODE_NAME", "g144462")
     assert hp.collect_host(tmp_path)["host"] == "g144462"
     monkeypatch.delenv("NODE_NAME")
+    monkeypatch.setenv("SLURMD_NODENAME", "slurm-h100-206-077")
+    assert hp.collect_host(tmp_path)["host"] == "slurm-h100-206-077"
+    monkeypatch.delenv("SLURMD_NODENAME")
     assert hp.collect_host(tmp_path)["host"] == "clustermax-hbm-9447461b"

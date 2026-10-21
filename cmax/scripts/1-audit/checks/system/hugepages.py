@@ -222,9 +222,15 @@ def _allocation_trial(root: Path) -> dict:
 
 def collect_host(root: Path, *, try_allocate: bool = False) -> dict:
     return {
-        # A Kubernetes check pod has its own UTS namespace, so the host-root
-        # procfs reports the pod name. The pod spec passes the node name.
-        "host": os.environ.get("NODE_NAME") or read(root / "proc/sys/kernel/hostname") or socket.gethostname(),
+        # Per-node identity, as in the other worker checks: the node name the
+        # Kubernetes pod spec passes (the pod's own UTS namespace would report
+        # the pod name), then the Slurm node name, then the hostname.
+        "host": (
+            os.environ.get("NODE_NAME")
+            or os.environ.get("SLURMD_NODENAME")
+            or read(root / "proc/sys/kernel/hostname")
+            or socket.gethostname()
+        ),
         "thp_madvise": thp_report(root),
         "static_hugepages": static_report(root),
         "hugepage_allocation": allocation_trial(root, enabled=try_allocate),

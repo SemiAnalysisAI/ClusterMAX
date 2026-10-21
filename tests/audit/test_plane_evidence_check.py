@@ -262,6 +262,26 @@ class ToolDeviceTests(unittest.TestCase):
         # ibnetdiscover takes the ibdev name.
         self.assertEqual(by_tool["ibnetdiscover"][2], "ibp0")
 
+    def test_mlxconfig_gets_the_longer_timeout(self) -> None:
+        timeouts: dict[str, Any] = {}
+
+        def runner(command: Any, **kwargs: Any):
+            timeouts[command[0]] = kwargs.get("timeout")
+            raise FileNotFoundError(command[0])
+
+        nic.collect_plane_evidence(
+            [{"name": "mlx5_0", "role": "fabric", "layer": "InfiniBand"}],
+            runner=runner,
+            sysfs_root="/nonexistent",
+        )
+        self.assertEqual(timeouts["mlxconfig"], nic.PLANE_MLXCONFIG_TIMEOUT_S)
+        self.assertEqual(timeouts["mlxlink"], nic.PLANE_TOOL_TIMEOUT_S)
+        # A full query takes about 7.4s on ConnectX-7 without the MST driver.
+        self.assertGreaterEqual(nic.PLANE_MLXCONFIG_TIMEOUT_S, 15)
+        # Budget plus one HCA at its timeouts stays inside the Slurm bound.
+        worst = nic.PLANE_BUDGET_S + nic.PLANE_MLXCONFIG_TIMEOUT_S + 2 * nic.PLANE_TOOL_TIMEOUT_S
+        self.assertLess(worst, nic.SLURM_TIMEOUT_S)
+
     def test_mlxlink_fields_drop_color_codes(self) -> None:
         text = "State : \x1b[32mActive\x1b[0m\nSpeed : \x1b[32mIB-NDR\x1b[0m\n"
         self.assertEqual(nic.parse_mlxlink(text), {"State": "Active", "Speed": "IB-NDR"})
