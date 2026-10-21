@@ -556,6 +556,15 @@ def _tenant_pod_guidance(
         return detected, recommendation
     if rule.key == "tenant_pod_defaults.status":
         message = nested_get(audit, "tenant_pod_defaults", "message")
+        if _status_is("warning")(value):
+            detected = (
+                "One or more tenant pod defaults need changes"
+                if _missing_string(message) else str(message)
+            )
+            return detected, (
+                "Review the per-check tenant pod findings and ask the provider "
+                "to change the runtime or admission defaults they name."
+            )
         detected = "Check did not run" if _missing_string(message) else str(message)
         recommendation = (
             "Run the audit with access that can schedule one unprivileged GPU "
@@ -1280,6 +1289,13 @@ RULES: tuple[Rule, ...] = (
         "Tenant default-pod check could not run; unprivileged workload defaults are unverified (not evidence of absence)",
         CONFIG,
         _status_is("unknown"),
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
+        "tenant_pod_defaults.status",
+        "Tenant default pods need configuration changes",
+        CONFIG,
+        _status_is("warning"),
         harnesses=frozenset({"k8s"}),
     ),
     Rule(
