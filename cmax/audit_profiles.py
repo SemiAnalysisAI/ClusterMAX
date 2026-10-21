@@ -43,10 +43,11 @@ AUDIT_CATEGORIES = (
         keys=frozenset(
             {
                 "bmc-ipmi",
-            "nvlink-boundary",
-            "observability-isolation",
-            "qemu-virtio-serial",
-            "vmscape",
+                "kubernetes-nodes-proxy",
+                "nvlink-boundary",
+                "observability-isolation",
+                "qemu-virtio-serial",
+                "vmscape",
                 "pcie-passthrough",
                 "ufm-profile",
                 "securityVersions.virtioNetBluefield.exposure",
