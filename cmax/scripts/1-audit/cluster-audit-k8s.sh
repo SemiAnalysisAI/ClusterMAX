@@ -2589,6 +2589,8 @@ host_check_stdin() {
 # works even when every GPU on the cluster is allocated to workloads.
 run_host_check_on_node() {
     local node="$1"
+    # Resolve any namespace fallback before pod creation enters a subshell.
+    ensure_audit_check_namespace || { check_log "no usable namespace for check pods"; return 0; }
     local ns="$K8S_AUDIT_CHECK_NS"
     local pod=""
     local outcome=""
