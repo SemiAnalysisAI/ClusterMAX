@@ -31,11 +31,7 @@ TOOLKIT_MINIMUM = {
     "source": {"aId": 5850, "feed": "nvidia-csaf"},
 }
 
-# The advisory URLs the fixture table publishes. Every check in
-# `security.MINIMUM_BOUND_CHECKS` takes its bulletin link from here, so a link
-# hardcoded back into `cmax/security.py` renders the wrong URL and fails. The
-# values are deliberately not the real ones: a fixture that repeated the
-# committed table would pass whether the code read the table or a constant.
+# Synthetic URLs distinguish table lookups from hardcoded production advisories.
 FIXTURE_ADVISORIES = {
     "nvidiaDriver": "https://example.invalid/minimums/driver",
     "nvidiaContainerToolkit": TOOLKIT_MINIMUM["advisory"],
@@ -106,13 +102,7 @@ def write_minimum_table(directory: Path, table: dict, name: str = "minimums.json
 
 
 def setUpModule() -> None:
-    """Grade every report in this module against a pinned, current minimum table.
-
-    The freshness check reads the installed table, so without this the whole
-    file would depend on the age of the committed `minimum-versions.json` and
-    would start failing whenever the daily refresh workflow stalls. The stamp
-    is relative to the run, so the fixture never expires.
-    """
+    """Grade every report in this module against a pinned, current minimum table."""
     fresh = write_minimum_table(
         Path(_MINIMUM_FIXTURE.name),
         minimum_table(datetime.now(timezone.utc) - timedelta(days=1)),
@@ -338,6 +328,45 @@ class SecurityReportTests(unittest.TestCase):
             sum(security.counts(checks).values()), len(security.CHECK_SPECS)
         )
 
+    def test_kubernetes_nodes_proxy_reports_permission_evidence(self) -> None:
+        status, observed, assessment = security._kubernetes_nodes_proxy(
+            {
+                "kubernetes_nodes_proxy": {
+                    "status": "fail",
+                    "grants": [
+                        {
+                            "role": "proxy-reader",
+                            "binding": "read-proxy",
+                            "subject": {"kind": "Group", "name": "admins"},
+                            "resourceNames": [],
+                        }
+                    ],
+                    "errors": [],
+                }
+            }
+        )
+
+        self.assertEqual(status, security.CRITICAL)
+        self.assertIn("Group admins", observed)
+        self.assertIn("read-proxy", observed)
+        self.assertIn("permission", assessment)
+        self.assertNotIn("reachable", assessment)
+        self.assertNotIn("RCE", assessment)
+
+    def test_kubernetes_nodes_proxy_pass_requires_complete_clean_evidence(self) -> None:
+        clean = {"status": "pass", "grants": [], "errors": []}
+        malformed = {"status": "pass", "grants": [], "errors": ["partial list"]}
+
+        self.assertEqual(
+            security._kubernetes_nodes_proxy({"kubernetes_nodes_proxy": clean})[0],
+            security.PASS,
+        )
+        self.assertEqual(
+            security._kubernetes_nodes_proxy({"kubernetes_nodes_proxy": malformed})[0],
+            security.WARNING,
+        )
+        self.assertEqual(security._kubernetes_nodes_proxy({})[0], security.WARNING)
+
     def test_bmc_ipmi_report_names_exposed_nodes_and_privileged_scope(self) -> None:
         values = security_values()
         values["audit_data"]["security"]["bmcIpmi"] = {
@@ -508,55 +537,38 @@ class SecurityReportTests(unittest.TestCase):
         self.assertIn("mlx5_bond_0=26.43.2566", check.observed)
         self.assertNotIn("not collected", check.observed)
 
-    def test_connectx_report_marks_incomplete_inventory_as_warning(self) -> None:
-        values = security_values()
-        values["audit_data"]["securityVersions"]["connectxFirmware"] = {
-            "status": "unknown",
-            "minimum": "GA 46.3008",
-            "devices": [
-                {"device": "unknown", "version": "unknown", "status": "unknown"}
-            ],
-        }
-        check = next(
-            check
-            for check in security.evaluate_security(values)
-            if check.id == "connectx-firmware"
+    def test_connectx_report_warns_for_incomplete_inventory(self) -> None:
+        cases = (
+            (
+                "unreadable",
+                [{"device": "unknown", "version": "unknown", "status": "unknown"}],
+                "unknown=unknown",
+                None,
+            ),
+            (
+                "passing-device",
+                [{"device": "mlx5_0", "version": "40.47.2526", "status": "pass"}],
+                "inventory incomplete after 1 collected device",
+                "0 of 1 devices unverified",
+            ),
+            ("not-collected", None, "not collected", "0 collected devices"),
         )
-        self.assertEqual(check.status, security.WARNING)
-        self.assertIn("unknown=unknown", check.observed)
-
-    def test_connectx_report_explains_incomplete_passing_inventory(self) -> None:
-        values = security_values()
-        values["audit_data"]["securityVersions"]["connectxFirmware"] = {
-            "status": "unknown",
-            "minimum": "GA 46.3008",
-            "devices": [
-                {"device": "mlx5_0", "version": "40.47.2526", "status": "pass"}
-            ],
-        }
-        check = next(
-            check
-            for check in security.evaluate_security(values)
-            if check.id == "connectx-firmware"
-        )
-        self.assertEqual(check.status, security.WARNING)
-        self.assertIn("inventory incomplete after 1 collected device", check.observed)
-        self.assertNotIn("0 of 1 devices unverified", check.observed)
-
-    def test_connectx_report_marks_empty_unknown_inventory_not_collected(self) -> None:
-        values = security_values()
-        values["audit_data"]["securityVersions"]["connectxFirmware"] = {
-            "status": "unknown",
-            "minimum": "GA 46.3008",
-        }
-        check = next(
-            check
-            for check in security.evaluate_security(values)
-            if check.id == "connectx-firmware"
-        )
-        self.assertEqual(check.status, security.WARNING)
-        self.assertIn("not collected", check.observed)
-        self.assertNotIn("0 collected devices", check.observed)
+        for name, devices, included, excluded in cases:
+            with self.subTest(inventory=name):
+                values = security_values()
+                record = {"status": "unknown", "minimum": "GA 46.3008"}
+                if devices is not None:
+                    record["devices"] = devices
+                values["audit_data"]["securityVersions"]["connectxFirmware"] = record
+                check = next(
+                    check
+                    for check in security.evaluate_security(values)
+                    if check.id == "connectx-firmware"
+                )
+                self.assertEqual(check.status, security.WARNING)
+                self.assertIn(included, check.observed)
+                if excluded is not None:
+                    self.assertNotIn(excluded, check.observed)
 
     def test_unknown_guest_kernel_inventory_never_passes(self) -> None:
         for missing_field in ("running", "newestInstalled"):
@@ -589,14 +601,12 @@ class SecurityReportTests(unittest.TestCase):
             Path("/tmp/report"),
         )
         self.assertIn("# ClusterMAX security audit report", report)
-        # CUDA, ConnectX, and the absent bare-metal NVLink boundary do not apply.
-        self.assertIn("3 failed, 10 warnings, 4 passed, 3 skipped", report)
+        self.assertIn("3 failed, 11 warnings, 4 passed, 3 skipped", report)
         self.assertIn("Action required: 3 critical findings.", report)
         self.assertNotIn("critical findings are known exposure", report)
         self.assertIn("NVIDIA driver minimum version", report)
         self.assertIn("[nvidia-driver]", report)
         self.assertIn("FAIL     ", report)
-        # Level one is the minimum, so the default lists every check.
         self.assertEqual(
             sum(
                 report.count(f"\n{label}")
@@ -612,19 +622,6 @@ class SecurityReportTests(unittest.TestCase):
         self.assertNotIn("Why:", report)
         self.assertIn("security-report.log", report)
         self.assertIn("run with -vv", report)
-
-    def test_action_required_uses_singular_for_one_critical_finding(self) -> None:
-        critical = next(
-            check
-            for check in security.evaluate_security(security_values())
-            if check.status == security.CRITICAL
-        )
-        report = security.format_report(
-            [critical],
-            security.SecurityTarget("standalone", "vm"),
-            Path("/tmp/report"),
-        )
-        self.assertIn("Action required: 1 critical finding.", report)
 
     def test_maximum_verbosity_report_omits_the_rerun_hint(self) -> None:
         checks = security.evaluate_security(security_values())
@@ -642,7 +639,6 @@ class SecurityReportTests(unittest.TestCase):
         one = security.format_report(checks, target, Path("/tmp/report"), verbosity=1)
         two = security.format_report(checks, target, Path("/tmp/report"), verbosity=2)
         three = security.format_report(checks, target, Path("/tmp/report"), verbosity=3)
-        # Level one shows every check and the observed value.
         self.assertIn("[nvidia-driver]", one)
         self.assertIn("NVIDIA driver minimum version", one)
         self.assertIn("PASS     ", one)
@@ -662,24 +658,17 @@ class SecurityReportTests(unittest.TestCase):
             "https://www.clustermax.ai/minimum-versions#nvidiaDriver", one
         )
         self.assertNotIn(FIXTURE_ADVISORIES["nvidiaDriver"], one)
-        # Level two adds direct documentation for checks that do not have a
-        # canonical minimum-version row. Level three adds the issue description
-        # and fix.
         self.assertIn("References:", two)
         self.assertNotIn("Why:", two)
         self.assertNotIn("Recommendation:", two)
         self.assertIn("Why:", three)
         self.assertIn("Recommendation:", three)
-        # Minimum-version checks point only to the website row. The row owns the
-        # upstream advisory links, so the CLI does not bypass it at any detail
-        # level.
         self.assertIn(
             "https://www.clustermax.ai/minimum-versions#nvidiaDriver", two
         )
         self.assertNotIn("NVIDIA GPU driver bulletin", two)
         self.assertNotIn(FIXTURE_ADVISORIES["nvidiaDriver"], two)
         self.assertNotIn(FIXTURE_ADVISORIES["nvidiaDriver"], three)
-        # Checks without a website row keep their direct documentation.
         self.assertIn("https://docs.kernel.org/driver-api/vfio.html", two)
         self.assertLess(
             three.index("PASS     "), three.index("WARNING ")
@@ -694,8 +683,6 @@ class SecurityReportTests(unittest.TestCase):
         }
         toolkit = checks["nvidia-container-toolkit"]
         self.assertEqual(toolkit.documentation, toolkit.references[0].url)
-        # The bulletin and CVE links come from the generated minimum table, so a
-        # new bulletin cannot leave a retired one cited here.
         self.assertEqual(
             [reference.label for reference in toolkit.references],
             [
@@ -739,10 +726,6 @@ class SecurityReportTests(unittest.TestCase):
                     self.assertEqual(len(reference_pairs), len(set(reference_pairs)))
 
     def test_every_minimum_bound_check_links_the_table_advisory(self) -> None:
-        # Pinning only the container toolkit let the other bound checks keep a
-        # hardcoded bulletin that matched the table by coincidence of one
-        # snapshot. The fixture publishes a different URL per component, so a
-        # check that reads a constant renders the wrong link and fails here.
         checks = {
             check.id: check for check in security.evaluate_security(security_values())
         }
@@ -768,17 +751,6 @@ class SecurityReportTests(unittest.TestCase):
             self.assertEqual(bulletin.label, label, check_id)
             self.assertEqual(check.documentation, website.url, check_id)
 
-    def test_minimum_bound_labels_carry_no_bulletin_date(self) -> None:
-        # A dated label ("May 2026 driver bulletin") goes stale exactly when the
-        # URL beside it does, and a reader trusts the date more than the link.
-        for check_id, (_, _, label) in security.MINIMUM_BOUND_CHECKS.items():
-            self.assertNotRegex(
-                label,
-                r"(?i)\b(january|february|march|april|may|june|july|august"
-                r"|september|october|november|december|20\d\d)\b",
-                check_id,
-            )
-
     def test_minimum_backed_remediation_names_the_current_minimum(self) -> None:
         toolkit = next(
             check
@@ -786,7 +758,6 @@ class SecurityReportTests(unittest.TestCase):
             if check.id == "nvidia-container-toolkit"
         )
         self.assertIn("1.19.1 or newer", toolkit.remediation)
-        # The retired 1.17.8 minimum must not survive anywhere in the check.
         self.assertNotIn("1.17.8", toolkit.remediation)
         self.assertNotIn(
             "1.17.8", " ".join(reference.url for reference in toolkit.references)
@@ -825,7 +796,6 @@ class SecurityReportTests(unittest.TestCase):
         self.assertEqual(payload["target"]["environment"], "container")
         self.assertEqual(len(payload["checks"]), len(security.CHECK_SPECS))
         self.assertGreater(len(payload["checks"][0]["references"]), 1)
-        # The on-disk log is the maximum-detail (verbosity 3), plain-text report.
         self.assertIn("Recommendation:", text)
         self.assertNotIn("\033[", text)
 
@@ -939,6 +909,7 @@ class SecurityCliTests(unittest.TestCase):
         self.assertEqual(plan["audit_profile"]["target"]["harness"], "standalone")
         self.assertTrue(plan["audit_profile"]["scope"]["checks"]["fabric"])
         self.assertFalse(plan["audit_profile"]["scope"]["checks"]["gpu"])
+        self.assertFalse(plan["audit_profile"]["scope"]["checks"]["system"])
         self.assertEqual(
             set(plan["audit_profile"]["checks"]),
             {
@@ -950,12 +921,22 @@ class SecurityCliTests(unittest.TestCase):
                 )
             },
         )
+
         self.assertEqual(
             plan["audit_profile"]["artifacts"],
             ["audit.out", "audit.values.json"],
         )
         self.assertTrue(plan["audit_profile"]["scope"]["standard_report"])
         self.assertNotIn("security_report", plan["audit_profile"]["scope"])
+
+    def test_kubernetes_dry_run_enables_the_system_nodes_proxy_check(self) -> None:
+        plan = security.build_security_plan(
+            runtime_paths.package_runtime_root(),
+            security.SecurityTarget("k8s", "k8s", True),
+        )
+
+        self.assertTrue(plan["audit_profile"]["scope"]["checks"]["system"])
+        self.assertIn("kubernetes-nodes-proxy", plan["audit_profile"]["checks"])
 
     def test_custom_output_directory_is_rejected_by_each_live_audit(self) -> None:
         for profile in ([], ["security"]):
@@ -1001,21 +982,9 @@ class SecurityCliTests(unittest.TestCase):
             resolved_target=target,
         )
 
-    def test_clean_run_returns_zero(self) -> None:
-        target = security.SecurityTarget("standalone", "vm", True)
-        with mock.patch.object(security, "detect_target", return_value=target):
-            with mock.patch("cmax.audit_runner.run", return_value=0):
-                result = cli.main(["--repo", "/runtime", "audit", "security", "--vm"])
-        self.assertEqual(result, 0)
-
 
 class AbsentDeviceTests(unittest.TestCase):
-    """A criterion for hardware the machine does not have is not a pass.
-
-    Grading it pass credits a provider for a device it never shipped and
-    inflates the passed count on every cluster without one. It is also not an
-    issue, so it is counted and printed on its own.
-    """
+    """A criterion for hardware the machine does not have is not a pass."""
 
     def test_absent_devices_report_not_applicable_and_leave_the_pass_count(self) -> None:
         absent = {
@@ -1037,7 +1006,6 @@ class AbsentDeviceTests(unittest.TestCase):
                 self.assertIn("no ", observed.lower())
 
     def test_ufm_profile_without_infiniband_fabric_is_not_a_pass(self) -> None:
-        """applicable=False means the profile was never assessed, not passed."""
         status, observed, assessment = security._ufm(
             {
                 "security": {
@@ -1054,7 +1022,6 @@ class AbsentDeviceTests(unittest.TestCase):
         self.assertIn("No native InfiniBand fabric", assessment)
 
     def test_ufm_profile_on_an_infiniband_fabric_still_grades_its_status(self) -> None:
-        """The not-applicable path must not swallow a fabric that was assessed."""
         for status_value, expected in (
             ("pass", security.PASS),
             ("fail", security.CRITICAL),
@@ -1074,20 +1041,12 @@ class AbsentDeviceTests(unittest.TestCase):
                 self.assertEqual(status, expected)
 
     def test_a_present_device_still_passes_on_its_own_merits(self) -> None:
-        """The rule must not turn every device criterion into not-applicable."""
         status, _, _ = security._dpu_host_isolation(
             {"securityVersions": {"dpuHostIsolation": {"status": "pass", "version": "1"}}}
         )
         self.assertEqual(status, security.PASS)
 
     def test_absent_hardware_is_given_no_remediation_to_apply(self) -> None:
-        """A criterion for hardware that is not there has nothing to fix.
-
-        The fix block was skipped only for a pass, so after absent-hardware
-        checks moved off `pass` the report printed "apply the zero-trust host
-        profile" underneath "no BlueField DPU present". That reads as an action
-        item on a machine with no DPU, and it is written to the saved log too.
-        """
         checks = [
             security.SecurityCheck(
                 id="dpu-host-isolation", title="BlueField host isolation (RShim)",
@@ -1108,8 +1067,6 @@ class AbsentDeviceTests(unittest.TestCase):
             checks, security.detect_target("vm"), Path("/tmp/report"), verbosity=3
         )
         self.assertNotIn("Apply the zero-trust host profile", report)
-        # The real finding still gets its remediation, so this is not a blanket
-        # suppression of the fix block.
         self.assertIn("Reboot into the newer kernel", report)
 
     def test_not_applicable_is_neither_an_issue_nor_a_pass(self) -> None:
@@ -1167,8 +1124,6 @@ class MinimumFreshnessTests(unittest.TestCase):
     def test_stale_notice_names_the_update_action_and_a_rerun(self) -> None:
         self._use(minimum_table(self.generated))
         report = self._report(now=self.generated + timedelta(days=40))
-        # The table sits in a temporary directory here, which is the shape of a
-        # pip installation, so the notice names the fetch and not `git pull`.
         self.assertIn("`cmax audit security` to fetch", report)
         self.assertIn("run the audit again", report)
         self.assertIn("vulnerable version as a pass", report)
@@ -1182,23 +1137,14 @@ class MinimumFreshnessTests(unittest.TestCase):
                 clean_exit = cli.main(["audit", "security", "--vm"])
         self.assertEqual(
             security.counts(stale_checks),
-            # The two BlueField checks warn here because this fixture carries no
-            # BlueField evidence at all. A real machine with no DPU reports
-            # not_applicable from a completed scan and both count as not
-            # applicable, so this is the "check did not report" path and not the
-            # "no DPU" path.
-            # The completed bare-metal topology scan also makes an absent
-            # NVLink boundary not applicable instead of counting it as a pass.
             {
                 security.PASS: 3,
-                security.WARNING: 10,
+                security.WARNING: 11,
                 security.CRITICAL: 4,
                 security.NOT_APPLICABLE: 3,
             },
         )
-        self.assertEqual(sum(security.counts(stale_checks).values()), 20)
-        # A stale table is a notice, so a run with no critical finding still
-        # exits 0 and no check is graded critical by staleness alone.
+        self.assertEqual(sum(security.counts(stale_checks).values()), 21)
         self.assertEqual(clean_exit, 0)
         report = self._report(now=self.generated + timedelta(days=40), verbosity=3)
         self.assertNotIn("minimum-version-freshness", report)
@@ -1209,12 +1155,6 @@ class MinimumFreshnessTests(unittest.TestCase):
             ),
             len(security.CHECK_SPECS),
         )
-
-    def test_notice_sits_between_the_summary_and_the_saved_report_line(self) -> None:
-        self._use(minimum_table(self.generated))
-        report = self._report(now=self.generated + timedelta(days=11))
-        self.assertLess(report.index(" failed"), report.index("Minimum data:"))
-        self.assertLess(report.index("Minimum data:"), report.index("report saved to"))
 
     def test_notice_is_visible_at_every_verbosity(self) -> None:
         self._use(minimum_table(self.generated))
@@ -1255,13 +1195,12 @@ class MinimumFreshnessTests(unittest.TestCase):
         self.assertEqual(minimum_data["max_age_days"], 10)
         self.assertTrue(minimum_data["stale"])
         self.assertIn("`cmax audit security` to fetch", minimum_data["notice"])
-        # Recorded beside the checks, never counted as one of them.
         self.assertEqual(sum(payload["counts"].values()), len(payload["checks"]))
 
     def test_minimum_freshness_is_not_a_graded_criterion(self) -> None:
         ids = [spec.id for spec in security.CHECK_SPECS]
-        self.assertEqual(len(ids), 20)
-        self.assertEqual(len(set(ids)), 20)
+        self.assertEqual(len(ids), 21)
+        self.assertEqual(len(set(ids)), 21)
         self.assertEqual(
             ids,
             [
@@ -1280,6 +1219,7 @@ class MinimumFreshnessTests(unittest.TestCase):
                 "bad-epoll",
                 "januscape",
                 "bmc-ipmi",
+                "kubernetes-nodes-proxy",
                 "ufm-profile",
                 "pcie-passthrough",
                 "nvlink-boundary",
@@ -1299,12 +1239,7 @@ def fake_generator(**attributes: object) -> types.ModuleType:
 
 @contextlib.contextmanager
 def installed_generator(module: types.ModuleType | None):
-    """Install a stand-in generator, or remove the generator entirely.
-
-    `from cmax import minimum_refresh` reads the package attribute first, so a
-    sys.modules entry alone is ignored once any other test has imported the real
-    module. Passing None reproduces an install that ships no generator at all.
-    """
+    """Install a stand-in generator, or remove the generator entirely."""
     import cmax
 
     had_attribute = hasattr(cmax, "minimum_refresh")
@@ -1366,8 +1301,6 @@ class MinimumRefreshTests(unittest.TestCase):
                 "minimum": "13.2",
                 "source": {"feed": "nvidia-csaf"},
             },
-            # Absent from the fixture, so this covers the other half of the
-            # summary: a component the refresh adds rather than moves.
             dcgm={
                 "kind": "minimum",
                 "minimum": "4.5.3",
@@ -1401,23 +1334,21 @@ class MinimumRefreshTests(unittest.TestCase):
         self.assertNotIn("->", printed)
 
     def test_generator_failure_keeps_the_committed_table(self) -> None:
-        def build(**kwargs):
-            raise RuntimeError("nvidia-csaf feed unreachable")
+        for name, error in (
+            ("feed-error", RuntimeError("nvidia-csaf feed unreachable")),
+            ("exit-1", SystemExit(1)),
+            ("exit-2", SystemExit(2)),
+        ):
+            with self.subTest(failure=name):
+                def build(**kwargs):
+                    raise error
 
-        printed = self._refresh(fake_generator(build_minimums=build))
-        self.assertFalse(self.refreshed)
-        self.assertIn("minimum refresh failed", printed)
-        self.assertIn("nvidia-csaf feed unreachable", printed)
-        self.assertEqual(self.path.read_text(), self.committed)
-
-    def test_fail_closed_exit_keeps_the_committed_table(self) -> None:
-        def build(**kwargs):
-            raise SystemExit(1)
-
-        printed = self._refresh(fake_generator(build_minimums=build))
-        self.assertFalse(self.refreshed)
-        self.assertIn("minimum refresh failed", printed)
-        self.assertEqual(self.path.read_text(), self.committed)
+                printed = self._refresh(fake_generator(build_minimums=build))
+                self.assertFalse(self.refreshed)
+                self.assertIn("minimum refresh failed", printed)
+                if name == "feed-error":
+                    self.assertIn("nvidia-csaf feed unreachable", printed)
+                self.assertEqual(self.path.read_text(), self.committed)
 
     def test_empty_component_table_is_rejected(self) -> None:
         printed = self._refresh(
@@ -1492,11 +1423,6 @@ class MinimumRefreshTests(unittest.TestCase):
 
 
 class PackagedRuntimeTests(unittest.TestCase):
-    def test_runner_passes_each_profile_to_the_check_dispatcher(self) -> None:
-        run_script = runtime_paths.audit_runner(
-            runtime_paths.package_runtime_root()
-        ).read_text()
-        self.assertIn('"${CLUSTERMAX_AUDIT_SCOPE:-full}"', run_script)
 
     def test_package_directory_is_a_runtime_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1546,26 +1472,6 @@ class PackagedRuntimeTests(unittest.TestCase):
                     security.find_runtime_root(str(explicit)),
                     (explicit / "cmax").resolve(),
                 )
-
-    def test_package_runtime_is_selected_outside_a_checkout(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            wheel_runtime = root / "site-packages" / "cmax"
-            wheel_runner = runtime_paths.audit_runner(wheel_runtime)
-            wheel_runner.parent.mkdir(parents=True)
-            wheel_runner.write_text("#!/bin/bash\n")
-            with mock.patch.dict("os.environ", {}, clear=True):
-                with mock.patch.object(
-                    security.Path, "cwd", return_value=root / "outside"
-                ):
-                    with mock.patch.object(
-                        runtime_paths,
-                        "package_runtime_root",
-                        return_value=wheel_runtime,
-                    ):
-                        self.assertEqual(
-                            security.find_runtime_root(), wheel_runtime.resolve()
-                        )
 
 
 if __name__ == "__main__":

@@ -556,6 +556,15 @@ def _tenant_pod_guidance(
         return detected, recommendation
     if rule.key == "tenant_pod_defaults.status":
         message = nested_get(audit, "tenant_pod_defaults", "message")
+        if _status_is("warning")(value):
+            detected = (
+                "One or more tenant pod defaults need changes"
+                if _missing_string(message) else str(message)
+            )
+            return detected, (
+                "Review the per-check tenant pod findings and ask the provider "
+                "to change the runtime or admission defaults they name."
+            )
         detected = "Check did not run" if _missing_string(message) else str(message)
         recommendation = (
             "Run the audit with access that can schedule one unprivileged GPU "
@@ -606,6 +615,18 @@ RULES: tuple[Rule, ...] = (
          lambda value: str(value).lower() in {"warning", "fail", "error", "unknown"}),
     Rule("hugepage_allocation.status", "Huge-page allocation trial needs review", CONFIG,
          lambda value: str(value).lower() in {"warning", "fail", "error", "unknown", "incomplete"}),
+    Rule(
+        "securityVersions.amdDriver.status",
+        "AMD host driver below security minimum",
+        VERSION,
+        _status_is("fail"),
+    ),
+    Rule(
+        "securityVersions.amdDriver.status",
+        "AMD host driver patch requires provider or distribution evidence",
+        CONFIG,
+        _status_is("unknown"),
+    ),
     Rule(
         "k8s_scheduling.status",
         "Kubernetes scheduling policy needs review",
@@ -855,6 +876,18 @@ RULES: tuple[Rule, ...] = (
         "Newer guest/worker kernel installed but not running; reboot required",
         VERSION,
         lambda value: value is True or str(value).strip().lower() in {"true", "1", "yes"},
+    ),
+    Rule(
+        "security.ubuntuNobleKernelMinimum.status",
+        "Running Ubuntu Noble kernel is below the aggregate security minimum",
+        VERSION,
+        _status_is("fail"),
+    ),
+    Rule(
+        "security.ubuntuNobleKernelMinimum.status",
+        "Ubuntu Noble kernel security minimum could not be verified",
+        CONFIG,
+        _status_is("unknown"),
     ),
     Rule(
         "security.fragnesia.status",
@@ -1259,6 +1292,13 @@ RULES: tuple[Rule, ...] = (
         harnesses=frozenset({"k8s"}),
     ),
     Rule(
+        "tenant_pod_defaults.status",
+        "Tenant default pods need configuration changes",
+        CONFIG,
+        _status_is("warning"),
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
         "tenant_pod_defaults.checks.memlock.status",
         "Default tenant pod locked-memory limit is too low for RDMA memory registration (UCX, NCCL, NVSHMEM, CUDA-aware MPI)",
         CONFIG,
@@ -1512,6 +1552,8 @@ def classify_suppression(key: str, audit: dict[str, Any]) -> tuple[str, str]:
 # key and security extension id appears here and that every mapped id exists
 # in the vendored catalog.
 CHECK_CRITERIA: dict[str, str | None] = {
+    # CLI-only until the criteria catalog has an AMD host-driver criterion.
+    "securityVersions.amdDriver.status": None,
     "qemu-virtio-serial": "security-qemu-virtio-serial",
     "vmscape": "security-vmscape",
     "observability-isolation": "security-observability-isolation",
@@ -1539,6 +1581,7 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "securityVersions.dpuHostIsolation.status": "security-dpu-host-isolation",
     "security.januscape.status": "security-januscape",
     "security.guestKernel.newerInstalled": "guest-kernel-current",
+    "security.ubuntuNobleKernelMinimum.status": "ubuntu-kernel-minimum-version",
     "security.fragnesia.status": "ubuntu-kernel-fragnesia-dirty-frag",
     # CLI-only until the website catalog publishes a dedicated Bad Epoll row.
     "security.badEpoll.status": None,
@@ -1586,6 +1629,7 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "slurm.accounting.sacctAvailable": "sacct-accounting",
     # Security extension checks merged by audit_report._security_extension_checks.
     "bmc-ipmi": "security-bmc-ipmi",
+    "kubernetes-nodes-proxy": None,
     "ufm-profile": "ufm-secured-bare-metal-cloud",
     "pcie-passthrough": "security-pcie-passthrough",
     "nvlink-boundary": "security-nvlink-boundary",

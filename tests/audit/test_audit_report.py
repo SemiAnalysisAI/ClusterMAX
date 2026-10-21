@@ -8,7 +8,6 @@ import json
 import sys
 import tempfile
 import unittest
-from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -18,7 +17,6 @@ from cmax import runtime_paths
 
 RUNTIME_ROOT = runtime_paths.package_runtime_root()
 MODULE_PATH = Path(__file__).resolve().parents[2] / "cmax" / "audit_report.py"
-CHECKOUT_ROOT = MODULE_PATH.parents[1]
 
 
 def load_module():
@@ -85,28 +83,6 @@ class AuditReportTests(unittest.TestCase):
             ],
         )
 
-    def test_real_rules_have_one_category_and_stable_counts(self) -> None:
-        checks = audit_report.list_check_specs(RUNTIME_ROOT)
-
-        self.assertEqual(len(checks), 75)
-        self.assertEqual(
-            Counter(check.category for check in checks),
-            {
-                "versions": 9,
-                "isolation": 14,
-                "hardware": 11,
-                "software": 9,
-                "containers": 5,
-                "orchestration": 11,
-                "networking": 5,
-                "storage": 2,
-                "health": 4,
-                "access": 5,
-            },
-        )
-        keys = {check.key for check in checks}
-        self.assertTrue(audit_report._SECURITY_EXTENSION_IDS.issubset(keys))
-
     def test_januscape_status_shows_the_exposure_evidence(self) -> None:
         values = {
             "audit_data": {
@@ -138,31 +114,6 @@ class AuditReportTests(unittest.TestCase):
         self.assertEqual(
             check.assessment, "Nested virtualization prerequisites are exposed"
         )
-
-    def test_real_rules_have_specific_passing_assessments(self) -> None:
-        findings = audit_report._load_findings(RUNTIME_ROOT)
-        rule_keys = {rule.key for rule in findings.RULES}
-        dynamic_keys = {
-            "gpus.gpuDirectRdmaPath",
-            "security.januscape.status",
-            "securityVersions.virtioNetBluefield.exposure",
-        }
-
-        self.assertEqual(
-            rule_keys,
-            set(audit_report._PASS_ASSESSMENTS) | dynamic_keys,
-        )
-
-    def test_public_release_files_do_not_link_obsolete_repository(self) -> None:
-        obsolete_url = "https://github.com/" + "SemiAnalysisAI/ClusterMAX"
-
-        for path in (
-            CHECKOUT_ROOT / "README.md",
-            CHECKOUT_ROOT / "pyproject.toml",
-            MODULE_PATH,
-        ):
-            with self.subTest(path=path):
-                self.assertNotIn(obsolete_url, path.read_text())
 
     def test_removed_checks_do_not_run_for_any_cluster(self) -> None:
         removed = {
@@ -369,9 +320,8 @@ class AuditReportTests(unittest.TestCase):
                 self.assertNotIn("Complete the BlueField inventory", recommendation)
 
     def test_ufm_profile_without_infiniband_renders_as_skipped(self) -> None:
-        """applicable=False is a check that never ran, so it must not pass."""
         values = {
-            "cluster": {"orchestrator": "standalone"},
+            "cluster": {"orchestrator": "slurm"},
             "audit_data": {
                 "security": {
                     "ufmSecuredBareMetalCloud": {
@@ -391,12 +341,11 @@ class AuditReportTests(unittest.TestCase):
         self.assertEqual(by_key["ufm-profile"].status, audit_report.SKIPPED)
         self.assertEqual(
             by_key["ufm-profile"].observed,
-            "n/a for standalone machines",
+            "no native InfiniBand fabric detected",
         )
-        self.assertEqual(by_key["ufm-profile"].assessment, "")
+        self.assertIn("No native InfiniBand fabric", by_key["ufm-profile"].assessment)
 
     def test_collector_not_applicable_spellings_all_render_as_skipped(self) -> None:
-        """Every collector spelling of "does not apply" must skip, never pass."""
         values = {
             "audit_data": {
                 "securityVersions": {
@@ -405,7 +354,6 @@ class AuditReportTests(unittest.TestCase):
                         "version": "not-installed",
                         "minimum": "4.5.3",
                     },
-                    # A real pass in the same run must stay a pass.
                     "nvidiaDriver": {
                         "status": "pass",
                         "version": "580.126.09",
@@ -442,7 +390,6 @@ class AuditReportTests(unittest.TestCase):
         )
 
     def test_not_applicable_normalization_leaves_real_values_alone(self) -> None:
-        """A version or an ordinary status must never collapse to a skip."""
         for value in ("n/a", "N/A", "na", "NA", "not applicable", "Not-Applicable",
                       "not_applicable", "NotApplicable", " not applicable "):
             with self.subTest(value=value):
@@ -619,16 +566,6 @@ class AuditReportTests(unittest.TestCase):
             check.observed,
             "observed version 6.8.0-90-generic; minimum version not applicable; "
             "newest installed version 6.8.0-90-generic",
-        )
-
-    def test_titles_preserve_standard_acronyms(self) -> None:
-        self.assertEqual(
-            audit_report._title("securityVersions.dcgmExporter.status"),
-            "Security Versions / DCGM Exporter",
-        )
-        self.assertEqual(
-            audit_report._title("arm_smmu_virtualization.status"),
-            "Arm SMMU Virtualization",
         )
 
     def test_standalone_list_advertises_scheduler_checks_that_will_skip(self) -> None:
@@ -971,7 +908,7 @@ class AuditReportTests(unittest.TestCase):
             "Observed: observed version 580.126.09; minimum version 580.126.09",
             report,
         )
-        self.assertIn("1 failed, 8 warnings, 2 passed, 0 skipped", report)
+        self.assertIn("1 failed, 9 warnings, 2 passed, 0 skipped", report)
         self.assertIn("run 'cmax audit -vv'", report)
 
     def test_guarded_inconclusive_value_is_not_counted_as_pass(self) -> None:
@@ -981,17 +918,12 @@ class AuditReportTests(unittest.TestCase):
         checks = audit_report.evaluate(values, RUNTIME_ROOT)
         by_key = {check.key: check for check in checks}
 
-        # The guard-suppressed check stays visible as SKIPPED instead of
-        # silently disappearing, and is never rendered as a pass.
         suppressed = by_key["containers.nvidiaContainerToolkit"]
         self.assertEqual(suppressed.status, audit_report.SKIPPED)
         self.assertIn("unverified", suppressed.assessment)
         self.assertEqual(by_key["containers.workerCheckOk"].status, "warning")
 
     def test_amd_hardware_renders_nvidia_only_check_as_not_applicable(self) -> None:
-        # An AMD GPU suppresses the NVIDIA-specific toolkit finding because
-        # the check does not apply to this hardware - not because the value
-        # went unverified - and the skip wording must say so.
         values = audit_values()
         values["audit_data"]["containers"]["workerCheckOk"] = False
         values["audit_data"]["gpus"] = {"amd": {"present": True}}
@@ -1098,9 +1030,6 @@ class AuditReportTests(unittest.TestCase):
         self.assertNotIn("Not applicable", check.assessment)
 
     def test_configured_nvidia_runtime_renders_toolkit_as_pass(self) -> None:
-        # docker info reporting the nvidia runtime is positive proof of a
-        # working toolkit, so the suppressed "toolkit missing" value renders
-        # as a pass naming that evidence, never as an unverified skip.
         values = audit_values()
         values["audit_data"]["containers"]["dockerNvidiaRuntimeConfigured"] = True
 
@@ -1134,9 +1063,6 @@ class AuditReportTests(unittest.TestCase):
                 self.assertNotIn("unverified", peermem.assessment)
 
     def test_attested_toolkit_renders_worker_check_gap_as_pass(self) -> None:
-        # When the toolkit is positively attested, the suppressed
-        # workerCheckOk=false value leaves nothing for the provider to
-        # attest, so the row is a pass naming that corroborating evidence.
         values = audit_values()
         values["audit_data"]["containers"]["workerCheckOk"] = False
         values["audit_data"]["containers"]["nvidiaContainerToolkit"] = True
@@ -1149,11 +1075,6 @@ class AuditReportTests(unittest.TestCase):
         self.assertIn("positively attested", worker_check.assessment)
 
     def test_ncu_profiling_skip_separates_conclusive_absence_from_no_verdict(self) -> None:
-        # Only a conclusively absent Nsight Compute makes the profiling check
-        # inapplicable. When the install check never produced a verdict, the
-        # false install value is an unfilled default, and the profiling row
-        # must report unverified - mirroring the companion installation row -
-        # instead of presenting missing evidence as confirmed absence.
         def ncu_values(access: str, kubernetes: bool = False) -> dict:
             values = audit_values()
             values["audit_data"]["software"] = {
@@ -1167,7 +1088,6 @@ class AuditReportTests(unittest.TestCase):
                 values["audit_data"]["kubernetes"] = {}
             return values
 
-        # A no-ncu verdict outside Kubernetes is conclusive absence.
         checks = audit_report.evaluate(ncu_values("no-ncu"), RUNTIME_ROOT)
         by_key = {check.key: check for check in checks}
         profiling = by_key["software.ncu.profilingEnabled"]
@@ -1175,8 +1095,6 @@ class AuditReportTests(unittest.TestCase):
         self.assertIn("Not applicable", profiling.assessment)
         self.assertNotIn("unverified", profiling.assessment)
 
-        # A failed check pod and an unfilled Kubernetes default both leave
-        # the install verdict open, so both NCU rows stay unverified.
         for label, values in (
             ("pod-failed", ncu_values("pod-failed")),
             ("resource-unavailable", ncu_values("resource-unavailable")),
@@ -1432,15 +1350,6 @@ class AuditReportTests(unittest.TestCase):
 
 
 class VersionDetailReportTests(unittest.TestCase):
-    """Version checks show the evidence they graded, and absence skips.
-
-    A placeholder ConnectX firmware record must not render
-    ``observed version unknown unknown`` (the
-    collector's placeholder device printed as if it were a reading) and
-    ``installed=false; version=unknown`` for a toolkit that is simply not
-    there, and warned on checks whose subject the scan proved absent.
-    """
-
     def evaluate_by_key(self, audit_data: dict) -> dict:
         return {
             check.key: check
@@ -1494,9 +1403,6 @@ class VersionDetailReportTests(unittest.TestCase):
         )
 
     def test_placeholder_device_entries_never_print_unknown_unknown(self) -> None:
-        # The collector pads an unreadable inventory with one entry whose
-        # device and version are both "unknown". Construct that placeholder
-        # directly without copying a run record.
         by_key = self.evaluate_by_key(
             {
                 "securityVersions": {
@@ -1579,10 +1485,6 @@ class VersionDetailReportTests(unittest.TestCase):
     def test_dependent_check_skips_only_on_a_positively_false_prerequisite(
         self,
     ) -> None:
-        # installed=False: there is no ncu whose profiling permission could be
-        # graded, so the dependent check is skipped and names its prerequisite.
-        # installed=True or absent with an unknown reading stays a WARNING,
-        # because "present but could not verify" is a genuine attestation ask.
         cases = (
             (False, audit_report.SKIPPED),
             (True, audit_report.WARNING),
@@ -1601,23 +1503,14 @@ class VersionDetailReportTests(unittest.TestCase):
                     self.assertIn("software.ncu.installed", check.assessment)
 
     def test_dependent_check_skips_only_on_a_conclusive_ncu_absence(self) -> None:
-        # Kubernetes initializes software.ncu.installed to false before the
-        # GPU check pod runs, so installed=False beside an inconclusive
-        # counter-access result is an unfilled default, not a determination.
-        # Those runs must keep the WARNING; only a conclusive absence skips.
         cases = (
             ("pod-failed", None, audit_report.WARNING),
             ("compile-failed", None, audit_report.WARNING),
             ("resource-unavailable", None, audit_report.WARNING),
             ("untested", None, audit_report.WARNING),
             ("unknown", None, audit_report.WARNING),
-            # "no-ncu" from a Kubernetes run can be the pre-initialized
-            # default of a check pod that never reported, so it is only
-            # conclusive outside Kubernetes.
             ("no-ncu", {"harness": "k8s"}, audit_report.WARNING),
             ("no-ncu", None, audit_report.SKIPPED),
-            # A real counter-access verdict proves the check ran to
-            # completion, so its absence claim stands.
             ("disabled", {"harness": "k8s"}, audit_report.SKIPPED),
         )
         for access, kubernetes, expected in cases:

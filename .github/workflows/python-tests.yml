@@ -3,6 +3,7 @@ name: python-tests
 on:
   pull_request:
     branches: [master, 'release/**', 'fix/bad-epoll-security-audit', 'port/**']
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [master, 'release/**']
     paths:
@@ -12,16 +13,23 @@ on:
       - 'setup.py'
       - 'tests/**'
       - '.github/scripts/**'
+      - '.github/requirements/**'
       - 'docs/releases/**'
       - 'tools/check_public_data.py'
       - 'docs/public-data-policy.md'
-      - '.github/requirements/release.in'
-      - '.github/requirements/release.txt'
       - '.github/workflows/python-nightly.yml'
       - '.github/workflows/python-tests.yml'
+      - '.github/workflows/minimum-versions-refresh.yml'
+  schedule:
+    - cron: '41 6 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: python-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -30,22 +38,65 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            .github/requirements/minimum-versions.txt
+
+      - name: Select tests
+        id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'full-tests') }}
+        run: |
+          if [ "$EVENT" != pull_request ] || [ "$FULL_LABEL" = true ]; then
+            selection=ALL
+          else
+            selection=$(python .github/scripts/select_tests.py --base "$BASE_SHA")
+          fi
+          printf '%s\n' "${selection:-<none>}" | tee -a "$GITHUB_STEP_SUMMARY"
+          {
+            echo 'tests<<EOF'
+            if [ "$selection" != ALL ]; then printf '%s\n' "$selection"; fi
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+          echo "all=$([ "$selection" = ALL ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "none=$([ -z "$selection" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" != pull_request ] || [ "$selection" = ALL ]; then
+            package=true
+          else
+            package=$(git diff --name-only "$BASE_SHA...HEAD" | grep -qE '^(cmax/|pyproject\.toml$|setup\.py$)' && echo true || echo false)
+          fi
+          echo "package=$package" >> "$GITHUB_OUTPUT"
 
       - name: Install test runner
-        run: |
-          python -m pip install pytest pyyaml prompt-toolkit
+        if: steps.select.outputs.none != 'true' || steps.select.outputs.package == 'true'
+        run: python -m pip install pytest pytest-xdist pyyaml prompt-toolkit
 
       - name: Check public data policy
         run: python tools/check_public_data.py
 
       - name: Run Python tests
-        run: python -m pytest -q
+        if: steps.select.outputs.none != 'true'
+        env:
+          ALL: ${{ steps.select.outputs.all }}
+          TESTS: ${{ steps.select.outputs.tests }}
+        run: |
+          if [ "$ALL" = true ]; then
+            python -m pytest -q
+          else
+            mapfile -t files <<< "$TESTS"
+            python -m pytest -q "${files[@]}"
+          fi
 
       - name: Smoke-test checkout-free public wheel
+        if: steps.select.outputs.package == 'true'
         run: |
           python -m pip wheel --no-deps --wheel-dir /tmp/clustermax-wheel .
           python -c 'import glob, zipfile; wheel = glob.glob("/tmp/clustermax-wheel/clustermax-*.whl")[0]; names = zipfile.ZipFile(wheel).namelist(); assert not any("__pycache__" in name or name.endswith((".pyc", ".pyo")) for name in names)'

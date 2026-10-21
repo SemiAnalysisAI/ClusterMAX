@@ -1,10 +1,5 @@
-#!/usr/bin/env python3
-"""Unit tests for Slurm node-state counting in the cluster audit.
 
-Slurm joins a node base state and its flags with "+", for example
-"IDLE+CLOUD+POWERED_DOWN". These hand-built synthetic fixtures distinguish
-power-save flags from actual down/drained states. No scheduler logs are used.
-"""
+"""Unit tests for Slurm node-state counting in the cluster audit."""
 
 from __future__ import annotations
 
@@ -13,11 +8,9 @@ import subprocess
 import unittest
 from pathlib import Path
 
-
 COMMON_PATH = (
     Path(__file__).resolve().parents[2] / "cmax" / "scripts" / "1-audit" / "audit-common.sh"
 )
-
 
 def run_helper(function: str, value: str) -> dict:
     command = f'source "$1"; {function} "$2"'
@@ -29,10 +22,8 @@ def run_helper(function: str, value: str) -> dict:
     )
     return json.loads(result.stdout.strip())
 
-
 def node(name: str, state: str) -> dict:
     return {"name": name, "state": state, "cpus": 8, "memory": 1024, "gpus": 0}
-
 
 class SlurmNodeStateCountTests(unittest.TestCase):
     def test_powered_down_cloud_nodes_are_idle_not_down(self) -> None:
@@ -80,7 +71,6 @@ class SlurmNodeStateCountTests(unittest.TestCase):
         self.assertEqual(counts["poweredDown"], 1)
 
     def test_drained_nodes_are_excluded_from_idle_and_allocated(self) -> None:
-        """A node must appear in exactly one of the three summary counts."""
         nodes = [
             node("a", "IDLE+DRAIN"),
             node("b", "ALLOCATED+DRAIN"),
@@ -113,10 +103,8 @@ class SlurmNodeStateCountTests(unittest.TestCase):
         self.assertEqual(counts["total"], 0)
         self.assertEqual(counts["downDrained"], 0)
 
-
 class SnodesStateCountTests(unittest.TestCase):
     def test_sinfo_power_save_suffix_counts_as_idle(self) -> None:
-        """Hand-written synthetic rows cover a flag, a base state and zero."""
         rows = "\n".join(
             [
                 "PARTITION AVAIL  TIMELIMIT  NODES  STATE NODELIST",
@@ -165,7 +153,6 @@ class SnodesStateCountTests(unittest.TestCase):
         self.assertEqual(counts["total"], 0)
         self.assertEqual(counts["idle"], 0)
         self.assertEqual(counts["downDrained"], 0)
-
 
 if __name__ == "__main__":
     unittest.main()

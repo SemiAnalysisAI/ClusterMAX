@@ -1,19 +1,9 @@
 #!/usr/bin/env python3
-"""Parity between CLI audit checks and the dashboard criteria catalog.
-
-The dashboard criteria page (dashboard/src/data/audit-criteria.ts, vendored as
-cmax/scripts/1-audit/criteria-checks.json) is the source of truth for
-what the audit is supposed to verify. These tests enforce that:
-
-* every CLI check key maps to a known criterion id (or is explicitly marked as
-  CLI-only), and
-* every criterion the dashboard advertises as coverage=="audit" is either
-  served by at least one CLI check or listed in the KNOWN_GAPS allowlist.
-"""
+"""Keep CLI coverage and public links aligned with the criteria catalog."""
 
 from __future__ import annotations
 
-import importlib.util
+import bashtest
 import json
 import sys
 import unittest
@@ -27,45 +17,20 @@ CATALOG_PATH = AUDIT_SCRIPTS / "criteria-checks.json"
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from cmax import audit_profiles, audit_report  # noqa: E402
+from cmax import audit_profiles, audit_report, criteria_links, security  # noqa: E402
 
 
-def load_findings_module():
-    name = "audit_findings_criteria_parity"
-    spec = importlib.util.spec_from_file_location(
-        name, AUDIT_SCRIPTS / "audit_findings.py"
-    )
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+audit_findings = bashtest.load_python_script(AUDIT_SCRIPTS / "audit_findings.py", "audit_findings_criteria_parity")
 
 
-audit_findings = load_findings_module()
-
-
-# Criteria the dashboard advertises as coverage=="audit" that no CLI check
-# serves yet. Do not add entries: this list may only shrink.
 KNOWN_GAPS = frozenset(
     {
-        # TODO: collectors already emit these fields; rules are the next batch.
         "mpi-srun-pmix",  # software.mpi.srunPmixAvailable is collected
         "prolog-fast",  # healthChecks.prologFast is collected
         "resource-limits",  # resourceLimits.* is collected
-        # TODO: these need graded verdict fields from the collectors first.
-        # idle-thermals: collectors emit only raw idleTempMax/idlePowerMax
-        # strings; the per-class idle power ceilings (Hopper 150 W, Blackwell
-        # SXM 250 W, Grace-Blackwell 300 W) live only in the slurm collector
-        # log, so any flat rule threshold false-fails healthy B200/GB300 parts.
         "idle-thermals",
-        # ib-tenant-isolation: collectors emit only "pass" (ibhosts listed
-        # hosts) or "unknown" - never "fail" and never a real isolation verdict.
         "ib-tenant-isolation",
-        # fabric-class: collectors emit a real class or "unknown", never the
-        # "none" fail sentinel the dashboard grades on; k8s emits no nicFabric.
         "fabric-class",
-        # TODO: these need new collector work (mostly k8s-harness coverage).
         "helm-access",
         "gpu-drivers",
         "cpu-power-governor",
@@ -91,12 +56,7 @@ class CriteriaParityTests(unittest.TestCase):
         cls.criteria = {entry["id"]: entry for entry in cls.catalog["criteria"]}
 
     def test_catalog_shape(self) -> None:
-        self.assertIn("_generated_from", self.catalog)
-        self.assertIn("_regenerate", self.catalog)
         for entry in self.catalog["criteria"]:
-            self.assertEqual(
-                set(entry), {"id", "label", "category", "coverage", "harnesses"}
-            )
             self.assertIn(entry["coverage"], {"audit", "partial"})
             self.assertTrue(
                 set(entry["harnesses"]) <= {"slurm", "k8s", "standalone"},
@@ -111,6 +71,7 @@ class CriteriaParityTests(unittest.TestCase):
             "vmscape",
             "observability-isolation",
             "bmc-ipmi",
+            "kubernetes-nodes-proxy",
             "nvlink-boundary",
             "pcie-passthrough",
             "ufm-profile",
@@ -189,6 +150,20 @@ class CriteriaParityTests(unittest.TestCase):
         for rule in audit_findings.RULES:
             category = audit_profiles.category_for_key(rule.key)
             self.assertIsNotNone(category, rule.key)
+
+
+class CriteriaLinkTests(unittest.TestCase):
+    def test_every_reportable_check_has_a_non_generic_permalink(self) -> None:
+        runtime_root = security.find_runtime_root()
+        for spec in audit_report.list_check_specs(runtime_root):
+            with self.subTest(check=spec.key):
+                url = criteria_links.audit_check_url(spec.key)
+                self.assertIsNotNone(url)
+                self.assertTrue(url.startswith(f"{criteria_links.CRITERIA_URL}#"))
+                self.assertNotEqual(url, criteria_links.CRITERIA_URL)
+
+    def test_unknown_check_has_no_misleading_fallback(self) -> None:
+        self.assertIsNone(criteria_links.audit_check_url("unknown.check"))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,49 @@
+{
+  "limit": 20,
+  "offset": 0,
+  "total_results": 2,
+  "notices": [
+    {
+      "id": "USN-7744-1",
+      "published": "2025-09-11T12:41:28.262010",
+      "release_packages": {
+        "noble": [
+          {
+            "name": "qemu",
+            "version": "1:8.2.2+ds-0ubuntu1.10",
+            "is_source": true
+          }
+        ]
+      },
+      "cves": [
+        {
+          "id": "CVE-2024-3446"
+        }
+      ]
+    },
+    {
+      "id": "USN-8161-1",
+      "published": "2026-04-09T14:22:10.893048",
+      "release_packages": {
+        "noble": [
+          {
+            "name": "qemu",
+            "version": "1:8.2.2+ds-0ubuntu1.16",
+            "is_source": true
+          }
+        ]
+      },
+      "cves": [
+        {
+          "id": "CVE-2026-2243"
+        },
+        {
+          "id": "CVE-2026-3196"
+        },
+        {
+          "id": "CVE-2026-3842"
+        }
+      ]
+    }
+  ]
+}

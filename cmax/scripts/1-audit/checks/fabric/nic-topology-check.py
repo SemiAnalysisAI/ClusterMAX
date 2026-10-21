@@ -84,7 +84,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 Runner = Callable[..., subprocess.CompletedProcess]
 
@@ -370,14 +370,40 @@ def run_evidence_tool(
     if proc.returncode != 0:
         first = ""
         for stream in (proc.stderr, proc.stdout):
-            lines = (stream or "").strip().splitlines()
-            if lines:
-                first = lines[0].strip()[:120]
+            first = _first_text_line((stream or "").splitlines())
+            if first:
                 break
         return "", _failure_reason(proc.returncode, first)
     if not proc.stdout.strip():
         return "", f"no output (exit {proc.returncode})"
     return proc.stdout, None
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def _first_text_line(lines: Iterable[str]) -> str:
+    """First line with visible text after ANSI color codes are removed.
+
+    mlxlink prints a bare color escape before its error text, which would
+    otherwise be kept as the whole failure reason.
+    """
+    for line in lines:
+        text = _ANSI_RE.sub("", line).strip()
+        if text:
+            return text[:120]
+    return ""
+
+
+def tool_device(sysfs_root: str, dev: str) -> str:
+    """PCI address for an RDMA device, falling back to its ibdev name.
+
+    mlxconfig and mlxlink resolve mlx5_N names, but not names that udev or a
+    provider renamed (for example ibp0). The PCI function always resolves.
+    """
+    target = os.path.realpath(f"{sysfs_root}/{dev}/device")
+    name = os.path.basename(target)
+    return name if re.fullmatch(r"[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]", name) else dev
 
 
 def _failure_reason(returncode: int, first_line: str) -> str:
@@ -590,9 +616,10 @@ def collect_plane_evidence(
         node_guid = _read_sysfs(f"{sysfs_root}/{dev}/node_guid")
         netdevs = sorted(glob.glob(f"{sysfs_root}/{dev}/device/net/*"))
         netdev = os.path.basename(netdevs[0]) if netdevs else ""
+        tool_dev = tool_device(sysfs_root, dev)
         raws: dict[str, tuple[str, str | None]] = {
-            "mlxconfig": run_evidence_tool(["mlxconfig", "-d", dev, "query"], runner=runner),
-            "mlxlink": run_evidence_tool(["mlxlink", "-d", dev, "-m"], runner=runner),
+            "mlxconfig": run_evidence_tool(["mlxconfig", "-d", tool_dev, "query"], runner=runner),
+            "mlxlink": run_evidence_tool(["mlxlink", "-d", tool_dev, "-m"], runner=runner),
         }
         if nic.get("layer") == "InfiniBand":
             raws["ibnetdiscover"] = run_evidence_tool(
@@ -949,11 +976,12 @@ for p in /sys/class/net/*; do
   sp=$(cat "$p/speed" 2>/dev/null)
   printf '@@NET@@\t%s\t%s\n' "$n" "$sp"
 done
-# Plane evidence (Tier A/B): best-effort per high-rate HCA. Tools are usually
+# Plane evidence (Tier A/B): high-rate HCAs first, then failed IB candidates.
+# Tools are usually
 # absent or unprivileged in system pods; the orchestrator records the exact
 # reason as tri-state instead of failing. Bounded so a hung tool can never
 # kill the exec and lose the classification above: `timeout 8` per command,
-# first 6 high-rate HCAs, and tools are SKIPPED outright when the pod image
+# at most 6 HCAs, and tools are SKIPPED outright when the pod image
 # has no timeout(1) to enforce the bound (worst case 6 x 3 x 8s = 144s,
 # inside this check's 180s exec window).
 TO=""; command -v timeout >/dev/null 2>&1 && TO="timeout 8"
@@ -970,18 +998,34 @@ plane_run() {
   echo "@@PLANE@@ $pr_n $pr_t END $?"
 }
 checked=0
+for plane_pass in active failed; do
 for d in /sys/class/infiniband/*; do
   [ -e "$d" ] || continue
   n=$(basename "$d"); case "$n" in bond*) continue;; esac
   r=$(cat "$d/ports/1/rate" 2>/dev/null)
-  case "$r" in [1-9][0-9][0-9]*) ;; *) continue;; esac
+  l=$(cat "$d/ports/1/link_layer" 2>/dev/null)
+  s=$(cat "$d/ports/1/state" 2>/dev/null)
+  failed_ib=false
+  if [ "$l" = InfiniBand ]; then
+    case "$s" in *": ACTIVE"|ACTIVE) ;; *) failed_ib=true ;; esac
+  fi
+  if [ "$plane_pass" = failed ]; then
+    [ "$failed_ib" = true ] || continue
+  else
+    [ "$failed_ib" = false ] || continue
+    case "$r" in [1-9][0-9][0-9]*) ;; *) continue;; esac
+  fi
   [ "$checked" -ge 6 ] && continue
   checked=$((checked+1))
   g=$(cat "$d/node_guid" 2>/dev/null)
   printf '@@PLANEGUID@@\t%s\t%s\n' "$n" "$g"
   l=$(cat "$d/ports/1/link_layer" 2>/dev/null)
-  plane_run "$n" mlxconfig mlxconfig -d "$n" query
-  plane_run "$n" mlxlink mlxlink -d "$n" -m
+  # Renamed ibdevs (for example ibp0) do not resolve in the mlx tools; the
+  # PCI function does.
+  td=$(basename "$(readlink -f "$d/device" 2>/dev/null)" 2>/dev/null)
+  case "$td" in [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]:*.[0-7]) ;; *) td="$n";; esac
+  plane_run "$n" mlxconfig mlxconfig -d "$td" query
+  plane_run "$n" mlxlink mlxlink -d "$td" -m
   case "$l" in
     InfiniBand*)
       plane_run "$n" ibnetdiscover ibnetdiscover -C "$n" -p
@@ -995,6 +1039,7 @@ for d in /sys/class/infiniband/*; do
       fi
       ;;
   esac
+done
 done
 '''
 
@@ -1084,7 +1129,7 @@ def _parse_k8s_plane(text: str) -> tuple[dict[str, dict[str, tuple[str, str | No
                 status = int(parts[4]) if len(parts) > 4 and parts[4].lstrip("-").isdigit() else 0
                 raw = "\n".join(block)
                 if status != 0:
-                    first = next((l.strip()[:120] for l in block if l.strip()), "")
+                    first = _first_text_line(block)
                     raws.setdefault(dev, {})[tool] = ("", _failure_reason(status, first))
                 elif not raw.strip():
                     raws.setdefault(dev, {})[tool] = ("", "no output (exit 0)")

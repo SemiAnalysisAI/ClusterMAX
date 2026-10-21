@@ -232,21 +232,32 @@ def dra_rdma_device_classes() -> list[str]:
     return filter_dra_rdma_class_names(names)
 
 
-def namespace_enforces_privileged(namespace: str) -> bool:
-    """True when the namespace carries pod-security.kubernetes.io/enforce=privileged.
-    Admission acceptance in such a namespace is not a tenant signal."""
+def namespace_enforces_privileged(namespace: str) -> bool | None:
+    """Return the explicit privileged label, or None for unreadable policy.
+
+    Admission acceptance without readable namespace policy is not a tenant signal.
+    """
     try:
         proc = kubectl(["get", "namespace", namespace, "-o", "json"], timeout=30)
     except (OSError, subprocess.TimeoutExpired):
-        return False
+        return None
     if proc.returncode != 0:
-        return False
+        return None
     try:
         payload = json.loads(proc.stdout)
     except json.JSONDecodeError:
-        return False
-    labels = payload.get("metadata", {}).get("labels", {}) or {}
-    return str(labels.get("pod-security.kubernetes.io/enforce", "")).strip().lower() == "privileged"
+        return None
+    if not isinstance(payload, dict) or not isinstance(payload.get("metadata"), dict):
+        return None
+    labels = payload["metadata"].get("labels")
+    if labels is None:
+        labels = {}
+    if not isinstance(labels, dict):
+        return None
+    enforce = labels.get("pod-security.kubernetes.io/enforce", "")
+    if not isinstance(enforce, str):
+        return None
+    return enforce.strip().lower() == "privileged"
 
 
 def gpu_resource_key(nodes_json: dict[str, Any]) -> str:
@@ -284,7 +295,7 @@ def evaluate_checks(
     memlock_min_mb: int,
     shm_min_mb: int,
     dra_rdma_classes: list[str] | None = None,
-    privileged_namespace: bool = False,
+    privileged_namespace: bool | None = False,
 ) -> dict[str, dict[str, str]]:
     """Per-check verdicts. The worst status any check emits is `warning`."""
     checks: dict[str, dict[str, str]] = {}
@@ -417,6 +428,19 @@ def evaluate_checks(
             "status": "unknown",
             "detail": f"the tuned pod was admitted and did not reach Ready: {tuned.get('reason')}",
         }
+    elif (
+        privileged_namespace is None
+        and isinstance(tuned_facts, dict)
+        and tuned_facts.get("capIpcLock") is True
+        and as_int(tuned_facts.get("shmMb"), default=0) >= shm_min_mb
+    ):
+        checks["tunedPodAdmission"] = {
+            "status": "unknown",
+            "detail": (
+                "the namespace pod-security policy could not be read, so admission "
+                "acceptance is not a verified tenant signal"
+            ),
+        }
     elif isinstance(tuned_facts, dict) and tuned_facts.get("capIpcLock") is True and as_int(tuned_facts.get("shmMb"), default=0) >= shm_min_mb:
         checks["tunedPodAdmission"] = {
             "status": "pass",
@@ -457,6 +481,11 @@ def aggregate(
         status = "warning"
         message = "; ".join(
             f"{name}: {check['detail']}" for name, check in checks.items() if check["status"] == "warning"
+        )
+    elif context.get("namespaceEnforcesPrivileged", False) is None:
+        status = "unknown"
+        message = checks.get("tunedPodAdmission", {}).get("detail") or (
+            "the namespace pod-security policy could not be read"
         )
     else:
         status = "pass"

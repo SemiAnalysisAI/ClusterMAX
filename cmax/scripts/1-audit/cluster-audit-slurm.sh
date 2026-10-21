@@ -231,18 +231,7 @@ GPU_NODE_COUNT=0; GPUS_PER_NODE=0; GPU_TOTAL_CPUS=0; GPU_TOTAL_MEMORY_GB=0
 GPU_INVENTORY_TOTAL=0
 
 if [[ "$SCONTROL_OK" == "true" ]]; then
-    NODES_JSON=$(scontrol show nodes -o 2>/dev/null | while read -r line; do
-        node_name=$(echo "$line" | grep -oP 'NodeName=\K[^ ]+')
-        state=$(echo "$line" | grep -oP 'State=\K[^ ]+')
-        cpus=$(echo "$line" | grep -oP 'CPUTot=\K[0-9]+')
-        memory=$(echo "$line" | grep -oP 'RealMemory=\K[0-9]+')
-        # Match Gres=gpu:N or Gres=gpu:type:N (with optional type tag), capture trailing count.
-        # Old regex `Gres=gpu[^,]*:([0-9]+)` was greedy - it walked past slurm timestamps
-        # like LastBusyTime=...T05:44:08 and captured the wrong digits.
-        gpus=$(echo "$line" | grep -oP 'Gres=gpu(?::[A-Za-z0-9_.-]+)?:\K[0-9]+' | head -1)
-        [[ -z "$gpus" ]] && gpus="0"
-        echo "{\"name\":\"$node_name\",\"state\":\"$state\",\"cpus\":$cpus,\"memory\":$memory,\"gpus\":$gpus}"
-    done | jq -s '.')
+    NODES_JSON=$(scontrol_node_inventory "$(scontrol show nodes -o 2>/dev/null)")
     # Count states with exact token matching. A substring test on "DOWN" also
     # matches the POWERED_DOWN / POWERING_DOWN power-save flags, which made
     # idle cloud nodes report as down or drained.
@@ -2994,6 +2983,32 @@ fi
 # serves its own host's metrics and answers no tenancy question.
 collect_monitoring_evidence "${LISTENING}"$'\n'"$(worker_monitoring_addresses "${WORKER_MONITORING_LISTENING:-}" "${WORKER_HOSTNAME:-}")"
 
+# Slurm on Kubernetes runs the head node as a pod. The GPU Operator runs
+# dcgm-exporter as a DaemonSet in other pods on the GPU nodes, so this pod has
+# no listener on :9400 and no systemd unit. Query the exporter Service and
+# count it only when it serves DCGM metrics. Cluster search domains in
+# resolv.conf identify a pod: `su -` login shells drop KUBERNETES_SERVICE_HOST.
+# CLUSTERMAX_DCGM_EXPORTER_URL sets the URL for other namespaces or exporters.
+# Run this after worker scope resolution so its positive service evidence is
+# not overwritten by a worker socket scan that cannot see a DaemonSet pod.
+DCGM_EXPORTER_EVIDENCE="on compute node ${WORKER_HOSTNAME}"
+if [[ "$DCGM_EXPORTER_DETECTED" != "true" ]] && command -v curl &>/dev/null; then
+    DCGM_EXPORTER_URL="${CLUSTERMAX_DCGM_EXPORTER_URL:-}"
+    if [[ -z "$DCGM_EXPORTER_URL" ]] \
+        && grep -qE '^search[[:space:]].*\.svc\.' "${CLUSTERMAX_RESOLV_CONF:-/etc/resolv.conf}" 2>/dev/null; then
+        DCGM_EXPORTER_URL="http://nvidia-dcgm-exporter.gpu-operator.svc:9400/metrics"
+    fi
+    if [[ -n "$DCGM_EXPORTER_URL" ]] \
+        && DCGM_EXPORTER_METRICS=$(curl -fsS --max-time 5 "$DCGM_EXPORTER_URL" 2>/dev/null) \
+        && grep -q '^DCGM_FI_' <<<"$DCGM_EXPORTER_METRICS"; then
+        DCGM_EXPORTER_DETECTED="true"
+        DCGM_EXPORTER_EVIDENCE="via DCGM metrics at $DCGM_EXPORTER_URL"
+        if [[ "$MONITORING_PLATFORMS" != *'"dcgm-exporter"'* ]]; then
+            MONITORING_PLATFORMS="${MONITORING_PLATFORMS:+${MONITORING_PLATFORMS},}\"dcgm-exporter\""
+        fi
+    fi
+fi
+
 # Report exactly one status for each monitoring component.
 if [[ "$PROMETHEUS_DETECTED" == "true" ]]; then
     print_info "Prometheus: detected in a tenant-visible node environment"
@@ -3001,7 +3016,7 @@ else
     print_detail "Prometheus: not visible from tenant nodes; provider verification required"
 fi
 case "$DCGM_EXPORTER_DETECTED" in
-    true) print_info "dcgm-exporter: detected on compute node ${WORKER_HOSTNAME}" ;;
+    true) print_info "dcgm-exporter: detected ${DCGM_EXPORTER_EVIDENCE}" ;;
     false) print_detail "dcgm-exporter: not detected on compute node ${WORKER_HOSTNAME}" ;;
     *) print_detail "dcgm-exporter: worker deployment unverified from this tenant scope" ;;
 esac
@@ -3084,7 +3099,7 @@ if [[ "${#SSH_NODES[@]}" -ge 2 ]]; then
             any(.[]; .name == $node and (
                 (.gpus // 0) > 0 or (
                     .gpus == null and $partition != "" and $partition != "none"
-                    and .partition == $partition
+                    and ((.partition // "") | split(",") | index($partition)) != null
                 )
             ))' <<< "$NODES_JSON" >/dev/null; then
         SSH_GRES_ARGS=(--gres=gpu:1)

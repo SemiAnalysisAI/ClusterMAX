@@ -473,6 +473,58 @@ echo "WORKER_FRAGNESIA_ABI=${WORKER_FRAGNESIA_ABI}"
 echo "WORKER_FRAGNESIA_ABI_FLOOR=${WORKER_FRAGNESIA_ABI_FLOOR}"
 echo "WORKER_FRAGNESIA_STATUS=${WORKER_FRAGNESIA_STATUS}"
 
+# The package-wide Ubuntu Noble kernel floor is derived from every matching
+# Canonical USN. Keep this aggregate verdict separate from the named CVE checks
+# above: the named findings retain attribution, while this check prevents a new
+# kernel advisory from waiting for collector code before it affects grading.
+WORKER_UBUNTU_KERNEL_ABI_FLOOR="${CLUSTERMAX_UBUNTU_KERNEL_ABI_MINIMUM:-}"
+if [[ ! "$WORKER_UBUNTU_KERNEL_ABI_FLOOR" =~ ^[0-9]+$ ]]; then
+    WORKER_UBUNTU_KERNEL_ABI_FLOOR=""
+    ubuntu_kernel_check_dir=""
+    if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+        ubuntu_kernel_check_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd) \
+            || ubuntu_kernel_check_dir=""
+    fi
+    ubuntu_kernel_readers=()
+    [[ -n "$ubuntu_kernel_check_dir" ]] \
+        && ubuntu_kernel_readers+=("$ubuntu_kernel_check_dir/minimum_versions.py")
+    [[ -n "${CLUSTERMAX_MINIMUM_VERSIONS_READER:-}" ]] \
+        && ubuntu_kernel_readers+=("$CLUSTERMAX_MINIMUM_VERSIONS_READER")
+    if command -v python3 >/dev/null 2>&1; then
+        for ubuntu_kernel_reader in "${ubuntu_kernel_readers[@]}"; do
+            [[ -f "$ubuntu_kernel_reader" ]] || continue
+            WORKER_UBUNTU_KERNEL_ABI_FLOOR=$(python3 "$ubuntu_kernel_reader" \
+                --get components.ubuntuNoble.packages.linux.abi 2>/dev/null) \
+                || WORKER_UBUNTU_KERNEL_ABI_FLOOR=""
+            [[ -n "$WORKER_UBUNTU_KERNEL_ABI_FLOOR" ]] && break
+        done
+    fi
+fi
+[[ "$WORKER_UBUNTU_KERNEL_ABI_FLOOR" =~ ^[0-9]+$ ]] \
+    || WORKER_UBUNTU_KERNEL_ABI_FLOOR=unknown
+
+WORKER_UBUNTU_KERNEL_ABI=unknown
+WORKER_UBUNTU_KERNEL_MINIMUM_STATUS=not-applicable
+if [[ "${ID:-unknown}" == ubuntu && "${VERSION_ID:-unknown}" == 24.04 ]]; then
+    WORKER_UBUNTU_KERNEL_MINIMUM_STATUS=unknown
+    if [[ "$WORKER_GUEST_KERNEL_RUNNING" == 6.8.* ]]; then
+        WORKER_UBUNTU_KERNEL_ABI=$(printf '%s\n' "$WORKER_GUEST_KERNEL_RUNNING" \
+            | sed -nE 's/^6\.8\.0-([0-9]+).*/\1/p')
+        [[ -n "$WORKER_UBUNTU_KERNEL_ABI" ]] || WORKER_UBUNTU_KERNEL_ABI=unknown
+        if [[ "$WORKER_UBUNTU_KERNEL_ABI" =~ ^[0-9]+$ \
+                && "$WORKER_UBUNTU_KERNEL_ABI_FLOOR" =~ ^[0-9]+$ ]]; then
+            if (( WORKER_UBUNTU_KERNEL_ABI >= WORKER_UBUNTU_KERNEL_ABI_FLOOR )); then
+                WORKER_UBUNTU_KERNEL_MINIMUM_STATUS=pass
+            else
+                WORKER_UBUNTU_KERNEL_MINIMUM_STATUS=fail
+            fi
+        fi
+    fi
+fi
+echo "WORKER_UBUNTU_KERNEL_ABI=${WORKER_UBUNTU_KERNEL_ABI}"
+echo "WORKER_UBUNTU_KERNEL_ABI_FLOOR=${WORKER_UBUNTU_KERNEL_ABI_FLOOR}"
+echo "WORKER_UBUNTU_KERNEL_MINIMUM_STATUS=${WORKER_UBUNTU_KERNEL_MINIMUM_STATUS}"
+
 # --- Hypervisor security bulletins (read-only, never triggers a PoC) ---
 # These checks identify guest-visible prerequisites and exact versions. Host
 # patch state cannot be proven from a tenant VM, so unknown host facts remain
@@ -1253,13 +1305,60 @@ fi
 # --- AMD GPU stack (rocm-smi, amd-smi, ROCm container toolkit) ---
 # Model / driver / count: prefer rocm-smi when present, else fall back to
 # amd-smi. MI350-series (CDNA4) on ROCm 7.x may ship ONLY amd-smi, so these
-# facts must be derivable from either tool. amd-smi CSV column names vary across
+# facts must be derivable from either tool. Without either tool, model detection
+# uses sysfs product names or the exact PCI device's descriptive name.
+# amd-smi CSV column names vary across
 # ROCm releases; if a field below reads "unknown" on a real node, confirm the
 # `amd-smi static --asic --csv` / `amd-smi list --csv` output there.
 # Driver version is collected into _amd_drv from whichever source is available
 # and emitted exactly once below, so the sysfs fallback can fill it when no ROCm
 # CLI is on the host (the downstream head -1 parser would otherwise keep an
 # earlier "unknown" emitted from a branch).
+detect_amd_gpu_model_without_cli() {
+    python3 - <<'PY'
+import os
+import re
+import shlex
+import subprocess
+from pathlib import Path
+
+def read(path):
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return ""
+
+root = Path(os.environ.get("CLUSTERMAX_AUDIT_ROOT", "") or "/")
+models = set()
+for device in (root / "sys/bus/pci/devices").glob("*"):
+    if read(device / "vendor").lower() != "0x1002":
+        continue
+    # Display controllers and processing accelerators, not AMD chipset devices.
+    if read(device / "class").lower()[:4] not in ("0x03", "0x12"):
+        continue
+    name = read(device / "product_name")
+    products = set(re.findall(r"\bMI\d+[A-Z]*\b", name.upper()))
+    if not products:
+        # Look up this exact device, never a model from another GPU or a
+        # subsystem field. Numeric IDs/codenames alone cannot establish a SKU.
+        try:
+            output = subprocess.check_output(
+                ["lspci", "-D", "-s", device.name, "-mm"], text=True,
+                stderr=subprocess.DEVNULL, timeout=5,
+                env={**os.environ, "LC_ALL": "C"},
+            )
+            fields = shlex.split(output)
+            if len(output.splitlines()) == 1 and len(fields) >= 4 and fields[0] == device.name:
+                products = set(re.findall(r"\bMI\d+[A-Z]*\b", fields[3].upper()))
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+    # Preserve unidentified devices in a mixed inventory instead of silently
+    # treating the one identifiable device as the whole host.
+    models.add(next(iter(products)) if len(products) == 1 else "unknown")
+print(" ".join(sorted(models)) or "unknown")
+PY
+}
+
 detect_amd_gpu_model() {
     local model=""
     if command -v rocm-smi &>/dev/null; then
@@ -1280,6 +1379,11 @@ detect_amd_gpu_model() {
             fi
             ;;
     esac
+    case "${model,,}" in
+        ""|"n/a"|"unknown"|"not-found"|"none")
+            model=$(detect_amd_gpu_model_without_cli)
+            ;;
+    esac
     model=$(printf '%s\n' "$model" \
         | sed 's/[[:space:]]\+/ /g;s/^ //;s/ $//' \
         | tr ' ' '-')
@@ -1293,7 +1397,6 @@ if command -v rocm-smi &>/dev/null; then
     # second colon and tab padding, e.g. "GPU[0] : Card Series:   AMD Instinct
     # MI355X". Match case-insensitively and squeeze whitespace so the model
     # resolves (e.g. AMD-Instinct-MI355X) instead of "unknown".
-    echo "WORKER_AMD_GPU_MODEL=$(detect_amd_gpu_model)"
     _amd_drv=$(rocm-smi --showdriverversion 2>/dev/null | grep -ioP 'Driver version:\s*\K.+' | head -1)
     # rocm-smi prints several lines per GPU (Device Name/ID/Rev/Subsystem/GUID),
     # so count UNIQUE GPU[n] indices, not matching lines (the latter over-counts
@@ -1304,7 +1407,6 @@ if command -v rocm-smi &>/dev/null; then
     [[ -n "$_amd_vram_b" ]] && echo "WORKER_AMD_GPU_MEMORY=$(( _amd_vram_b / 1048576 ))"
 elif command -v amd-smi &>/dev/null; then
     echo "WORKER_ROCM_SMI_PATH="
-    echo "WORKER_AMD_GPU_MODEL=$(detect_amd_gpu_model)"
     _amd_drv=$(amd-smi static --driver --csv 2>/dev/null | awk -F, 'NR==1{for(i=1;i<=NF;i++) if($i ~ /version/) c=i} NR==2 && c{print $c}' | tr -d '"')
     [[ -z "$_amd_drv" ]] && _amd_drv=$(amd-smi static --driver 2>/dev/null | grep -m1 -ioP 'version\s*[:=]?\s*\K.+')
     # Count: one data row per GPU from `amd-smi list`.
@@ -1314,6 +1416,7 @@ elif command -v amd-smi &>/dev/null; then
 else
     echo "WORKER_ROCM_SMI_PATH="
 fi
+echo "WORKER_AMD_GPU_MODEL=$(detect_amd_gpu_model)"
 # Tool-free fallback: the amdgpu KERNEL driver exposes its version in sysfs
 # whenever the module is loaded - independent of the ROCm userspace CLI and of
 # the AMD GPU Operator - and it is the same value rocm-smi --showdriverversion
@@ -1325,6 +1428,93 @@ if [[ -z "$_amd_drv" ]]; then
     [[ -z "$_amd_drv" ]] && _amd_drv=$(modinfo amdgpu 2>/dev/null | awk -F': +' '/^version:/{print $2; exit}')
 fi
 echo "WORKER_AMD_DRIVER_VERSION=${_amd_drv:-unknown}"
+# Keep this collector inline: remote workers receive host-check.sh on stdin.
+# Read-only Debian/Ubuntu provenance. Unsupported package layouts remain unknown.
+collect_amd_driver_evidence() {
+    python3 - <<'PY'
+import glob
+import json
+import os
+import re
+import subprocess
+from pathlib import Path
+
+def run(*args):
+    try:
+        return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL,
+                                       timeout=5, env={**os.environ, "LC_ALL": "C"}).strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+def read(path):
+    try:
+        return Path(path).read_text().strip()
+    except OSError:
+        return ""
+
+root = os.environ.get("CLUSTERMAX_AUDIT_ROOT", "")
+e = {
+    "loadedVersion": read(root + "/sys/module/amdgpu/version"),
+    "loadedSrcversion": read(root + "/sys/module/amdgpu/srcversion"),
+    "installedVersion": run("modinfo", "-F", "version", "amdgpu"),
+    "installedSrcversion": run("modinfo", "-F", "srcversion", "amdgpu"),
+    "modulePath": run("modinfo", "-F", "filename", "amdgpu"),
+    "packageBoundToModule": False,
+}
+package = ""
+if e["loadedSrcversion"] and e["loadedSrcversion"] == e["installedSrcversion"]:
+    owner = run("dpkg-query", "-S", e["modulePath"])
+    # Prebuilt vendor module package owns the exact module on disk.
+    if owner and ": " in owner and "\n" not in owner:
+        package = owner.split(": ", 1)[0]
+    elif "/updates/dkms/" in e["modulePath"]:
+        # DKMS output is not package-owned. Bind it through the packaged source
+        # and the built module for this exact kernel, not the installer package.
+        kernel = run("uname", "-r")
+        for line in run("dkms", "status", "-m", "amdgpu").splitlines():
+            m = re.fullmatch(
+                r"amdgpu/([^,]+), ([^,]+), ([^:]+): installed"
+                r"(?:\s+\([^()\r\n]*\))*\s*", line)
+            if not m or m[2] != kernel:
+                continue
+            owner = run("dpkg-query", "-S", f"/usr/src/amdgpu-{m[1]}/dkms.conf")
+            if not re.fullmatch(r"amdgpu-dkms(?::[a-z0-9]+)?: .+", owner):
+                continue
+            built = glob.glob(root + f"/var/lib/dkms/amdgpu/{m[1]}/{kernel}/{m[3]}/module/amdgpu.ko*")
+            if len(built) == 1 and run("modinfo", "-F", "srcversion", built[0]) == e["loadedSrcversion"]:
+                package = owner.split(": ", 1)[0]
+                break
+if package:
+    info = run("dpkg-query", "-W", "-f=${Status}\t${Version}", package).split("\t")
+    if len(info) == 2 and info[0] == "install ok installed":
+        e["package"] = package
+        e["packageVersion"] = info[1]
+        # Only origins of the *installed* version count. Candidate/newer
+        # repository versions must never clear an older loaded driver.
+        active = False
+        origins = []
+        for line in run("apt-cache", "policy", package).splitlines():
+            header = re.fullmatch(r"\s*(?:\*\*\*\s+)?(\S+)\s+\d+\s*", line)
+            if header:
+                active = header[1] == info[1]
+            elif active:
+                origin = re.search(r"https?://\S+", line)
+                if origin:
+                    origins.append(origin[0])
+        origins = sorted(set(origins))
+        if len(origins) == 1:
+            match = re.fullmatch(r"https://repo\.radeon\.com/amdgpu/(\d+\.\d+(?:\.\d+)?)/ubuntu/?", origins[0])
+            if match:
+                e.update(packageOrigin=origins[0], packageRelease=match[1],
+                         packageBoundToModule=True)
+print(json.dumps(e, separators=(",", ":")))
+PY
+}
+if [[ -d /sys/module/amdgpu ]]; then
+    _amd_evidence=$(collect_amd_driver_evidence 2>/dev/null) || _amd_evidence='{}'
+    [[ -n "$_amd_evidence" ]] || _amd_evidence='{}'
+    echo "WORKER_AMD_DRIVER_EVIDENCE=$_amd_evidence"
+fi
 if ! security_checks_only; then
 if command -v amd-smi &>/dev/null; then
     echo "WORKER_AMD_SMI_PATH=$(which amd-smi)"
@@ -1943,10 +2133,15 @@ if [[ -n "$WORKER_NVHPC_PATH" ]]; then
         nvhpc_require_file cuda-gdb cuda-gdb
         nvhpc_require_dir thrust thrust
         nvhpc_require_dir cub cub
-        nvhpc_require_file openblas 'libopenblas.so*'
         nvhpc_require_file scalapack 'libscalapack.so*'
+        # BLAS and LAPACK. The aarch64 SDK ships NVIDIA Performance Libraries
+        # in place of OpenBLAS: compilers/lib/libblas.so and liblapack.so link
+        # to NVPL, and only the OpenBLAS headers and licence remain. Require
+        # NVPL on aarch64 and OpenBLAS on other architectures.
         if [[ "$(uname -m 2>/dev/null)" == aarch64 ]]; then
             nvhpc_require_file nvpl 'libnvpl*.so*'
+        else
+            nvhpc_require_file openblas 'libopenblas.so*'
         fi
         if [[ ${#NVHPC_MISSING[@]} -eq 0 ]]; then
             WORKER_NVHPC_COMPONENTS_OK=true

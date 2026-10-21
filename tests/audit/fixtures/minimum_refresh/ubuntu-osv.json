@@ -1,0 +1,378 @@
+{
+  "_comment": "Trimmed Canonical OSV records as OSV.dev serves them (https://api.osv.dev/v1/vulns/UBUNTU-<CVE> and .../<USN-id>). Each CVE record keeps only the Noble (Ubuntu:24.04:LTS) and Jammy entries for the tracked source package, so the extractor must pick the right ecosystem. CVE-2026-53359 is trimmed to the state it had while Canonical tracked the Noble fix as pending: Noble is listed without a fixed event, so the generator falls back to the Ubuntu security API fixture. Each USN record keeps only the fields the generator reads.",
+  "cves": {
+    "CVE-2026-46242": {
+      "_comment": "Synthetic OSV projection for source-package and release selection.",
+      "id": "UBUNTU-CVE-2026-46242",
+      "related": [],
+      "affected": [
+        {
+          "package": {"name": "linux", "ecosystem": "Ubuntu:24.04:LTS"},
+          "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "6.8.0-137.137"}]}]
+        },
+        {
+          "package": {"name": "linux-nvidia-6.17", "ecosystem": "Ubuntu:24.04:LTS"},
+          "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "6.17.0-1031.31"}]}]
+        },
+        {
+          "package": {"name": "linux-hwe-6.8", "ecosystem": "Ubuntu:22.04:LTS"},
+          "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "6.8.0-138.138~22.04.1"}]}]
+        }
+      ]
+    },
+    "CVE-2024-3446": {
+      "id": "UBUNTU-CVE-2024-3446",
+      "upstream": [
+        "CVE-2024-3446"
+      ],
+      "related": [
+        "USN-7744-1",
+        "USN-8412-1"
+      ],
+      "published": "2024-04-09T20:15:00Z",
+      "severity": [
+        {
+          "type": "CVSS_V3",
+          "score": "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H"
+        },
+        {
+          "type": "Ubuntu",
+          "score": "medium"
+        }
+      ],
+      "affected": [
+        {
+          "package": {
+            "name": "qemu",
+            "ecosystem": "Ubuntu:22.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "1:6.2+dfsg-2ubuntu6.27"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "qemu",
+            "ecosystem": "Ubuntu:24.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "1:8.2.2+ds-0ubuntu1.10"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "CVE-2025-40300": {
+      "id": "UBUNTU-CVE-2025-40300",
+      "upstream": [
+        "CVE-2025-40300"
+      ],
+      "related": [
+        "USN-7850-1",
+        "USN-7861-1"
+      ],
+      "published": "2025-09-11T17:15:00Z",
+      "severity": [
+        {
+          "type": "CVSS_V3",
+          "score": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+        },
+        {
+          "type": "Ubuntu",
+          "score": "high"
+        }
+      ],
+      "affected": [
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:22.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "5.15.0-161.171"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:24.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "6.8.0-87.88"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "CVE-2026-46300": {
+      "id": "UBUNTU-CVE-2026-46300",
+      "upstream": [
+        "CVE-2026-46300"
+      ],
+      "related": [
+        "USN-8370-1",
+        "USN-8373-1"
+      ],
+      "published": "2026-05-23T12:17:00Z",
+      "severity": [
+        {
+          "type": "CVSS_V3",
+          "score": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+        },
+        {
+          "type": "CVSS_V3",
+          "score": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+        },
+        {
+          "type": "CVSS_V3",
+          "score": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+        },
+        {
+          "type": "Ubuntu",
+          "score": "high"
+        }
+      ],
+      "affected": [
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:22.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "5.15.0-181.191"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:24.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "6.8.0-124.124"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "CVE-2026-53359": {
+      "id": "UBUNTU-CVE-2026-53359",
+      "upstream": [
+        "CVE-2026-53359"
+      ],
+      "related": [],
+      "published": "2026-07-04T12:17:00Z",
+      "severity": [
+        {
+          "type": "CVSS_V3",
+          "score": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+        },
+        {
+          "type": "Ubuntu",
+          "score": "high"
+        }
+      ],
+      "affected": [
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:22.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:24.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "notices": {
+    "USN-7744-1": {
+      "id": "USN-7744-1",
+      "published": "2025-09-11T12:41:28Z",
+      "affected": [
+        {
+          "package": {
+            "name": "qemu",
+            "ecosystem": "Ubuntu:22.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "1:6.2+dfsg-2ubuntu6.27"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "qemu",
+            "ecosystem": "Ubuntu:24.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "1:8.2.2+ds-0ubuntu1.10"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "USN-8412-1": {
+      "id": "USN-8412-1",
+      "published": "2026-06-09T16:22:49Z",
+      "affected": []
+    },
+    "USN-7850-1": {
+      "id": "USN-7850-1",
+      "published": "2025-10-30T14:21:45Z",
+      "affected": []
+    },
+    "USN-7861-1": {
+      "id": "USN-7861-1",
+      "published": "2025-11-06T09:10:53Z",
+      "affected": [
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:24.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "6.8.0-87.88"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "USN-8370-1": {
+      "id": "USN-8370-1",
+      "published": "2026-06-02T13:52:18Z",
+      "affected": []
+    },
+    "USN-8373-1": {
+      "id": "USN-8373-1",
+      "published": "2026-06-02T17:12:50Z",
+      "affected": [
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:24.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "6.8.0-124.124"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

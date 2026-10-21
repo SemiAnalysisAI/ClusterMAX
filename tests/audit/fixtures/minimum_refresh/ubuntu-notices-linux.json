@@ -1,0 +1,69 @@
+{
+  "limit": 20,
+  "offset": 0,
+  "total_results": 3,
+  "notices": [
+    {
+      "id": "USN-7861-1",
+      "published": "2025-11-06T09:10:53.068752",
+      "release_packages": {
+        "noble": [
+          {
+            "name": "linux",
+            "version": "6.8.0-87.88",
+            "is_source": true
+          }
+        ]
+      },
+      "cves": [
+        {
+          "id": "CVE-2025-40300"
+        }
+      ]
+    },
+    {
+      "id": "USN-8917-1",
+      "published": "2026-10-13T14:54:50.078429",
+      "release_packages": {
+        "noble": [
+          {
+            "name": "linux",
+            "version": "6.8.0-147.147",
+            "is_source": true
+          },
+          {
+            "name": "linux-image-generic",
+            "version": "6.8.0.147.147",
+            "is_source": false
+          }
+        ]
+      },
+      "cves": [
+        {
+          "id": "CVE-2026-64531"
+        },
+        {
+          "id": "CVE-2026-64378"
+        }
+      ]
+    },
+    {
+      "id": "LSN-0122-1",
+      "published": "2026-10-14T00:00:00",
+      "release_packages": {
+        "noble": [
+          {
+            "name": "linux",
+            "version": "6.8.0-148.148",
+            "is_source": true
+          }
+        ]
+      },
+      "cves": [
+        {
+          "id": "CVE-2026-99999"
+        }
+      ]
+    }
+  ]
+}

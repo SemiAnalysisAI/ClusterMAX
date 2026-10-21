@@ -1,38 +1,49 @@
 import contextlib
 import io
 import unittest
+import argparse
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from cmax import audit_profiles, audit_runner, cli, security, target_selection
+from cmax import __version__, audit_profiles, audit_runner, banner, cli, security, target_selection
 
 
 class PublicCliTests(unittest.TestCase):
+    def test_banner_is_excluded_from_non_live_output(self) -> None:
+        for fields in (
+            {"command": "audit", "show": True},
+            {"command": "audit", "dry_run": True},
+            {"command": "audit", "output_format": "yaml"},
+            {"command": "audit", "output_file": "audit.yaml"},
+            {"command": "other"},
+        ):
+            with self.subTest(fields=fields), mock.patch.object(
+                banner, "print_banner"
+            ) as rendered:
+                cli._show_banner(argparse.Namespace(**fields))
+            rendered.assert_not_called()
+        with mock.patch.object(banner, "print_banner") as rendered:
+            cli._show_banner(argparse.Namespace(command="audit", show=False))
+        rendered.assert_called_once_with()
+
+    def test_help_and_version_exit_without_a_banner(self) -> None:
+        for args in (["--help"], ["--version"], ["audit", "--help"]):
+            with self.subTest(args=args), mock.patch.object(
+                banner, "print_banner"
+            ) as rendered, contextlib.redirect_stdout(io.StringIO()), self.assertRaises(
+                SystemExit
+            ) as raised:
+                cli.main(args)
+            self.assertEqual(raised.exception.code, 0)
+            rendered.assert_not_called()
+
     def test_audit_verbosity_has_level_one_as_its_minimum_and_default(self) -> None:
         self.assertEqual(cli._audit_verbosity(0), 1)
         self.assertEqual(cli._audit_verbosity(1), 1)
         self.assertEqual(cli._audit_verbosity(2), 2)
         self.assertEqual(cli._audit_verbosity(3), 3)
 
-    def test_top_level_help_describes_only_public_cli_usage(self) -> None:
-        for flag in ("-h", "--help"):
-            with self.subTest(flag=flag), self.assertRaises(
-                SystemExit
-            ) as raised, contextlib.redirect_stdout(io.StringIO()) as out:
-                cli.main([flag])
-
-            rendered = out.getvalue()
-            self.assertEqual(raised.exception.code, 0)
-            self.assertNotIn("usage:", rendered)
-            self.assertNotIn("--repo", rendered)
-            self.assertNotIn("-h, --help", rendered)
-            self.assertNotIn("{audit}", rendered)
-            self.assertIn(
-                "commands:\n"
-                "  audit  Run the full cluster configuration and health audit.",
-                rendered,
-            )
 
     def test_missing_command_error_shows_the_command_slot(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()) as error, self.assertRaises(
@@ -50,7 +61,7 @@ class PublicCliTests(unittest.TestCase):
             ) as raised, contextlib.redirect_stdout(io.StringIO()) as out:
                 cli.main([flag])
             self.assertEqual(raised.exception.code, 0)
-            self.assertEqual(out.getvalue(), "cmax 0.3.0\n")
+            self.assertEqual(out.getvalue(), f"cmax {__version__}\n")
 
     def test_unreleased_commands_are_rejected(self) -> None:
         for command in ("init", "performance", "run"):

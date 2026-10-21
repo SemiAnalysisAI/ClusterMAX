@@ -26,11 +26,20 @@ FAIL = "fail"
 SKIPPED = "skipped"
 _STATUS_ORDER = {PASS: 0, SKIPPED: 1, WARNING: 2, FAIL: 3}
 _SECURITY_EXTENSION_IDS = frozenset(
-    {"bmc-ipmi", "ufm-profile", "pcie-passthrough", "nvlink-boundary", "observability-isolation",
-     "qemu-virtio-serial", "vmscape"}
+    {
+        "bmc-ipmi",
+        "ufm-profile",
+        "pcie-passthrough",
+        "nvlink-boundary",
+        "kubernetes-nodes-proxy",
+        "observability-isolation",
+        "qemu-virtio-serial",
+        "vmscape",
+    }
 )
 _SECURITY_EXTENSION_HARNESSES = {
     "ufm-profile": frozenset({"slurm", "k8s"}),
+    "kubernetes-nodes-proxy": frozenset({"k8s"}),
 }
 
 
@@ -56,6 +65,9 @@ def _harness_not_applicable(harness: str) -> str:
 
 
 _PASS_ASSESSMENTS = {
+    "securityVersions.amdDriver.status": (
+        "The loaded AMD driver on the inspected host meets the published security minimum."
+    ),
     "thp_madvise.status": "The host THP policy supports madvise.",
     "static_hugepages.status": "The static HugeTLB pool has available pages.",
     "hugepage_allocation.status": "The explicit allocation trial passed and restored the pool.",
@@ -99,6 +111,9 @@ _PASS_ASSESSMENTS = {
     ),
     "security.guestKernel.newerInstalled": (
         "The audit did not find a newer installed kernel that is waiting for a reboot."
+    ),
+    "security.ubuntuNobleKernelMinimum.status": (
+        "The running Ubuntu Noble kernel meets the aggregate published security minimum."
     ),
     "security.fragnesia.status": (
         "The running kernel does not match the affected Fragnesia or Dirty Frag ranges."
@@ -286,6 +301,11 @@ _VERSION_SOURCE_KEYS: dict[str, str] = {
 }
 
 _REPRODUCTION_COMMANDS = {
+    "securityVersions.amdDriver.status": (
+        "on the audited worker: compare `/sys/module/amdgpu/{version,srcversion}` "
+        "with `modinfo amdgpu`; verify the owning package and its installed-version "
+        "origin with `dpkg-query` and `apt-cache policy`"
+    ),
     "securityVersions.nvidiaDriver.status": (
         "on the audited worker: `nvidia-smi --query-gpu=driver_version "
         "--format=csv,noheader`"
@@ -304,6 +324,7 @@ _REPRODUCTION_COMMANDS = {
     "securityVersions.runc.status": "on the audited worker: `runc --version`",
     "securityVersions.dcgm.status": "on the audited worker: `dcgmi --version`",
     "security.fragnesia.status": "on the audited worker: `uname -r`",
+    "security.ubuntuNobleKernelMinimum.status": "on the audited worker: `uname -r`",
     "security.pwnescape.status": (
         "on every worker and control-plane host: `uname -r`; inspect "
         "`/sys/kernel/livepatch`; request provider patch evidence for each host "
@@ -383,6 +404,10 @@ _REPRODUCTION_COMMANDS = {
         "on the physical host: inspect `find /sys/kernel/iommu_groups -type l` "
         "and `lspci -vv`; then verify reset isolation and VRAM clearing with "
         "provider host evidence"
+    ),
+    "kubernetes-nodes-proxy": (
+        "with the selected Kubernetes context: review ClusterRoles and "
+        "ClusterRoleBindings that grant `get` on the core `nodes/proxy` resource"
     ),
 }
 

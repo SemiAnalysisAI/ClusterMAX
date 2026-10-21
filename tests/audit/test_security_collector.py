@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import bashtest  # noqa: E402
@@ -22,6 +24,33 @@ AUDIT_ROOT = (
 )
 COLLECTOR = AUDIT_ROOT / "cluster-audit-slurm-security.sh"
 K8S_COLLECTOR = AUDIT_ROOT / "cluster-audit-k8s-security.sh"
+
+
+ROCM_COUNTER_ACCESS_STATE = bashtest.extract_function(
+    AUDIT_ROOT / "audit-common.sh", "rocm_counter_access_state"
+)
+
+
+@pytest.mark.parametrize(
+    ("kfd_access", "render_access", "expected"),
+    (
+        ("allowed", "allowed", "allowed"),
+        ("denied", "allowed", "denied"),
+        ("allowed", "denied", "denied"),
+        ("absent", "allowed", "denied"),
+        ("allowed", "absent", "denied"),
+        ("unknown", "allowed", "untested"),
+    ),
+)
+def test_rocm_counter_access_state(
+    kfd_access: str, render_access: str, expected: str
+) -> None:
+    run = bashtest.run_bash(
+        ROCM_COUNTER_ACCESS_STATE
+        + f"\nrocm_counter_access_state {kfd_access} {render_access}"
+    )
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == expected
 
 
 class SlurmSecurityCollectorTests(unittest.TestCase):

@@ -69,6 +69,7 @@ _MONITORING_SACCT = (
 # checks point to the owning public category instead of claiming that a nearby
 # requirement is an exact match.
 _CHECK_ANCHORS = {
+    "securityVersions.amdDriver.status": _SECURITY_PATCHING,
     "qemu-virtio-serial": "security-qemu-virtio-serial",
     "vmscape": "security-vmscape",
     "observability-isolation": "security-observability-isolation",
@@ -96,6 +97,7 @@ _CHECK_ANCHORS = {
     "securityVersions.dpuHostIsolation.status": _SECURITY_ISOLATION,
     "security.januscape.status": _SECURITY_ESCALATION,
     "security.guestKernel.newerInstalled": _SECURITY_PATCHING,
+    "security.ubuntuNobleKernelMinimum.status": _SECURITY_PATCHING,
     "security.fragnesia.status": _SECURITY_PATCHING,
     "security.badEpoll.status": _SECURITY_PATCHING,
     "security.pwnescape.status": _SECURITY_PATCHING,
@@ -141,6 +143,7 @@ _CHECK_ANCHORS = {
     "access.slurmCommandsOk": "orchestration",
     "slurm.accounting.sacctAvailable": _MONITORING_SACCT,
     "bmc-ipmi": _SECURITY_ISOLATION,
+    "kubernetes-nodes-proxy": _SECURITY_ISOLATION,
     "ufm-profile": _SECURITY_UFM,
     "pcie-passthrough": _SECURITY_ISOLATION,
     "nvlink-boundary": _SECURITY_ISOLATION,

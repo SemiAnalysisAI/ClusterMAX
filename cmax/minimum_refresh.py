@@ -8,7 +8,8 @@ machine-readable upstream sources only:
   * NVIDIA CSAF bulletins (GPU driver, ConnectX / BlueField firmware, CUDA
     Toolkit, Container Toolkit) from the NVIDIA/product-security repository
   * OSV for the runc branch ladder
-  * The Ubuntu security API for the Noble distro packages
+  * Canonical's Ubuntu Security Notices for complete Noble package floors,
+    plus Ubuntu OSV records for named vulnerability-specific checks
   * The Docker Engine release notes that Docker authors as markdown in the
     docker/docs repository
   * The AMD security bulletins for the AMD Instinct ROCm minimum, read from the
@@ -45,11 +46,10 @@ Command line::
     python3 -m cmax.minimum_refresh --print --generated 2026-07-30T00:00:00Z
 
 Exit codes: 0 success, 1 `--check` mismatch, 2 fetch or fail-closed error,
-3 unknown relevant NVIDIA bulletins, untracked Docker Engine majors, or
-untracked AMD GPU bulletins found by `--detect-new-bulletins`. A bulletin
-listed in DEFERRED_BULLETINS or in AMD_DEFERRED_BULLETINS is reported on
-every run but is a recorded decision rather than a discovery, so it does not
-produce exit 3.
+3 unknown relevant NVIDIA bulletins or untracked Docker Engine majors found by
+`--detect-new-bulletins`. A bulletin listed in DEFERRED_BULLETINS is reported
+on every run but is a recorded decision rather than a discovery, so it does
+not produce exit 3.
 """
 
 from __future__ import annotations
@@ -84,10 +84,43 @@ NVIDIA_RAW = "https://raw.githubusercontent.com/NVIDIA/product-security/main"
 NVIDIA_BLOB = "https://github.com/NVIDIA/product-security/blob/main"
 NVIDIA_ADVISORY = "https://nvidia.custhelp.com/app/answers/detail/a_id/{a_id}/"
 GITHUB_CONTENTS = "https://api.github.com/repos/NVIDIA/product-security/contents/{year}"
+NVIDIA_CSAF_TREE = (
+    "https://api.github.com/repos/NVIDIA/product-security/git/trees/main?recursive=1"
+)
+# ClusterMAX's NVIDIA minimum-version policy began with the 2026 bulletin set.
+# Keep that policy boundary explicit, but discover every bulletin at and after
+# it instead of keeping a list of bulletin IDs.
+NVIDIA_CSAF_START_YEAR = 2026
+NVIDIA_NETWORK_SUPPORTED_PRODUCTS = ("BlueField-3", "ConnectX-7", "ConnectX-8")
 GITHUB_RELEASE = "https://api.github.com/repos/{repo}/releases/tags/{tag}"
 OSV_QUERY_URL = "https://api.osv.dev/v1/query"
 UBUNTU_CVE_URL = "https://ubuntu.com/security/cves/"
+# Canonical publishes its CVE tracker as OSV records. OSV.dev serves them, and
+# the canonical/ubuntu-security-notices repository holds the same files. The
+# Ubuntu security API above times out (HTTP 504) on CVEs with a long package
+# list such as CVE-2024-3446, so it is only a last resort for fixes that OSV
+# cannot describe yet (Ubuntu's "pending" state).
+UBUNTU_OSV_VULN_URL = "https://api.osv.dev/v1/vulns/"
+UBUNTU_OSV_RAW_URL = (
+    "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/main/osv/cve/"
+)
+UBUNTU_OSV_ECOSYSTEMS = {
+    "noble": "Ubuntu:24.04:LTS",
+    "jammy": "Ubuntu:22.04:LTS",
+}
 UBUNTU_NOTICE_URL = "https://ubuntu.com/security/notices/"
+UBUNTU_NOTICES_URL = "https://ubuntu.com/security/notices.json"
+UBUNTU_NOTICE_PAGE_LIMIT = 20
+UBUNTU_NOTICE_MAX_PAGES = 100
+# The API has no source-package filter. `details` is only a bounded candidate
+# search; every returned notice is then matched against its structured
+# release_packages entries. These terms have been checked against Canonical's
+# complete USN repository for Noble and cover every USN for the two graded
+# source packages.
+UBUNTU_PACKAGE_POLICY: tuple[tuple[str, str], ...] = (
+    ("linux", "linux"),
+    ("qemu", "qemu"),
+)
 DOCKER_RELEASE_NOTES_RAW = (
     "https://raw.githubusercontent.com/docker/docs/main"
     "/content/manuals/engine/release-notes/{major}.md"
@@ -99,38 +132,6 @@ DOCKER_DOCS_CONTENTS = (
 )
 NVHPC_RELEASES_PAGE = "https://developer.nvidia.com/hpc-sdk/releases"
 NVHPC_RELEASE_RE = re.compile(r"\bHPC SDK\s+([0-9]{2}\.[0-9]{1,2})\b", re.IGNORECASE)
-
-# NVIDIA bulletin directories, keyed by the component they feed. The directory
-# name is the custhelp a_id of the bulletin. A new bulletin gets a new a_id, so
-# `--detect-new-bulletins` reports one and an operator updates this table.
-#
-# Every component maps to a tuple, because one component can merge several
-# bulletins. nvidiaDriver does: a driver branch keeps the highest fixed version
-# any tracked bulletin publishes for it, so an older bulletin can contribute a
-# branch that a newer one dropped without lowering the branches the newer one
-# still covers. The order inside a tuple carries no meaning.
-BULLETINS: dict[str, tuple[dict[str, Any], ...]] = {
-    # 5821 (May 2026) covers R535 / R580 / R595. 5747 (January 2026) is the
-    # only source for R570 and R590 and is superseded on R535 and R580.
-    "nvidiaDriver": ({"year": 2026, "aId": 5821}, {"year": 2026, "aId": 5747}),
-    "connectxFirmware": ({"year": 2026, "aId": 5699},),
-    "cudaToolkit": ({"year": 2026, "aId": 5755},),
-    "nvidiaContainerToolkit": ({"year": 2026, "aId": 5850},),
-    "virtioNetBluefield": ({"year": 2026, "aId": 5815},),
-    # Bulletin 5857 covers two products, so it also feeds dcgmExporter.
-    "dcgm": ({"year": 2026, "aId": 5857},),
-}
-
-
-def bulletin_ref(component: str) -> dict[str, Any]:
-    """Return the single bulletin of a component that tracks exactly one."""
-    return BULLETINS[component][0]
-
-
-def all_bulletin_refs() -> Iterator[dict[str, Any]]:
-    for refs in BULLETINS.values():
-        yield from refs
-
 
 # Bulletins that match a graded product line and that we have decided not to
 # track yet, each with the written reason. `--detect-new-bulletins` reports
@@ -152,41 +153,38 @@ DEFERRED_BULLETINS: dict[str, str] = {
 def validate_bulletin_lists() -> None:
     """Fail on a contradiction between the tracked and deferred lists.
 
-    A bulletin cannot be both tracked and deferred, and a deferred bulletin
-    without a written reason is an undocumented decision.
+    A deferred bulletin without a written reason is an undocumented decision.
+    Nvidia tracked coverage is derived from the CSAF catalog, not a second
+    configuration list.
     """
     problems: list[str] = []
-    tracked = {str(ref["aId"]) for ref in all_bulletin_refs()}
     for a_id, reason in DEFERRED_BULLETINS.items():
-        if str(a_id) in tracked:
-            problems.append(
-                f"{a_id}: bulletin is tracked in BULLETINS and deferred in "
-                f"DEFERRED_BULLETINS; remove one"
-            )
         if not str(reason).strip():
             problems.append(f"{a_id}: deferred bulletin has no written reason")
-    amd_tracked = {sb_id.lower() for sb_id in AMD_BULLETINS}
-    for sb_id, reason in AMD_DEFERRED_BULLETINS.items():
-        if sb_id.lower() in amd_tracked:
-            problems.append(
-                f"{sb_id}: bulletin is tracked in AMD_BULLETINS and deferred "
-                f"in AMD_DEFERRED_BULLETINS; remove one"
-            )
-        if not str(reason).strip():
-            problems.append(f"{sb_id}: deferred bulletin has no written reason")
     if problems:
         raise MinimumRefreshError(
             "bulletin configuration is inconsistent:\n  - " + "\n  - ".join(problems)
         )
 
 
-# The products bulletin 5857 covers, as component key and product label. Both
-# come out of one fetch, so the bulletin cannot produce one component and
-# silently drop the other.
+# Graded DCGM products, as component key and exact CSAF product label.
 DCGM_PRODUCTS: tuple[tuple[str, str], ...] = (
     ("dcgm", "DCGM"),
     ("dcgmExporter", "DCGM Exporter"),
 )
+NVIDIA_DCGM_PRODUCT_ID_PATTERNS: dict[str, re.Pattern[str]] = {
+    "dcgm": re.compile(r"(?:^|_)dcgm_(?!exporter(?:_|$))", re.IGNORECASE),
+    "dcgmExporter": re.compile(r"(?:^|_)dcgm_exporter(?:_|$)", re.IGNORECASE),
+}
+
+# Explicit policy labels for graded Nvidia products. Bulletin IDs and floors
+# are deliberately absent: every matching CSAF document in the catalog enters
+# the reducer automatically.
+NVIDIA_SIMPLE_PRODUCTS: tuple[tuple[str, str], ...] = (
+    ("cudaToolkit", "NVIDIA CUDA Toolkit"),
+    ("nvidiaContainerToolkit", "NVIDIA Container Toolkit"),
+)
+NVIDIA_VIRTIO_PRODUCT_PREFIX = "VIRTIO-Net"
 
 # Product lines the audit grades. A new bulletin whose title matches one of
 # these is reported by `--detect-new-bulletins`.
@@ -252,20 +250,17 @@ DOCKER_NEXT_HEADING = re.compile(r"^#{2,3} ", re.MULTILINE)
 CVE_ID = re.compile(r"\bCVE-\d{4}-\d{4,}\b")
 GHSA_ID = re.compile(r"\bGHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}\b")
 
-# AMD publishes no CSAF provider and no OSV entries for ROCm, so the AMD
-# Instinct ROCm minimum comes from the consolidated graphics bulletins that AMD
-# publishes as HTML pages. AMD_BULLETINS holds the modern consolidated series,
-# oldest first. Each of these bulletins names its Instinct fixes in dated
-# mitigation tables of the shape "Program | CVE | Mitigation | Release Date".
-# Every older GPU bulletin was read once and sits in AMD_DEFERRED_BULLETINS
-# with a written reason, because no ROCm release an older bulletin names is
-# above a minimum this series forces.
+# AMD publishes no CSAF provider and no OSV entries for ROCm. The generator
+# therefore enumerates AMD's official bulletin index and evaluates every
+# 6000-series bulletin published after the policy start date. Instinct rows,
+# not bulletin titles or IDs, decide applicability.
 AMD_FEED = "amd-security-bulletin"
 AMD_SECURITY_INDEX = "https://www.amd.com/en/resources/product-security.html"
 AMD_BULLETIN_PAGE = (
     "https://www.amd.com/en/resources/product-security/bulletin/{sb_id}.html"
 )
-AMD_BULLETINS: tuple[str, ...] = ("amd-sb-6018", "amd-sb-6024", "amd-sb-6027")
+AMD_POLICY_START_DATE = datetime(2025, 8, 1).date()
+AMD_GPU_BULLETIN_ID = re.compile(r"^AMD-SB-6\d{3}$", re.IGNORECASE)
 
 # An index row whose title matches this pattern concerns GPUs, so
 # `--detect-new-bulletins` reports the bulletin when it is neither tracked nor
@@ -284,88 +279,13 @@ AMD_ROCM_HINT = re.compile(r"\bROCm?\b", re.IGNORECASE)
 # A ROCm release outside the dated mitigation tables. Text such as "ROCm
 # ecosystem" carries no digit and does not match.
 AMD_ROCM_STRAY = re.compile(r"\bROCm?\W+\d", re.IGNORECASE)
+AMD_DRIVER_HINT = re.compile(r"\bLinux GPU Driver\b", re.IGNORECASE)
+AMD_DRIVER_STRAY = re.compile(r"\bLinux GPU Driver\W+\d", re.IGNORECASE)
 # One Instinct program token, such as MI210 or MI300A. A single program cell
 # can name two programs at once ("AMD Instinct MI210  AMD Instinct MI250").
 AMD_PROGRAM = re.compile(r"\bMI\d+[A-Za-z]*\b")
 AMD_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 AMD_TRADEMARKS = re.compile("[\u2122\u00ae]")
-
-# AMD GPU bulletins that are read and not tracked, each with the written
-# reason. The same rules as DEFERRED_BULLETINS apply: every entry is reported
-# on every `--detect-new-bulletins` run, and removing an entry puts the
-# bulletin straight back on the untracked list. "Below the tracked minimums"
-# means every ROCm release the bulletin names is at or below a minimum that
-# AMD_BULLETINS forces, so tracking it cannot move any minimum up.
-AMD_DEFERRED_BULLETINS: dict[str, str] = {
-    "amd-sb-1000": (
-        "Windows 10 graphics driver bulletin for client GPUs. It names no "
-        "ROCm release."
-    ),
-    "amd-sb-1029": (
-        "Client graphics driver bulletin from November 2022. It names no "
-        "ROCm release."
-    ),
-    "amd-sb-6003": (
-        "Client graphics driver bulletin from November 2023. It names no "
-        "ROCm release."
-    ),
-    "amd-sb-6005": (
-        "Consolidated bulletin from August 2024 in the older transposed "
-        "table format. Its highest ROCm release is 6.3.2, below the tracked "
-        "minimums."
-    ),
-    "amd-sb-6007": (
-        "Radeon Software Crimson bulletin for client GPUs. It names no ROCm "
-        "release."
-    ),
-    "amd-sb-6008": (
-        "Consolidated bulletin from February 2025. It names no ROCm release."
-    ),
-    "amd-sb-6009": (
-        "Radeon kernel driver bulletin for client GPUs. It names no ROCm "
-        "release."
-    ),
-    "amd-sb-6010": (
-        "GPU memory leak bulletin in the older per-environment table format. "
-        "Its highest ROCm release is 6.3.1, below the tracked minimums."
-    ),
-    "amd-sb-6011": (
-        "WebGPU browser side-channel note. It names no ROCm release."
-    ),
-    "amd-sb-6012": (
-        "Radeon DirectX 11 shader bulletin for client GPUs. It names no ROCm "
-        "release."
-    ),
-    "amd-sb-6013": (
-        "Uninitialized GPU register bulletin in the older per-environment "
-        "table format. Its highest ROCm release is 6.3.1, below the tracked "
-        "minimums."
-    ),
-    "amd-sb-6015": (
-        "Graphics driver installer bulletin for client GPUs. It names no "
-        "ROCm release."
-    ),
-    "amd-sb-6016": (
-        "Client GPU bulletin. It names no ROCm release."
-    ),
-    "amd-sb-6019": (
-        "Cross-process GPU memory disclosure note. It names no ROCm release."
-    ),
-    "amd-sb-6021": (
-        "Linux graphics driver bulletin in the older format. Its highest "
-        "ROCm release is 6.2, below the tracked minimums."
-    ),
-    "amd-sb-6026": (
-        "GPU timing side-channel research note. It names no ROCm release."
-    ),
-    "amd-sb-6031": (
-        "Device Metrics Exporter bulletin. The fix is an exporter release, "
-        "and the audit does not grade the exporter version."
-    ),
-    "amd-sb-7049": (
-        "GPUHammer research note. It names no ROCm release."
-    ),
-}
 
 DEFAULT_RELATIVE_PATH = runtime_paths.MINIMUMS_TABLE_RELATIVE
 
@@ -624,6 +544,103 @@ def csaf_arch_branches(doc: dict) -> Iterator[tuple[str, list[dict]]]:
         yield from walk(top)
 
 
+def csaf_product_labels(doc: dict) -> set[str]:
+    """Return exact product labels declared anywhere in a CSAF product tree."""
+
+    labels: set[str] = set()
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            name = value.get("name")
+            if isinstance(name, str) and name.strip():
+                labels.add(name.strip())
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(doc.get("product_tree") or {})
+    return labels
+
+
+def csaf_has_product(doc: dict, label: str) -> bool:
+    wanted = label.casefold()
+    return any(item.casefold() == wanted for item in csaf_product_labels(doc))
+
+
+def csaf_has_product_prefix(doc: dict, prefix: str) -> bool:
+    wanted = prefix.casefold()
+    return any(item.casefold().startswith(wanted) for item in csaf_product_labels(doc))
+
+
+def csaf_product_status_ids(doc: dict) -> set[str]:
+    ids: set[str] = set()
+    for vulnerability in doc.get("vulnerabilities") or []:
+        for values in (vulnerability.get("product_status") or {}).values():
+            if isinstance(values, list):
+                ids.update(str(value) for value in values)
+    return ids
+
+
+def nvidia_csaf_documents(
+    fetch: Fetcher | None = None,
+    *,
+    years: Sequence[int] | None = None,
+) -> list[tuple[dict[str, int], dict]]:
+    """Enumerate and fetch every NVIDIA bulletin CSAF document in policy scope.
+
+    The Git tree is one atomic repository snapshot. A truncated tree, malformed
+    path, missing document, or tracking-id mismatch blocks the refresh; otherwise
+    a source outage could silently remove a security floor.
+    """
+    client = _fetcher(fetch)
+    tree = client.get_json(NVIDIA_CSAF_TREE)
+    if not isinstance(tree, dict) or not isinstance(tree.get("tree"), list):
+        raise MinimumRefreshError(
+            f"NVIDIA CSAF tree has an unexpected shape: {NVIDIA_CSAF_TREE}"
+        )
+    if tree.get("truncated"):
+        raise MinimumRefreshError(
+            f"NVIDIA CSAF tree is truncated: {NVIDIA_CSAF_TREE}"
+        )
+    selected_years = (
+        {int(year) for year in years}
+        if years is not None
+        else set(range(NVIDIA_CSAF_START_YEAR, datetime.now(timezone.utc).year + 1))
+    )
+    refs: list[dict[str, int]] = []
+    pattern = re.compile(r"^(\d{4})/(\d+)/(\d+)\.json$")
+    for entry in tree["tree"]:
+        if entry.get("type") != "blob":
+            continue
+        match = pattern.fullmatch(str(entry.get("path", "")))
+        if not match or match.group(2) != match.group(3):
+            continue
+        year, a_id = int(match.group(1)), int(match.group(2))
+        if year in selected_years:
+            refs.append({"year": year, "aId": a_id})
+    refs.sort(key=lambda ref: (ref["year"], ref["aId"]))
+    if not refs:
+        years_text = ", ".join(str(year) for year in sorted(selected_years))
+        raise MinimumRefreshError(
+            f"NVIDIA CSAF tree contains no bulletin documents for {years_text}"
+        )
+
+    def read(ref: dict[str, int]) -> tuple[dict[str, int], dict]:
+        doc = client.get_json(bulletin_url(ref["year"], ref["aId"]))
+        tracking_id = str(doc.get("document", {}).get("tracking", {}).get("id", ""))
+        if tracking_id != str(ref["aId"]):
+            raise MinimumRefreshError(
+                f"NVIDIA CSAF {bulletin_url(ref['year'], ref['aId'])} "
+                f"declares tracking id {tracking_id!r}"
+            )
+        return ref, doc
+
+    with ThreadPoolExecutor(max_workers=min(8, len(refs))) as pool:
+        return list(pool.map(read, refs))
+
+
 def version_key(version: str) -> tuple:
     """Order versions numerically and rank a release above its own prerelease.
 
@@ -764,11 +781,14 @@ def driver_branches_in(doc: dict) -> dict[str, str]:
 
 
 def nvidia_driver_minimums(
-    refs: Sequence[dict[str, Any]] | None = None, fetch: Fetcher | None = None
+    refs: Sequence[dict[str, Any]] | None = None,
+    fetch: Fetcher | None = None,
+    *,
+    documents: Sequence[tuple[dict[str, int], dict]] | None = None,
 ) -> dict:
-    """Merge every tracked driver bulletin into one minimum per driver branch.
+    """Merge every applicable driver bulletin into one minimum per branch.
 
-    A branch keeps the highest fixed version any tracked bulletin publishes for
+    A branch keeps the highest fixed version any applicable bulletin publishes for
     it, compared numerically. NVIDIA issues one bulletin per cycle and each one
     covers only the branches it patched, so no single bulletin lists every
     supported branch: 5821 covers R535 / R580 / R595 while R570 and R590 appear
@@ -776,15 +796,26 @@ def nvidia_driver_minimums(
     bulletin contributes without letting that bulletin lower a branch a newer
     one raised. The result does not depend on the order of `refs`.
     """
-    refs = list(refs if refs is not None else BULLETINS["nvidiaDriver"])
+    if refs is not None and documents is not None:
+        raise ValueError("pass refs or documents, not both")
+    if documents is None:
+        if refs is None:
+            documents = nvidia_csaf_documents(fetch=fetch)
+        else:
+            documents = [
+                (ref, _fetcher(fetch).get_json(bulletin_url(ref["year"], ref["aId"])))
+                for ref in refs
+            ]
     branches: dict[str, str] = {}
     branch_sources: dict[str, int] = {}
     sources: list[dict] = []
-    for ref in refs:
+    for ref, doc in documents:
         year, a_id = ref["year"], ref["aId"]
-        doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
+        extracted = driver_branches_in(doc)
+        if not extracted:
+            continue
         sources.append(nvidia_source(a_id, year, doc))
-        for branch, fixed in driver_branches_in(doc).items():
+        for branch, fixed in extracted.items():
             current = branches.get(branch)
             if current is None or version_key(fixed) > version_key(current):
                 branches[branch] = fixed
@@ -816,56 +847,127 @@ def nvidia_driver_minimums(
     }
 
 
-def connectx_minimums(
-    year: int | None = None, a_id: int | None = None, fetch: Fetcher | None = None
-) -> dict:
-    """ConnectX / BlueField firmware trains, keyed by the train number."""
-    year = year if year is not None else bulletin_ref("connectxFirmware")["year"]
-    a_id = a_id if a_id is not None else bulletin_ref("connectxFirmware")["aId"]
-    doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
-    trains: dict[str, int] = {}
-    ga_ranges: list[dict[str, str]] = []
+def connectx_document_applies(doc: dict) -> bool:
+    """Whether a networking bulletin covers ClusterMAX's supported hardware."""
     for arch, kids in csaf_arch_branches(doc):
-        # Keep the vendor's explicit GA range, including architectures without
-        # parenthesized train numbers. LTS floors remain train-specific.
-        for kid in kids:
-            product = str(kid.get("name") or "")
-            phrase = str(kid.get("product", {}).get("name") or "")
-            match = re.fullmatch(r"(\d+\.\d+)\s+or newer", phrase.strip(), re.I)
-            if product in {"ConnectX GA", "BlueField GA"} and match:
-                ga_ranges.append({
-                    "product": product, "architectures": arch,
-                    "minimum": match.group(1), "relation": "or-newer",
-                })
-        # "BlueField-2(46), BlueField-3(46)", "N/A(28)", or a name with no train.
-        train_ids = {int(value) for value in re.findall(r"\((\d+)\)", arch)}
-        if len(train_ids) != 1:
+        if not any(
+            product.lower() in arch.lower()
+            for product in NVIDIA_NETWORK_SUPPORTED_PRODUCTS
+        ):
             continue
-        train = str(train_ids.pop())
-        fixed = resolve_fixed(kids)
-        if not fixed:
+        if any(
+            re.match(r"^(?:connectx|bluefield)(?:\s|$)", str(kid.get("name", "")), re.I)
+            for kid in kids
+        ):
+            return True
+    return False
+
+
+def connectx_trains_in(doc: dict) -> dict[str, int]:
+    """Return firmware train -> fixed patch for ConnectX / BlueField products."""
+    if not connectx_document_applies(doc):
+        return {}
+
+    trains: dict[str, int] = {}
+    network = re.compile(r"connectx|bluefield", re.IGNORECASE)
+    for arch, kids in csaf_arch_branches(doc):
+        product_text = " ".join(
+            [
+                arch,
+                *[str(kid.get("name", "")) for kid in kids],
+                *[
+                    str(kid.get("product", {}).get("product_id", ""))
+                    for kid in kids
+                ],
+            ]
+        )
+        if not network.search(product_text):
             continue
-        release, _, patch = fixed.partition(".")
-        if release != train or not patch.isdigit():
+        for label in {str(kid.get("name", "")) for kid in kids}:
+            fixed = resolve_fixed(kids, product_filter=label)
+            parts = [int(part) for part in re.findall(r"\d+", fixed or "")]
+            if len(parts) < 2:
+                continue
+            # Full NIC firmware is hardware-family.train.patch (16.35.8008);
+            # some CSAF products omit the hardware family (47.1020).
+            train, patch = str(parts[-2]), parts[-1]
+            trains[train] = max(patch, trains.get(train, 0))
+    return trains
+
+
+def connectx_minimums(
+    year: int | None = None,
+    a_id: int | None = None,
+    fetch: Fetcher | None = None,
+    *,
+    documents: Sequence[tuple[dict[str, int], dict]] | None = None,
+) -> dict:
+    """Merge every applicable CSAF bulletin into firmware train minimums."""
+    if documents is not None and (year is not None or a_id is not None):
+        raise ValueError("pass year/a_id or documents, not both")
+    if documents is None:
+        if year is not None or a_id is not None:
+            if year is None or a_id is None:
+                raise ValueError("year and a_id must be passed together")
+            ref = {"year": year, "aId": a_id}
+            documents = [(ref, _fetcher(fetch).get_json(bulletin_url(year, a_id)))]
+        else:
+            documents = nvidia_csaf_documents(fetch=fetch)
+    trains: dict[str, int] = {}
+    train_availability: dict[str, dict[str, Any]] = {}
+    sources: list[dict] = []
+    ga_ranges: list[dict[str, str]] = []
+    for ref, doc in documents:
+        extracted = connectx_trains_in(doc)
+        if not extracted:
             continue
-        trains[train] = max(int(patch), trains.get(train, 0))
-    availability = nvidia_csaf_fix_availability(a_id, year, doc)
+        # Preserve explicit vendor GA ranges from every applicable bulletin.
+        for arch, kids in csaf_arch_branches(doc):
+            for kid in kids:
+                product = str(kid.get("name") or "")
+                phrase = str(kid.get("product", {}).get("name") or "")
+                match = re.fullmatch(r"(\d+\.\d+)\s+or newer", phrase.strip(), re.I)
+                if product in {"ConnectX GA", "BlueField GA"} and match:
+                    ga_range = {
+                        "product": product, "architectures": arch,
+                        "minimum": match.group(1), "relation": "or-newer",
+                    }
+                    previous = next((
+                        item for item in ga_ranges
+                        if item["product"] == product and item["architectures"] == arch
+                    ), None)
+                    if previous is None:
+                        ga_ranges.append(ga_range)
+                    elif version_key(ga_range["minimum"]) > version_key(previous["minimum"]):
+                        previous["minimum"] = ga_range["minimum"]
+        year, a_id = ref["year"], ref["aId"]
+        source = nvidia_source(a_id, year, doc)
+        sources.append(source)
+        availability = nvidia_csaf_fix_availability(a_id, year, doc)
+        for train, patch in extracted.items():
+            if patch <= trains.get(train, -1):
+                continue
+            trains[train] = patch
+            train_availability[train] = {
+                **availability,
+                "version": f"{train}.{patch}",
+            }
+    sources.sort(key=lambda item: (str(item["released"])[:10], item["aId"]))
+    newest = sources[-1] if sources else {}
     return {
         "kind": "trainMap",
         "trains": dict(sorted(trains.items(), key=lambda kv: int(kv[0]))),
         "gaRanges": ga_ranges,
-        "floorAvailability": {
-            train: {**availability, "version": f"{train}.{patch}"}
-            for train, patch in sorted(trains.items(), key=lambda kv: int(kv[0]))
-        },
-        "advisory": NVIDIA_ADVISORY.format(a_id=a_id),
-        "source": nvidia_source(a_id, year, doc),
+        "floorAvailability": dict(
+            sorted(train_availability.items(), key=lambda kv: int(kv[0]))
+        ),
+        "advisory": NVIDIA_ADVISORY.format(a_id=newest.get("aId", "")),
+        "source": newest,
+        "sources": sorted(sources, key=lambda item: item["aId"]),
     }
 
 
-def virtio_net_minimums(
-    year: int | None = None, a_id: int | None = None, fetch: Fetcher | None = None
-) -> dict:
+def _virtio_net_minimums_from_document(year: int, a_id: int, doc: dict) -> dict:
     """VIRTIO-Net for BlueField release lines: GA and the LTS lines.
 
     This is a separate product from the ConnectX / BlueField firmware trains
@@ -873,9 +975,6 @@ def virtio_net_minimums(
     is a tenant-to-host escape class defect: a VM user can reach a
     Write-What-Where condition in Virtio-Net on a BlueField-3 DPU.
     """
-    year = year if year is not None else bulletin_ref("virtioNetBluefield")["year"]
-    a_id = a_id if a_id is not None else bulletin_ref("virtioNetBluefield")["aId"]
-    doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
     fixed: dict[str, list[str]] = {}
     prior_to: dict[str, list[str]] = {}
     legacy: dict[str, list[str]] = {}
@@ -914,11 +1013,64 @@ def virtio_net_minimums(
     }
 
 
-def simple_product_minimum(
-    year: int, a_id: int, product: str | None = None, fetch: Fetcher | None = None
-) -> dict:
-    """One Linux arch branch, one product: CUDA Toolkit and Container Toolkit."""
+def virtio_net_minimums(year: int, a_id: int, fetch: Fetcher | None = None) -> dict:
+    """Extract one VIRTIO-Net bulletin; production merges the CSAF catalog."""
+
     doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
+    return _virtio_net_minimums_from_document(year, a_id, doc)
+
+
+def nvidia_virtio_net_minimums(
+    documents: Sequence[tuple[dict[str, int], dict]],
+) -> dict:
+    """Merge every catalog document that explicitly declares VIRTIO-Net."""
+
+    lines: dict[str, dict[str, str]] = {}
+    availability: dict[str, dict[str, Any]] = {}
+    cves: set[str] = set()
+    sources: list[dict] = []
+    for ref, doc in documents:
+        if not csaf_has_product_prefix(doc, NVIDIA_VIRTIO_PRODUCT_PREFIX):
+            continue
+        block = _virtio_net_minimums_from_document(ref["year"], ref["aId"], doc)
+        if not block["lines"]:
+            raise MinimumRefreshError(
+                f"virtioNetBluefield: NVIDIA CSAF {ref['aId']} declares "
+                f"{NVIDIA_VIRTIO_PRODUCT_PREFIX} but yields no fixed release lines"
+            )
+        sources.append(block["source"])
+        cves.update(block["cves"])
+        for line, entry in block["lines"].items():
+            current = lines.get(line)
+            if current is not None and version_key(entry["fixed"]) <= version_key(
+                current["fixed"]
+            ):
+                continue
+            lines[line] = entry
+            availability[line] = block["floorAvailability"][line]
+    sources.sort(key=lambda item: (str(item["released"])[:10], item["aId"]))
+    newest = sources[-1] if sources else {}
+    result = {
+        "kind": "releaseLines",
+        "lines": dict(sorted(lines.items())),
+        "floorAvailability": dict(sorted(availability.items())),
+        "cves": sorted(cves),
+        "advisory": NVIDIA_ADVISORY.format(a_id=newest.get("aId", "")),
+        "source": newest,
+    }
+    if len(sources) > 1:
+        result["sources"] = sorted(sources, key=lambda item: item["aId"])
+    return result
+
+
+def _simple_product_minimum_from_document(
+    year: int,
+    a_id: int,
+    doc: dict,
+    *,
+    product: str,
+    fetch: Fetcher | None = None,
+) -> dict:
     best: str | None = None
     for arch, kids in csaf_arch_branches(doc):
         if "linux" not in arch.lower():
@@ -926,17 +1078,16 @@ def simple_product_minimum(
         fixed = resolve_fixed(kids, product_filter=product)
         if fixed and (best is None or version_key(fixed) > version_key(best)):
             best = fixed
-    if best and a_id == bulletin_ref("nvidiaContainerToolkit")["aId"]:
+    source = nvidia_source(a_id, year, doc)
+    if best and product == "NVIDIA Container Toolkit":
         availability = github_release_availability(
             NVIDIA_CONTAINER_TOOLKIT_RELEASE_REPO, f"v{best}", best, fetch=fetch
         )
-        source = nvidia_source(a_id, year, doc)
         availability["bulletinReleased"] = source["released"]
     else:
         availability = nvidia_csaf_fix_availability(a_id, year, doc)
         if best:
             availability["version"] = best
-        source = nvidia_source(a_id, year, doc)
     return {
         "kind": "minimum",
         "minimum": best,
@@ -947,23 +1098,68 @@ def simple_product_minimum(
     }
 
 
-def bulletin_product_minimums(
+def simple_product_minimum(
+    year: int, a_id: int, product: str | None = None, fetch: Fetcher | None = None
+) -> dict:
+    """Extract one Linux product bulletin; production merges the CSAF catalog."""
+
+    doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
+    return _simple_product_minimum_from_document(
+        year, a_id, doc, product=product or "", fetch=fetch
+    )
+
+
+def nvidia_simple_product_minimums(
+    documents: Sequence[tuple[dict[str, int], dict]],
+    fetch: Fetcher | None = None,
+) -> dict[str, dict]:
+    """Reduce all catalog bulletins for CUDA and Container Toolkit."""
+
+    results: dict[str, dict] = {}
+    for key, label in NVIDIA_SIMPLE_PRODUCTS:
+        candidates: list[dict] = []
+        cves: set[str] = set()
+        sources: list[dict] = []
+        for ref, doc in documents:
+            if not csaf_has_product(doc, label):
+                continue
+            block = _simple_product_minimum_from_document(
+                ref["year"], ref["aId"], doc, product=label, fetch=fetch
+            )
+            if not block["minimum"]:
+                raise MinimumRefreshError(
+                    f"{key}: NVIDIA CSAF {ref['aId']} declares {label} "
+                    "but yields no Linux minimum"
+                )
+            candidates.append(block)
+            cves.update(block["cves"])
+            sources.append(block["source"])
+        if not candidates:
+            continue
+        winner = max(candidates, key=lambda block: version_key(block["minimum"]))
+        result = {**winner, "cves": sorted(cves)}
+        if len(sources) > 1:
+            result["sources"] = sorted(sources, key=lambda item: item["aId"])
+        results[key] = result
+    return results
+
+
+def _bulletin_product_minimums_from_document(
     year: int,
     a_id: int,
+    doc: dict,
     products: Sequence[tuple[str, str]],
     fetch: Fetcher | None = None,
 ) -> dict[str, dict]:
     """One bulletin, one `minimum` component per product it covers.
 
-    Used for bulletin 5857, which covers DCGM and DCGM Exporter under one CVE.
     Every product is resolved from the same fetched document and every one
     gets a block, so a product that stops resolving yields an empty minimum
     that the fail-closed check reports, instead of disappearing.
 
-    Architecture branch names are not filtered here. Bulletin 5857 names its
-    branches "All(4.5)" and "All(4.8)", so a Linux name filter would drop both.
+    Architecture branch names are not filtered here. DCGM bulletins use
+    product-wide architecture labels such as "All(4.5)" and "All(4.8)".
     """
-    doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
     cves = [item["cve"] for item in doc.get("vulnerabilities", []) if item.get("cve")]
     source = nvidia_source(a_id, year, doc)
     blocks: dict[str, dict] = {}
@@ -980,19 +1176,18 @@ def bulletin_product_minimums(
             "advisory": NVIDIA_ADVISORY.format(a_id=a_id),
             "source": source,
         }
-    if a_id == bulletin_ref("dcgm")["aId"]:
-        dcgm_version = blocks.get("dcgm", {}).get("minimum")
-        exporter_version = blocks.get("dcgmExporter", {}).get("minimum")
-        if dcgm_version and exporter_version:
-            tag = f"{dcgm_version}-{exporter_version}"
-            for block in blocks.values():
-                block["fixAvailability"] = github_release_availability(
-                    DCGM_EXPORTER_RELEASE_REPO,
-                    tag,
-                    str(block.get("minimum")),
-                    fetch=fetch,
-                )
-                block["fixAvailability"]["bulletinReleased"] = source["released"]
+    dcgm_version = blocks.get("dcgm", {}).get("minimum")
+    exporter_version = blocks.get("dcgmExporter", {}).get("minimum")
+    if dcgm_version and exporter_version:
+        tag = f"{dcgm_version}-{exporter_version}"
+        for block in blocks.values():
+            block["fixAvailability"] = github_release_availability(
+                DCGM_EXPORTER_RELEASE_REPO,
+                tag,
+                str(block.get("minimum")),
+                fetch=fetch,
+            )
+            block["fixAvailability"]["bulletinReleased"] = source["released"]
     for block in blocks.values():
         if "fixAvailability" not in block:
             availability = nvidia_csaf_fix_availability(a_id, year, doc)
@@ -1000,6 +1195,65 @@ def bulletin_product_minimums(
                 availability["version"] = block["minimum"]
             block["fixAvailability"] = availability
     return blocks
+
+
+def bulletin_product_minimums(
+    year: int,
+    a_id: int,
+    products: Sequence[tuple[str, str]],
+    fetch: Fetcher | None = None,
+) -> dict[str, dict]:
+    """Extract one multi-product bulletin; production merges the CSAF catalog."""
+
+    doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
+    return _bulletin_product_minimums_from_document(
+        year, a_id, doc, products, fetch=fetch
+    )
+
+
+def nvidia_dcgm_minimums(
+    documents: Sequence[tuple[dict[str, int], dict]],
+    fetch: Fetcher | None = None,
+) -> dict[str, dict]:
+    """Reduce every CSAF document that explicitly declares DCGM products."""
+
+    candidates: dict[str, list[dict]] = {key: [] for key, _label in DCGM_PRODUCTS}
+    cves: dict[str, set[str]] = {key: set() for key, _label in DCGM_PRODUCTS}
+    sources: dict[str, list[dict]] = {key: [] for key, _label in DCGM_PRODUCTS}
+    for ref, doc in documents:
+        status_ids = csaf_product_status_ids(doc)
+        applicable = [
+            (key, label)
+            for key, label in DCGM_PRODUCTS
+            if csaf_has_product(doc, label)
+            or any(NVIDIA_DCGM_PRODUCT_ID_PATTERNS[key].search(item) for item in status_ids)
+        ]
+        if not applicable:
+            continue
+        blocks = _bulletin_product_minimums_from_document(
+            ref["year"], ref["aId"], doc, applicable, fetch=fetch
+        )
+        missing = [key for key, _label in applicable if not blocks[key]["minimum"]]
+        if missing:
+            raise MinimumRefreshError(
+                f"NVIDIA CSAF {ref['aId']} yields no minimum for: "
+                + ", ".join(missing)
+            )
+        for key, _label in applicable:
+            block = blocks[key]
+            candidates[key].append(block)
+            cves[key].update(block["cves"])
+            sources[key].append(block["source"])
+    results: dict[str, dict] = {}
+    for key, _label in DCGM_PRODUCTS:
+        if not candidates[key]:
+            continue
+        winner = max(candidates[key], key=lambda block: version_key(block["minimum"]))
+        result = {**winner, "cves": sorted(cves[key])}
+        if len(sources[key]) > 1:
+            result["sources"] = sorted(sources[key], key=lambda item: item["aId"])
+        results[key] = result
+    return results
 
 
 def osv_package_vulns(
@@ -1145,8 +1399,260 @@ def ubuntu_notice_url(notice_id: str) -> str:
     return f"{UBUNTU_NOTICE_URL}{notice_id}.json"
 
 
+def ubuntu_notices_query_url(
+    package_term: str,
+    codename: str,
+    offset: int = 0,
+) -> str:
+    """Canonical notice-list URL used to discover package fixes."""
+
+    return UBUNTU_NOTICES_URL + "?" + urllib.parse.urlencode(
+        {
+            "release": codename,
+            "details": package_term,
+            "limit": UBUNTU_NOTICE_PAGE_LIMIT,
+            "offset": offset,
+        }
+    )
+
+
+def ubuntu_package_notices(
+    package: str,
+    package_term: str,
+    codename: str = UBUNTU_RELEASE,
+    fetch: Fetcher | None = None,
+) -> list[dict]:
+    """Return every USN that released one source package for one Ubuntu release.
+
+    Canonical's notice API cannot filter on source package. It can bound the
+    result set with a title/details search, so the policy records a search term
+    and this function then requires an exact structured source-package match.
+    Pagination is complete or the refresh fails; a source outage or a changing
+    result set cannot silently look like no new advisory.
+    """
+
+    client = _fetcher(fetch)
+    first = client.get_json(ubuntu_notices_query_url(package_term, codename))
+    total = first.get("total_results")
+    notices = first.get("notices")
+    if not isinstance(total, int) or total < 1 or not isinstance(notices, list):
+        raise MinimumRefreshError(
+            f"Ubuntu notice discovery returned malformed metadata for {package} on "
+            f"{codename}"
+        )
+    pages = (total + UBUNTU_NOTICE_PAGE_LIMIT - 1) // UBUNTU_NOTICE_PAGE_LIMIT
+    if pages > UBUNTU_NOTICE_MAX_PAGES:
+        raise MinimumRefreshError(
+            f"Ubuntu notice discovery returned {total} candidates for {package}; "
+            f"more than the {UBUNTU_NOTICE_MAX_PAGES}-page safety bound"
+        )
+
+    responses: list[dict] = [first]
+    offsets = range(UBUNTU_NOTICE_PAGE_LIMIT, total, UBUNTU_NOTICE_PAGE_LIMIT)
+    if offsets:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            responses.extend(
+                pool.map(
+                    lambda offset: client.get_json(
+                        ubuntu_notices_query_url(package_term, codename, offset)
+                    ),
+                    offsets,
+                )
+            )
+
+    candidates: dict[str, dict] = {}
+    for response in responses:
+        if response.get("total_results") != total:
+            raise MinimumRefreshError(
+                f"Ubuntu notice discovery changed while reading {package} on {codename}"
+            )
+        page = response.get("notices")
+        if not isinstance(page, list):
+            raise MinimumRefreshError(
+                f"Ubuntu notice discovery returned a malformed page for {package}"
+            )
+        for notice in page:
+            notice_id = notice.get("id") if isinstance(notice, dict) else None
+            if not isinstance(notice_id, str) or not notice_id:
+                raise MinimumRefreshError(
+                    f"Ubuntu notice discovery returned an entry without an ID for {package}"
+                )
+            candidates[notice_id] = notice
+    if len(candidates) != total:
+        raise MinimumRefreshError(
+            f"Ubuntu notice discovery returned {len(candidates)} unique candidates for "
+            f"{package}, expected {total}"
+        )
+
+    matched: list[dict] = []
+    for notice_id, notice in candidates.items():
+        # LSNs describe Canonical Livepatch delivery rather than the package
+        # version available from Noble's security pocket.
+        if not notice_id.startswith("USN-"):
+            continue
+        entries = (notice.get("release_packages") or {}).get(codename, [])
+        source = next(
+            (
+                entry
+                for entry in entries
+                if isinstance(entry, dict)
+                and entry.get("name") == package
+                and entry.get("is_source") is True
+                and isinstance(entry.get("version"), str)
+                and entry["version"].strip()
+            ),
+            None,
+        )
+        if source is None:
+            continue
+        matched.append(
+            {
+                "id": notice_id,
+                "published": notice.get("published"),
+                "version": source["version"],
+                "cves": sorted(
+                    {
+                        item.get("id")
+                        for item in notice.get("cves", [])
+                        if isinstance(item, dict)
+                        and isinstance(item.get("id"), str)
+                        and item["id"].startswith("CVE-")
+                    }
+                ),
+            }
+        )
+    if not matched:
+        raise MinimumRefreshError(
+            f"Ubuntu notice discovery found no {package} source-package fixes for {codename}"
+        )
+    return matched
+
+
+def ubuntu_package_minimum(
+    package: str,
+    package_term: str,
+    codename: str = UBUNTU_RELEASE,
+    fetch: Fetcher | None = None,
+) -> dict:
+    """Latest security-pocket source version published by an applicable USN."""
+
+    notices = ubuntu_package_notices(
+        package, package_term, codename=codename, fetch=fetch
+    )
+    minimum = max((notice["version"] for notice in notices), key=version_key)
+    forcing = sorted(
+        (notice for notice in notices if notice["version"] == minimum),
+        key=lambda notice: (str(notice.get("published") or ""), notice["id"]),
+    )[-1]
+    published = forcing.get("published")
+    if not isinstance(published, str) or not published.strip():
+        raise MinimumRefreshError(
+            f"Ubuntu notice {forcing['id']} does not date the {package} fix {minimum}"
+        )
+    url = ubuntu_notice_url(forcing["id"])
+    entry = {
+        "package": package,
+        "status": "released",
+        "fixed": minimum,
+        "cveCount": len(forcing["cves"]),
+        "released": published,
+        "source": {
+            "feed": "ubuntu-security-notice",
+            "id": forcing["id"],
+            "url": url,
+        },
+        "coverage": {
+            "feed": UBUNTU_NOTICES_URL,
+            "matchedNotices": len(notices),
+            "query": package_term,
+        },
+        "fixAvailability": {
+            "status": "confirmed",
+            "feed": "ubuntu-security-notice",
+            "id": forcing["id"],
+            "url": url,
+            "version": minimum,
+            "available": published,
+            "bulletinReleased": published,
+        },
+    }
+    if package == "linux":
+        abi = kernel_abi(minimum)
+        if abi is None:
+            raise MinimumRefreshError(
+                f"Ubuntu notice {forcing['id']} returned an unreadable kernel version "
+                f"{minimum!r}"
+            )
+        entry["abi"] = abi
+    return entry
+
+
+def ubuntu_osv_urls(cve: str) -> tuple[str, str]:
+    """The OSV.dev record and its GitHub mirror for one Ubuntu CVE."""
+    year = cve.split("-")[1]
+    return (
+        f"{UBUNTU_OSV_VULN_URL}UBUNTU-{cve}",
+        f"{UBUNTU_OSV_RAW_URL}{year}/UBUNTU-{cve}.json",
+    )
+
+
+def ubuntu_osv_notice_urls(notice_id: str) -> tuple[str, str]:
+    """The OSV.dev record and its GitHub mirror for one USN."""
+    return (
+        f"{UBUNTU_OSV_VULN_URL}{notice_id}",
+        f"{UBUNTU_OSV_RAW_URL.removesuffix('cve/')}usn/{notice_id}.json",
+    )
+
+
+def ubuntu_osv_record(cve: str, fetch: Fetcher | None = None) -> dict | None:
+    """Canonical's OSV record for one CVE, or None when no mirror answers."""
+    logger = logging.getLogger(__name__)
+    for url in ubuntu_osv_urls(cve):
+        try:
+            doc = _fetcher(fetch).get_json(url)
+        except MinimumRefreshError as exc:
+            logger.warning("ubuntu osv: %s", exc)
+            continue
+        if isinstance(doc, dict) and doc.get("id") == f"UBUNTU-{cve}":
+            return doc
+        logger.warning("ubuntu osv: %s did not return UBUNTU-%s", url, cve)
+    return None
+
+
+def _osv_fixed(record: dict, package: str, ecosystem: str) -> tuple[bool, str | None]:
+    """Return (listed, fixed) for one source package in one OSV ecosystem."""
+    listed = False
+    fixed: str | None = None
+    for affected in record.get("affected", []):
+        if not isinstance(affected, dict):
+            continue
+        pkg = affected.get("package") or {}
+        if pkg.get("ecosystem") != ecosystem or pkg.get("name") != package:
+            continue
+        listed = True
+        for rng in affected.get("ranges", []):
+            if not isinstance(rng, dict) or rng.get("type") != "ECOSYSTEM":
+                continue
+            for event in rng.get("events", []):
+                if isinstance(event, dict) and isinstance(event.get("fixed"), str):
+                    fixed = event["fixed"]
+    return listed, fixed
+
+
+def _osv_priority(record: dict) -> str | None:
+    for severity in record.get("severity", []):
+        if isinstance(severity, dict) and severity.get("type") == "Ubuntu":
+            return severity.get("score")
+    return None
+
+
+def _usn_order(notice_id: str) -> tuple[int, int]:
+    match = re.fullmatch(r"USN-(\d+)-(\d+)", notice_id)
+    return (int(match.group(1)), int(match.group(2))) if match else (0, 0)
+
+
 def ubuntu_fix_notice(
-    doc: dict,
+    notices: Sequence[dict],
     package: str,
     codename: str,
     fixed: str,
@@ -1155,19 +1661,22 @@ def ubuntu_fix_notice(
     """Return the first USN that published one exact source-package fix.
 
     The CVE publication date can precede the package fix. The grace period must
-    start from the USN that made the exact fixed version available. An unreadable
-    or malformed notice is skipped because a later matching notice still gives
-    a conservative availability date.
+    start from the USN that made the exact fixed version available. `notices`
+    holds {"id", "published"} pairs; they are read in publication order. An
+    unreadable or malformed notice is skipped because a later matching notice
+    still gives a conservative availability date.
     """
-    notices = [
-        notice
-        for notice in doc.get("notices", [])
-        if isinstance(notice, dict)
-        and isinstance(notice.get("id"), str)
-        and isinstance(notice.get("published"), str)
-    ]
-    notices.sort(key=lambda notice: notice["published"])
-    for notice in notices:
+    candidates = sorted(
+        (
+            notice
+            for notice in notices
+            if isinstance(notice, dict)
+            and isinstance(notice.get("id"), str)
+            and isinstance(notice.get("published"), str)
+        ),
+        key=lambda notice: notice["published"],
+    )
+    for notice in candidates:
         notice_id = notice["id"]
         try:
             detail = _fetcher(fetch).get_json(ubuntu_notice_url(notice_id))
@@ -1178,10 +1687,10 @@ def ubuntu_fix_notice(
         release_packages = detail.get("release_packages") or {}
         if not isinstance(release_packages, dict):
             continue
-        candidates = release_packages.get(codename, [])
-        if not isinstance(candidates, list):
+        entries = release_packages.get(codename, [])
+        if not isinstance(entries, list):
             continue
-        for candidate in candidates:
+        for candidate in entries:
             if (
                 isinstance(candidate, dict)
                 and candidate.get("is_source") is True
@@ -1194,30 +1703,71 @@ def ubuntu_fix_notice(
                     if isinstance(detail_release, str) and detail_release.strip()
                     else notice["published"]
                 )
-                return {
-                    "released": released,
-                    "fixAvailability": {
-                        "status": "confirmed",
-                        "available": released,
-                        "bulletinReleased": released,
-                        "feed": "ubuntu-security-notice",
-                        "id": notice_id,
-                        "version": fixed,
-                        "url": ubuntu_notice_url(notice_id),
-                    },
-                    "source": {
-                        "feed": "ubuntu-security-notice",
-                        "id": notice_id,
-                        "url": ubuntu_notice_url(notice_id),
-                    },
-                }
+                return _ubuntu_notice_record(
+                    released, notice_id, fixed, "ubuntu-security-notice",
+                    ubuntu_notice_url(notice_id),
+                )
     return None
 
 
-def ubuntu_entry(
-    cve: str, package: str, codename: str = UBUNTU_RELEASE, fetch: Fetcher | None = None
+def _ubuntu_notice_record(
+    released: str, notice_id: str, fixed: str, feed: str, url: str
 ) -> dict:
-    """One Ubuntu package status for one CVE on one release."""
+    return {
+        "released": released,
+        "fixAvailability": {
+            "status": "confirmed",
+            "available": released,
+            "bulletinReleased": released,
+            "feed": feed,
+            "id": notice_id,
+            "version": fixed,
+            "url": url,
+        },
+        "source": {"feed": feed, "id": notice_id, "url": url},
+    }
+
+
+def ubuntu_osv_fix_notices(
+    notice_ids: Sequence[str],
+    package: str,
+    ecosystem: str,
+    fixed: str,
+    fetch: Fetcher | None = None,
+) -> list[dict]:
+    """The OSV USN records that ship one exact fix, oldest first.
+
+    OSV.dev serves each USN as an OSV record with its publication date, so the
+    first notice can be chosen without fanning out to ubuntu.com, which drops
+    parallel connections. An unreadable record is skipped.
+    """
+
+    def read(notice_id: str) -> dict | None:
+        doc = None
+        for url in ubuntu_osv_notice_urls(notice_id):
+            try:
+                candidate = _fetcher(fetch).get_json(url)
+            except MinimumRefreshError:
+                continue
+            if isinstance(candidate, dict) and candidate.get("id") == notice_id:
+                doc = candidate
+                break
+        if doc is None:
+            return None
+        published = doc.get("published")
+        if not isinstance(published, str) or not published.strip():
+            return None
+        if _osv_fixed(doc, package, ecosystem)[1] != fixed:
+            return None
+        return {"id": notice_id, "published": published}
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        found = [notice for notice in pool.map(read, notice_ids) if notice]
+    return sorted(found, key=lambda n: (n["published"], _usn_order(n["id"])))
+
+
+def _ubuntu_api_entry(cve: str, package: str, codename: str, fetch: Fetcher | None) -> tuple[dict, list]:
+    """Read one package status from the Ubuntu security API (last resort)."""
     doc = _fetcher(fetch).get_json(f"{UBUNTU_CVE_URL}{cve}.json")
     entry = {
         "cve": cve,
@@ -1233,10 +1783,85 @@ def ubuntu_entry(
             if status.get("release_codename") == codename:
                 entry["status"] = status.get("status")
                 entry["fixed"] = status.get("description")
-    if entry["status"] == "released" and entry["fixed"]:
-        notice = ubuntu_fix_notice(doc, package, codename, entry["fixed"], fetch=fetch)
+    return entry, list(doc.get("notices", []))
+
+
+def ubuntu_entry(
+    cve: str, package: str, codename: str = UBUNTU_RELEASE, fetch: Fetcher | None = None
+) -> dict:
+    """One Ubuntu package status for one CVE on one release.
+
+    Canonical's OSV record is the primary source: it names the exact released
+    source-package fix per Ubuntu release and the USNs that shipped it. The
+    Ubuntu security API is read only when OSV is unreachable or carries no
+    released fix, because only that API reports a tracked but unreleased
+    ("pending") fix.
+    """
+    ecosystem = UBUNTU_OSV_ECOSYSTEMS.get(codename)
+    if ecosystem is None:
+        raise MinimumRefreshError(f"ubuntu: no OSV ecosystem for release {codename}")
+    record = ubuntu_osv_record(cve, fetch=fetch)
+    entry: dict | None = None
+    notices: list = []
+    if record is not None:
+        listed, fixed = _osv_fixed(record, package, ecosystem)
+        if fixed:
+            entry = {
+                "cve": cve,
+                "package": package,
+                "priority": _osv_priority(record),
+                "status": "released",
+                "fixed": fixed,
+            }
+            notices = [
+                {"id": related}
+                for related in sorted(
+                    {r for r in record.get("related", []) if isinstance(r, str) and r.startswith("USN-")},
+                    key=_usn_order,
+                )
+            ]
+    if entry is not None:
+        osv_notices = ubuntu_osv_fix_notices(
+            [notice["id"] for notice in notices], package, ecosystem, entry["fixed"],
+            fetch=fetch,
+        )
+        # Confirm the earliest notice on ubuntu.com, one request at a time, so
+        # the table keeps the USN's own URL and timestamp. When ubuntu.com
+        # cannot confirm any of them, OSV's own USN record still dates the fix.
+        notice = ubuntu_fix_notice(
+            osv_notices, package, codename, entry["fixed"], fetch=fetch
+        )
+        if notice is None and osv_notices:
+            first = osv_notices[0]
+            notice = _ubuntu_notice_record(
+                first["published"], first["id"], entry["fixed"], "ubuntu-osv",
+                f"{UBUNTU_OSV_VULN_URL}{first['id']}",
+            )
+        if notice is None:
+            # No OSV USN record could date the fix. Without a date the fix
+            # stays unconfirmed and its grace period never ends, so read the
+            # dated notice list from the Ubuntu security API as a last resort.
+            try:
+                api_entry, api_notices = _ubuntu_api_entry(
+                    cve, package, codename, fetch
+                )
+            except MinimumRefreshError as exc:
+                logging.getLogger(__name__).warning("ubuntu: %s", exc)
+            else:
+                if api_entry.get("fixed") == entry["fixed"]:
+                    notice = ubuntu_fix_notice(
+                        api_notices, package, codename, entry["fixed"], fetch=fetch
+                    )
         if notice:
             entry.update(notice)
+    else:
+        entry, notices = _ubuntu_api_entry(cve, package, codename, fetch)
+        if entry["status"] == "released" and entry["fixed"]:
+            notice = ubuntu_fix_notice(
+                notices, package, codename, entry["fixed"], fetch=fetch
+            )
+            if notice:
+                entry.update(notice)
     if entry.get("fixed") and "fixAvailability" not in entry:
         entry["fixAvailability"] = {
             "status": "unconfirmed",
@@ -1250,6 +1875,7 @@ def ubuntu_entry(
 def ubuntu_minimums(
     codename: str = UBUNTU_RELEASE,
     specs: Sequence[dict] = UBUNTU_PACKAGES,
+    package_policy: Sequence[tuple[str, str]] = UBUNTU_PACKAGE_POLICY,
     fetch: Fetcher | None = None,
 ) -> dict:
     def resolve(spec: dict) -> tuple[str, dict]:
@@ -1267,12 +1893,37 @@ def ubuntu_minimums(
     # failures: no partial package table is returned.
     with ThreadPoolExecutor(max_workers=4) as pool:
         packages = dict(pool.map(resolve, specs))
+    # Named CVE entries remain because the audit reports those findings
+    # separately. Package-wide floors are discovered from every matching Noble
+    # USN, so a new kernel or QEMU advisory cannot wait for a code edit.
+    dynamic: dict[str, dict] = {}
+    if package_policy:
+        with ThreadPoolExecutor(max_workers=len(package_policy)) as pool:
+            dynamic = dict(
+                pool.map(
+                    lambda policy: (
+                        policy[0],
+                        ubuntu_package_minimum(
+                            policy[0], policy[1], codename=codename, fetch=fetch
+                        ),
+                    ),
+                    package_policy,
+                )
+            )
+    for key, entry in dynamic.items():
+        # The QEMU collector still reports its named CVE probe even though the
+        # package floor now advances with every USN. Preserve that report
+        # metadata while replacing its stale, vulnerability-specific floor.
+        named_cve = packages.get(key, {}).get("cve")
+        if named_cve:
+            entry["cve"] = named_cve
+        packages[key] = entry
     return {
         "kind": "distroPackages",
         "release": codename,
         "packages": packages,
         "advisory": "https://ubuntu.com/security/notices",
-        "source": {"feed": "ubuntu-security-api", "url": UBUNTU_CVE_URL},
+        "source": {"feed": "ubuntu-security-notices", "url": UBUNTU_NOTICES_URL},
     }
 
 
@@ -1479,7 +2130,7 @@ def nvhpc_release_window(fetch: Fetcher | None = None) -> dict:
 
 
 def amd_bulletin_page(sb_id: str) -> str:
-    return AMD_BULLETIN_PAGE.format(sb_id=sb_id)
+    return AMD_BULLETIN_PAGE.format(sb_id=sb_id.lower())
 
 
 class _HtmlTables(HTMLParser):
@@ -1580,6 +2231,55 @@ def html_tables(text: str) -> list[list[list[str]]]:
     return [_expand_rowspans(rows) for rows in parser.tables if rows]
 
 
+def amd_bulletin_catalog(fetch: Fetcher | None = None) -> list[dict[str, str]]:
+    """Enumerate AMD GPU-software bulletins covered by the current policy."""
+
+    text = _fetcher(fetch).get_text(AMD_SECURITY_INDEX)
+    page = re.search(r"Showing\s+1\s+to\s+(\d+)\s+of\s+(\d+)\s+entries", text)
+    if page and int(page.group(1)) < int(page.group(2)):
+        raise MinimumRefreshError(
+            "amd: product-security index is paginated or truncated "
+            f"({page.group(1)} of {page.group(2)} rows)"
+        )
+
+    catalog: dict[str, dict[str, str]] = {}
+    for table in html_tables(text):
+        for row in table:
+            if len(row) < 5:
+                continue
+            match = AMD_SB_ID.search(row[0])
+            if not match:
+                continue
+            sb_id = match.group(0).upper()
+            if not AMD_GPU_BULLETIN_ID.fullmatch(sb_id):
+                continue
+            try:
+                published = datetime.strptime(row[4].strip(), "%b %d, %Y").date()
+            except ValueError as exc:
+                raise MinimumRefreshError(
+                    f"amd: bulletin {sb_id} has an unparseable publication date "
+                    f"{row[4]!r}"
+                ) from exc
+            if published < AMD_POLICY_START_DATE:
+                continue
+            if sb_id in catalog:
+                raise MinimumRefreshError(
+                    f"amd: product-security index lists {sb_id} more than once"
+                )
+            catalog[sb_id] = {
+                "aId": sb_id,
+                "published": f"{published.isoformat()}T00:00:00Z",
+                "title": row[1].strip(),
+                "url": amd_bulletin_page(sb_id),
+            }
+
+    if not catalog:
+        raise MinimumRefreshError(
+            "amd: product-security index contains no in-policy 6000-series bulletins"
+        )
+    return sorted(catalog.values(), key=lambda item: (item["published"], item["aId"]))
+
+
 def _amd_mitigation_header(row: list[str]) -> bool:
     """Match the dated mitigation-table header of the tracked AMD series.
 
@@ -1612,33 +2312,40 @@ def amd_initial_publication(tables: list[list[list[str]]], url: str) -> str:
     )
 
 
-def parse_amd_bulletin(text: str, url: str) -> dict:
-    """Read one tracked AMD bulletin page.
+def parse_amd_bulletin(
+    text: str, url: str, catalog_published: str | None = None
+) -> dict:
+    """Read one in-policy AMD bulletin page.
 
-    Returns the initial publication date and every data row of every dated
-    mitigation table. The page is HTML that AMD writes by hand, so the reader
-    is strict: a bulletin without a dated mitigation table stops the refresh,
-    and so does a ROCm release that appears in any other table, because that
-    would mean the fix moved to a shape this reader does not cover.
+    A bulletin may concern another 6000-series product and have no applicable
+    Instinct mitigation table. That is a valid empty result. An Instinct ROCm
+    or Linux GPU Driver release outside the recognized table shape still stops
+    the refresh.
     """
     tables = html_tables(text)
-    published = amd_initial_publication(tables, url)
+    try:
+        published = amd_initial_publication(tables, url)
+    except MinimumRefreshError:
+        if catalog_published is None:
+            raise
+        published = catalog_published
     rows: list[list[str]] = []
-    other_tables: list[str] = []
+    other_tables: list[list[list[str]]] = []
     for table in tables:
         if _amd_mitigation_header(table[0]):
             rows.extend(table[1:])
         else:
-            other_tables.append(" ".join(" ".join(row) for row in table))
-    if not rows:
-        raise MinimumRefreshError(
-            f"rocm: found no dated mitigation table on {url}; "
-            f"the table format probably changed"
+            other_tables.append(table)
+    for table in other_tables:
+        body = AMD_TRADEMARKS.sub(
+            " ", " ".join(" ".join(row) for row in table)
         )
-    for body in other_tables:
-        if AMD_ROCM_STRAY.search(AMD_TRADEMARKS.sub(" ", body)):
+        if AMD_PROGRAM.search(body) and (
+            AMD_ROCM_STRAY.search(body) or AMD_DRIVER_STRAY.search(body)
+        ):
             raise MinimumRefreshError(
-                f"rocm: a ROCm release appears outside the dated mitigation "
+                f"amd: an Instinct ROCm or Linux GPU Driver release appears "
+                f"outside the dated mitigation "
                 f"tables on {url}; the table format probably changed"
             )
     return {"published": published, "rows": rows}
@@ -1648,6 +2355,22 @@ def amd_rocm_minimums(
     existing: dict | None = None,
     bulletins: Sequence[str] | None = None,
     fetch: Fetcher | None = None,
+) -> dict:
+    """Build ROCm floors without mixing in packaged host-driver releases."""
+    return _amd_program_minimums(existing, bulletins, fetch)
+
+
+def amd_driver_minimums(fetch: Fetcher | None = None) -> dict:
+    """Build the independent AMD Linux GPU Driver floors for Instinct."""
+    return _amd_program_minimums(fetch=fetch, host_driver=True)
+
+
+def _amd_program_minimums(
+    existing: dict | None = None,
+    bulletins: Sequence[str] | None = None,
+    fetch: Fetcher | None = None,
+    *,
+    host_driver: bool = False,
 ) -> dict:
     """Merge every tracked AMD bulletin into one ROCm minimum per program.
 
@@ -1665,61 +2388,93 @@ def amd_rocm_minimums(
     compare the rebuild against it and reject any lowered or dropped program.
     """
     del existing
+    component = "amdDriver" if host_driver else "rocm"
+    release_label = "driver" if host_driver else "ROCm"
     client = _fetcher(fetch)
     if bulletins is None:
-        bulletins = AMD_BULLETINS
-    sources: list[dict] = []
-    records: dict[str, dict[str, Any]] = {}
-    for sb_id in bulletins:
-        url = amd_bulletin_page(sb_id)
-        parsed = parse_amd_bulletin(client.get_text(url), url)
-        sources.append(
+        catalog = amd_bulletin_catalog(client)
+    else:
+        catalog = [
             {
                 "aId": sb_id.upper(),
-                "feed": AMD_FEED,
-                "released": parsed["published"],
-                "url": url,
+                "url": amd_bulletin_page(sb_id),
             }
+            for sb_id in bulletins
+        ]
+    sources: list[dict] = []
+    records: dict[str, dict[str, Any]] = {}
+    for bulletin in catalog:
+        sb_id = bulletin["aId"]
+        url = bulletin["url"]
+        parsed = parse_amd_bulletin(
+            client.get_text(url), url, bulletin.get("published")
         )
+        used = False
         for row in parsed["rows"]:
+            program_cell = row[0] if row else ""
+            programs = AMD_PROGRAM.findall(AMD_TRADEMARKS.sub(" ", program_cell))
+            if not programs and "instinct" not in program_cell.lower():
+                # Client products often use a shorter table shape. They are
+                # outside the graded Instinct policy and do not constrain it.
+                continue
             if len(row) < 4:
                 raise MinimumRefreshError(
-                    f"rocm: a mitigation row on {url} has fewer than four "
+                    f"{component}: a mitigation row on {url} has fewer than four "
                     f"cells: {row!r}"
                 )
             program_cell, cve_cell, mitigation_cell, date_cell = row[:4]
             mitigation = " ".join(AMD_TRADEMARKS.sub(" ", mitigation_cell).split())
-            match = AMD_ROCM_MITIGATION.fullmatch(mitigation)
-            if not match:
-                if AMD_ROCM_HINT.search(mitigation):
+            if not programs:
+                if (
+                    "instinct" in program_cell.lower()
+                    and (
+                        AMD_DRIVER_HINT.search(mitigation)
+                        if host_driver
+                        else AMD_ROCM_HINT.search(mitigation)
+                    )
+                ):
+                    raise MinimumRefreshError(
+                        f"{component}: an applicable mitigation {mitigation!r} on {url} "
+                        f"names no recognized MI program in {program_cell!r}"
+                    )
+                continue
+            if host_driver:
+                if not AMD_DRIVER_HINT.search(mitigation):
+                    continue
+                match = re.fullmatch(
+                    r"Linux GPU Driver (\d+(?:\.\d+){1,2})", mitigation
+                )
+                if not match:
+                    raise MinimumRefreshError(
+                        f"amdDriver: unrecognized Instinct mitigation "
+                        f"{mitigation!r} on {url}"
+                    )
+            else:
+                if not AMD_ROCM_HINT.search(mitigation):
+                    continue
+                match = AMD_ROCM_MITIGATION.fullmatch(mitigation)
+                if not match:
                     raise MinimumRefreshError(
                         f"rocm: mitigation {mitigation_cell!r} on {url} "
                         f"mentions ROCm and does not parse as one exact "
                         f"release; the wording probably changed"
                     )
-                continue
             fixed = match.group(1)
-            programs = AMD_PROGRAM.findall(AMD_TRADEMARKS.sub(" ", program_cell))
-            if not programs:
-                raise MinimumRefreshError(
-                    f"rocm: ROCm release {fixed} on {url} names no Instinct "
-                    f"program in {program_cell!r}; the program naming "
-                    f"probably changed"
-                )
             cves = sorted(set(CVE_ID.findall(cve_cell)))
             if not cves:
                 raise MinimumRefreshError(
-                    f"rocm: ROCm release {fixed} on {url} carries no CVE "
+                    f"{component}: {release_label} release {fixed} on {url} carries no CVE "
                     f"identifier in {cve_cell!r}; the wording probably changed"
                 )
             date = AMD_DATE.fullmatch(date_cell.strip())
             if not date:
                 raise MinimumRefreshError(
-                    f"rocm: ROCm release {fixed} on {url} carries no release "
+                    f"{component}: {release_label} release {fixed} on {url} carries no release "
                     f"date in {date_cell!r}; the wording probably changed"
                 )
             available = f"{date.group(0)}T00:00:00Z"
             key = version_key(fixed)
+            used = True
             for program in dict.fromkeys(programs):
                 record = records.get(program)
                 if record is None or key > record["key"]:
@@ -1737,10 +2492,19 @@ def amd_rocm_minimums(
                         record["available"] = available
                         record["aId"] = sb_id.upper()
                         record["url"] = url
+        if used:
+            sources.append(
+                {
+                    "aId": sb_id.upper(),
+                    "feed": AMD_FEED,
+                    "released": parsed["published"],
+                    "url": url,
+                }
+            )
     if not records:
         raise MinimumRefreshError(
-            "rocm: extracted no ROCm minimum from "
-            + ", ".join(amd_bulletin_page(sb_id) for sb_id in bulletins)
+            f"{component}: extracted no {release_label} minimum from "
+            + ", ".join(item["url"] for item in catalog)
             + "; the mitigation wording probably changed"
         )
     sources.sort(key=lambda item: (str(item["released"]), item["aId"]))
@@ -1930,23 +2694,11 @@ def build_minimums(
     Raises MinimumRefreshError when a feed cannot be read or when a component
     that the existing table populates now extracts empty.
     """
-    driver = nvidia_driver_minimums(fetch=fetch)
-    connectx = connectx_minimums(fetch=fetch)
-    cuda = simple_product_minimum(
-        bulletin_ref("cudaToolkit")["year"], bulletin_ref("cudaToolkit")["aId"], fetch=fetch
-    )
-    toolkit = simple_product_minimum(
-        bulletin_ref("nvidiaContainerToolkit")["year"],
-        bulletin_ref("nvidiaContainerToolkit")["aId"],
-        product="NVIDIA Container Toolkit",
-        fetch=fetch,
-    )
-    dcgm = bulletin_product_minimums(
-        bulletin_ref("dcgm")["year"],
-        bulletin_ref("dcgm")["aId"],
-        DCGM_PRODUCTS,
-        fetch=fetch,
-    )
+    nvidia_documents = nvidia_csaf_documents(fetch=fetch)
+    driver = nvidia_driver_minimums(fetch=fetch, documents=nvidia_documents)
+    connectx = connectx_minimums(fetch=fetch, documents=nvidia_documents)
+    simple_products = nvidia_simple_product_minimums(nvidia_documents, fetch=fetch)
+    dcgm = nvidia_dcgm_minimums(nvidia_documents, fetch=fetch)
     doc = {
         "schemaVersion": SCHEMA_VERSION,
         "generated": generated or _now_stamp(),
@@ -1955,19 +2707,21 @@ def build_minimums(
         "components": {
             **dcgm,
             "nvidiaDriver": driver,
-            "nvidiaContainerToolkit": toolkit,
+            "nvidiaContainerToolkit": simple_products.get("nvidiaContainerToolkit", {}),
             "nvhpc": nvhpc_release_window(fetch=fetch),
-            "cudaToolkit": cuda,
+            "cudaToolkit": simple_products.get("cudaToolkit", {}),
             "connectxFirmware": connectx,
-            "virtioNetBluefield": virtio_net_minimums(fetch=fetch),
+            "virtioNetBluefield": nvidia_virtio_net_minimums(nvidia_documents),
             "runc": runc_ladder(fetch=fetch),
             "docker": docker_minimums(fetch=fetch),
             "rocm": amd_rocm_minimums(fetch=fetch),
+            "amdDriver": amd_driver_minimums(fetch=fetch),
             "ubuntuNoble": ubuntu_minimums(fetch=fetch),
             "ubuntuJammy": ubuntu_minimums(
                 codename="jammy",
                 specs=({"key": "linuxBadEpoll", "cve": "CVE-2026-46242",
                         "package": "linux-hwe-6.8"},),
+                package_policy=(),
                 fetch=fetch,
             ),
         },
@@ -2053,8 +2807,8 @@ def verify(doc: dict, existing: dict | None = None) -> None:
     drop one entry.
 
     A rebuild must never lower or remove a minimum the existing table already
-    publishes. A minimum only moves up. A new bulletin, a reordered BULLETINS
-    tuple, a wider upstream query, or a parsing regression that lowered one
+    publishes. A minimum only moves up. A new bulletin, a catalog change, a
+    wider upstream query, or a parsing regression that lowered one
     would turn a vulnerable fleet green, so it is a hard error rather than a
     warning. The rule covers every keyed minimum (driver branches, ConnectX
     firmware trains, Instinct ROCm programs, runc ladder rungs, VIRTIO-Net
@@ -2220,11 +2974,15 @@ def relevant_product(title: str) -> str | None:
 
 
 def known_bulletin_ids(existing: dict | None = None) -> set[str]:
-    known = {str(ref["aId"]) for ref in all_bulletin_refs()}
+    known: set[str] = set()
     for block in ((existing or {}).get("components") or {}).values():
         a_id = (block.get("source") or {}).get("aId")
         if a_id is not None:
             known.add(str(a_id))
+        for source in block.get("sources") or []:
+            source_id = source.get("aId")
+            if source_id is not None:
+                known.add(str(source_id))
     return known
 
 
@@ -2260,56 +3018,20 @@ def untracked_docker_majors(
     return sorted(found)
 
 
-def untracked_amd_bulletins(fetch: Fetcher | None = None) -> list[dict]:
-    """List GPU bulletins on the AMD security index that this module ignores.
-
-    One read of the index page. A row counts when its title matches
-    AMD_GPU_TITLE and its id is neither tracked nor deferred. An index that
-    cannot be read is skipped, because this scan is a discovery aid and the
-    minimum build fails closed on its own.
-    """
-    client = _fetcher(fetch)
-    try:
-        text = client.get_text(AMD_SECURITY_INDEX)
-    except MinimumRefreshError:
-        return []
-    known = {sb_id.lower() for sb_id in AMD_BULLETINS} | {
-        sb_id.lower() for sb_id in AMD_DEFERRED_BULLETINS
-    }
-    found: list[dict] = []
-    seen: set[str] = set()
-    for table in html_tables(text):
-        for row in table:
-            if len(row) < 2:
-                continue
-            match = AMD_SB_ID.search(row[0])
-            if not match:
-                continue
-            sb_id = match.group(0).lower()
-            title = row[1].strip()
-            if sb_id in known or sb_id in seen or not AMD_GPU_TITLE.search(title):
-                continue
-            seen.add(sb_id)
-            found.append({"id": sb_id, "title": title})
-    return sorted(found, key=lambda item: item["id"])
-
-
 def detect_new_bulletins(
     existing: dict | None = None,
     years: Sequence[int] | None = None,
     fetch: Fetcher | None = None,
 ) -> list[dict]:
-    """Report NVIDIA bulletins that match a graded product line, Docker Engine
-    majors whose release-note page DOCKER_ENGINE_MAJORS does not track, and
-    GPU bulletins on the AMD security index that AMD_BULLETINS does not track.
+    """Report NVIDIA bulletins that match a graded product line and Docker
+    Engine majors whose release-note page DOCKER_ENGINE_MAJORS does not track.
 
     Every item carries a ``status``. ``new`` means the table does not reference
     the bulletin and nobody has decided about it, which is a discovery.
-    ``deferred`` means the bulletin is in DEFERRED_BULLETINS or in
-    AMD_DEFERRED_BULLETINS and the item carries the written ``reason``. A
-    deferred bulletin is reported on every run, whether or not the scan finds
-    it and whether or not its title still matches a graded product line, so
-    the decision stays in view.
+    ``deferred`` means the bulletin is in DEFERRED_BULLETINS and the item
+    carries the written ``reason``. A deferred bulletin is reported on every
+    run, whether or not the scan finds it and whether or not its title still
+    matches a graded product line, so the decision stays in view.
 
     One directory listing per year, then one ranged read of the first bytes of
     each candidate bulletin's markdown file. A listing or a file that cannot be
@@ -2318,10 +3040,14 @@ def detect_new_bulletins(
     validate_bulletin_lists()
     client = _fetcher(fetch)
     if years is None:
-        years = sorted(
-            {ref["year"] for ref in all_bulletin_refs()} | {datetime.now(timezone.utc).year}
-        )
+        years = list(range(NVIDIA_CSAF_START_YEAR, datetime.now(timezone.utc).year + 1))
     known = known_bulletin_ids(existing)
+    contradictory = sorted(set(DEFERRED_BULLETINS) & known)
+    if contradictory:
+        raise MinimumRefreshError(
+            "NVIDIA bulletins are both applied and deferred: "
+            + ", ".join(contradictory)
+        )
     found: list[dict] = []
     seen_deferred: set[str] = set()
     for year in years:
@@ -2340,10 +3066,20 @@ def detect_new_bulletins(
             product = relevant_product(title) if title else None
             if not deferred and not product:
                 continue
+            not_applicable = False
+            if not deferred and product == "ConnectX / BlueField":
+                doc = client.get_json(bulletin_url(year, int(name)))
+                not_applicable = not connectx_document_applies(doc)
             item = {
                 "id": int(name),
                 "year": year,
-                "status": "deferred" if deferred else "new",
+                "status": (
+                    "deferred"
+                    if deferred
+                    else "not_applicable"
+                    if not_applicable
+                    else "new"
+                ),
                 "product": product,
                 "title": title,
                 "url": bulletin_blob_url(year, int(name)),
@@ -2351,6 +3087,11 @@ def detect_new_bulletins(
             if deferred:
                 seen_deferred.add(name)
                 item["reason"] = DEFERRED_BULLETINS[name]
+            elif not_applicable:
+                item["reason"] = (
+                    "CSAF product data does not include any supported networking product: "
+                    + ", ".join(NVIDIA_NETWORK_SUPPORTED_PRODUCTS)
+                )
             found.append(item)
     # A deferred bulletin that the scan did not reach is still reported, so an
     # entry cannot go quiet by moving year, losing its markdown file, or being
@@ -2379,29 +3120,6 @@ def detect_new_bulletins(
                 "product": "Docker Engine",
                 "title": f"Docker Engine {major} release notes",
                 "url": docker_release_notes_page(major),
-            }
-        )
-    for item in untracked_amd_bulletins(fetch=fetch):
-        found.append(
-            {
-                "id": item["id"],
-                "year": datetime.now(timezone.utc).year,
-                "status": "new",
-                "product": "AMD Instinct GPU",
-                "title": item["title"],
-                "url": amd_bulletin_page(item["id"]),
-            }
-        )
-    for sb_id, reason in AMD_DEFERRED_BULLETINS.items():
-        found.append(
-            {
-                "id": sb_id,
-                "year": datetime.now(timezone.utc).year,
-                "status": "deferred",
-                "product": None,
-                "title": None,
-                "url": amd_bulletin_page(sb_id),
-                "reason": reason,
             }
         )
     return sorted(
@@ -2477,6 +3195,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             found = detect_new_bulletins(existing)
             new = [item for item in found if item["status"] == "new"]
             deferred = [item for item in found if item["status"] == "deferred"]
+            not_applicable = [
+                item for item in found if item["status"] == "not_applicable"
+            ]
+            if not_applicable:
+                print("Not-applicable bulletins (from structured product matching):")
+                for item in not_applicable:
+                    print(f"  {item['id']}  {item['title']}  {item['url']}")
+                    print(f"      reason: {item['reason']}")
+                print()
             if deferred:
                 print("Deferred bulletins (a recorded decision, reviewed every run):")
                 for item in deferred:
@@ -2492,12 +3219,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 print(
                     f"{len(new)} unknown bulletin(s) match a graded product line. "
-                    "Track each NVIDIA bulletin in BULLETINS in "
-                    "cmax/minimum_refresh.py, or record the reason to defer it in "
+                    "Add or repair the CSAF product policy for each applicable "
+                    "NVIDIA bulletin, or record the reason to defer it in "
                     "DEFERRED_BULLETINS. Track each Docker Engine major in "
-                    "DOCKER_ENGINE_MAJORS. Track each AMD GPU bulletin in "
-                    "AMD_BULLETINS, or record the reason to defer it in "
-                    "AMD_DEFERRED_BULLETINS.",
+                    "DOCKER_ENGINE_MAJORS.",
                     file=sys.stderr,
                 )
                 return 3

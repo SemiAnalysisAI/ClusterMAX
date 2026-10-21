@@ -149,6 +149,9 @@ minimum_version_grace() {
 # Every option is optional and takes a value:
 #   --fragnesia-status         graded Fragnesia state from the check
 #   --fragnesia-compared-abi   ABI minimum the check actually compared against
+#   --ubuntu-kernel-status     aggregate Noble linux package-floor verdict
+#   --ubuntu-kernel-abi        running 6.8 kernel ABI observed by the check
+#   --ubuntu-kernel-floor      aggregate ABI minimum the check compared against
 #   --januscape-cpu-exposed    JSON bool: guest-visible svm/vmx
 #   --januscape-kvm-exposed    JSON bool: /dev/kvm present
 #   --januscape-module         loaded KVM module name
@@ -165,6 +168,8 @@ build_security_advisory_json() {
     local bad_epoll_os=unknown bad_epoll_release=unknown bad_epoll_running=unknown
     local bad_epoll_signature=unknown bad_epoll_package=unknown bad_epoll_livepatch=unknown
     local fragnesia_status="unknown" fragnesia_compared_abi="unknown"
+    local ubuntu_kernel_status="unknown" ubuntu_kernel_abi="unknown"
+    local ubuntu_kernel_floor="unknown"
     local januscape_cpu="false" januscape_kvm="false" januscape_module="none"
     local januscape_nested="unknown" januscape_exposed='"unknown"'
     local januscape_status="unknown"
@@ -183,6 +188,9 @@ build_security_advisory_json() {
             --bad-epoll-livepatch) bad_epoll_livepatch="$2"; shift 2 ;;
             --fragnesia-status) fragnesia_status="$2"; shift 2 ;;
             --fragnesia-compared-abi) fragnesia_compared_abi="$2"; shift 2 ;;
+            --ubuntu-kernel-status) ubuntu_kernel_status="$2"; shift 2 ;;
+            --ubuntu-kernel-abi) ubuntu_kernel_abi="$2"; shift 2 ;;
+            --ubuntu-kernel-floor) ubuntu_kernel_floor="$2"; shift 2 ;;
             --januscape-cpu-exposed) januscape_cpu="$2"; shift 2 ;;
             --januscape-kvm-exposed) januscape_kvm="$2"; shift 2 ;;
             --januscape-module) januscape_module="$2"; shift 2 ;;
@@ -202,11 +210,13 @@ build_security_advisory_json() {
         --package "$bad_epoll_package" --livepatch "$bad_epoll_livepatch" 2>/dev/null) \
         || bad_epoll_json='{"status":"unknown","cve":"CVE-2026-46242","detail":"Bad Epoll grader unavailable; requires provider patch evidence."}'
     local frag_cve frag_related frag_fixed frag_abi frag_fix_status
+    local ubuntu_kernel_fixed ubuntu_kernel_abi_min ubuntu_kernel_fix_status
     local frag_grace="null"
     local jan_cve jan_fixed jan_fix_status
     local qemu_cve qemu_fixed qemu_fix_status
     local vmscape_cve vmscape_fixed vmscape_fix_status
     local frag_key="components.ubuntuNoble.packages.linuxFragnesia"
+    local ubuntu_kernel_key="components.ubuntuNoble.packages.linux"
     local jan_key="components.ubuntuNoble.packages.linuxJanuscape"
     local qemu_key="components.ubuntuNoble.packages.qemu"
     local vmscape_key="components.ubuntuNoble.packages.linuxVmscape"
@@ -216,6 +226,9 @@ build_security_advisory_json() {
     frag_fixed=$(minimum_version "${frag_key}.fixed")
     frag_abi=$(minimum_version "${frag_key}.abi")
     frag_fix_status=$(minimum_version "${frag_key}.status")
+    ubuntu_kernel_fixed=$(minimum_version "${ubuntu_kernel_key}.fixed")
+    ubuntu_kernel_abi_min=$(minimum_version "${ubuntu_kernel_key}.abi")
+    ubuntu_kernel_fix_status=$(minimum_version "${ubuntu_kernel_key}.status")
     if [[ "$fragnesia_status" == "fail" ]] && \
         frag_grace=$(minimum_version_grace ubuntuNoble linuxFragnesia); then
         fragnesia_status="pass"
@@ -287,6 +300,14 @@ build_security_advisory_json() {
       "ubuntuNobleFixStatus": "${frag_fix_status}",
       "comparedAbiFloor": "${fragnesia_compared_abi}"
       ,"kernelEvidence": ${frag_record:-null}
+    },
+    "ubuntuNobleKernelMinimum": {
+      "status": "${ubuntu_kernel_status}",
+      "runningKernelAbi": "${ubuntu_kernel_abi}",
+      "ubuntuNoblePackageMinimum": "${ubuntu_kernel_fixed}",
+      "ubuntuNoblePackageMinimumAbi": "${ubuntu_kernel_abi_min}",
+      "ubuntuNobleFixStatus": "${ubuntu_kernel_fix_status}",
+      "comparedAbiFloor": "${ubuntu_kernel_floor}"
     },
     "januscape": {
       "cve": "${jan_cve}",
@@ -499,6 +520,20 @@ build_security_version_audit() {
     cuda="${cuda:-unknown}"
     local -a args=(--driver "$driver" --nct "$nct" --runc "$runc" --docker "$docker" --cuda "$cuda" --gpu-vendor "$gpu_vendor")
     local line dev fw vendor
+    local amd_model amd_evidence
+    amd_model=$(printf '%s\n' "$check_output" | sed -n 's/^WORKER_AMD_GPU_MODEL=//p' | head -1)
+    amd_evidence=$(printf '%s\n' "$check_output" | sed -n 's/^WORKER_AMD_DRIVER_EVIDENCE=//p' | head -1)
+    # Never pair a model from one worker with a package from another.
+    local amd_key amd_count
+    for amd_key in WORKER_HOSTNAME WORKER_AMD_GPU_MODEL WORKER_AMD_DRIVER_EVIDENCE; do
+        amd_count=$(printf '%s\n' "$check_output" | grep -c "^${amd_key}=" || true)
+        if [[ "$amd_count" -gt 1 ]]; then
+            amd_evidence='{"collectionError":"Multiple host records require per-host grading"}'
+            break
+        fi
+    done
+    [[ -n "$amd_evidence" ]] || amd_evidence='{}'
+    args+=(--amd-model "${amd_model:-unknown}" --amd-driver-evidence "$amd_evidence")
 
     # BlueField VIRTIO-Net controller (NVIDIA a_id 5815, CVE-2026-65094). The
     # version lives on the DPU ARM side, so it comes from the fabric check
@@ -587,7 +622,7 @@ build_security_version_audit() {
         && args+=(--dpu-isolation-json "$VIRTIO_NET_ISOLATION_JSON")
 
     if [[ ! -f "$policy" ]] || ! command -v python3 >/dev/null 2>&1; then
-        printf '%s\n' '{"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"}}'
+        printf '%s\n' '{"amdDriver":{"status":"unknown"},"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"}}'
         return 0
     fi
 
@@ -632,7 +667,7 @@ build_security_version_audit() {
     done <<< "$check_output"
 
     python3 "$policy" "${args[@]}" 2>/dev/null \
-        || printf '%s\n' '{"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"}}'
+        || printf '%s\n' '{"amdDriver":{"status":"unknown"},"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"}}'
 }
 
 amd_gpu_check_present() {
@@ -935,6 +970,35 @@ count_snodes_states() {
     ' <<< "$snodes_out"
 }
 
+scontrol_node_inventory() {
+    # Preserve partition membership from each one-line node record.
+    awk '
+        {
+            delete fields
+            for (i = 1; i <= NF; i++) {
+                equal = index($i, "=")
+                if (equal > 0) fields[substr($i, 1, equal - 1)] = substr($i, equal + 1)
+            }
+            if (fields["NodeName"] == "") next
+            gpu = 0
+            count = split(fields["Gres"], gres, ",")
+            for (i = 1; i <= count; i++) {
+                if (match(gres[i], /^gpu(:[A-Za-z0-9_.-]+)?:[0-9]+/)) {
+                    value = substr(gres[i], RSTART, RLENGTH)
+                    sub(/^.*:/, "", value)
+                    gpu += value
+                }
+            }
+            partition = fields["Partitions"]
+            if (partition == "(null)") partition = ""
+            printf "%s|%s|%d|%d|%d|%s\n", fields["NodeName"], fields["State"],
+                fields["CPUTot"], fields["RealMemory"], gpu, partition
+        }
+    ' <<< "${1:-}" | jq -Rn '[inputs | split("|") |
+        {name: .[0], state: .[1], cpus: (.[2] | tonumber),
+         memory: (.[3] | tonumber), gpus: (.[4] | tonumber), partition: .[5]}]'
+}
+
 snodes_inventory() {
     # This table does not carry GRES counts. Keep unknown distinct from zero.
     local hostlist state partition hosts host
@@ -981,8 +1045,7 @@ select_worker_ssh_nodes() {
                 or . == "POWERED_DOWN" or . == "POWERING_DOWN" or . == "POWER_DOWN"
             )) | not));
         (if $allocated == null and $partition != "" and $partition != "none"
-                and any(.[]; has("partition"))
-         then [.[] | select(.partition == $partition)]
+         then [.[] | select(((.partition // "") | split(",") | index($partition)) != null)]
          else . end)
         | [.[] | select(usable)
              | select($allocated == null or (.name as $name | $allocated | index($name) != null))] as $usable
@@ -1238,6 +1301,9 @@ build_audit_json() {
         --bad-epoll-livepatch "${WORKER_BAD_EPOLL_LIVEPATCH:-unknown}" \
         --fragnesia-status "${WORKER_FRAGNESIA_STATUS:-unknown}" \
         --fragnesia-compared-abi "${WORKER_FRAGNESIA_ABI_FLOOR:-unknown}" \
+        --ubuntu-kernel-status "${WORKER_UBUNTU_KERNEL_MINIMUM_STATUS:-unknown}" \
+        --ubuntu-kernel-abi "${WORKER_UBUNTU_KERNEL_ABI:-unknown}" \
+        --ubuntu-kernel-floor "${WORKER_UBUNTU_KERNEL_ABI_FLOOR:-unknown}" \
         --januscape-cpu-exposed "${WORKER_NESTED_CPU_EXPOSED:-false}" \
         --januscape-kvm-exposed "${WORKER_KVM_DEVICE:-false}" \
         --januscape-module "${WORKER_NESTED_MODULE:-none}" \

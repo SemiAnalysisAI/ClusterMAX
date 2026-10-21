@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Unit tests with generated topology matrices and synthetic collector records."""
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ import subprocess
 import unittest
 from pathlib import Path
 from typing import Any
-
+import pytest
 
 CHECK_PATH = (
     Path(__file__).resolve().parents[2]
@@ -23,7 +22,6 @@ CHECK_PATH = (
     / "nic-topology-check.py"
 )
 
-
 def load_check_module():
     spec = importlib.util.spec_from_file_location("nic_topology_check_under_test", CHECK_PATH)
     assert spec and spec.loader
@@ -31,17 +29,62 @@ def load_check_module():
     spec.loader.exec_module(module)
     return module
 
-
 nic = load_check_module()
 
+@pytest.fixture(params=["nic", "vboost"])
+def fanout_check(request):
+    if request.param == "nic":
+        return nic
+    path = CHECK_PATH.parents[1] / "gpu" / "vboost.py"
+    spec = importlib.util.spec_from_file_location("vboost_fanout_contract", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+@pytest.mark.parametrize(
+    "env,available,expected",
+    [
+        ({"CLUSTERMAX_AUDIT_K8S_NAMESPACE": "default"}, {"gpu-operator"}, "gpu-operator"),
+        ({}, {"nvidia", "gpu"}, "nvidia"),
+        ({"CLUSTERMAX_GPU_OPERATOR_NAMESPACE": "custom-ns"}, set(), "custom-ns"),
+    ],
+    ids=["audit-namespace-independent", "nvidia-before-generic", "explicit-override"],
+)
+def test_shared_gpu_namespace_policy(fanout_check, env, available, expected):
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append(command)
+        return completed(command, returncode=0 if command[-1] in available else 1)
+
+    assert fanout_check.k8s_gpu_namespace(env=env, runner=runner) == expected
+    if "CLUSTERMAX_GPU_OPERATOR_NAMESPACE" in env:
+        assert calls == []
+
+@pytest.mark.parametrize("driver_present", [False, True], ids=["discovery-fallback", "driver-preferred"])
+def test_shared_driver_pod_preference(fanout_check, driver_present):
+    names = ["gpu-feature-discovery-abcde", "nvidia-dcgm-exporter-abcde"]
+    if driver_present:
+        names.append("nvidia-driver-abcde")
+    pods = {"items": [
+        {"metadata": {"name": name}, "status": {"phase": "Running"}}
+        for name in names
+    ]}
+
+    def runner(command, **kwargs):
+        return completed(command, stdout=json.dumps(pods))
+
+    selected = fanout_check.k8s_driver_pod("gpu-operator", "gpu-1", runner=runner)
+    expected = "nvidia-driver-abcde" if driver_present else "gpu-feature-discovery-abcde"
+    if fanout_check is nic:
+        assert selected == {"name": expected, "container": None, "hostRoot": False}
+    else:
+        assert selected == expected
 
 def completed(command: list[str], *, returncode: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(command, returncode, stdout=stdout, stderr=stderr)
 
-
 def k8s_collector_output() -> str:
-    """Mimic K8S_COLLECTOR_SH stdout (POSIX-sh, no python3 in the pod): topo
-    block + tab-delimited per-HCA lines. mlx5_0 has PIX affinity -> fabric."""
     topo = "\n".join(
         [
             "\tGPU0\tNIC0\tCPU Affinity",
@@ -61,7 +104,6 @@ def k8s_collector_output() -> str:
             "@@HCA@@\tmlx5_0\t400 Gb/sec (4X NDR)\tEthernet\t4: ACTIVE",
         ]
     ) + "\n"
-
 
 class HelperTests(unittest.TestCase):
     def test_aggregate_keys_by_host(self) -> None:
@@ -122,7 +164,6 @@ class HelperTests(unittest.TestCase):
         self.assertIn("PHB", classified[1]["reason"])
 
 class TopoCollectionFailureTests(unittest.TestCase):
-    """A failed `nvidia-smi topo -m` must degrade visibly, never silently."""
 
     def test_collect_topo_executes_nvidia_smi_without_a_shell(self) -> None:
         calls = []
@@ -144,7 +185,7 @@ class TopoCollectionFailureTests(unittest.TestCase):
 
         self.assertIs(record["topo_collected"], False)
         self.assertEqual(record["topo_error"], "timeout")
-        # Classification still ran via the no-affinity fallback path.
+
         self.assertIsInstance(record["nics"], list)
 
     def test_gather_healthy_host_records_topo_collected_true(self) -> None:
@@ -169,13 +210,11 @@ class TopoCollectionFailureTests(unittest.TestCase):
         self.assertEqual(nic.collect_topo(runner=runner), ("", "no output (exit 127)"))
 
     def test_empty_topo_classifies_rdma_hca_via_storage_fallback(self) -> None:
-        # The graceful fallback the flag makes visible: with no topo output an
-        # RDMA HCA loses its GPU affinity and lands on the storage heuristic.
+
         classified = nic.classify_nics("", [("mlx5_0", 400.0, "InfiniBand", "ACTIVE")], [])
 
         self.assertEqual(classified[0]["role"], "storage")
         self.assertEqual(classified[0]["reason"], "high-rate RDMA, no close-GPU affinity")
-
 
 class SlurmDispatchTests(unittest.TestCase):
     def test_slurm_aggregates_per_node_lines(self) -> None:
@@ -214,9 +253,8 @@ class SlurmDispatchTests(unittest.TestCase):
         with contextlib.redirect_stderr(stderr):
             payload = nic.build_check_payload(harness="slurm", env=env, runner=runner)
 
-        # The degraded host keeps its fallback classification...
         self.assertEqual(payload["nic_topology"]["gpu-a"][0]["role"], "storage")
-        # ...and the degradation is recorded, per host, in the payload.
+
         self.assertEqual(
             payload["nic_topology_status"],
             {"gpu-a": {"topo_collected": False, "topo_error": "timeout"}},
@@ -242,7 +280,6 @@ class SlurmDispatchTests(unittest.TestCase):
 
         payload = nic.build_check_payload(harness="slurm", env={}, runner=runner)
         self.assertEqual(payload["nic_topology"], {})
-
 
 class K8sDispatchTests(unittest.TestCase):
     def _fake_kubectl(self, exec_host: str = "driver-pod-xyz") -> Any:
@@ -275,8 +312,7 @@ class K8sDispatchTests(unittest.TestCase):
             if args[:2] == ["get", "pods"]:
                 return completed(command, stdout=pods_json)
             if args[0] == "exec":
-                # New k8s contract: exec `sh -c <collector>` (the driver pod has
-                # no python3), parsed + classified on the orchestrator.
+
                 self.assertIn("sh", args)
                 return completed(command, stdout=k8s_collector_output())
             raise AssertionError(f"unexpected kubectl call: {args}")
@@ -286,13 +322,12 @@ class K8sDispatchTests(unittest.TestCase):
     def test_k8s_checks_each_gpu_node_via_driver_pod(self) -> None:
         payload = nic.build_check_payload(harness="k8s", env={}, runner=self._fake_kubectl())
         topo = payload["nic_topology"]
-        # Keyed by node name (not the daemonset pod hostname), one entry per GPU node.
+
         self.assertEqual(set(topo), {"gpu-1", "gpu-2"})
         self.assertEqual(topo["gpu-1"][0]["role"], "fabric")
 
     def test_k8s_empty_topo_block_flags_host_and_keeps_fallback_roles(self) -> None:
-        # nvidia-smi produced nothing inside the driver pod: the HCA lines are
-        # still classified (storage fallback), and the payload records why.
+
         no_topo = "\n".join(
             [
                 "@@TOPO_BEGIN@@",
@@ -330,26 +365,6 @@ class K8sDispatchTests(unittest.TestCase):
         payload = nic.build_check_payload(harness="k8s", env={}, runner=self._fake_kubectl())
 
         self.assertNotIn("nic_topology_status", payload)
-
-    def test_k8s_falls_back_to_gpu_feature_discovery_when_driver_is_host_installed(self) -> None:
-        pods = {
-            "items": [
-                {"metadata": {"name": "gpu-feature-discovery-abcde"}, "status": {"phase": "Running"}},
-                {"metadata": {"name": "nvidia-dcgm-exporter-abcde"}, "status": {"phase": "Running"}},
-            ]
-        }
-
-        def runner(command: list[str], **_: Any) -> subprocess.CompletedProcess:
-            return completed(command, stdout=json.dumps(pods))
-
-        self.assertEqual(
-            nic.k8s_driver_pod("gpu-operator", "gpu-1", runner=runner),
-            {
-                "name": "gpu-feature-discovery-abcde",
-                "container": None,
-                "hostRoot": False,
-            },
-        )
 
     def test_k8s_uses_privileged_device_plugin_with_host_root(self) -> None:
         pods = {
@@ -458,7 +473,6 @@ SYNTHETIC_NODE_TOPO = "\n".join(
     + [f"  NIC{i}: mlx5_{i}" for i in range(3)]
 )
 
-
 class FabricAffinityFallbackTests(unittest.TestCase):
     """Synthetic no-affinity matrices exercise independent role rules."""
 
@@ -520,7 +534,7 @@ class FabricAffinityFallbackTests(unittest.TestCase):
         self.assertEqual(roles["synthetic_rail0"], "storage")
 
     def test_single_ib_hca_never_promotes(self) -> None:
-        # One high-rate IB HCA is as likely a storage NIC; require >= 2.
+
         classified = nic.classify_nics(
             SYNTHETIC_NODE_TOPO,
             [("mlx5_0", 400.0, "InfiniBand", "ACTIVE")],
@@ -540,8 +554,7 @@ class FabricAffinityFallbackTests(unittest.TestCase):
         self.assertEqual({n["role"] for n in classified}, {"storage"})
 
     def test_hgx_close_affinity_disables_fallback(self) -> None:
-        # When PIX/PHB resolves (HGX), the first pass wins and nothing else
-        # is promoted -- storage HCAs must not become fabric.
+
         topo = "\n".join(
             [
                 "\tGPU0\tNIC0\tNIC1",
@@ -568,7 +581,7 @@ class FabricAffinityFallbackTests(unittest.TestCase):
         self.assertEqual(by_name["mlx5_0"]["reason"], "PIX, PXB, or PHB to >=1 GPU")
 
     def test_topo_failure_still_recovers_fabric_roles(self) -> None:
-        # nvidia-smi absent/failed: empty topo, fallback still classifies.
+
         classified = nic.classify_nics(
             "",
             [
@@ -578,7 +591,6 @@ class FabricAffinityFallbackTests(unittest.TestCase):
             [],
         )
         self.assertEqual({n["role"] for n in classified}, {"fabric"})
-
 
 if __name__ == "__main__":
     unittest.main()

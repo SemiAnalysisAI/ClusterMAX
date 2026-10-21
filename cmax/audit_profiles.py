@@ -22,6 +22,7 @@ AUDIT_CATEGORIES = (
         "Show component versions and their required minimums.",
         keys=frozenset(
             {
+                "securityVersions.amdDriver.status",
                 "securityVersions.nvidiaDriver.status",
                 "securityVersions.nvidiaContainerToolkit.status",
                 "securityVersions.cudaToolkit.status",
@@ -42,10 +43,11 @@ AUDIT_CATEGORIES = (
         keys=frozenset(
             {
                 "bmc-ipmi",
-            "nvlink-boundary",
-            "observability-isolation",
-            "qemu-virtio-serial",
-            "vmscape",
+                "kubernetes-nodes-proxy",
+                "nvlink-boundary",
+                "observability-isolation",
+                "qemu-virtio-serial",
+                "vmscape",
                 "pcie-passthrough",
                 "ufm-profile",
                 "securityVersions.virtioNetBluefield.exposure",

@@ -1,0 +1,451 @@
+{
+    "document": {
+        "aggregate_severity": {
+            "namespace": "https://www.first.org/cvss/v3.1/specification-document#Qualitative-Severity-Rating-Scale",
+            "text": "MEDIUM"
+        },
+        "category": "csaf_security_advisory",
+        "csaf_version": "2.0",
+        "distribution": {
+            "text": "Copyright \u00a9 2026 NVIDIA Corporation. All rights reserved.",
+            "tlp": {
+                "label": "WHITE",
+                "url": "https://www.first.org/tlp/"
+            }
+        },
+        "lang": "en",
+        "notes": [
+            {
+                "category": "details",
+                "text": "1157029",
+                "title": "Product Information Delivery"
+            },
+            {
+                "category": "details",
+                "text": "TB-11307-014_v01",
+                "title": "Part Number"
+            },
+            {
+                "category": "details",
+                "text": "false",
+                "title": "Contains Firmware"
+            },
+            {
+                "category": "details",
+                "text": "NBU:NBU",
+                "title": "Product Team"
+            },
+            {
+                "category": "summary",
+                "text": "NVIDIA has released a software update for NVIDIA\u00ae Networking BlueField, ConnectX.&nbsp;<div>To protect your system, download and install the latest NVIDIA firmware from the links provided in this bulletin.</div>",
+                "title": "Summary"
+            },
+            {
+                "category": "details",
+                "text": "To protect your system, download and install the latest NVIDIA components from the links provided in this document.",
+                "title": "Security Update Notes"
+            },
+            {
+                "category": "details",
+                "text": "Product -&nbsp;<span style=\"background-color: rgb(17, 22, 30);\">Download Link</span><div>ConnectX-5 FW -&nbsp;<span style=\"background-color: rgb(17, 22, 30);\"><a href=\"https://network.nvidia.com/support/firmware/connectx5en/\">https://network.nvidia.com/support/firmware/connectx5en/</a></span></div><div>ConnectX-6 DE FW -&nbsp;<span style=\"background-color: rgb(17, 22, 30);\"><a href=\"https://network.nvidia.com/support/firmware/connectx6de/\">https://network.nvidia.com/support/firmware/connectx6de/</a></span></div><div>ConnectX-6 DX FW -&nbsp;<span style=\"background-color: rgb(17, 22, 30);\"><a href=\"https://network.nvidia.com/support/firmware/connectx6dx/\">https://network.nvidia.com/support/firmware/connectx6dx/</a></span></div><div>ConnectX-6 LX FW -&nbsp;<span style=\"background-color: rgb(17, 22, 30);\"><a href=\"https://network.nvidia.com/support/firmware/connectx6lx/\">https://network.nvidia.com/support/firmware/connectx6lx/</a></span></div><div><span style=\"background-color: rgb(17, 22, 30);\">For other versions, contact your account manager or CPM.</span></div><div><br></div>",
+                "title": "Mitigation Notes"
+            },
+            {
+                "category": "details",
+                "text": "This issue was found internally.",
+                "title": "Bulletin Notes"
+            },
+            {
+                "category": "legal_disclaimer",
+                "text": "ALL NVIDIA INFORMATION, DESIGN SPECIFICATIONS, REFERENCE BOARDS, FILES, DRAWINGS, DIAGNOSTICS, LISTS, AND OTHER DOCUMENTS (TOGETHER AND SEPARATELY, \"MATERIALS\") ARE BEING PROVIDED \"AS IS.\" NVIDIA MAKES NO WARRANTIES, EXPRESS, IMPLIED, STATUTORY, OR OTHERWISE WITH RESPECT TO THE MATERIALS, AND ALL EXPRESS OR IMPLIED CONDITIONS, REPRESENTATIONS AND WARRANTIES, INCLUDING ANY IMPLIED WARRANTY OR CONDITION OF TITLE, MERCHANTABILITY, SATISFACTORY QUALITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT, ARE HEREBY EXCLUDED TO THE MAXIMUM EXTENT PERMITTED BY LAW.\n\nInformation is believed to be accurate and reliable at the time it is furnished. However, NVIDIA Corporation assumes no responsibility for the consequences of use of such information or for any infringement of patents or other rights of third parties that may result from its use. No license is granted by implication or otherwise under any patent or patent rights of NVIDIA Corporation. Specifications mentioned in this publication are subject to change without notice. This publication supersedes and replaces all information previously supplied. NVIDIA Corporation products are not authorized for use as critical components in life support devices or systems without express written approval of NVIDIA Corporation.",
+                "title": "Terms of Use"
+            }
+        ],
+        "publisher": {
+            "category": "vendor",
+            "contact_details": "https://www.nvidia.com/security/report-vulnerability/",
+            "issuing_authority": "NVIDIA Product Security is responsible for vulnerability handling across all NVIDIA products and services.",
+            "name": "NVIDIA Product Security",
+            "namespace": "https://www.nvidia.com/security"
+        },
+        "title": "Security Bulletin: NVIDIA Networking BlueField, ConnectX - September 2026",
+        "tracking": {
+            "current_release_date": "2026-09-29T00:00:00Z",
+            "generator": {
+                "date": "2026-09-29T00:00:00Z",
+                "engine": {
+                    "name": "NVIDIA PSIRT",
+                    "version": "2.0.0"
+                }
+            },
+            "id": "5847",
+            "initial_release_date": "2026-09-29T00:00:00Z",
+            "revision_history": [
+                {
+                    "date": "2026-09-29",
+                    "number": "1.0.0",
+                    "summary": "Initial Release"
+                }
+            ],
+            "status": "final",
+            "version": "1.0.0"
+        }
+    },
+    "product_tree": {
+        "branches": [
+            {
+                "branches": [
+                    {
+                        "branches": [
+                            {
+                                "category": "product_name",
+                                "name": "BlueField GA",
+                                "product": {
+                                    "name": "BlueField GA",
+                                    "product_id": "bluefield2_bluefield_ga",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:bluefield_ga:*:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_name",
+                                "name": "BlueField LTS23",
+                                "product": {
+                                    "name": "BlueField LTS23",
+                                    "product_id": "bluefield2_bluefield_lts23",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:bluefield_lts23:*:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_name",
+                                "name": "BlueField LTS24",
+                                "product": {
+                                    "name": "BlueField LTS24",
+                                    "product_id": "bluefield2_bluefield_lts24",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:bluefield_lts24:*:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_name",
+                                "name": "ConnectX GA",
+                                "product": {
+                                    "name": "ConnectX GA",
+                                    "product_id": "connectx6_de_connectx6_dx_connectx6_lx_connectx_ga",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:connectx_ga:*:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_name",
+                                "name": "ConnectX LTS23",
+                                "product": {
+                                    "name": "ConnectX LTS23",
+                                    "product_id": "connectx6_connectx6_de_connectx6_dx_connectx6_lx_connectx_lts23",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:connectx_lts23:*:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_name",
+                                "name": "ConnectX LTS24",
+                                "product": {
+                                    "name": "ConnectX LTS24",
+                                    "product_id": "connectx6_connectx6_de_connectx6_dx_connectx6_lx_connectx_lts24",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:connectx_lts24:*:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_name",
+                                "name": "ConnectX-5",
+                                "product": {
+                                    "name": "ConnectX-5",
+                                    "product_id": "connectx5_connectx5",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:connectx5:*:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            }
+                        ],
+                        "category": "product_family",
+                        "name": "NVIDIA Product Family"
+                    },
+                    {
+                        "branches": [
+                            {
+                                "category": "product_version",
+                                "name": "BlueField GA",
+                                "product": {
+                                    "name": "47.1020 or newer",
+                                    "product_id": "bluefield2_bluefield_ga_47_1020_or_newer",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:bluefield_ga:47_1020_or_newer:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_version",
+                                "name": "BlueField GA",
+                                "product": {
+                                    "name": "All versions prior to 47.1020",
+                                    "product_id": "bluefield2_bluefield_ga_all_versions_prior_to_47_1020",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:bluefield_ga:all_versions_prior_to_47_1020:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_version",
+                                "name": "BlueField LTS23",
+                                "product": {
+                                    "name": "39.5124 or newer",
+                                    "product_id": "bluefield2_bluefield_lts23_39_5124_or_newer",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:bluefield_lts23:39_5124_or_newer:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_version",
+                                "name": "BlueField LTS23",
+                                "product": {
+                                    "name": "All versions prior to 39.5124",
+                                    "product_id": "bluefield2_bluefield_lts23_all_versions_prior_to_39_5124",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:bluefield_lts23:all_versions_prior_to_39_5124:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_version",
+                                "name": "BlueField LTS24",
+                                "product": {
+                                    "name": "All versions prior to 43.4100",
+                                    "product_id": "bluefield2_bluefield_lts24_all_versions_prior_to_43_4100",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:bluefield_lts24:all_versions_prior_to_43_4100:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_version",
+                                "name": "BlueField LTS24",
+                                "product": {
+                                    "name": "43.4100 or newer",
+                                    "product_id": "bluefield2_bluefield_lts24_43_4100_or_newer",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:bluefield_lts24:43_4100_or_newer:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            }
+                        ],
+                        "category": "architecture",
+                        "name": "BlueField-2"
+                    },
+                    {
+                        "branches": [
+                            {
+                                "category": "product_version",
+                                "name": "ConnectX GA",
+                                "product": {
+                                    "name": "47.1020 or newer",
+                                    "product_id": "connectx6_de_connectx6_dx_connectx6_lx_connectx_ga_47_1020_or_newer",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:connectx_ga:47_1020_or_newer:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_version",
+                                "name": "ConnectX GA",
+                                "product": {
+                                    "name": "All versions prior to 47.1020",
+                                    "product_id": "connectx6_de_connectx6_dx_connectx6_lx_connectx_ga_all_versions_prior_to_47_1020",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:connectx_ga:all_versions_prior_to_47_1020:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            }
+                        ],
+                        "category": "architecture",
+                        "name": "ConnectX-6 DE, ConnectX-6 DX, ConnectX-6 LX"
+                    },
+                    {
+                        "branches": [
+                            {
+                                "category": "product_version",
+                                "name": "ConnectX LTS23",
+                                "product": {
+                                    "name": "39.5124 or newer",
+                                    "product_id": "connectx6_connectx6_de_connectx6_dx_connectx6_lx_connectx_lts23_39_5124_or_newer",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:connectx_lts23:39_5124_or_newer:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_version",
+                                "name": "ConnectX LTS23",
+                                "product": {
+                                    "name": "All versions prior to 39.5124",
+                                    "product_id": "connectx6_connectx6_de_connectx6_dx_connectx6_lx_connectx_lts23_all_versions_prior_to_39_5124",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:connectx_lts23:all_versions_prior_to_39_5124:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_version",
+                                "name": "ConnectX LTS24",
+                                "product": {
+                                    "name": "All versions prior to 43.4100",
+                                    "product_id": "connectx6_connectx6_de_connectx6_dx_connectx6_lx_connectx_lts24_all_versions_prior_to_43_4100",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:connectx_lts24:all_versions_prior_to_43_4100:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_version",
+                                "name": "ConnectX LTS24",
+                                "product": {
+                                    "name": "43.4100 or newer",
+                                    "product_id": "connectx6_connectx6_de_connectx6_dx_connectx6_lx_connectx_lts24_43_4100_or_newer",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:connectx_lts24:43_4100_or_newer:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            }
+                        ],
+                        "category": "architecture",
+                        "name": "ConnectX-6, ConnectX-6 DE, ConnectX-6 DX, ConnectX-6 LX"
+                    },
+                    {
+                        "branches": [
+                            {
+                                "category": "product_version",
+                                "name": "ConnectX-5",
+                                "product": {
+                                    "name": "16.35.8008 or newer",
+                                    "product_id": "connectx5_connectx5_16_35_8008_or_newer",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:connectx5:16_35_8008_or_newer:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_version",
+                                "name": "ConnectX-5",
+                                "product": {
+                                    "name": "All versions prior to 16.35.8008",
+                                    "product_id": "connectx5_connectx5_all_versions_prior_to_16_35_8008",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:connectx5:all_versions_prior_to_16_35_8008:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            }
+                        ],
+                        "category": "architecture",
+                        "name": "ConnectX-5"
+                    }
+                ],
+                "category": "vendor",
+                "name": "NVIDIA"
+            }
+        ]
+    },
+    "vulnerabilities": [
+        {
+            "cve": "CVE-2025-33207",
+            "cwe": {
+                "id": "CWE-1262",
+                "name": "Improper Access Control for Register Interface"
+            },
+            "notes": [
+                {
+                    "category": "summary",
+                    "text": "NVIDIA ConnectX and Bluefield contain a vulnerability in a control register, where a user with VF access could cause improper access control for the register interface by sending a malicious command to the firmware. A successful exploit of this vulnerability might lead to denial of service.",
+                    "title": "Vulnerability description"
+                },
+                {
+                    "category": "details",
+                    "text": "denial of service",
+                    "title": "Impacts"
+                },
+                {
+                    "category": "details",
+                    "text": "5606824",
+                    "title": "defect"
+                }
+            ],
+            "product_status": {
+                "fixed": [
+                    "connectx6_de_connectx6_dx_connectx6_lx_connectx_ga_47_1020_or_newer",
+                    "connectx6_connectx6_de_connectx6_dx_connectx6_lx_connectx_lts24_43_4100_or_newer",
+                    "connectx6_connectx6_de_connectx6_dx_connectx6_lx_connectx_lts23_39_5124_or_newer",
+                    "bluefield2_bluefield_ga_47_1020_or_newer",
+                    "bluefield2_bluefield_lts23_39_5124_or_newer",
+                    "connectx5_connectx5_16_35_8008_or_newer",
+                    "bluefield2_bluefield_lts24_43_4100_or_newer"
+                ],
+                "known_affected": [
+                    "connectx5_connectx5_all_versions_prior_to_16_35_8008",
+                    "bluefield2_bluefield_lts24_all_versions_prior_to_43_4100",
+                    "bluefield2_bluefield_ga_all_versions_prior_to_47_1020",
+                    "connectx6_connectx6_de_connectx6_dx_connectx6_lx_connectx_lts24_all_versions_prior_to_43_4100",
+                    "connectx6_de_connectx6_dx_connectx6_lx_connectx_ga_all_versions_prior_to_47_1020",
+                    "bluefield2_bluefield_lts23_all_versions_prior_to_39_5124",
+                    "connectx6_connectx6_de_connectx6_dx_connectx6_lx_connectx_lts23_all_versions_prior_to_39_5124"
+                ]
+            },
+            "references": [
+                {
+                    "category": "external",
+                    "summary": "NVD",
+                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-33207"
+                },
+                {
+                    "category": "external",
+                    "summary": "Mitre",
+                    "url": "https://www.cve.org/CVERecord?id=CVE-2025-33207"
+                }
+            ],
+            "release_date": "2026-09-29T00:00:00Z",
+            "scores": [
+                {
+                    "cvss_v3": {
+                        "attackComplexity": "LOW",
+                        "attackVector": "ADJACENT_NETWORK",
+                        "availabilityImpact": "HIGH",
+                        "baseScore": 6.8,
+                        "baseSeverity": "MEDIUM",
+                        "confidentialityImpact": "NONE",
+                        "integrityImpact": "NONE",
+                        "privilegesRequired": "LOW",
+                        "scope": "CHANGED",
+                        "userInteraction": "NONE",
+                        "vectorString": "CVSS:3.1/AV:A/AC:L/PR:L/UI:N/S:C/C:N/I:N/A:H",
+                        "version": "3.1"
+                    },
+                    "products": [
+                        "connectx5_connectx5_all_versions_prior_to_16_35_8008",
+                        "bluefield2_bluefield_lts24_all_versions_prior_to_43_4100",
+                        "bluefield2_bluefield_ga_all_versions_prior_to_47_1020",
+                        "connectx6_connectx6_de_connectx6_dx_connectx6_lx_connectx_lts24_all_versions_prior_to_43_4100",
+                        "connectx6_de_connectx6_dx_connectx6_lx_connectx_ga_all_versions_prior_to_47_1020",
+                        "bluefield2_bluefield_lts23_all_versions_prior_to_39_5124",
+                        "connectx6_connectx6_de_connectx6_dx_connectx6_lx_connectx_lts23_all_versions_prior_to_39_5124"
+                    ]
+                }
+            ]
+        }
+    ]
+}

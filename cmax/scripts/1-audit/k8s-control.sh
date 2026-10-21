@@ -1229,6 +1229,8 @@ try:
     rdma_hostdev = any(
         isinstance(resource, dict)
         and
+        resource.get("resourcePrefix") == "nvidia.com"
+        and
         resource.get("resourceName") == "hostdev"
         and has_rdma(resource.get("selectors", {}))
         for resource in config.get("resourceList", [])

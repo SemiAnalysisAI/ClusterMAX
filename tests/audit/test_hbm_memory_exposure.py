@@ -341,14 +341,7 @@ class HbmMemoryExposureTests(unittest.TestCase):
 
 
 class RunSlurmCheckTests(unittest.TestCase):
-    """Stderr policy for the srun fan-out: record it only as failure evidence.
-
-    Matches the sibling nic-topology and vboost checks. srun emits
-    informational stderr on healthy clusters (site banners, cgroup notices),
-    and aggregate_reports downgrades pass to warning whenever errors is
-    non-empty, so blanket stderr recording turned clean Tier-0 passes into
-    warnings headlined by raw srun chatter.
-    """
+    """Stderr policy for the srun fan-out: record it only as failure evidence."""
 
     HOST_JSON = json.dumps(
         {"host": "node-0", "summary": {"status": "pass", "failures": [], "warnings": []}}

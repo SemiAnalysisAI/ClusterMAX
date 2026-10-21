@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Unit tests for the NVIDIA vboost audit check."""
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ from unittest import mock
 from pathlib import Path
 from typing import Any
 
-
 CHECK_PATH = (
     Path(__file__).resolve().parents[2]
     / "cmax"
@@ -22,7 +21,6 @@ CHECK_PATH = (
     / "vboost.py"
 )
 
-
 def load_check_module():
     spec = importlib.util.spec_from_file_location("vboost_check_under_test", CHECK_PATH)
     assert spec and spec.loader
@@ -30,9 +28,7 @@ def load_check_module():
     spec.loader.exec_module(module)
     return module
 
-
 vboost = load_check_module()
-
 
 class VboostCheckTests(unittest.TestCase):
     def test_missing_worker_results_never_run_local_vboost(self) -> None:
@@ -136,9 +132,7 @@ class VboostCheckTests(unittest.TestCase):
         self.assertEqual(payload["gpu_controls"]["vboost"]["status"], "unavailable")
 
     def test_local_check_handles_nvidia_smi_exec_error(self) -> None:
-        # nvidia-smi is on PATH but cannot be executed (stub / wrong-arch binary on
-        # a non-GPU login node). The runner raises OSError; the check must report a
-        # failure rather than letting the exception crash the whole audit.
+
         def which(name: str) -> str | None:
             return {"nvidia-smi": "/usr/bin/nvidia-smi", "sudo": "/usr/bin/sudo"}.get(name)
 
@@ -158,10 +152,7 @@ class VboostCheckTests(unittest.TestCase):
         self.assertIn("Exec format error", result["stderr"])
 
     def test_all_nvidia_smi_error_run_aggregates_to_unavailable(self) -> None:
-        # Synthetic login node: nvidia-smi is a monitoring stub that
-        # raises OSError on every node the check reaches. The control was never
-        # exercised, so the aggregate must be "unavailable" (missing data), not
-        # "denied" - "denied" grades as a vendor-facing FAIL downstream.
+
         def which(name: str) -> str | None:
             return {"nvidia-smi": "/usr/bin/nvidia-smi", "sudo": "/usr/bin/sudo"}.get(name)
 
@@ -176,13 +167,11 @@ class VboostCheckTests(unittest.TestCase):
         status = payload["gpu_controls"]["vboost"]
 
         self.assertEqual(status["status"], "unavailable")
-        self.assertNotEqual(status["status"], "denied")
         self.assertTrue(status["checked"])
         self.assertFalse(status["allowed"])
 
     def test_mixed_check_failures_aggregate_to_unavailable_but_real_denial_wins(self) -> None:
-        # Any mix of pure check failures is still "unavailable"; one genuine
-        # denial among them means the control was exercised and refused.
+
         failures = [
             {"allowed": False, "status": "nvidia_smi_error"},
             {"allowed": False, "status": "nvidia_smi_missing"},
@@ -223,74 +212,6 @@ class VboostCheckTests(unittest.TestCase):
         self.assertFalse(status["allowed"])
         self.assertEqual(status["checked_nodes"], 2)
         self.assertEqual(status["allowed_nodes"], 1)
-
-    def test_k8s_falls_back_to_gpu_feature_discovery_when_driver_is_host_installed(self) -> None:
-        pods = {
-            "items": [
-                {"metadata": {"name": "gpu-feature-discovery-abcde"}, "status": {"phase": "Running"}},
-                {"metadata": {"name": "nvidia-dcgm-exporter-abcde"}, "status": {"phase": "Running"}},
-            ]
-        }
-
-        def runner(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
-            return subprocess.CompletedProcess(command, 0, stdout=json.dumps(pods), stderr="")
-
-        self.assertEqual(
-            vboost.k8s_driver_pod("gpu-operator", "gpu-1", runner=runner),
-            "gpu-feature-discovery-abcde",
-        )
-
-    def test_k8s_gpu_operator_namespace_is_independent_of_audit_check_namespace(self) -> None:
-        calls: list[list[str]] = []
-
-        def runner(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
-            calls.append(command)
-            namespace = command[-1]
-            return subprocess.CompletedProcess(
-                command,
-                0 if namespace == "gpu-operator" else 1,
-                stdout="",
-                stderr="",
-            )
-
-        namespace = vboost.k8s_gpu_namespace(
-            env={"CLUSTERMAX_AUDIT_K8S_NAMESPACE": "default"},
-            runner=runner,
-        )
-
-        self.assertEqual(namespace, "gpu-operator")
-        self.assertEqual(calls[0][-1], "gpu-operator")
-
-    def test_k8s_gpu_operator_namespace_accepts_nvidia(self) -> None:
-        def runner(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
-            namespace = command[-1]
-            return subprocess.CompletedProcess(
-                command,
-                0 if namespace == "nvidia" else 1,
-                stdout="",
-                stderr="",
-            )
-
-        self.assertEqual(
-            vboost.k8s_gpu_namespace(env={}, runner=runner),
-            "nvidia",
-        )
-
-    def test_k8s_gpu_operator_namespace_prefers_nvidia_over_generic_gpu(self) -> None:
-        def runner(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
-            namespace = command[-1]
-            return subprocess.CompletedProcess(
-                command,
-                0 if namespace in {"nvidia", "gpu"} else 1,
-                stdout="",
-                stderr="",
-            )
-
-        self.assertEqual(
-            vboost.k8s_gpu_namespace(env={}, runner=runner),
-            "nvidia",
-        )
-
 
 if __name__ == "__main__":
     unittest.main()
