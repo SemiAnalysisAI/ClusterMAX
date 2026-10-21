@@ -1552,6 +1552,8 @@ def classify_suppression(key: str, audit: dict[str, Any]) -> tuple[str, str]:
 # key and security extension id appears here and that every mapped id exists
 # in the vendored catalog.
 CHECK_CRITERIA: dict[str, str | None] = {
+    # CLI-only until the criteria catalog has an AMD host-driver criterion.
+    "securityVersions.amdDriver.status": None,
     "thp_madvise.status": None,
     "static_hugepages.status": None,
     "hugepage_allocation.status": None,
