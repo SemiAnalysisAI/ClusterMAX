@@ -26,7 +26,14 @@ FAIL = "fail"
 SKIPPED = "skipped"
 _STATUS_ORDER = {PASS: 0, SKIPPED: 1, WARNING: 2, FAIL: 3}
 _SECURITY_EXTENSION_IDS = frozenset(
-    {"bmc-ipmi", "ufm-profile", "pcie-passthrough", "nvlink-boundary", "observability-isolation"}
+    {
+        "bmc-ipmi",
+        "ufm-profile",
+        "pcie-passthrough",
+        "nvlink-boundary",
+        "kubernetes-nodes-proxy",
+        "observability-isolation",
+    }
 )
 _SECURITY_EXTENSION_HARNESSES = {
     "ufm-profile": frozenset({"slurm", "k8s"}),
