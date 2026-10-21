@@ -98,7 +98,7 @@ GPU_OPERATOR_NAMESPACES = (
     "kube-amd-gpu",
     "gpu",
 )
-SLURM_TIMEOUT_S = 120
+SLURM_TIMEOUT_S = 240
 KUBECTL_TIMEOUT_S = 60
 
 _FANOUT = None
@@ -320,9 +320,18 @@ def classify_nics(topo: str, hcas: list, netdevs: list) -> list:
 # ---------------------------------------------------------------------------
 
 PLANE_TOOL_TIMEOUT_S = 10
-PLANE_BUDGET_S = 45.0
+# Without the MST kernel driver (/dev/mst absent, the usual case), MFT reads
+# the device through PCI config space in sysfs: about 9,000 config reads and
+# writes per parameter, so a full `mlxconfig query` (185 parameters on a
+# ConnectX-7) takes about 7.4s, versus 0.4s for mlxlink. It needs its own longer bound.
+PLANE_MLXCONFIG_TIMEOUT_S = 20
+# About 10s per HCA in practice (mlxconfig 7.4s, ibnetdiscover 1.9s, mlxlink
+# 0.4s), so 90s covers an 8-rail node. The budget is checked before each HCA,
+# so the worst case is 90s + one HCA at its timeouts (20+10+10s) = 130s,
+# inside SLURM_TIMEOUT_S.
+PLANE_BUDGET_S = 90.0
 PLANE_MATCH_CAP = 8
-K8S_PLANE_EXEC_TIMEOUT_S = 180
+K8S_PLANE_EXEC_TIMEOUT_S = 360
 
 # mlxconfig fields worth keeping: link type, port split / planarized mode,
 # SR-IOV layout. Everything else in the ~200-key dump is noise here.
@@ -621,7 +630,9 @@ def collect_plane_evidence(
         netdev = os.path.basename(netdevs[0]) if netdevs else ""
         tool_dev = tool_device(sysfs_root, dev)
         raws: dict[str, tuple[str, str | None]] = {
-            "mlxconfig": run_evidence_tool(["mlxconfig", "-d", tool_dev, "query"], runner=runner),
+            "mlxconfig": run_evidence_tool(
+                ["mlxconfig", "-d", tool_dev, "query"], runner=runner, timeout=PLANE_MLXCONFIG_TIMEOUT_S,
+            ),
             "mlxlink": run_evidence_tool(["mlxlink", "-d", tool_dev, "-m"], runner=runner),
         }
         if nic.get("layer") == "InfiniBand":
@@ -983,11 +994,13 @@ done
 # Tools are usually
 # absent or unprivileged in system pods; the orchestrator records the exact
 # reason as tri-state instead of failing. Bounded so a hung tool can never
-# kill the exec and lose the classification above: `timeout 8` per command,
-# at most 6 HCAs, and tools are SKIPPED outright when the pod image
-# has no timeout(1) to enforce the bound (worst case 6 x 3 x 8s = 144s,
-# inside this check's 180s exec window).
+# kill the exec and lose the classification above: `timeout 8` per command
+# (`timeout 20` for mlxconfig, whose full query reads PCI config space and
+# takes about 7.4s without the MST driver), at most 8 HCAs, and tools are
+# SKIPPED outright when the pod image has no timeout(1) to enforce the bound
+# (worst case 8 x (20 + 8 + 8)s = 288s, inside this check's 360s exec window).
 TO=""; command -v timeout >/dev/null 2>&1 && TO="timeout 8"
+MLXCONFIG_TO=""; [ -n "$TO" ] && MLXCONFIG_TO="timeout 20"
 plane_run() {
   pr_n="$1"; pr_t="$2"; shift 2
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -996,8 +1009,9 @@ plane_run() {
   if [ -z "$TO" ]; then
     echo "@@PLANE@@ $pr_n $pr_t SKIPPED"; return
   fi
+  pr_to="$TO"; [ "$pr_t" = mlxconfig ] && pr_to="$MLXCONFIG_TO"
   echo "@@PLANE@@ $pr_n $pr_t BEGIN"
-  $TO "$@" 2>&1
+  $pr_to "$@" 2>&1
   echo "@@PLANE@@ $pr_n $pr_t END $?"
 }
 checked=0
@@ -1018,7 +1032,7 @@ for d in /sys/class/infiniband/*; do
     [ "$failed_ib" = false ] || continue
     case "$r" in [1-9][0-9][0-9]*) ;; *) continue;; esac
   fi
-  [ "$checked" -ge 6 ] && continue
+  [ "$checked" -ge 8 ] && continue
   checked=$((checked+1))
   g=$(cat "$d/node_guid" 2>/dev/null)
   printf '@@PLANEGUID@@\t%s\t%s\n' "$n" "$g"
