@@ -273,12 +273,9 @@ def nvidia_driver_verdict(version: str) -> Verdict:
 
     branch = parsed[0]
     if branch not in minimums:
-        latest_branch = max(minimums)
         lowest_branch = min(minimums)
-        # Domain guard, checked before the newer-than-newest rule can fire. A
-        # value that does not look like an NVIDIA driver branch must never
-        # reach that rule, because it would turn a foreign or malformed reading
-        # into a confident pass on a security check. The vendor-neutral
+        # A value that does not look like an NVIDIA driver branch must never
+        # become a confident security verdict. The vendor-neutral
         # gpus.driverVersion field carries the amdgpu version on AMD clusters
         # (6.16.13 on oracle-mi355x), so a value like that does reach here
         # whenever the gpu_vendor gate is bypassed. The gate is the real
@@ -292,22 +289,6 @@ def nvidia_driver_verdict(version: str) -> Verdict:
                 f"branch {branch} is outside R{lowest_branch} to R{MAX_DRIVER_BRANCH}, "
                 f"the range the bulletin table can assess. It may be another "
                 f"vendor's driver or a malformed reading",
-            )
-        if branch > latest_branch:
-            # A branch newer than the newest branch assessed by the current
-            # bulletin cannot be below any published minimum version, because no
-            # minimum for it has been disclosed yet. That is a clean pass, not a
-            # provisional one: the audit grades against published minimums, and
-            # there is nothing here for an operator to act on. The daily refresh
-            # regrades the same reading as soon as a minimum is published.
-            return Verdict(
-                version,
-                "pass",
-                f"newer than R{latest_branch} baseline",
-                advisory,
-                f"R{branch} postdates the current NVIDIA Linux driver bulletin table "
-                f"(newest assessed branch R{latest_branch}), so no published "
-                f"minimum version applies to it",
             )
         return _unknown(
             version,
@@ -1510,11 +1491,9 @@ def connectx_firmware_verdict(version: str) -> Verdict:
 
     NVIDIA firmware starts with a hardware-family component, for example
     40.47.2526 on ConnectX-8. The bulletin publishes one fixed patch per
-    firmware train. A train above every assessed train postdates the bulletin
-    and gives a clean pass, the same way a driver branch newer than the newest
-    assessed branch does. An older train the bulletin does not list
-    is reported as ``unknown`` rather than failed, because it may well be
-    unpatched and there is no minimum to grade it against.
+    firmware train. Any train the bulletin table does not list is reported as
+    ``unknown`` rather than passed or failed, because there is no applicable
+    minimum to grade it against.
     """
     try:
         block = minimum_versions.component("connectxFirmware")
@@ -1535,23 +1514,6 @@ def connectx_firmware_verdict(version: str) -> Verdict:
         return _unknown(version, minimum, advisory, "NIC firmware version is unavailable")
     _, train, patch = parsed
     if train not in trains:
-        newest_train = max(trains)
-        if train > newest_train:
-            # Shipping firmware runs ahead of the bulletin table: ConnectX-8
-            # ships train 47 while the current bulletin assesses up to train
-            # 46. Such a train cannot be below a published minimum, because none
-            # is published for it yet. That is a clean pass, the same as a
-            # driver branch newer than the newest assessed branch, instead of
-            # flagging a whole fleet as unverifiable with no new evidence.
-            return Verdict(
-                version,
-                "pass",
-                f"newer than train {newest_train} baseline",
-                advisory,
-                f"Train {train} postdates the current NVIDIA networking bulletin "
-                f"table (newest assessed train {newest_train}), so no published "
-                f"minimum version applies to it",
-            )
         return _unknown(
             version,
             minimum,
