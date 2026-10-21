@@ -1,0 +1,17 @@
+{
+  "sha": "fixture",
+  "truncated": false,
+  "tree": [
+    {"path": "2026/5699/5699.json", "type": "blob"},
+    {"path": "2026/5747/5747.json", "type": "blob"},
+    {"path": "2026/5755/5755.json", "type": "blob"},
+    {"path": "2026/5815/5815.json", "type": "blob"},
+    {"path": "2026/5821/5821.json", "type": "blob"},
+    {"path": "2026/5847/5847.json", "type": "blob"},
+    {"path": "2026/5850/5850.json", "type": "blob"},
+    {"path": "2026/5857/5857.json", "type": "blob"},
+    {"path": "2026/5861/5861.json", "type": "blob"},
+    {"path": "2026/5861/CVE-2026-12345.json", "type": "blob"},
+    {"path": "README.md", "type": "blob"}
+  ]
+}

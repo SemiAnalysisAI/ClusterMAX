@@ -96,17 +96,20 @@ class StubFetcher(fr.Fetcher):
         self.calls: list[str] = []
         self.post_bodies: list[dict] = []
         self.json_by_url: dict[str, object] = {
+            fr.NVIDIA_CSAF_TREE: fixture("nvidia-csaf-tree.json"),
             fr.bulletin_url(2026, 5821): fixture("nvidia-driver-5821.json"),
             fr.bulletin_url(2026, 5747): fixture("nvidia-driver-5747.json"),
+            fr.bulletin_url(2026, 5861): fixture("nvidia-driver-5861.json"),
             fr.bulletin_url(2026, 9999): fixture("nvidia-driver-lexical-trap.json"),
             fr.bulletin_url(2026, 5699): fixture("nvidia-connectx-5699.json"),
+            fr.bulletin_url(2026, 5847): fixture("nvidia-connectx-5847.json"),
             fr.bulletin_url(2026, 5755): fixture("nvidia-cuda-5755.json"),
             fr.bulletin_url(2026, 5850): fixture(toolkit),
             fr.bulletin_url(2026, 5815): fixture("nvidia-virtio-net-5815.json"),
             fr.bulletin_url(2026, 5857): fixture("nvidia-dcgm-5857.json"),
             fr.GITHUB_CONTENTS.format(year=2026): fixture("github-contents-2026.json"),
         }
-        for bulletin in (5821, 5747):
+        for bulletin in (5821, 5747, 5861):
             driver = self.json_by_url[fr.bulletin_url(2026, bulletin)]
             for version, release in driver.get("_releases", {}).items():
                 self.json_by_url[
@@ -217,8 +220,8 @@ class StubFetcher(fr.Fetcher):
 
 # Built once at import, and deliberately not on first use. A lazy build would
 # run inside whichever test called baseline() first. Several tests patch
-# fr.BULLETINS, so a first call under such a patch would record a partial table
-# that every later test then read, which makes the suite order-dependent.
+# the source fixtures, so a first call under such a patch would record a partial
+# table that every later test then read, which makes the suite order-dependent.
 _BASELINE_JSON = fr.serialize(
     fr.build_minimums(generated=GENERATED, existing={}, fetch=StubFetcher())
 )
@@ -241,7 +244,10 @@ class ExtractorTest(unittest.TestCase):
         # Both fixtures carry Windows, vGPU guest driver, and gaming branches
         # next to the Linux data-center ones.
         block = fr.nvidia_driver_minimums(fetch=self.stub)
-        self.assertEqual(sorted(block["branches"]), ["535", "570", "580", "590", "595"])
+        self.assertEqual(
+            sorted(block["branches"]),
+            ["535", "570", "580", "590", "595", "610", "615"],
+        )
         for windows in ("596.36", "591.59"):
             self.assertNotIn(windows, block["branches"].values())
 
@@ -255,9 +261,11 @@ class ExtractorTest(unittest.TestCase):
             {
                 "535": "535.309.01",
                 "570": "570.211.01",
-                "580": "580.159.03",
+                "580": "580.178.04",
                 "590": "590.48.01",
-                "595": "595.71.05",
+                "595": "595.91.07",
+                "610": "610.57.04",
+                "615": "615.71.09",
             },
         )
 
@@ -291,18 +299,26 @@ class ExtractorTest(unittest.TestCase):
     def test_a_branch_from_a_single_bulletin_still_appears(self) -> None:
         block = fr.nvidia_driver_minimums(fetch=self.stub)
         # R595 comes only from 5821, R590 only from 5747.
-        self.assertEqual(block["branches"]["595"], "595.71.05")
+        self.assertEqual(block["branches"]["595"], "595.91.07")
         self.assertEqual(block["branches"]["590"], "590.48.01")
 
     def test_driver_records_which_bulletin_produced_each_branch(self) -> None:
         block = fr.nvidia_driver_minimums(fetch=self.stub)
         self.assertEqual(
             block["branchSources"],
-            {"535": 5821, "570": 5747, "580": 5821, "590": 5747, "595": 5821},
+            {
+                "535": 5821,
+                "570": 5747,
+                "580": 5861,
+                "590": 5747,
+                "595": 5861,
+                "610": 5861,
+                "615": 5861,
+            },
         )
-        self.assertEqual([item["aId"] for item in block["sources"]], [5747, 5821])
+        self.assertEqual([item["aId"] for item in block["sources"]], [5747, 5821, 5861])
         # `source` stays the newest bulletin, so the single-source shape holds.
-        self.assertEqual(block["source"]["aId"], 5821)
+        self.assertEqual(block["source"]["aId"], 5861)
 
     def test_connectx_trains_come_from_the_bulletin(self) -> None:
         block = fr.connectx_minimums(fetch=self.stub)
@@ -310,12 +326,28 @@ class ExtractorTest(unittest.TestCase):
             [str(train) for train in block["trains"]],
             ["28", "32", "35", "39", "43", "46"],
         )
+        self.assertEqual(block["trains"]["35"], 8002)
+        self.assertEqual([item["aId"] for item in block["sources"]], [5699])
         self.assertTrue(
             all(
                 item["status"] == "confirmed"
                 for item in block["floorAvailability"].values()
             )
         )
+
+    def test_network_bulletin_for_legacy_products_is_not_applied(self) -> None:
+        doc = fixture("nvidia-connectx-5847.json")
+        self.assertEqual(fr.connectx_trains_in(doc), {})
+
+    def test_a_truncated_nvidia_tree_fails_closed(self) -> None:
+        self.stub.json_by_url[fr.NVIDIA_CSAF_TREE]["truncated"] = True
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "truncated"):
+            fr.nvidia_csaf_documents(fetch=self.stub)
+
+    def test_an_unreadable_enumerated_csaf_document_fails_closed(self) -> None:
+        del self.stub.json_by_url[fr.bulletin_url(2026, 5861)]
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "5861"):
+            fr.nvidia_csaf_documents(fetch=self.stub)
 
     def test_cuda_toolkit_minimum_and_cves(self) -> None:
         block = fr.simple_product_minimum(2026, 5755, fetch=self.stub)
@@ -1406,21 +1438,22 @@ class FailClosedTest(unittest.TestCase):
     def test_a_bulletin_set_that_would_lower_a_branch_minimum_fails(self) -> None:
         """A driver minimum only moves up. This is the point of the merge policy.
 
-        Tracking only 5747 would take R580 from 580.159.03 down to 580.126.09
+        Tracking only 5747 would take R580 from 580.178.04 down to 580.126.09
         and would drop R595 entirely, which would grade a vulnerable fleet as
         patched. The whole rebuild must fail instead.
         """
         stub = StubFetcher()
-        with mock.patch.dict(
-            fr.BULLETINS, {"nvidiaDriver": ({"year": 2026, "aId": 5747},)}
-        ):
-            with self.assertRaises(fr.MinimumRefreshError) as caught:
-                fr.build_minimums(
-                    generated="2026-07-30T00:00:00Z", existing=baseline(), fetch=stub
-                )
+        stub.json_by_url[fr.NVIDIA_CSAF_TREE]["tree"] = [
+            {"path": "2026/5699/5699.json", "type": "blob"},
+            {"path": "2026/5747/5747.json", "type": "blob"},
+        ]
+        with self.assertRaises(fr.MinimumRefreshError) as caught:
+            fr.build_minimums(
+                generated="2026-07-30T00:00:00Z", existing=baseline(), fetch=stub
+            )
         message = str(caught.exception)
         self.assertIn("nvidiaDriver.580", message)
-        self.assertIn("580.159.03", message)
+        self.assertIn("580.178.04", message)
         self.assertIn("580.126.09", message)
         self.assertIn("nvidiaDriver.595", message)
 
@@ -1430,13 +1463,14 @@ class FailClosedTest(unittest.TestCase):
             target = write_baseline(tmp)
             before = target.read_text()
             err = io.StringIO()
-            with mock.patch.dict(
-                fr.BULLETINS, {"nvidiaDriver": ({"year": 2026, "aId": 5747},)}
-            ):
-                with mock.patch.object(fr, "_DEFAULT_FETCHER", stub), redirect_stderr(err):
-                    code = fr.main(
-                        ["--write", str(target), "--generated", "2026-07-30T00:00:00Z"]
-                    )
+            stub.json_by_url[fr.NVIDIA_CSAF_TREE]["tree"] = [
+                {"path": "2026/5699/5699.json", "type": "blob"},
+                {"path": "2026/5747/5747.json", "type": "blob"},
+            ]
+            with mock.patch.object(fr, "_DEFAULT_FETCHER", stub), redirect_stderr(err):
+                code = fr.main(
+                    ["--write", str(target), "--generated", "2026-07-30T00:00:00Z"]
+                )
             self.assertEqual(code, 2)
             self.assertEqual(target.read_text(), before)
             self.assertIn("nvidiaDriver.580", err.getvalue())
@@ -1507,7 +1541,7 @@ class FailClosedTest(unittest.TestCase):
         doc = fr.build_minimums(
             generated="2026-07-30T00:00:00Z", existing=existing, fetch=StubFetcher()
         )
-        self.assertEqual(doc["components"]["nvidiaDriver"]["branches"]["580"], "580.159.03")
+        self.assertEqual(doc["components"]["nvidiaDriver"]["branches"]["580"], "580.178.04")
 
     def test_write_leaves_no_file_when_the_rebuild_fails_closed(self) -> None:
         stub = StubFetcher(toolkit="nvidia-container-toolkit-5850-reworded.json")
@@ -1541,7 +1575,7 @@ class CliTest(unittest.TestCase):
             target.write_text(json.dumps(table, indent=2, sort_keys=True) + "\n")
             code, out, err = self.run_cli(["--check", str(target)])
             self.assertEqual(code, 1)
-            self.assertIn("595.71.05", out)
+            self.assertIn("595.91.07", out)
             self.assertIn("differs", err)
 
     def test_print_pins_the_generated_timestamp(self) -> None:
@@ -1654,6 +1688,13 @@ class DetectNewBulletinsTest(unittest.TestCase):
         self.assertIn("4.5.5 LTS train", snap4["reason"])
         self.assertNotIn(5744, [item["id"] for item in found if item["status"] == "new"])
 
+    def test_5847_is_not_applicable_to_supported_networking_products(self) -> None:
+        found = self.scan()
+        item = next(item for item in found if item["id"] == 5847)
+        self.assertEqual(item["status"], "not_applicable")
+        self.assertIn("BlueField-3", item["reason"])
+        self.assertNotIn(5847, [item["id"] for item in found if item["status"] == "new"])
+
     def test_a_deferred_only_result_exits_zero_and_still_names_the_bulletin(self) -> None:
         with mock.patch.dict(fr.DEFERRED_BULLETINS, {"5871": "parser work pending"}):
             code, out, err = self.detect_cli()
@@ -1680,10 +1721,10 @@ class DetectNewBulletinsTest(unittest.TestCase):
         self.assertEqual(missing["reason"], "retired product line")
 
     def test_a_bulletin_that_is_tracked_and_deferred_raises(self) -> None:
-        with mock.patch.dict(fr.DEFERRED_BULLETINS, {"5821": "cannot be both"}):
+        with mock.patch.dict(fr.DEFERRED_BULLETINS, {"5755": "cannot be both"}):
             with self.assertRaises(fr.MinimumRefreshError) as caught:
                 fr.validate_bulletin_lists()
-            self.assertIn("5821", str(caught.exception))
+            self.assertIn("5755", str(caught.exception))
             with self.assertRaises(fr.MinimumRefreshError):
                 self.scan()
 

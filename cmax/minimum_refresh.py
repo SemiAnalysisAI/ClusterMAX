@@ -86,6 +86,14 @@ NVIDIA_RAW = "https://raw.githubusercontent.com/NVIDIA/product-security/main"
 NVIDIA_BLOB = "https://github.com/NVIDIA/product-security/blob/main"
 NVIDIA_ADVISORY = "https://nvidia.custhelp.com/app/answers/detail/a_id/{a_id}/"
 GITHUB_CONTENTS = "https://api.github.com/repos/NVIDIA/product-security/contents/{year}"
+NVIDIA_CSAF_TREE = (
+    "https://api.github.com/repos/NVIDIA/product-security/git/trees/main?recursive=1"
+)
+# ClusterMAX's NVIDIA minimum-version policy began with the 2026 bulletin set.
+# Keep that policy boundary explicit, but discover every bulletin at and after
+# it instead of keeping a list of bulletin IDs.
+NVIDIA_CSAF_START_YEAR = 2026
+NVIDIA_NETWORK_SUPPORTED_PRODUCTS = ("BlueField-3", "ConnectX-7", "ConnectX-8")
 GITHUB_RELEASE = "https://api.github.com/repos/{repo}/releases/tags/{tag}"
 OSV_QUERY_URL = "https://api.osv.dev/v1/query"
 UBUNTU_CVE_URL = "https://ubuntu.com/security/cves/"
@@ -112,20 +120,12 @@ DOCKER_DOCS_CONTENTS = (
 NVHPC_RELEASES_PAGE = "https://developer.nvidia.com/hpc-sdk/releases"
 NVHPC_RELEASE_RE = re.compile(r"\bHPC SDK\s+([0-9]{2}\.[0-9]{1,2})\b", re.IGNORECASE)
 
-# NVIDIA bulletin directories, keyed by the component they feed. The directory
-# name is the custhelp a_id of the bulletin. A new bulletin gets a new a_id, so
-# `--detect-new-bulletins` reports one and an operator updates this table.
-#
-# Every component maps to a tuple, because one component can merge several
-# bulletins. nvidiaDriver does: a driver branch keeps the highest fixed version
-# any tracked bulletin publishes for it, so an older bulletin can contribute a
-# branch that a newer one dropped without lowering the branches the newer one
-# still covers. The order inside a tuple carries no meaning.
+# NVIDIA components that still need product-specific parsers. The GPU driver
+# and ConnectX / BlueField firmware are intentionally absent: their inputs are
+# dynamically enumerated from NVIDIA_CSAF_TREE and routed from CSAF product
+# data. The remaining entries move to the same model as their reducers are
+# generalized.
 BULLETINS: dict[str, tuple[dict[str, Any], ...]] = {
-    # 5821 (May 2026) covers R535 / R580 / R595. 5747 (January 2026) is the
-    # only source for R570 and R590 and is superseded on R535 and R580.
-    "nvidiaDriver": ({"year": 2026, "aId": 5821}, {"year": 2026, "aId": 5747}),
-    "connectxFirmware": ({"year": 2026, "aId": 5699},),
     "cudaToolkit": ({"year": 2026, "aId": 5755},),
     "nvidiaContainerToolkit": ({"year": 2026, "aId": 5850},),
     "virtioNetBluefield": ({"year": 2026, "aId": 5815},),
@@ -631,6 +631,64 @@ def csaf_arch_branches(doc: dict) -> Iterator[tuple[str, list[dict]]]:
         yield from walk(top)
 
 
+def nvidia_csaf_documents(
+    fetch: Fetcher | None = None,
+    *,
+    years: Sequence[int] | None = None,
+) -> list[tuple[dict[str, int], dict]]:
+    """Enumerate and fetch every NVIDIA bulletin CSAF document in policy scope.
+
+    The Git tree is one atomic repository snapshot. A truncated tree, malformed
+    path, missing document, or tracking-id mismatch blocks the refresh; otherwise
+    a source outage could silently remove a security floor.
+    """
+    client = _fetcher(fetch)
+    tree = client.get_json(NVIDIA_CSAF_TREE)
+    if not isinstance(tree, dict) or not isinstance(tree.get("tree"), list):
+        raise MinimumRefreshError(
+            f"NVIDIA CSAF tree has an unexpected shape: {NVIDIA_CSAF_TREE}"
+        )
+    if tree.get("truncated"):
+        raise MinimumRefreshError(
+            f"NVIDIA CSAF tree is truncated: {NVIDIA_CSAF_TREE}"
+        )
+    selected_years = (
+        {int(year) for year in years}
+        if years is not None
+        else set(range(NVIDIA_CSAF_START_YEAR, datetime.now(timezone.utc).year + 1))
+    )
+    refs: list[dict[str, int]] = []
+    pattern = re.compile(r"^(\d{4})/(\d+)/(\d+)\.json$")
+    for entry in tree["tree"]:
+        if entry.get("type") != "blob":
+            continue
+        match = pattern.fullmatch(str(entry.get("path", "")))
+        if not match or match.group(2) != match.group(3):
+            continue
+        year, a_id = int(match.group(1)), int(match.group(2))
+        if year in selected_years:
+            refs.append({"year": year, "aId": a_id})
+    refs.sort(key=lambda ref: (ref["year"], ref["aId"]))
+    if not refs:
+        years_text = ", ".join(str(year) for year in sorted(selected_years))
+        raise MinimumRefreshError(
+            f"NVIDIA CSAF tree contains no bulletin documents for {years_text}"
+        )
+
+    def read(ref: dict[str, int]) -> tuple[dict[str, int], dict]:
+        doc = client.get_json(bulletin_url(ref["year"], ref["aId"]))
+        tracking_id = str(doc.get("document", {}).get("tracking", {}).get("id", ""))
+        if tracking_id != str(ref["aId"]):
+            raise MinimumRefreshError(
+                f"NVIDIA CSAF {bulletin_url(ref['year'], ref['aId'])} "
+                f"declares tracking id {tracking_id!r}"
+            )
+        return ref, doc
+
+    with ThreadPoolExecutor(max_workers=min(8, len(refs))) as pool:
+        return list(pool.map(read, refs))
+
+
 def version_key(version: str) -> tuple:
     """Order versions numerically and rank a release above its own prerelease.
 
@@ -771,11 +829,14 @@ def driver_branches_in(doc: dict) -> dict[str, str]:
 
 
 def nvidia_driver_minimums(
-    refs: Sequence[dict[str, Any]] | None = None, fetch: Fetcher | None = None
+    refs: Sequence[dict[str, Any]] | None = None,
+    fetch: Fetcher | None = None,
+    *,
+    documents: Sequence[tuple[dict[str, int], dict]] | None = None,
 ) -> dict:
-    """Merge every tracked driver bulletin into one minimum per driver branch.
+    """Merge every applicable driver bulletin into one minimum per branch.
 
-    A branch keeps the highest fixed version any tracked bulletin publishes for
+    A branch keeps the highest fixed version any applicable bulletin publishes for
     it, compared numerically. NVIDIA issues one bulletin per cycle and each one
     covers only the branches it patched, so no single bulletin lists every
     supported branch: 5821 covers R535 / R580 / R595 while R570 and R590 appear
@@ -783,15 +844,26 @@ def nvidia_driver_minimums(
     bulletin contributes without letting that bulletin lower a branch a newer
     one raised. The result does not depend on the order of `refs`.
     """
-    refs = list(refs if refs is not None else BULLETINS["nvidiaDriver"])
+    if refs is not None and documents is not None:
+        raise ValueError("pass refs or documents, not both")
+    if documents is None:
+        if refs is None:
+            documents = nvidia_csaf_documents(fetch=fetch)
+        else:
+            documents = [
+                (ref, _fetcher(fetch).get_json(bulletin_url(ref["year"], ref["aId"])))
+                for ref in refs
+            ]
     branches: dict[str, str] = {}
     branch_sources: dict[str, int] = {}
     sources: list[dict] = []
-    for ref in refs:
+    for ref, doc in documents:
         year, a_id = ref["year"], ref["aId"]
-        doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
+        extracted = driver_branches_in(doc)
+        if not extracted:
+            continue
         sources.append(nvidia_source(a_id, year, doc))
-        for branch, fixed in driver_branches_in(doc).items():
+        for branch, fixed in extracted.items():
             current = branches.get(branch)
             if current is None or version_key(fixed) > version_key(current):
                 branches[branch] = fixed
@@ -823,37 +895,102 @@ def nvidia_driver_minimums(
     }
 
 
-def connectx_minimums(
-    year: int | None = None, a_id: int | None = None, fetch: Fetcher | None = None
-) -> dict:
-    """ConnectX / BlueField firmware trains, keyed by the train number."""
-    year = year if year is not None else bulletin_ref("connectxFirmware")["year"]
-    a_id = a_id if a_id is not None else bulletin_ref("connectxFirmware")["aId"]
-    doc = _fetcher(fetch).get_json(bulletin_url(year, a_id))
-    trains: dict[str, int] = {}
+def connectx_document_applies(doc: dict) -> bool:
+    """Whether a networking bulletin covers ClusterMAX's supported hardware."""
     for arch, kids in csaf_arch_branches(doc):
-        # "BlueField-2(46), BlueField-3(46)", "N/A(28)", or a name with no train.
-        train_ids = {int(value) for value in re.findall(r"\((\d+)\)", arch)}
-        if len(train_ids) != 1:
+        if not any(
+            product.lower() in arch.lower()
+            for product in NVIDIA_NETWORK_SUPPORTED_PRODUCTS
+        ):
             continue
-        train = str(train_ids.pop())
-        fixed = resolve_fixed(kids)
-        if not fixed:
+        if any(
+            re.match(r"^(?:connectx|bluefield)(?:\s|$)", str(kid.get("name", "")), re.I)
+            for kid in kids
+        ):
+            return True
+    return False
+
+
+def connectx_trains_in(doc: dict) -> dict[str, int]:
+    """Return firmware train -> fixed patch for ConnectX / BlueField products."""
+    if not connectx_document_applies(doc):
+        return {}
+
+    trains: dict[str, int] = {}
+    network = re.compile(r"connectx|bluefield", re.IGNORECASE)
+    for arch, kids in csaf_arch_branches(doc):
+        product_text = " ".join(
+            [
+                arch,
+                *[str(kid.get("name", "")) for kid in kids],
+                *[
+                    str(kid.get("product", {}).get("product_id", ""))
+                    for kid in kids
+                ],
+            ]
+        )
+        if not network.search(product_text):
             continue
-        release, _, patch = fixed.partition(".")
-        if release != train or not patch.isdigit():
+        for label in {str(kid.get("name", "")) for kid in kids}:
+            fixed = resolve_fixed(kids, product_filter=label)
+            parts = [int(part) for part in re.findall(r"\d+", fixed or "")]
+            if len(parts) < 2:
+                continue
+            # Full NIC firmware is hardware-family.train.patch (16.35.8008);
+            # some CSAF products omit the hardware family (47.1020).
+            train, patch = str(parts[-2]), parts[-1]
+            trains[train] = max(patch, trains.get(train, 0))
+    return trains
+
+
+def connectx_minimums(
+    year: int | None = None,
+    a_id: int | None = None,
+    fetch: Fetcher | None = None,
+    *,
+    documents: Sequence[tuple[dict[str, int], dict]] | None = None,
+) -> dict:
+    """Merge every applicable CSAF bulletin into firmware train minimums."""
+    if documents is not None and (year is not None or a_id is not None):
+        raise ValueError("pass year/a_id or documents, not both")
+    if documents is None:
+        if year is not None or a_id is not None:
+            if year is None or a_id is None:
+                raise ValueError("year and a_id must be passed together")
+            ref = {"year": year, "aId": a_id}
+            documents = [(ref, _fetcher(fetch).get_json(bulletin_url(year, a_id)))]
+        else:
+            documents = nvidia_csaf_documents(fetch=fetch)
+    trains: dict[str, int] = {}
+    train_availability: dict[str, dict[str, Any]] = {}
+    sources: list[dict] = []
+    for ref, doc in documents:
+        extracted = connectx_trains_in(doc)
+        if not extracted:
             continue
-        trains[train] = max(int(patch), trains.get(train, 0))
-    availability = nvidia_csaf_fix_availability(a_id, year, doc)
+        year, a_id = ref["year"], ref["aId"]
+        source = nvidia_source(a_id, year, doc)
+        sources.append(source)
+        availability = nvidia_csaf_fix_availability(a_id, year, doc)
+        for train, patch in extracted.items():
+            if patch <= trains.get(train, -1):
+                continue
+            trains[train] = patch
+            train_availability[train] = {
+                **availability,
+                "version": f"{train}.{patch}",
+            }
+    sources.sort(key=lambda item: (str(item["released"])[:10], item["aId"]))
+    newest = sources[-1] if sources else {}
     return {
         "kind": "trainMap",
         "trains": dict(sorted(trains.items(), key=lambda kv: int(kv[0]))),
-        "floorAvailability": {
-            train: {**availability, "version": f"{train}.{patch}"}
-            for train, patch in sorted(trains.items(), key=lambda kv: int(kv[0]))
-        },
-        "advisory": NVIDIA_ADVISORY.format(a_id=a_id),
-        "source": nvidia_source(a_id, year, doc),
+        "floorAvailability": dict(
+            sorted(train_availability.items(), key=lambda kv: int(kv[0]))
+        ),
+        "advisory": NVIDIA_ADVISORY.format(a_id=newest.get("aId", "")),
+        "source": newest,
+        "sources": sorted(sources, key=lambda item: item["aId"]),
     }
 
 
@@ -2136,8 +2273,9 @@ def build_minimums(
     Raises MinimumRefreshError when a feed cannot be read or when a component
     that the existing table populates now extracts empty.
     """
-    driver = nvidia_driver_minimums(fetch=fetch)
-    connectx = connectx_minimums(fetch=fetch)
+    nvidia_documents = nvidia_csaf_documents(fetch=fetch)
+    driver = nvidia_driver_minimums(fetch=fetch, documents=nvidia_documents)
+    connectx = connectx_minimums(fetch=fetch, documents=nvidia_documents)
     cuda = simple_product_minimum(
         bulletin_ref("cudaToolkit")["year"], bulletin_ref("cudaToolkit")["aId"], fetch=fetch
     )
@@ -2413,6 +2551,10 @@ def known_bulletin_ids(existing: dict | None = None) -> set[str]:
         a_id = (block.get("source") or {}).get("aId")
         if a_id is not None:
             known.add(str(a_id))
+        for source in block.get("sources") or []:
+            source_id = source.get("aId")
+            if source_id is not None:
+                known.add(str(source_id))
     return known
 
 
@@ -2528,10 +2670,20 @@ def detect_new_bulletins(
             product = relevant_product(title) if title else None
             if not deferred and not product:
                 continue
+            not_applicable = False
+            if not deferred and product == "ConnectX / BlueField":
+                doc = client.get_json(bulletin_url(year, int(name)))
+                not_applicable = not connectx_document_applies(doc)
             item = {
                 "id": int(name),
                 "year": year,
-                "status": "deferred" if deferred else "new",
+                "status": (
+                    "deferred"
+                    if deferred
+                    else "not_applicable"
+                    if not_applicable
+                    else "new"
+                ),
                 "product": product,
                 "title": title,
                 "url": bulletin_blob_url(year, int(name)),
@@ -2539,6 +2691,11 @@ def detect_new_bulletins(
             if deferred:
                 seen_deferred.add(name)
                 item["reason"] = DEFERRED_BULLETINS[name]
+            elif not_applicable:
+                item["reason"] = (
+                    "CSAF product data does not include any supported networking product: "
+                    + ", ".join(NVIDIA_NETWORK_SUPPORTED_PRODUCTS)
+                )
             found.append(item)
     # A deferred bulletin that the scan did not reach is still reported, so an
     # entry cannot go quiet by moving year, losing its markdown file, or being
@@ -2665,6 +2822,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             found = detect_new_bulletins(existing)
             new = [item for item in found if item["status"] == "new"]
             deferred = [item for item in found if item["status"] == "deferred"]
+            not_applicable = [
+                item for item in found if item["status"] == "not_applicable"
+            ]
+            if not_applicable:
+                print("Not-applicable bulletins (from structured product matching):")
+                for item in not_applicable:
+                    print(f"  {item['id']}  {item['title']}  {item['url']}")
+                    print(f"      reason: {item['reason']}")
+                print()
             if deferred:
                 print("Deferred bulletins (a recorded decision, reviewed every run):")
                 for item in deferred:
