@@ -1474,6 +1474,17 @@ def dpu_host_isolation_result(evidence: dict[str, Any] | None = None) -> dict[st
     }
 
 
+# NVIDIA NIC/DPU firmware family identifiers (first version field).
+_NIC_FIRMWARE_FAMILIES: dict[int, tuple[str, ...]] = {
+    22: ("ConnectX-6 DX", "ConnectX-6 DE"),
+    24: ("BlueField-2",),
+    26: ("ConnectX-6 LX",),
+    28: ("ConnectX-7",),
+    32: ("BlueField-3",),
+    40: ("ConnectX-8",),
+}
+
+
 def connectx_firmware_verdict(version: str) -> Verdict:
     """Evaluate the release.patch suffix shared across ConnectX firmware families.
 
@@ -1502,17 +1513,19 @@ def connectx_firmware_verdict(version: str) -> Verdict:
         return _unknown(version, minimum, advisory, "NIC firmware version is unavailable")
     family, train, patch = parsed
     if train not in trains:
-        # Firmware family identifiers, distinct from release trains:
-        # BlueField-3 uses 32.xx; ConnectX-8 uses 40.xx. Do not extend a GA
-        # range to unknown products merely because their train is newer.
-        product = {32: "BlueField-3", 40: "ConnectX-8"}.get(family)
+        # The first firmware field identifies the hardware family. ConnectX-6
+        # DX and DE share 22, so a GA row must name both to cover 22.
+        products_for_family = _NIC_FIRMWARE_FAMILIES.get(family, ())
         for ga in block.get("gaRanges") or []:
             if not isinstance(ga, dict) or ga.get("relation") != "or-newer":
                 continue
             architectures = re.sub(r"\(\d+\)", "", str(ga.get("architectures") or ""))
-            products = {name.strip() for name in architectures.split(",")}
+            products = {name.strip().lower() for name in architectures.split(",")}
             floor = re.fullmatch(r"(\d+)\.(\d+)", str(ga.get("minimum") or ""))
-            if product in products and floor:
+            if products_for_family and floor and all(
+                name.lower() in products for name in products_for_family
+            ):
+                product = " / ".join(products_for_family)
                 minimum_pair = tuple(int(part) for part in floor.groups())
                 if (train, patch) >= minimum_pair:
                     return Verdict(
