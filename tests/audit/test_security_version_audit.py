@@ -124,11 +124,11 @@ class NvidiaDriverPolicyTests(unittest.TestCase):
         )
         self.assertEqual(security.nvidia_driver_verdict(f"{unlisted}.48.01").status, "unknown")
 
-    def test_branch_newer_than_the_bulletin_passes_with_a_re_verify_caveat(self) -> None:
+    def test_unlisted_newer_branch_requires_attestation(self) -> None:
         newest = max(int(key) for key in read_minimum("components.nvidiaDriver.branches"))
         verdict = security.nvidia_driver_verdict(f"{newest + 5}.10.02")
-        self.assertEqual(verdict.status, "pass")
-        self.assertIn(str(newest), verdict.minimum)
+        self.assertEqual(verdict.status, "unknown")
+        self.assertIn(str(newest + 5), verdict.detail)
 
     def test_non_nvidia_driver_version_is_never_graded_as_a_pass(self) -> None:
         """The amdgpu value that reached the driver check ungated.
@@ -145,8 +145,8 @@ class NvidiaDriverPolicyTests(unittest.TestCase):
         self.assertIn("does not look like an NVIDIA Linux driver version", verdict.detail)
 
     def test_implausible_branch_above_the_newest_does_not_reach_the_pass_rule(self) -> None:
-        # The dangerous direction: a first component larger than every tracked
-        # branch would otherwise take the newer-than-newest pass.
+        # An implausible first component should explain the domain error rather
+        # than look like a plausible but unassessed NVIDIA branch.
         newest = max(int(key) for key in read_minimum("components.nvidiaDriver.branches"))
         self.assertGreater(9999, newest)
         verdict = security.nvidia_driver_verdict("9999.1.1")
@@ -184,30 +184,6 @@ class NvidiaDriverPolicyTests(unittest.TestCase):
         verdict = security.nvidia_driver_verdict(minimum)
         self.assertEqual(verdict.status, "pass")
         self.assertEqual(verdict.minimum, minimum)
-
-    def test_observed_r610_fleet_stays_above_every_tracked_branch(self) -> None:
-        # 610.43.02 is the most common driver in committed runs. It is an
-        # observed version, not a minimum, so it stays a literal. It must keep the
-        # newer-than-newest pass with its caveat: regressing it to unknown would
-        # move a large share of qualified clusters to "requires attestation"
-        # with no new evidence.
-        newest = max(int(key) for key in read_minimum("components.nvidiaDriver.branches"))
-        self.assertGreater(
-            610,
-            newest,
-            "R610 is now assessed by the bulletin table, so this sample no longer "
-            "exercises the newer-than-newest path",
-        )
-        verdict = security.nvidia_driver_verdict("610.43.02")
-        # A clean pass, not a provisional one. The audit grades against
-        # published minimums, and no minimum exists for this branch yet, so there is
-        # nothing for an operator to act on. The daily refresh regrades the same
-        # reading once a minimum is published, so the detail must not ask a reader
-        # to re-verify by hand.
-        self.assertEqual(verdict.status, "pass")
-        self.assertNotIn("re-verify", verdict.detail)
-        self.assertIn(str(newest), verdict.detail)
-
 
 class ContainerToolkitPolicyTests(unittest.TestCase):
     def test_minimum_and_cves_come_from_the_generated_table(self) -> None:
@@ -501,18 +477,14 @@ class ConnectxFirmwarePolicyTests(unittest.TestCase):
         verdict = security.connectx_firmware_verdict("12.28.4702")
         self.assertEqual(verdict.status, "pass")
 
-    def test_train_newer_than_the_bulletin_passes_with_a_re_verify_caveat(self) -> None:
+    def test_unlisted_newer_train_requires_attestation(self) -> None:
         # Deployed ConnectX-8 firmware (40.47.2526) runs one train ahead of the
-        # bulletin table. Grading it unknown would move already-qualified
-        # fleets to "requires host attestation" with no new evidence.
+        # bulletin table. With no train-specific floor, the audit cannot
+        # establish that this release contains every applicable fix.
         train = max(self.trains) + 1
         verdict = security.connectx_firmware_verdict(f"40.{train}.2526")
-        # A clean pass, for the same reason as the driver branch above: no
-        # published minimum covers this train, so the detail states that and does
-        # not ask a reader to re-verify by hand.
-        self.assertEqual(verdict.status, "pass")
-        self.assertNotIn("re-verify", verdict.detail)
-        self.assertIn(str(max(self.trains)), verdict.minimum)
+        self.assertEqual(verdict.status, "unknown")
+        self.assertIn(str(train), verdict.detail)
 
     def test_older_unassessed_train_is_unknown_rather_than_failed(self) -> None:
         train = next(

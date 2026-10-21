@@ -42,6 +42,11 @@ FRAGNESIA_BLOCK = bashtest.extract_block(
     "# Ubuntu's CVE-2026-46300 (Fragnesia) Noble 6.8 fixed package carries a minimum",
     'echo "WORKER_FRAGNESIA_STATUS=${WORKER_FRAGNESIA_STATUS}"',
 )
+UBUNTU_KERNEL_BLOCK = bashtest.extract_block(
+    HOST_CHECK,
+    "# The package-wide Ubuntu Noble kernel floor is derived from every matching",
+    'echo "WORKER_UBUNTU_KERNEL_MINIMUM_STATUS=${WORKER_UBUNTU_KERNEL_MINIMUM_STATUS}"',
+)
 
 # The two collectors' calls into the shared advisory builder, executed verbatim
 # so the convergence test compares real call sites rather than paraphrases.
@@ -133,6 +138,9 @@ class TempDirMixin(unittest.TestCase):
 
 def minimum_table(
     *,
+    linux_abi: int = 210,
+    linux_fixed: str = "6.8.0-210.210",
+    linux_status: str = "released",
     fragnesia_abi: int = 200,
     fragnesia_fixed: str = "6.8.0-200.200",
     fragnesia_status: str = "released",
@@ -172,6 +180,12 @@ def minimum_table(
                 "kind": "distroPackages",
                 "release": "noble",
                 "packages": {
+                    "linux": {
+                        "abi": linux_abi,
+                        "fixed": linux_fixed,
+                        "package": "linux",
+                        "status": linux_status,
+                    },
                     "linuxFragnesia": fragnesia,
                     "linuxJanuscape": {
                         "cve": "CVE-2026-53359",
@@ -270,6 +284,75 @@ class FragnesiaAbiMinimumTests(TempDirMixin):
         facts = self.check("5.15.0-100-generic", **env)
 
         self.assertEqual(facts["WORKER_FRAGNESIA_STATUS"], "not-applicable")
+
+
+class UbuntuKernelAggregateMinimumTests(TempDirMixin):
+    """The package-wide Noble floor is enforced independently of named CVEs."""
+
+    def check(
+        self,
+        kernel: str,
+        *,
+        distro: str = "ubuntu",
+        release: str = "24.04",
+        **env: str,
+    ) -> dict[str, str]:
+        preamble = (
+            f"ID={distro}\n"
+            f"VERSION_ID={release}\n"
+            f"WORKER_GUEST_KERNEL_RUNNING={kernel}\n"
+        )
+        run = bashtest.run_bash(preamble + UBUNTU_KERNEL_BLOCK, env=env)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return dict(
+            line.split("=", 1) for line in run.stdout.splitlines() if "=" in line
+        )
+
+    def write_table(self, **kwargs) -> dict[str, str]:
+        table = self.write_minimum_table(minimum_table(**kwargs))
+        return {
+            "CLUSTERMAX_MINIMUM_VERSIONS": str(table),
+            "CLUSTERMAX_MINIMUM_VERSIONS_READER": str(MINIMUMS_READER),
+            "CLUSTERMAX_UBUNTU_KERNEL_ABI_MINIMUM": "",
+        }
+
+    def test_at_floor_passes_and_one_below_fails(self) -> None:
+        env = self.write_table(linux_abi=210)
+        passing = self.check("6.8.0-210-generic", **env)
+        failing = self.check("6.8.0-209-generic", **env)
+        self.assertEqual(passing["WORKER_UBUNTU_KERNEL_MINIMUM_STATUS"], "pass")
+        self.assertEqual(failing["WORKER_UBUNTU_KERNEL_MINIMUM_STATUS"], "fail")
+        self.assertEqual(failing["WORKER_UBUNTU_KERNEL_ABI_FLOOR"], "210")
+
+    def test_minimum_moves_with_the_table(self) -> None:
+        kernel = "6.8.0-200-generic"
+        below = self.check(kernel, **self.write_table(linux_abi=210))
+        above = self.check(kernel, **self.write_table(linux_abi=190))
+        self.assertEqual(below["WORKER_UBUNTU_KERNEL_MINIMUM_STATUS"], "fail")
+        self.assertEqual(above["WORKER_UBUNTU_KERNEL_MINIMUM_STATUS"], "pass")
+
+    def test_missing_minimum_fails_closed(self) -> None:
+        facts = self.check(
+            "6.8.0-210-generic",
+            CLUSTERMAX_MINIMUM_VERSIONS="/nonexistent/minimum-versions.json",
+            CLUSTERMAX_MINIMUM_VERSIONS_READER=str(MINIMUMS_READER),
+            CLUSTERMAX_UBUNTU_KERNEL_ABI_MINIMUM="",
+        )
+        self.assertEqual(facts["WORKER_UBUNTU_KERNEL_ABI_FLOOR"], "unknown")
+        self.assertEqual(facts["WORKER_UBUNTU_KERNEL_MINIMUM_STATUS"], "unknown")
+
+    def test_unassessed_noble_kernel_series_is_unknown(self) -> None:
+        facts = self.check("6.11.0-20-generic", **self.write_table())
+        self.assertEqual(facts["WORKER_UBUNTU_KERNEL_ABI"], "unknown")
+        self.assertEqual(facts["WORKER_UBUNTU_KERNEL_MINIMUM_STATUS"], "unknown")
+
+    def test_non_noble_is_not_applicable(self) -> None:
+        facts = self.check(
+            "6.8.0-210-generic", release="22.04", **self.write_table()
+        )
+        self.assertEqual(
+            facts["WORKER_UBUNTU_KERNEL_MINIMUM_STATUS"], "not-applicable"
+        )
 
 
 class FragnesiaFailSafeTests(TempDirMixin):
@@ -377,6 +460,13 @@ class AdvisoryBlockTests(TempDirMixin):
 
         self.assertEqual(block["fragnesia"]["ubuntuNoblePackageMinimum"], "6.8.0-200.200")
         self.assertEqual(block["fragnesia"]["ubuntuNoblePackageMinimumAbi"], "200")
+        self.assertEqual(
+            block["ubuntuNobleKernelMinimum"]["ubuntuNoblePackageMinimum"],
+            "6.8.0-210.210",
+        )
+        self.assertEqual(
+            block["ubuntuNobleKernelMinimum"]["ubuntuNoblePackageMinimumAbi"], "210"
+        )
         self.assertEqual(block["fragnesia"]["cve"], "CVE-2026-46300")
         self.assertEqual(
             block["fragnesia"]["relatedCves"], ["CVE-2026-43284", "CVE-2026-43500"]
@@ -479,6 +569,9 @@ class CollectorConvergenceTests(TempDirMixin):
         k8s_facts = {
             "HP_FRAGNESIA_STATUS": "fail",
             "HP_FRAGNESIA_ABI_MINIMUM": "200",
+            "HP_UBUNTU_KERNEL_STATUS": "pass",
+            "HP_UBUNTU_KERNEL_ABI": "210",
+            "HP_UBUNTU_KERNEL_ABI_MINIMUM": "210",
             "HP_NESTED_CPU": "true",
             "HP_KVM_DEVICE": "true",
             "HP_NESTED_MODULE": "kvm_amd",
@@ -489,6 +582,9 @@ class CollectorConvergenceTests(TempDirMixin):
         shared_facts = {
             "WORKER_FRAGNESIA_STATUS": "fail",
             "WORKER_FRAGNESIA_ABI_FLOOR": "200",
+            "WORKER_UBUNTU_KERNEL_MINIMUM_STATUS": "pass",
+            "WORKER_UBUNTU_KERNEL_ABI": "210",
+            "WORKER_UBUNTU_KERNEL_ABI_FLOOR": "210",
             "WORKER_NESTED_CPU_EXPOSED": "true",
             "WORKER_KVM_DEVICE": "true",
             "WORKER_NESTED_MODULE": "kvm_amd",
@@ -521,6 +617,10 @@ class CollectorConvergenceTests(TempDirMixin):
         members = json.loads("{" + k8s.stdout + '"sentinel": true}')
         self.assertEqual(members["fragnesia"]["ubuntuNoblePackageMinimumAbi"], "200")
         self.assertEqual(members["fragnesia"]["comparedAbiFloor"], "200")
+        self.assertEqual(members["ubuntuNobleKernelMinimum"]["status"], "pass")
+        self.assertEqual(
+            members["ubuntuNobleKernelMinimum"]["comparedAbiFloor"], "210"
+        )
         self.assertEqual(members["januscape"]["ubuntuNobleFixStatus"], "pending")
 
 
@@ -535,13 +635,14 @@ class K8sCheckDeliveryTests(TempDirMixin):
             path.write_text(json.dumps(table))
             env["CLUSTERMAX_MINIMUM_VERSIONS"] = str(path)
 
-        # Stand in for host-check.sh with its real Fragnesia block, so the whole
-        # k8s delivery path (collector resolves the minimum -> pipes it ahead of
-        # the check -> check grades with it) executes end to end. The full check
-        # is not run because it touches cluster hardware.
+        # Stand in for host-check.sh with its two real kernel-floor blocks, so
+        # the whole k8s delivery path executes end to end. The full check is not
+        # run because it touches cluster hardware.
         (tmp / "host-check.sh").write_text(
             "ID=ubuntu\nVERSION_ID=24.04\n"
-            "WORKER_GUEST_KERNEL_RUNNING=6.8.0-150-generic\n" + FRAGNESIA_BLOCK
+            "WORKER_GUEST_KERNEL_RUNNING=6.8.0-150-generic\n"
+            + FRAGNESIA_BLOCK
+            + UBUNTU_KERNEL_BLOCK
         )
         stdin_fn = bashtest.extract_function(K8S_COLLECTOR, "host_check_stdin")
         return bashtest.run_bash(
@@ -559,6 +660,8 @@ class K8sCheckDeliveryTests(TempDirMixin):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("WORKER_FRAGNESIA_ABI_FLOOR=200", run.stdout)
         self.assertIn("WORKER_FRAGNESIA_STATUS=fail", run.stdout)
+        self.assertIn("WORKER_UBUNTU_KERNEL_ABI_FLOOR=210", run.stdout)
+        self.assertIn("WORKER_UBUNTU_KERNEL_MINIMUM_STATUS=fail", run.stdout)
 
     def test_lower_piped_minimum_passes_the_same_worker(self) -> None:
         run = self.deliver(minimum_table(fragnesia_abi=140))
@@ -566,6 +669,8 @@ class K8sCheckDeliveryTests(TempDirMixin):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("WORKER_FRAGNESIA_ABI_FLOOR=140", run.stdout)
         self.assertIn("WORKER_FRAGNESIA_STATUS=pass", run.stdout)
+        self.assertIn("WORKER_UBUNTU_KERNEL_ABI_FLOOR=210", run.stdout)
+        self.assertIn("WORKER_UBUNTU_KERNEL_MINIMUM_STATUS=fail", run.stdout)
 
     def test_unresolvable_table_pipes_unknown_and_keeps_running(self) -> None:
         run = self.deliver(None)
@@ -574,6 +679,8 @@ class K8sCheckDeliveryTests(TempDirMixin):
         self.assertIn("WORKER_FRAGNESIA_ABI_FLOOR=unknown", run.stdout)
         self.assertIn("WORKER_FRAGNESIA_STATUS=unknown", run.stdout)
         self.assertNotIn("WORKER_FRAGNESIA_STATUS=pass", run.stdout)
+        self.assertIn("WORKER_UBUNTU_KERNEL_ABI_FLOOR=unknown", run.stdout)
+        self.assertIn("WORKER_UBUNTU_KERNEL_MINIMUM_STATUS=unknown", run.stdout)
 
 
 class ContainerRecommendationMinimumTests(TempDirMixin):

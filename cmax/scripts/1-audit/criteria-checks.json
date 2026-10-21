@@ -131,6 +131,17 @@
       ]
     },
     {
+      "id": "ubuntu-kernel-minimum-version",
+      "label": "Ubuntu Noble aggregate kernel security minimum",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
       "id": "ubuntu-kernel-fragnesia-dirty-frag",
       "label": "Fragnesia / Dirty Frag kernel fix",
       "category": "Security",

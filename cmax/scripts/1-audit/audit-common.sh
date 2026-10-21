@@ -149,6 +149,9 @@ minimum_version_grace() {
 # Every option is optional and takes a value:
 #   --fragnesia-status         graded Fragnesia state from the check
 #   --fragnesia-compared-abi   ABI minimum the check actually compared against
+#   --ubuntu-kernel-status     aggregate Noble linux package-floor verdict
+#   --ubuntu-kernel-abi        running 6.8 kernel ABI observed by the check
+#   --ubuntu-kernel-floor      aggregate ABI minimum the check compared against
 #   --januscape-cpu-exposed    JSON bool: guest-visible svm/vmx
 #   --januscape-kvm-exposed    JSON bool: /dev/kvm present
 #   --januscape-module         loaded KVM module name
@@ -162,6 +165,8 @@ minimum_version_grace() {
 # "unknown" as well. Neither ever becomes a value that reads as a pass.
 build_security_advisory_json() {
     local fragnesia_status="unknown" fragnesia_compared_abi="unknown"
+    local ubuntu_kernel_status="unknown" ubuntu_kernel_abi="unknown"
+    local ubuntu_kernel_floor="unknown"
     local januscape_cpu="false" januscape_kvm="false" januscape_module="none"
     local januscape_nested="unknown" januscape_exposed='"unknown"'
     local januscape_status="unknown"
@@ -173,6 +178,9 @@ build_security_advisory_json() {
         case "$1" in
             --fragnesia-status) fragnesia_status="$2"; shift 2 ;;
             --fragnesia-compared-abi) fragnesia_compared_abi="$2"; shift 2 ;;
+            --ubuntu-kernel-status) ubuntu_kernel_status="$2"; shift 2 ;;
+            --ubuntu-kernel-abi) ubuntu_kernel_abi="$2"; shift 2 ;;
+            --ubuntu-kernel-floor) ubuntu_kernel_floor="$2"; shift 2 ;;
             --januscape-cpu-exposed) januscape_cpu="$2"; shift 2 ;;
             --januscape-kvm-exposed) januscape_kvm="$2"; shift 2 ;;
             --januscape-module) januscape_module="$2"; shift 2 ;;
@@ -186,11 +194,13 @@ build_security_advisory_json() {
     done
 
     local frag_cve frag_related frag_fixed frag_abi frag_fix_status
+    local ubuntu_kernel_fixed ubuntu_kernel_abi_min ubuntu_kernel_fix_status
     local frag_grace="null"
     local jan_cve jan_fixed jan_fix_status
     local qemu_cve qemu_fixed qemu_fix_status
     local vmscape_cve vmscape_fixed vmscape_fix_status
     local frag_key="components.ubuntuNoble.packages.linuxFragnesia"
+    local ubuntu_kernel_key="components.ubuntuNoble.packages.linux"
     local jan_key="components.ubuntuNoble.packages.linuxJanuscape"
     local qemu_key="components.ubuntuNoble.packages.qemu"
     local vmscape_key="components.ubuntuNoble.packages.linuxVmscape"
@@ -200,6 +210,9 @@ build_security_advisory_json() {
     frag_fixed=$(minimum_version "${frag_key}.fixed")
     frag_abi=$(minimum_version "${frag_key}.abi")
     frag_fix_status=$(minimum_version "${frag_key}.status")
+    ubuntu_kernel_fixed=$(minimum_version "${ubuntu_kernel_key}.fixed")
+    ubuntu_kernel_abi_min=$(minimum_version "${ubuntu_kernel_key}.abi")
+    ubuntu_kernel_fix_status=$(minimum_version "${ubuntu_kernel_key}.status")
     if [[ "$fragnesia_status" == "fail" ]] && \
         frag_grace=$(minimum_version_grace ubuntuNoble linuxFragnesia); then
         fragnesia_status="pass"
@@ -231,6 +244,14 @@ build_security_advisory_json() {
       "ubuntuNoblePackageMinimumAbi": "${frag_abi}",
       "ubuntuNobleFixStatus": "${frag_fix_status}",
       "comparedAbiFloor": "${fragnesia_compared_abi}"
+    },
+    "ubuntuNobleKernelMinimum": {
+      "status": "${ubuntu_kernel_status}",
+      "runningKernelAbi": "${ubuntu_kernel_abi}",
+      "ubuntuNoblePackageMinimum": "${ubuntu_kernel_fixed}",
+      "ubuntuNoblePackageMinimumAbi": "${ubuntu_kernel_abi_min}",
+      "ubuntuNobleFixStatus": "${ubuntu_kernel_fix_status}",
+      "comparedAbiFloor": "${ubuntu_kernel_floor}"
     },
     "januscape": {
       "cve": "${jan_cve}",
@@ -994,6 +1015,9 @@ build_audit_json() {
     security_advisory_json=$(build_security_advisory_json \
         --fragnesia-status "${WORKER_FRAGNESIA_STATUS:-unknown}" \
         --fragnesia-compared-abi "${WORKER_FRAGNESIA_ABI_FLOOR:-unknown}" \
+        --ubuntu-kernel-status "${WORKER_UBUNTU_KERNEL_MINIMUM_STATUS:-unknown}" \
+        --ubuntu-kernel-abi "${WORKER_UBUNTU_KERNEL_ABI:-unknown}" \
+        --ubuntu-kernel-floor "${WORKER_UBUNTU_KERNEL_ABI_FLOOR:-unknown}" \
         --januscape-cpu-exposed "${WORKER_NESTED_CPU_EXPOSED:-false}" \
         --januscape-kvm-exposed "${WORKER_KVM_DEVICE:-false}" \
         --januscape-module "${WORKER_NESTED_MODULE:-none}" \

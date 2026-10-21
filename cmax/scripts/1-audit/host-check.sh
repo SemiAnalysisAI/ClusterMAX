@@ -404,6 +404,58 @@ echo "WORKER_FRAGNESIA_ABI=${WORKER_FRAGNESIA_ABI}"
 echo "WORKER_FRAGNESIA_ABI_FLOOR=${WORKER_FRAGNESIA_ABI_FLOOR}"
 echo "WORKER_FRAGNESIA_STATUS=${WORKER_FRAGNESIA_STATUS}"
 
+# The package-wide Ubuntu Noble kernel floor is derived from every matching
+# Canonical USN. Keep this aggregate verdict separate from the named CVE checks
+# above: the named findings retain attribution, while this check prevents a new
+# kernel advisory from waiting for collector code before it affects grading.
+WORKER_UBUNTU_KERNEL_ABI_FLOOR="${CLUSTERMAX_UBUNTU_KERNEL_ABI_MINIMUM:-}"
+if [[ ! "$WORKER_UBUNTU_KERNEL_ABI_FLOOR" =~ ^[0-9]+$ ]]; then
+    WORKER_UBUNTU_KERNEL_ABI_FLOOR=""
+    ubuntu_kernel_check_dir=""
+    if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+        ubuntu_kernel_check_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd) \
+            || ubuntu_kernel_check_dir=""
+    fi
+    ubuntu_kernel_readers=()
+    [[ -n "$ubuntu_kernel_check_dir" ]] \
+        && ubuntu_kernel_readers+=("$ubuntu_kernel_check_dir/minimum_versions.py")
+    [[ -n "${CLUSTERMAX_MINIMUM_VERSIONS_READER:-}" ]] \
+        && ubuntu_kernel_readers+=("$CLUSTERMAX_MINIMUM_VERSIONS_READER")
+    if command -v python3 >/dev/null 2>&1; then
+        for ubuntu_kernel_reader in "${ubuntu_kernel_readers[@]}"; do
+            [[ -f "$ubuntu_kernel_reader" ]] || continue
+            WORKER_UBUNTU_KERNEL_ABI_FLOOR=$(python3 "$ubuntu_kernel_reader" \
+                --get components.ubuntuNoble.packages.linux.abi 2>/dev/null) \
+                || WORKER_UBUNTU_KERNEL_ABI_FLOOR=""
+            [[ -n "$WORKER_UBUNTU_KERNEL_ABI_FLOOR" ]] && break
+        done
+    fi
+fi
+[[ "$WORKER_UBUNTU_KERNEL_ABI_FLOOR" =~ ^[0-9]+$ ]] \
+    || WORKER_UBUNTU_KERNEL_ABI_FLOOR=unknown
+
+WORKER_UBUNTU_KERNEL_ABI=unknown
+WORKER_UBUNTU_KERNEL_MINIMUM_STATUS=not-applicable
+if [[ "${ID:-unknown}" == ubuntu && "${VERSION_ID:-unknown}" == 24.04 ]]; then
+    WORKER_UBUNTU_KERNEL_MINIMUM_STATUS=unknown
+    if [[ "$WORKER_GUEST_KERNEL_RUNNING" == 6.8.* ]]; then
+        WORKER_UBUNTU_KERNEL_ABI=$(printf '%s\n' "$WORKER_GUEST_KERNEL_RUNNING" \
+            | sed -nE 's/^6\.8\.0-([0-9]+).*/\1/p')
+        [[ -n "$WORKER_UBUNTU_KERNEL_ABI" ]] || WORKER_UBUNTU_KERNEL_ABI=unknown
+        if [[ "$WORKER_UBUNTU_KERNEL_ABI" =~ ^[0-9]+$ \
+                && "$WORKER_UBUNTU_KERNEL_ABI_FLOOR" =~ ^[0-9]+$ ]]; then
+            if (( WORKER_UBUNTU_KERNEL_ABI >= WORKER_UBUNTU_KERNEL_ABI_FLOOR )); then
+                WORKER_UBUNTU_KERNEL_MINIMUM_STATUS=pass
+            else
+                WORKER_UBUNTU_KERNEL_MINIMUM_STATUS=fail
+            fi
+        fi
+    fi
+fi
+echo "WORKER_UBUNTU_KERNEL_ABI=${WORKER_UBUNTU_KERNEL_ABI}"
+echo "WORKER_UBUNTU_KERNEL_ABI_FLOOR=${WORKER_UBUNTU_KERNEL_ABI_FLOOR}"
+echo "WORKER_UBUNTU_KERNEL_MINIMUM_STATUS=${WORKER_UBUNTU_KERNEL_MINIMUM_STATUS}"
+
 # --- Hypervisor security bulletins (read-only, never triggers a PoC) ---
 # These checks identify guest-visible prerequisites and exact versions. Host
 # patch state cannot be proven from a tenant VM, so unknown host facts remain

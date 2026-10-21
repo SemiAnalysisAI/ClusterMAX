@@ -771,6 +771,18 @@ RULES: tuple[Rule, ...] = (
         lambda value: value is True or str(value).strip().lower() in {"true", "1", "yes"},
     ),
     Rule(
+        "security.ubuntuNobleKernelMinimum.status",
+        "Running Ubuntu Noble kernel is below the aggregate security minimum",
+        VERSION,
+        _status_is("fail"),
+    ),
+    Rule(
+        "security.ubuntuNobleKernelMinimum.status",
+        "Ubuntu Noble kernel security minimum could not be verified",
+        CONFIG,
+        _status_is("unknown"),
+    ),
+    Rule(
         "security.fragnesia.status",
         "Running kernel is exposed to Fragnesia and Dirty Frag",
         VERSION,
@@ -1337,6 +1349,7 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "securityVersions.dpuHostIsolation.status": "security-dpu-host-isolation",
     "security.januscape.status": "security-januscape",
     "security.guestKernel.newerInstalled": "guest-kernel-current",
+    "security.ubuntuNobleKernelMinimum.status": "ubuntu-kernel-minimum-version",
     "security.fragnesia.status": "ubuntu-kernel-fragnesia-dirty-frag",
     "containers.nvidiaContainerToolkit": "container-toolkit",
     "containers.workerCheckOk": None,
