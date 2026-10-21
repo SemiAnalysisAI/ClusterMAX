@@ -115,7 +115,7 @@ class AuditCommandTests(unittest.TestCase):
         self.assertIn("status:", detail)
         self.assertIn("observed:", detail)
 
-    def test_find_searches_keys_titles_and_observed_values(self) -> None:
+    def test_find_searches_check_keys(self) -> None:
         result, _ = audit_review.execute_command(
             "find nvidiaContainerToolkit", self.artifacts, self.checks
         )
@@ -217,6 +217,10 @@ class AuditReviewCliTests(unittest.TestCase):
                 "cmax.audit_review.find_latest", return_value=artifacts
             ) as find_latest,
             mock.patch("cmax.audit_review.run", return_value=0) as run,
+            mock.patch(
+                "cmax.security.detect_target",
+                side_effect=AssertionError("saved review must not detect a live target"),
+            ),
         ):
             rc = cli.main(["audit", "review", "--no-interactive"])
 

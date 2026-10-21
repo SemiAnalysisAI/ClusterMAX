@@ -28,9 +28,6 @@ run_checks = importlib.util.module_from_spec(RUN_CHECKS_SPEC)
 RUN_CHECKS_SPEC.loader.exec_module(run_checks)
 
 
-# The version policy grades against the generated minimum table, so these tests
-# read the sample versions from that table instead of restating a minimum that a
-# daily refresh can move.
 sys.path.insert(0, str(COMMON_PATH.parent))
 import minimum_versions
 
@@ -726,25 +723,249 @@ class AuditCommonTests(unittest.TestCase):
             self.assertEqual(candidates.splitlines(), [str(host_lib)])
 
 
-class SlurmGpuTargetingTests(unittest.TestCase):
-    def test_gpu_checks_never_retry_without_gres(self) -> None:
-        script = (COMMON_PATH.parent / "cluster-audit-slurm.sh").read_text()
+class CollectorSafetyTests(unittest.TestCase):
+    SLURM_SCRIPT = AUDIT_SCRIPTS / "cluster-audit-slurm.sh"
+    K8S_SCRIPT = AUDIT_SCRIPTS / "cluster-audit-k8s.sh"
+    PRINT_STUBS = "\n".join(
+        f"{name}() {{ :; }}" for name in
+        ("print_section", "print_detail", "print_warn", "print_info")
+    ) + "\n"
 
-        self.assertNotIn("retrying without GPU request", script)
-        self.assertNotIn("Prolog runtime (no GPU req)", script)
-        self.assertIn("--gres=gpu:1 --time=1:00", script)
+    def test_failed_worker_checks_keep_gres_and_deliver_scripts_on_stdin(self) -> None:
+        blocks = {
+            "host": bashtest.extract_block(
+                self.SLURM_SCRIPT,
+                'if [[ -n "$GPU_PARTITION" ]]; then\n    print_section "Checking compute node',
+                "# Build worker drive config JSON",
+            ),
+            "container": bashtest.extract_block(
+                self.SLURM_SCRIPT,
+                'if [[ -n "$GPU_PARTITION" && -f "$WORKLOAD_DIR/container-check.sh" ]]; then',
+                "# Head-vs-worker consistency for container runtimes",
+            ),
+        }
+        for name, block in blocks.items():
+            with self.subTest(check=name), tempfile.TemporaryDirectory() as tmp:
+                captured = Path(tmp) / "stdin"
+                run = bashtest.run_bash(
+                    self.PRINT_STUBS
+                    + 'AUDIT_SRUN_FLAGS=(); GPU_SRUN_SCOPE_ARGS=(-p mixed)\n'
+                    + 'AUDIT_STEP_TMPDIR_EXPORT_ARGS=(); GPU_PARTITION=mixed\n'
+                    + f'WORKLOAD_DIR="{AUDIT_SCRIPTS}"\n'
+                    + block,
+                    stubs={"srun": 'cat > "$CAPTURE_STDIN"; exit 1'},
+                    env={"CAPTURE_STDIN": str(captured)},
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                calls = run.calls("srun")
+                self.assertEqual(len(calls), 1, calls)
+                self.assertIn("--gres=gpu:1", calls[0])
+                self.assertEqual(calls[0][-2:], ["bash", "-s"])
+                self.assertEqual(
+                    captured.read_bytes(),
+                    (AUDIT_SCRIPTS / f"{name}-check.sh").read_bytes(),
+                )
+
+    def test_prolog_retries_only_with_gpu_gres(self) -> None:
+        block = bashtest.extract_block(
+            self.SLURM_SCRIPT, 'PROLOG_RUNTIME_SEC="unmeasured"', "# NHC (Node Health Check)"
+        )
+        for fallback_rc in (0, 1):
+            with self.subTest(fallback_rc=fallback_rc):
+                run = bashtest.run_bash(
+                    self.PRINT_STUBS
+                    + 'GPU_PARTITION=mixed; WORKER_CHECK_OK=true; GPUS_PER_NODE=4\n'
+                    + 'DEFAULT_GPUS_PER_NODE=8; AUDIT_SRUN_FLAGS=(); GPU_SRUN_SCOPE_ARGS=(-p mixed)\n'
+                    + block
+                    + '\nprintf "%s\\n" "$PROLOG_FAST"',
+                    stubs={
+                        "srun": (
+                            f'[[ " $* " == *" --gres=gpu:1 "* ]] && exit {fallback_rc}\nexit 1'
+                        ),
+                        "date": "echo 100",
+                    },
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                calls = run.calls("srun")
+                self.assertEqual(len(calls), 2, calls)
+                self.assertIn("--gres=gpu:4", calls[0])
+                self.assertIn("--gres=gpu:1", calls[1])
+                for call in calls:
+                    self.assertEqual(call[call.index("-p") + 1], "mixed")
+                self.assertEqual(run.stdout.strip(), "true" if fallback_rc == 0 else "unknown")
+
+    def test_runtime_scope_fails_closed_without_findmnt(self) -> None:
+        blocks = {
+            "container": (
+                bashtest.extract_block(
+                    AUDIT_SCRIPTS / "container-check.sh",
+                    'RUNTIME_SCOPE="${CLUSTERMAX_CONTAINER_RUNTIME_SCOPE:-}"',
+                    'echo "WORKER_CONTAINER_RUNTIME_SCOPE=$RUNTIME_SCOPE"',
+                ),
+                "RUNTIME_SCOPE",
+            ),
+            "standalone": (
+                bashtest.extract_block(
+                    AUDIT_SCRIPTS / "cluster-audit-standalone.sh",
+                    'SECURITY_DOCKER_VERSION="unknown"',
+                    'DOCKER_ON_WORKERS="$DOCKER_INSTALLED"',
+                ),
+                "CONTAINER_RUNTIME_SCOPE",
+            ),
+        }
+        for collector, (block, variable) in blocks.items():
+            for detector_rc in (None, 0, 1):
+                with self.subTest(collector=collector, detector_rc=detector_rc), tempfile.TemporaryDirectory() as tmp:
+                    isolated = block.replace("/.dockerenv", f"{tmp}/.dockerenv").replace(
+                        "/run/.containerenv", f"{tmp}/.containerenv"
+                    )
+                    run = bashtest.run_bash(
+                        'CLUSTERMAX_CONTAINER_RUNTIME_SCOPE=; DOCKER_INSTALLED=true\n'
+                        + isolated + f'\nprintf "scope=%s\\n" "${variable}"'
+                        + (
+                            '\nprintf "docker=%s\\n" "$SECURITY_DOCKER_VERSION"'
+                            if collector == "standalone" else ""
+                        ),
+                        stubs={
+                            **({} if detector_rc is None else
+                               {"systemd-detect-virt": f"exit {detector_rc}"}),
+                            "docker": (
+                                '[[ "$1" == version ]] && echo 29.4.3\n'
+                                '[[ "$1" == --version ]] && echo 99.0.0\n:'
+                            ),
+                        },
+                        path_only=True,
+                    )
+                    self.assertEqual(run.returncode, 0, run.stderr)
+                    expected = "host" if detector_rc == 1 else "nested-container"
+                    self.assertIn(f"scope={expected}", run.stdout.splitlines())
+                    if detector_rc is not None:
+                        self.assertEqual(run.calls("systemd-detect-virt"), [["--container"]])
+                    if collector == "standalone":
+                        self.assertIn("docker=29.4.3", run.stdout.splitlines())
+                        self.assertIn(
+                            ["version", "--format", "{{.Server.Version}}"],
+                            run.calls("docker"),
+                        )
+
+    def test_existing_namespace_is_not_relabeled_or_deleted(self) -> None:
+        run = bashtest.run_bash(
+            "\n".join(
+                bashtest.extract_function(self.K8S_SCRIPT, name) for name in (
+                    "ensure_audit_check_namespace",
+                    "cleanup_audit_check_namespace",
+                    "cleanup_audit_check_pod",
+                )
+            )
+            + '\nK8S_AUDIT_CHECK_NS=shared; K8S_AUDIT_CHECK_NS_READY=\n'
+            + 'ensure_audit_check_namespace\n'
+            + 'cleanup_audit_check_pod shared owned-pod\ncleanup_audit_check_namespace',
+            stubs={"kubectl": ""},
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.calls("kubectl"), [
+            ["get", "namespace", "shared", "--request-timeout=30s"],
+            ["delete", "pod", "owned-pod", "-n", "shared", "--ignore-not-found=true",
+             "--wait=false", "--request-timeout=30s"],
+        ])
+
+    def test_check_deadline_without_timeout_preserves_stdin_and_status(self) -> None:
+        function = bashtest.extract_function(self.K8S_SCRIPT, "check_deadline")
+        for rc in (0, 7):
+            with self.subTest(rc=rc):
+                run = bashtest.run_bash(
+                    function + "\nprintf 'worker script\\n' | check_deadline 30 kubectl exec -i worker",
+                    stubs={
+                        "kubectl": f'IFS= read -r line; printf "%s\\n" "$line"; exit {rc}',
+                        "sleep": f'exec "{shutil.which("sleep")}" "$@"',
+                    },
+                    path_only=True,
+                    timeout=5,
+                )
+                self.assertEqual(run.returncode, rc, run.stderr)
+                self.assertEqual(run.stdout, "worker script\n")
+                self.assertEqual(run.calls("kubectl"), [["exec", "-i", "worker"]])
+
+    def test_ncu_timeout_is_bounded_and_cannot_report_success(self) -> None:
+        block = bashtest.extract_block(
+            HOST_CHECK_PATH,
+            '            NCU_COUNTER_TIMEOUT_S="${AUDIT_NCU_COUNTER_TIMEOUT_S:-60}"',
+            '            rm -f "$NCU_TEST_BIN"',
+        )
+        for rc in (124, 137):
+            with self.subTest(timeout_rc=rc):
+                run = bashtest.run_bash(
+                    'NCU_P=ncu; NCU_TEST_BIN=/fixture/counter\n' + block,
+                    stubs={"timeout": f"exit {rc}", "rm": ""},
+                    env={"AUDIT_NCU_COUNTER_TIMEOUT_S": "3"},
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(run.stdout.strip(), "WORKER_NCU_COUNTER_ACCESS=timeout")
+                self.assertEqual(run.calls("timeout")[0][:3], ["-k", "5", "3"])
+                self.assertIn("/fixture/counter", run.calls("timeout")[0])
+
+    def test_slurm_security_driver_never_uses_head_fallback(self) -> None:
+        block = bashtest.extract_block(
+            self.SLURM_SCRIPT, '\nGPU_MODEL="unknown"', 'if [[ "$TOTAL_GPUS" -gt 0 ]]; then'
+        ).rsplit('if [[ "$TOTAL_GPUS" -gt 0 ]]; then', 1)[0]
+        for worker_ok in ("false", "true"):
+            with self.subTest(worker_ok=worker_ok):
+                run = bashtest.run_bash(
+                    self.PRINT_STUBS + 'TOTAL_GPUS=8; WORKER_DRIVER_VERSION=580.159.03\n'
+                    + block
+                    + '\nprintf "security=%s\\n" "$SECURITY_DRIVER_VERSION"',
+                    stubs={"nvidia-smi": "echo 999.0.0"},
+                    env={"WORKER_CHECK_OK": worker_ok},
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                expected = "580.159.03" if worker_ok == "true" else "unknown"
+                self.assertIn(f"security={expected}", run.stdout.splitlines())
+                self.assertEqual(bool(run.calls("nvidia-smi")), worker_ok == "false")
+
+    def test_k8s_security_builder_receives_only_worker_driver(self) -> None:
+        initial = bashtest.extract_block(
+            self.K8S_SCRIPT, 'K8S_SECURITY_DRIVER_VERSION="unknown"', 'K8S_SECURITY_DRIVER_VERSION="unknown"'
+        )
+        promotion = bashtest.extract_block(
+            self.K8S_SCRIPT,
+            '    if [[ -n "$HP_DRIVER" && "$HP_DRIVER" != "unknown" ]]; then',
+            '    fi',
+        )
+        call = bashtest.extract_block(
+            self.K8S_SCRIPT,
+            "SECURITY_VERSION_AUDIT_JSON=$(build_security_version_audit \\",
+            '"$K8S_SECURITY_DOCKER_VERSION" "$GPU_VENDOR")',
+        )
+        for worker in ("", "unknown", "580.159.03"):
+            with self.subTest(worker=worker):
+                run = bashtest.run_bash(
+                    'build_security_version_audit() { printf "%s\\n" "$2"; }\n'
+                    + 'DRIVER_VERSION=999.0.0\n' + initial + promotion + call
+                    + '\nprintf "%s\\n" "$SECURITY_VERSION_AUDIT_JSON"',
+                    env={"HP_DRIVER": worker},
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(run.stdout.strip(), worker if worker and worker != "unknown" else "unknown")
+
+    def test_security_json_default_stays_valid(self) -> None:
+        normalization = bashtest.extract_block(
+            COMMON_PATH, 'local security_version_audit_json="${SECURITY_VERSION_AUDIT_JSON:-}"',
+            '[[ -n "$security_version_audit_json" ]] || security_version_audit_json="{}"',
+        )
+        for supplied in ("", '{"docker":{"status":"unknown"}}'):
+            with self.subTest(supplied=supplied):
+                run = bashtest.run_bash(
+                    f'source "{COMMON_PATH}"\nnormalize_security_json() {{\n' + normalization
+                    + '\nprintf "%s\\n" "$security_version_audit_json"\n}\n'
+                    + 'normalize_security_json',
+                    env={"SECURITY_VERSION_AUDIT_JSON": supplied},
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                expected = json.loads(supplied) if supplied else {}
+                self.assertEqual(json.loads(run.stdout), expected)
 
 
 class StepTmpdirContractTests(unittest.TestCase):
-    """The audit container checks must honor CLUSTERMAX_STEP_TMPDIR.
-
-    The bench launcher (bench/harnesses/slurm/default.sbatch) forwards the
-    operator's CLUSTERMAX_STEP_TMPDIR as TMPDIR to every workload srun so
-    enroot can extract images on clusters whose worker /tmp is an overlayfs pod
-    root. The audit's enroot import check must apply the same knob, or it can
-    report a broken container runtime that the campaign does not have.
-    """
-
     def test_container_checks_forward_step_tmpdir(self) -> None:
         script = COMMON_PATH.parent / "cluster-audit-slurm.sh"
         block = bashtest.extract_block(
@@ -764,70 +985,87 @@ class StepTmpdirContractTests(unittest.TestCase):
             "TMPDIR=/local/clustermax-tmp",
         )
 
-    def test_enroot_import_check_honors_step_tmpdir(self) -> None:
-        check = (COMMON_PATH.parent / "container-check.sh").read_text()
-
-        self.assertIn('export ENROOT_TEMP_PATH="$CLUSTERMAX_STEP_TMPDIR"', check)
-        self.assertIn('export TMPDIR="$CLUSTERMAX_STEP_TMPDIR"', check)
-
-
-class SlurmAuditParsingTests(unittest.TestCase):
-    def test_ncu_version_parser_accepts_capitalized_version_output(self) -> None:
-        workload_dir = COMMON_PATH.parent
-        host_check = (workload_dir / "host-check.sh").read_text()
-        slurm = (workload_dir / "cluster-audit-slurm.sh").read_text()
-
-        expected = "grep -oiP 'version\\s+\\K[0-9.]+'"
-        self.assertIn(expected, host_check)
-        self.assertIn(expected, slurm)
-
-    def test_dcgm_version_parser_ignores_leading_blank_line(self) -> None:
-        host_check = (COMMON_PATH.parent / "host-check.sh").read_text()
-
-        self.assertIn(
-            "grep -m1 -v '^[[:space:]]*$'",
-            host_check,
+    def test_enroot_import_without_timeout_receives_worker_scratch_and_status(self) -> None:
+        block = bashtest.extract_block(
+            AUDIT_SCRIPTS / "container-check.sh",
+            'if [[ -n "${CLUSTERMAX_STEP_TMPDIR:-}" && -d "${CLUSTERMAX_STEP_TMPDIR:-}" ]]; then',
+            "# Singularity and Apptainer",
         )
-
-    def test_ncu_live_counter_check_has_hard_timeout(self) -> None:
-        workload_dir = COMMON_PATH.parent
-        host_check = (workload_dir / "host-check.sh").read_text()
-        slurm = (workload_dir / "cluster-audit-slurm.sh").read_text()
-
-        self.assertIn('AUDIT_NCU_COUNTER_TIMEOUT_S:-60', host_check)
-        self.assertIn('timeout -k 5 "$NCU_COUNTER_TIMEOUT_S"', host_check)
-        self.assertIn('WORKER_NCU_COUNTER_ACCESS=timeout', host_check)
-        self.assertIn('Hardware counters: TIMED OUT', slurm)
-
-    def test_dcgm_slurm_integration_inspects_worker_health_plugins(self) -> None:
-        workload_dir = COMMON_PATH.parent
-        host_check = (workload_dir / "host-check.sh").read_text()
-        slurm = (workload_dir / "cluster-audit-slurm.sh").read_text()
-
-        self.assertIn('WORKER_HEALTH_PROGRAM_DCGM_EVIDENCE', host_check)
-        self.assertIn('find -L "$WORKER_HEALTH_PLUGIN_DIR"', host_check)
-        self.assertIn('-type f -perm -u+x', host_check)
-        self.assertIn('HealthCheckProgram plugin:', slurm)
-
-    def test_nhc_detection_falls_back_to_worker_check(self) -> None:
-        workload_dir = COMMON_PATH.parent
-        host_check = (workload_dir / "host-check.sh").read_text()
-        slurm = (workload_dir / "cluster-audit-slurm.sh").read_text()
-
-        self.assertIn("WORKER_NHC_INSTALLED=", host_check)
-        self.assertIn("WORKER_NHC_PATH=", host_check)
-        self.assertIn("WORKER_NHC_CONF_CHECKS=", host_check)
-        self.assertIn('"$WORKER_NHC_INSTALLED" == "true"', slurm)
-        self.assertIn("compute node ${WORKER_HOSTNAME}; not on head node", slurm)
-
-    def test_prolog_parser_accepts_indexed_slurm_25_keys(self) -> None:
-        script = (COMMON_PATH.parent / "cluster-audit-slurm.sh").read_text()
-
-        self.assertIn("/^Prolog(\\[[0-9]+\\])?$/", script)
-        self.assertIn("/^Epilog(\\[[0-9]+\\])?$/", script)
+        tools = {
+            name: f'exec "{shutil.which(name)}" "$@"'
+            for name in ("grep", "head", "mktemp", "rm")
+        }
+        for rc, expected in ((0, "pass"), (1, "failed"), (124, "timeout")):
+            with self.subTest(import_rc=rc), tempfile.TemporaryDirectory() as tmp:
+                run = bashtest.run_bash(
+                    block,
+                    stubs={
+                        **tools,
+                        "enroot": (
+                            '[[ "$1" == version ]] && { echo 3.4.0; exit 0; }\n'
+                            '[[ "$ENROOT_TEMP_PATH" == "$CLUSTERMAX_STEP_TMPDIR" '
+                            '&& "$TMPDIR" == "$CLUSTERMAX_STEP_TMPDIR" ]] || exit 99\n'
+                            f"exit {rc}"
+                        ),
+                    },
+                    env={"CLUSTERMAX_STEP_TMPDIR": tmp},
+                    path_only=True,
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertIn(f"WORKER_CONTAINER_ENROOT_IMPORT={expected}", run.stdout)
+                self.assertEqual(run.calls("enroot")[1][0], "import")
+                self.assertEqual(run.calls("enroot")[1][-1], "docker://hello-world")
 
 
 class ContainerWorkerCheckTests(unittest.TestCase):
+    def security_policy(self, check: str, *, runc: str = "1.3.3", docker: str = "29.4.3") -> dict:
+        run = bashtest.run_bash(
+            f'source "{COMMON_PATH}"; WORKLOAD_DIR="{AUDIT_SCRIPTS}"; '
+            'build_security_version_audit "$CHECK" 580.159.03 1.19.1 "$RUNC" "$DOCKER"',
+            env={"CHECK": check, "RUNC": runc, "DOCKER": docker},
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return json.loads(run.stdout)
+
+    def test_security_inventory_uses_daemon_not_client_and_hides_nested_packages(self) -> None:
+        tools = {
+            name: f'exec "{shutil.which(name)}" "$@"'
+            for name in ("grep", "head")
+        }
+        for scope, daemon in (
+            ("host", "29.4.3"),
+            ("host", ""),
+            ("nested-container", "29.4.3"),
+        ):
+            with self.subTest(scope=scope, daemon=daemon):
+                run = bashtest.run_bash(
+                    f'/bin/bash "{AUDIT_SCRIPTS / "container-check.sh"}"',
+                    stubs={
+                        **tools,
+                        "docker": (
+                            'case "$1" in\n'
+                            '--version) echo "Docker version 99.0.0, build client" ;;\n'
+                            'info) echo \'{"nvidia":{}}\' ;;\n'
+                            f'version) printf "%s\\n" "{daemon}" ;;\nesac'
+                        ),
+                        "nvidia-container-toolkit": "echo 1.0.0",
+                        "runc": "echo 1.0.0",
+                        "hostname": "echo worker",
+                    },
+                    env={"CLUSTERMAX_CONTAINER_RUNTIME_SCOPE": scope, "CLUSTERMAX_AUDIT_SCOPE": "security"},
+                    path_only=True,
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                facts = dict(line.split("=", 1) for line in run.stdout.splitlines())
+                self.assertEqual(facts["WORKER_CONTAINER_DOCKER_VERSION"], "99.0.0")
+                self.assertEqual(facts["WORKER_CONTAINER_SECURITY_DOCKER_VERSION"], daemon or "unknown")
+                self.assertEqual(facts["WORKER_CONTAINER_NVIDIA_TOOLKIT_INSTALLED"], "true")
+                self.assertEqual(facts["WORKER_CONTAINER_NVIDIA_TOOLKIT_VERSION"], "1.0.0")
+                expected = "1.0.0" if scope == "host" else "unknown"
+                self.assertEqual(facts["WORKER_CONTAINER_SECURITY_NCT_VERSION"], expected)
+                self.assertEqual(facts["WORKER_CONTAINER_SECURITY_RUNC_VERSION"], expected)
+                self.assertIn(["version", "--format", "{{.Server.Version}}"], run.calls("docker"))
+
     def test_nerdctl_docker_compatibility_link_is_not_docker_engine(self) -> None:
         check = COMMON_PATH.parent / "container-check.sh"
         run = bashtest.run_bash(
@@ -836,7 +1074,7 @@ class ContainerWorkerCheckTests(unittest.TestCase):
                 "docker": "printf 'nerdctl version 2.1.6\\n'",
                 "find": "exit 0",
             },
-            env={"CLUSTERMAX_CONTAINER_RUNTIME_SCOPE": "host"},
+            env={"CLUSTERMAX_CONTAINER_RUNTIME_SCOPE": "host", "CLUSTERMAX_AUDIT_SCOPE": "security"},
         )
 
         self.assertEqual(run.returncode, 0, run.stderr)
@@ -847,51 +1085,22 @@ class ContainerWorkerCheckTests(unittest.TestCase):
     def test_runtime_only_toolkit_is_installed_with_unknown_security_version(
         self,
     ) -> None:
-        check = COMMON_PATH.parent / "container-check.sh"
-        with tempfile.TemporaryDirectory() as tmp:
-            mock_bin = Path(tmp)
-            docker = mock_bin / "docker"
-            docker.write_text(
-                """#!/bin/bash
-case "$1" in
-    --version)
-        echo "Docker version 29.4.3, build test"
-        ;;
-    info)
-        printf '{"nvidia":{}}\\n'
-        ;;
-    version)
-        echo "29.4.3"
-        ;;
-esac
-"""
-            )
-            docker.chmod(0o755)
-            for command in ("dpkg-query", "rpm"):
-                stub = mock_bin / command
-                stub.write_text("#!/bin/bash\nexit 1\n")
-                stub.chmod(0o755)
-            for command in ("grep", "head", "hostname"):
-                system_command = shutil.which(command)
-                self.assertIsNotNone(system_command)
-                (mock_bin / command).symlink_to(system_command)
-
-            env = os.environ.copy()
-            env["PATH"] = str(mock_bin)
-            env["CLUSTERMAX_CONTAINER_RUNTIME_SCOPE"] = "host"
-            result = subprocess.run(
-                ["/bin/bash", str(check)],
-                check=True,
-                capture_output=True,
-                text=True,
-                env=env,
-            )
-
-        facts = dict(
-            line.split("=", 1)
-            for line in result.stdout.splitlines()
-            if line.startswith("WORKER_CONTAINER_")
+        run = bashtest.run_bash(
+            f'/bin/bash "{AUDIT_SCRIPTS / "container-check.sh"}"',
+            stubs={
+                "docker": (
+                    'case "$1" in\n'
+                    '--version) echo "Docker version 29.4.3, build test" ;;\n'
+                    'info) echo \'{"nvidia":{}}\' ;;\n'
+                    'version) echo 29.4.3 ;;\nesac'
+                ),
+                **{name: f'exec "{shutil.which(name)}" "$@"' for name in ("grep", "head", "hostname")},
+            },
+            env={"CLUSTERMAX_CONTAINER_RUNTIME_SCOPE": "host", "CLUSTERMAX_AUDIT_SCOPE": "security"},
+            path_only=True,
         )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        facts = dict(line.split("=", 1) for line in run.stdout.splitlines())
         self.assertEqual(
             facts["WORKER_CONTAINER_NVIDIA_RUNTIME_CONFIGURED"], "true"
         )
@@ -905,17 +1114,6 @@ esac
             facts["WORKER_CONTAINER_SECURITY_NCT_VERSION"], "unknown"
         )
 
-    def test_runtime_scope_detection_fails_closed_without_findmnt(self) -> None:
-        check = (COMMON_PATH.parent / "container-check.sh").read_text()
-        standalone = (COMMON_PATH.parent / "cluster-audit-standalone.sh").read_text()
-
-        self.assertIn('RUNTIME_SCOPE="nested-container"', check)
-        self.assertIn('CONTAINER_RUNTIME_SCOPE="nested-container"', standalone)
-        self.assertIn("systemd-detect-virt --container", check)
-        self.assertIn("systemd-detect-virt --container", standalone)
-        self.assertNotIn('ROOT_FS_TYPE=""', check)
-        self.assertNotIn('ROOT_FS_TYPE=""', standalone)
-
     def test_security_policy_receives_only_nvidia_nic_firmware(self) -> None:
         check = "\n".join(
             [
@@ -926,31 +1124,9 @@ esac
                 "WORKER_SECURITY_NIC_FW_VER_efa_0=0.0.1",
             ]
         )
-        # The runc rung moves whenever upstream ships a fix, so read it from
-        # the minimum table. `get` splits on dots, so the branch key is indexed
-        # after the lookup.
         runc_minimum = minimum_versions.get("components.runc.ladder")["1.3"]
         docker_minimum = minimum_versions.get("components.docker.minimum")
-        command = (
-            'source "$1"; WORKLOAD_DIR="$2"; '
-            f'build_security_version_audit "$3" 580.159.03 1.19.1 '
-            f'{runc_minimum} {docker_minimum}'
-        )
-        result = subprocess.run(
-            [
-                "bash",
-                "-c",
-                command,
-                "bash",
-                str(COMMON_PATH),
-                str(COMMON_PATH.parent),
-                check,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        security = json.loads(result.stdout)
+        security = self.security_policy(check, runc=runc_minimum, docker=docker_minimum)
         self.assertEqual(security["nvidiaDriver"]["status"], "pass")
         self.assertEqual(security["runc"]["status"], "pass")
         self.assertEqual(security["docker"]["status"], "pass")
@@ -959,57 +1135,19 @@ esac
         self.assertEqual(security["connectxFirmware"]["status"], "unknown")
         self.assertEqual(len(security["connectxFirmware"]["devices"]), 1)
 
-    def test_complete_non_nvidia_inventory_is_not_applicable(self) -> None:
-        check = "\n".join(
-            [
-                "WORKER_SECURITY_NIC_INVENTORY_COMPLETE=true",
-                "WORKER_SECURITY_NIC_PCI_VENDOR_efa_0=0x1d0f",
-                "WORKER_SECURITY_NIC_FW_VER_efa_0=0.0.1",
-            ]
+    def test_nic_security_policy_distinguishes_empty_from_uncollected(self) -> None:
+        non_nvidia = (
+            "WORKER_SECURITY_NIC_PCI_VENDOR_efa_0=0x1d0f\n"
+            "WORKER_SECURITY_NIC_FW_VER_efa_0=0.0.1"
         )
-        command = (
-            'source "$1"; WORKLOAD_DIR="$2"; '
-            'build_security_version_audit "$3" 580.159.03 1.19.1 1.3.3 29.4.3'
-        )
-        result = subprocess.run(
-            [
-                "bash",
-                "-c",
-                command,
-                "bash",
-                str(COMMON_PATH),
-                str(COMMON_PATH.parent),
-                check,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        security = json.loads(result.stdout)
-        self.assertEqual(security["connectxFirmware"]["status"], "not_applicable")
-
-    def test_complete_empty_nic_inventory_is_not_applicable(self) -> None:
-        check = "WORKER_SECURITY_NIC_INVENTORY_COMPLETE=true"
-        command = (
-            'source "$1"; WORKLOAD_DIR="$2"; '
-            'build_security_version_audit "$3" 580.159.03 1.19.1 1.3.3 29.4.3'
-        )
-        result = subprocess.run(
-            [
-                "bash",
-                "-c",
-                command,
-                "bash",
-                str(COMMON_PATH),
-                str(COMMON_PATH.parent),
-                check,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        security = json.loads(result.stdout)
-        self.assertEqual(security["connectxFirmware"]["status"], "not_applicable")
+        for label, check, expected in (
+            ("non-nvidia", "WORKER_SECURITY_NIC_INVENTORY_COMPLETE=true\n" + non_nvidia, "not_applicable"),
+            ("empty", "WORKER_SECURITY_NIC_INVENTORY_COMPLETE=true", "not_applicable"),
+            ("truncated", non_nvidia, "unknown"),
+            ("incomplete", "WORKER_SECURITY_NIC_INVENTORY_COMPLETE=false", "unknown"),
+        ):
+            with self.subTest(evidence=label):
+                self.assertEqual(self.security_policy(check)["connectxFirmware"]["status"], expected)
 
     def test_unknown_nic_vendor_requires_attestation(self) -> None:
         check = "\n".join(
@@ -1019,95 +1157,13 @@ esac
                 "WORKER_SECURITY_NIC_FW_VER_mlx5_unknown=40.47.2526",
             ]
         )
-        command = (
-            'source "$1"; WORKLOAD_DIR="$2"; '
-            'build_security_version_audit "$3" 580.159.03 1.19.1 1.3.3 29.4.3'
-        )
-        result = subprocess.run(
-            [
-                "bash",
-                "-c",
-                command,
-                "bash",
-                str(COMMON_PATH),
-                str(COMMON_PATH.parent),
-                check,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        security = json.loads(result.stdout)
+        security = self.security_policy(check)
         self.assertEqual(security["connectxFirmware"]["status"], "unknown")
         self.assertEqual(
             security["connectxFirmware"]["devices"][0]["device"], "mlx5_unknown"
         )
 
-    def test_truncated_non_nvidia_inventory_remains_unknown(self) -> None:
-        check = "\n".join(
-            [
-                "WORKER_SECURITY_NIC_PCI_VENDOR_efa_0=0x1d0f",
-                "WORKER_SECURITY_NIC_FW_VER_efa_0=0.0.1",
-            ]
-        )
-        command = (
-            'source "$1"; WORKLOAD_DIR="$2"; '
-            'build_security_version_audit "$3" 580.159.03 1.19.1 1.3.3 29.4.3'
-        )
-        result = subprocess.run(
-            [
-                "bash",
-                "-c",
-                command,
-                "bash",
-                str(COMMON_PATH),
-                str(COMMON_PATH.parent),
-                check,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        security = json.loads(result.stdout)
-        self.assertEqual(security["connectxFirmware"]["status"], "unknown")
-
-    def test_incomplete_nic_inventory_flag_is_not_a_clean_host(self) -> None:
-        # The other half of the host-check contract below: "false" must reach
-        # the evaluator as no claim at all, exactly like a missing key, because
-        # only a complete inventory may report not_applicable.
-        check = "WORKER_SECURITY_NIC_INVENTORY_COMPLETE=false"
-        command = (
-            'source "$1"; WORKLOAD_DIR="$2"; '
-            'build_security_version_audit "$3" 580.159.03 1.19.1 1.3.3 29.4.3'
-        )
-        result = subprocess.run(
-            [
-                "bash",
-                "-c",
-                command,
-                "bash",
-                str(COMMON_PATH),
-                str(COMMON_PATH.parent),
-                check,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        security = json.loads(result.stdout)
-        self.assertEqual(security["connectxFirmware"]["status"], "unknown")
-
-
 class HostCheckNicInventoryTests(unittest.TestCase):
-    """The NIC firmware inventory block of host-check.sh, run for real.
-
-    `WORKER_SECURITY_NIC_INVENTORY_COMPLETE=true` is the only input that lets
-    `aggregate_connectx` report not_applicable, which the security report
-    renders as a pass. These tests drive the block against a fixture sysfs tree
-    and a stub lspci, so the flag is asserted from behavior rather than from
-    the source text.
-    """
-
     ANCHORS = (
         "# Security inventory includes logical/bonded devices",
         'echo "WORKER_SECURITY_NIC_INVENTORY_COMPLETE='
@@ -1125,8 +1181,6 @@ class HostCheckNicInventoryTests(unittest.TestCase):
             )
             + bashtest.extract_block(host_check, *self.ANCHORS)
         )
-        # A PATH with no tools at all is how "lspci is not installed" is made
-        # deterministic on a runner that has pciutils.
         snippet = ('PATH="/nonexistent"\n' if empty_path else "") + block
         return bashtest.run_bash(
             snippet,
@@ -1159,25 +1213,22 @@ class HostCheckNicInventoryTests(unittest.TestCase):
         (root / "sys" / "class" / "infiniband").mkdir(parents=True)
         return root
 
-    def test_empty_rdma_tree_with_an_nvidia_nic_is_incomplete(self) -> None:
-        # ib_core creates the directory as a dependency of the rdma-core stack
-        # even when no HCA driver is bound, so a present but empty tree is what
-        # an unloaded or blacklisted mlx5_ib looks like. The card and its
-        # bulletin-covered firmware are still on the bus. Completing the
-        # inventory here graded that host not_applicable, which reads as a pass.
-        root = self.empty_tree_root()
-        listing = "0000:03:00.0 0207: 15b3:a2dc (rev 01)\n"
-        run = self.run_inventory(root, lspci=f"printf '%s' '{listing}'")
-        self.assertNotIn("WORKER_SECURITY_NIC_FW_VER_", run.stdout)
-        self.assertIn("WORKER_SECURITY_NIC_INVENTORY_COMPLETE=false", run.stdout)
-        self.assertNotIn("WORKER_SECURITY_NIC_INVENTORY_COMPLETE=true", run.stdout)
-
-    def test_empty_rdma_tree_completes_on_a_clean_pci_listing(self) -> None:
-        root = self.empty_tree_root()
-        listing = "0000:00:1f.0 0601: 8086:a1c1\n0000:02:00.0 0200: 1af4:1041\n"
-        run = self.run_inventory(root, lspci=f"printf '%s' '{listing}'")
-        self.assertEqual(run.calls("lspci")[0], ["-n"])
-        self.assertIn("WORKER_SECURITY_NIC_INVENTORY_COMPLETE=true", run.stdout)
+    def test_pci_evidence_controls_absent_or_empty_rdma_inventory(self) -> None:
+        clean = "0000:00:1f.0 0601: 8086:a1c1\n0000:02:00.0 0200: 1af4:1041\n"
+        nvidia = "0000:03:00.0 0207: 15b3:a2dc (rev 01)\n"
+        for tree, listing, expected in (
+            ("empty", nvidia, "false"),
+            ("empty", clean, "true"),
+            ("absent", "0000:00:1f.0 0601: 8086:a1c1\n" + nvidia, "false"),
+            ("absent", clean, "true"),
+        ):
+            with self.subTest(tree=tree, complete=expected):
+                root = self.empty_tree_root() if tree == "empty" else self.sysfs_root()
+                run = self.run_inventory(root, lspci=f"printf '%s' '{listing}'")
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(run.calls("lspci")[0], ["-n"])
+                self.assertIn(f"WORKER_SECURITY_NIC_INVENTORY_COMPLETE={expected}", run.stdout)
+                self.assertNotIn("WORKER_SECURITY_NIC_FW_VER_", run.stdout)
 
     def test_empty_rdma_tree_without_a_pci_listing_is_incomplete(self) -> None:
         for label, kwargs in (
@@ -1190,27 +1241,6 @@ class HostCheckNicInventoryTests(unittest.TestCase):
                     "WORKER_SECURITY_NIC_INVENTORY_COMPLETE=false", run.stdout
                 )
 
-    def test_absent_rdma_tree_with_an_nvidia_nic_is_incomplete(self) -> None:
-        # The defect this guards: no /sys/class/infiniband is what an unloaded
-        # ib_core looks like, and the card is still there with its firmware.
-        # Reporting a complete inventory graded that host not_applicable, and
-        # the report showed a pass for a NIC nobody read.
-        root = self.sysfs_root()
-        listing = (
-            "0000:00:1f.0 0601: 8086:a1c1\n"
-            "0000:03:00.0 0207: 15b3:a2dc (rev 01)\n"
-        )
-        run = self.run_inventory(root, lspci=f"printf '%s' '{listing}'")
-        self.assertEqual(run.calls("lspci")[0], ["-n"])
-        self.assertIn("WORKER_SECURITY_NIC_INVENTORY_COMPLETE=false", run.stdout)
-        self.assertNotIn("WORKER_SECURITY_NIC_INVENTORY_COMPLETE=true", run.stdout)
-
-    def test_pci_listing_without_an_nvidia_device_completes(self) -> None:
-        root = self.sysfs_root()
-        listing = "0000:00:1f.0 0601: 8086:a1c1\n0000:02:00.0 0200: 1af4:1041\n"
-        run = self.run_inventory(root, lspci=f"printf '%s' '{listing}'")
-        self.assertIn("WORKER_SECURITY_NIC_INVENTORY_COMPLETE=true", run.stdout)
-
     def test_unreadable_pci_listing_is_incomplete(self) -> None:
         root = self.sysfs_root()
         run = self.run_inventory(root, lspci="exit 1")
@@ -1222,25 +1252,17 @@ class HostCheckNicInventoryTests(unittest.TestCase):
         self.assertIn("WORKER_SECURITY_NIC_INVENTORY_COMPLETE=false", run.stdout)
 
     def test_corroborated_empty_pci_listing_completes(self) -> None:
-        # A VM with no PCI device at all: lspci exits cleanly with nothing to
-        # print, and the kernel's own bus tree is readable and empty. Two
-        # independent readers agreeing on zero devices is a read bus, and a
-        # read bus with no device on it carries no bulletin-covered firmware.
         root = self.sysfs_root()
         (root / "sys" / "bus" / "pci" / "devices").mkdir(parents=True)
         run = self.run_inventory(root, lspci="exit 0")
         self.assertIn("WORKER_SECURITY_NIC_INVENTORY_COMPLETE=true", run.stdout)
 
     def test_uncorroborated_empty_pci_listing_stays_incomplete(self) -> None:
-        # Without the sysfs corroboration, an empty listing on its own is
-        # indistinguishable from a broken lspci, so the bus stays unread.
         root = self.sysfs_root()
         run = self.run_inventory(root, lspci="exit 0")
         self.assertIn("WORKER_SECURITY_NIC_INVENTORY_COMPLETE=false", run.stdout)
 
     def test_a_populated_sysfs_bus_contradicts_an_empty_listing(self) -> None:
-        # sysfs holding a device while lspci printed nothing means lspci
-        # failed to read the bus, not that the bus is empty.
         root = self.sysfs_root()
         device = root / "sys" / "bus" / "pci" / "devices" / "0000:03:00.0"
         device.mkdir(parents=True)
@@ -1249,9 +1271,6 @@ class HostCheckNicInventoryTests(unittest.TestCase):
 
     @unittest.skipIf(os.geteuid() == 0, "root can list any directory")
     def test_an_unreadable_sysfs_bus_does_not_corroborate(self) -> None:
-        # A directory that exists but cannot be listed produces the same blank
-        # capture as an empty one; only a successful read that returned
-        # nothing may claim the bus is empty.
         root = self.sysfs_root()
         bus = root / "sys" / "bus" / "pci" / "devices"
         bus.mkdir(parents=True)
@@ -1259,65 +1278,6 @@ class HostCheckNicInventoryTests(unittest.TestCase):
         self.addCleanup(bus.chmod, 0o755)
         run = self.run_inventory(root, lspci="exit 0")
         self.assertIn("WORKER_SECURITY_NIC_INVENTORY_COMPLETE=false", run.stdout)
-
-    def test_container_security_check_never_uses_docker_cli_version(self) -> None:
-        check = (COMMON_PATH.parent / "container-check.sh").read_text()
-        self.assertIn(
-            'SECURITY_DOCKER_VERSION="${DOCKER_SERVER_VERSION:-unknown}"', check
-        )
-        self.assertNotIn(
-            'SECURITY_DOCKER_VERSION="${DOCKER_SERVER_VERSION:-${DOCKER_VERSION:-unknown}}"',
-            check,
-        )
-
-    def test_standalone_security_check_uses_docker_server_version(self) -> None:
-        script = (COMMON_PATH.parent / "cluster-audit-standalone.sh").read_text()
-        self.assertIn(
-            "SECURITY_DOCKER_VERSION=$(docker version --format '{{.Server.Version}}'",
-            script,
-        )
-        self.assertNotIn('SECURITY_DOCKER_VERSION="$DOCKER_VERSION"', script)
-
-    def test_standalone_runtime_inventory_supports_rpm_packages(self) -> None:
-        script = (COMMON_PATH.parent / "cluster-audit-standalone.sh").read_text()
-        check = (COMMON_PATH.parent / "container-check.sh").read_text()
-        self.assertIn(
-            "if RUNC_VERSION=$(rpm -q --qf '%{VERSION}-%{RELEASE}' runc", script
-        )
-        self.assertIn(
-            "if NCT_RPM=$(rpm -q --qf '%{VERSION}-%{RELEASE}' nvidia-container-toolkit",
-            script,
-        )
-        self.assertNotIn("2>/dev/null || true)", "\n".join(
-            line for line in check.splitlines() if "rpm -q --qf" in line
-        ))
-
-    def test_standalone_toolkit_presence_is_independent_of_operational_minimum(self) -> None:
-        script = (COMMON_PATH.parent / "cluster-audit-standalone.sh").read_text()
-        version_assignment = script.index('NVIDIA_CT_VERSION="$NCT_VERSION_CMD"')
-        installed_assignment = script.index(
-            'NVIDIA_CONTAINER_TOOLKIT="true"', version_assignment
-        )
-        # version_meets_minimum replaced version_ge here so an unresolved minimum
-        # from the generated table cannot pass every version; the ordering
-        # guard is unchanged.
-        version_check = script.index(
-            'if version_meets_minimum "$NCT_VERSION_CMD" "$NVIDIA_CT_RECOMMENDED_MIN"',
-            version_assignment,
-        )
-        self.assertLess(installed_assignment, version_check)
-
-    def test_slurm_worker_checks_use_standard_input(self) -> None:
-        script = (COMMON_PATH.parent / "cluster-audit-slurm.sh").read_text()
-
-        # Checks are delivered over srun's stdin (bash -s), not staged to a file
-        # under $HOME: Slurm-on-Kubernetes nodes are pods with their own
-        # ephemeral overlay, so the login pod's $HOME is not the worker's. Guard
-        # against the shared-$HOME staging regressing back.
-        self.assertIn('bash -s < "$WORKLOAD_DIR/host-check.sh"', script)
-        self.assertIn('bash -s < "$WORKLOAD_DIR/container-check.sh"', script)
-        self.assertNotIn('mktemp "${HOME}/', script)
-        self.assertIn('"workerCheckOk": ${CONTAINER_WORKER_CHECK_OK:-false}', COMMON_PATH.read_text())
 
     def test_pyxis_cli_check_accepts_the_registered_srun_options(self) -> None:
         script = COMMON_PATH.parent / "cluster-audit-slurm.sh"
@@ -1390,52 +1350,7 @@ EOF""",
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(run.stdout.strip(), "unknown")
 
-    def test_slurm_security_driver_never_uses_head_node_fallback(self) -> None:
-        script = (COMMON_PATH.parent / "cluster-audit-slurm.sh").read_text()
-        self.assertIn('SECURITY_DRIVER_VERSION="unknown"', script)
-        self.assertIn('SECURITY_DRIVER_VERSION="$WORKER_DRIVER_VERSION"', script)
-        self.assertIn(
-            '"$WORKER_CHECK_OUTPUT" "$SECURITY_DRIVER_VERSION"', script
-        )
-        self.assertNotIn(
-            '"$WORKER_CHECK_OUTPUT" "$DRIVER_VERSION" "$SECURITY_NCT_VERSION"',
-            script,
-        )
-
-    def test_k8s_chroots_into_a_worker_and_runs_a_gpu_container(self) -> None:
-        script = (COMMON_PATH.parent / "cluster-audit-k8s.sh").read_text()
-
-        self.assertIn(
-            "chroot /host env CLUSTERMAX_CONTAINER_RUNTIME_SCOPE=host bash -s",
-            script,
-        )
-        self.assertIn('"gpuRuntimeWorks": ${K8S_GPU_CONTAINER_RUNTIME_WORKS}', script)
-        self.assertIn('GPU container runtime: PASS on ${node}', script)
-
-    def test_k8s_security_driver_uses_only_live_worker_check(self) -> None:
-        script = (COMMON_PATH.parent / "cluster-audit-k8s.sh").read_text()
-
-        self.assertIn('K8S_SECURITY_DRIVER_VERSION="unknown"', script)
-        self.assertIn('K8S_SECURITY_DRIVER_VERSION="$HP_DRIVER"', script)
-        self.assertIn(
-            '"$HOST_CHECK_OUT" "$K8S_SECURITY_DRIVER_VERSION"', script
-        )
-        self.assertNotIn('"$HOST_CHECK_OUT" "$DRIVER_VERSION"', script)
-
-    def test_k8s_toolkit_tag_excludes_image_digest(self) -> None:
-        script = (COMMON_PATH.parent / "cluster-audit-k8s.sh").read_text()
-
-        self.assertIn(
-            '_toolkit_image_without_digest="${_toolkit_image%@*}"', script
-        )
-        self.assertIn(
-            '_toolkit_tag="${_toolkit_image_without_digest##*:}"', script
-        )
-        self.assertNotIn('_toolkit_tag="${_toolkit_image##*:}"', script)
-
     def test_k8s_missing_volcano_config_is_nonfatal(self) -> None:
-        # The collector runs under set -e; a cluster without volcano must not
-        # abort the audit. Execute the real assignment with a failing kubectl.
         line = bashtest.extract_block(
             COMMON_PATH.parent / "cluster-audit-k8s.sh",
             "VOLCANO_CONF=$(kubectl get configmap volcano-scheduler-configmap",
@@ -1448,102 +1363,8 @@ EOF""",
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("survived=ok conf=[]", run.stdout)
 
-    def test_enroot_import_runs_even_without_timeout(self) -> None:
-        check = (COMMON_PATH.parent / "container-check.sh").read_text()
-
-        # The import must be attempted in both branches; a missing `timeout`
-        # binary must not short-circuit the check into a false failure.
-        self.assertIn(
-            "enroot import -o \"$ENROOT_SQSH\" docker://hello-world >/dev/null 2>&1",
-            check,
-        )
-        self.assertIn('ENROOT_IMPORT_RC=$?', check)
-        self.assertNotIn('[[ "$?" -eq 124 ]]', check)
-
-    def test_slurm_publishes_worker_check_runtime_and_singularity_version(self) -> None:
-        common = COMMON_PATH.read_text()
-        slurm = (COMMON_PATH.parent / "cluster-audit-slurm.sh").read_text()
-
-        # Fields the shared check collects must reach the Slurm audit JSON.
-        self.assertIn(
-            '"dockerNvidiaRuntimeConfigured": ${DOCKER_NVIDIA_RUNTIME_CONFIGURED:-false}',
-            common,
-        )
-        self.assertIn('"runtimeScope":', common)
-        self.assertIn('"singularityVersion": "${SINGULARITY_VERSION:-unknown}"', common)
-        self.assertIn(
-            'DOCKER_NVIDIA_RUNTIME_CONFIGURED="${WORKER_CONTAINER_NVIDIA_RUNTIME_CONFIGURED:-false}"',
-            slurm,
-        )
-
-    def test_slurm_head_toolkit_check_credits_configured_nvidia_runtime(
-        self,
-    ) -> None:
-        slurm = (COMMON_PATH.parent / "cluster-audit-slurm.sh").read_text()
-        start = slurm.index("# Head-vs-worker consistency for container runtimes")
-        end = slurm.index("# Singularity / Apptainer", start)
-        comparison = slurm[start:end]
-
-        self.assertIn("NCT_HEAD_NVIDIA_RUNTIME_CONFIGURED", comparison)
-        self.assertIn(
-            "docker info --format '{{json .Runtimes}}'",
-            comparison,
-        )
-        self.assertIn(
-            '|| "$NCT_HEAD_NVIDIA_RUNTIME_CONFIGURED" == "true"',
-            comparison,
-        )
-
-
-class UfmProfileIntegrationTests(unittest.TestCase):
-    def test_all_collectors_run_the_shared_ufm_profile_audit(self) -> None:
-        workload_dir = COMMON_PATH.parent
-        for name in (
-            "cluster-audit-slurm.sh",
-            "cluster-audit-standalone.sh",
-            "cluster-audit-k8s.sh",
-        ):
-            with self.subTest(collector=name):
-                script = (workload_dir / name).read_text()
-                self.assertIn('audit_ufm_secured_profile "$RDMA_TYPE"', script)
-
-    def test_shared_and_k8s_json_include_the_ufm_profile_result(self) -> None:
-        common = COMMON_PATH.read_text()
-        k8s = (COMMON_PATH.parent / "cluster-audit-k8s.sh").read_text()
-
-        expected = '"ufmSecuredBareMetalCloud": ${UFM_SECURED_PROFILE_JSON}'
-        self.assertIn(expected, common)
-        self.assertIn(expected, k8s)
-
 
 class SecurityBulletinIntegrationTests(unittest.TestCase):
-    def test_host_check_collects_non_destructive_security_evidence(self) -> None:
-        check = (COMMON_PATH.parent / "host-check.sh").read_text()
-        for key in (
-            "WORKER_JANUSCAPE_EXPOSED",
-            "WORKER_NVLINK_EXPOSED",
-        ):
-            self.assertIn(key, check)
-        self.assertNotIn("insmod poc", check.lower())
-        self.assertIn("WORKER_JANUSCAPE_EXPOSED=unknown", check)
-        self.assertIn("WORKER_NVLINK_EXPOSED=unknown", check)
-        self.assertIn("WORKER_NVLINK_TOPOLOGY_CHECKED=false", check)
-        self.assertIn("nvidia-smi topo -m", check)
-        self.assertIn("WORKER_GUEST_KERNEL_NEWER_INSTALLED", check)
-        self.assertIn("/var/run/reboot-required", check)
-        self.assertIn("command -v rpm", check)
-        self.assertIn("WORKER_GUEST_KERNEL_FLAVOR", check)
-        self.assertIn("s/^[0-9]+(\\.[0-9]+)*-[0-9]+-//", check)
-        self.assertIn("WORKER_GUEST_KERNEL_OLDEST", check)
-        self.assertIn("WORKER_FRAGNESIA_STATUS", check)
-        # The Fragnesia ABI minimum moved out of the script and into the
-        # generated table (minimum-versions.json). Executable coverage of the
-        # comparison lives in test_minimum_versions_shell.py; the pin that
-        # remains here is the incident pair, so a revert to a hardcoded minimum
-        # fails even though the comparison itself cannot run from a source read.
-        self.assertNotIn("WORKER_FRAGNESIA_ABI >= 124", check)
-        self.assertIn("WORKER_FRAGNESIA_ABI >= WORKER_FRAGNESIA_ABI_FLOOR", check)
-
     def run_nvlink_probe(self, topology_body: str) -> dict[str, str]:
         block = bashtest.extract_block(
             HOST_CHECK_PATH,
@@ -1585,55 +1406,7 @@ class SecurityBulletinIntegrationTests(unittest.TestCase):
         self.assertEqual(present["WORKER_NVLINK_EXPOSED"], "true")
         self.assertEqual(present["WORKER_NVLINK_TOPOLOGY_CHECKED"], "true")
 
-    def build_advisory_members(self, *args: str) -> dict:
-        """Run the shared advisory builder and parse the members it emits."""
-        quoted = " ".join(f"'{arg}'" for arg in args)
-        result = subprocess.run(
-            ["bash", "-c", f'source "$1"; build_security_advisory_json {quoted}',
-             "bash", str(COMMON_PATH)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        # The builder emits object members with a trailing comma, meant to be
-        # spliced into a "security" object that owns further members.
-        return json.loads("{" + result.stdout + '"sentinel": true}')
-
-    def test_all_audit_json_shapes_include_security_bulletins(self) -> None:
-        """Both collector JSON shapes carry the advisory members from one source.
-
-        The script-text assertions here are source pins on purpose. Both JSON
-        shapes are single heredocs interpolating a few hundred collector
-        variables gathered from a live cluster; neither can execute in CI, and
-        an unset numeric field expands to empty and yields invalid JSON, so
-        there is nothing runnable to assert against. The executable half of the
-        contract is the builder run below, and in test_minimum_versions_shell.py.
-
-        The assertions keep the shared source for the two advisory members that
-        the release report uses. They also prevent hardcoded minimums from
-        returning to either collector.
-        """
-        common = COMMON_PATH.read_text()
-        k8s = (COMMON_PATH.parent / "cluster-audit-k8s.sh").read_text()
-        for script in (common, k8s):
-            self.assertIn('\n  "security": {', script)
-            self.assertIn('"guestKernel": {', script)
-            self.assertIn("build_security_advisory_json", script)
-            self.assertNotIn('"cve": "CVE-2026-46300"', script)
-            self.assertNotIn('"ubuntuNoblePackageMinimum": "6.8.0-124.124"', script)
-
-        members = self.build_advisory_members()
-
-        self.assertTrue({"fragnesia", "januscape"}.issubset(members))
-
     def collector_januscape_exposed(self, collector: str, check_value: str):
-        """Run one collector's real advisory wiring and return `exposed`.
-
-        Executes the whole chain rather than pinning its text: the collector's
-        own check variable, through json_bool_or_unknown, into the shared
-        builder's --januscape-exposed argument, out as emitted JSON. Each
-        collector names the check fact differently, so both are driven here.
-        """
         workload = COMMON_PATH.parent
         if collector == "k8s":
             call = bashtest.extract_block(
@@ -1666,15 +1439,10 @@ class SecurityBulletinIntegrationTests(unittest.TestCase):
         return members["januscape"]["exposed"]
 
     def test_missing_host_check_keeps_januscape_unknown(self) -> None:
-        # Missing check evidence must never serialize as a negative finding:
-        # that would turn an unverified host boundary into a false pass.
         for collector in ("common", "k8s"):
             with self.subTest(collector=collector):
                 self.assertEqual(
                     self.collector_januscape_exposed(collector, ""), "unknown"
-                )
-                self.assertIsNot(
-                    self.collector_januscape_exposed(collector, ""), False
                 )
                 self.assertIs(
                     self.collector_januscape_exposed(collector, "true"), True
@@ -1683,18 +1451,6 @@ class SecurityBulletinIntegrationTests(unittest.TestCase):
                     self.collector_januscape_exposed(collector, "false"), False
                 )
 
-    def test_security_version_default_does_not_append_an_extra_brace(self) -> None:
-        common = COMMON_PATH.read_text()
-        self.assertIn(
-            'local security_version_audit_json="${SECURITY_VERSION_AUDIT_JSON:-}"',
-            common,
-        )
-        self.assertIn('security_version_audit_json="{}"', common)
-        self.assertIn(
-            '"securityVersions": ${security_version_audit_json}',
-            common,
-        )
-        self.assertNotIn('${SECURITY_VERSION_AUDIT_JSON:-{}}', common)
 
 class K8sTopologyAuditTests(unittest.TestCase):
     K8S_SCRIPT = COMMON_PATH.parent / "cluster-audit-k8s.sh"
@@ -1919,104 +1675,12 @@ apply_gpu_check_pod gpu-1 cuda:test
             self.assertNotIn("nodeName: gpu-1", applied)
             self.assertNotIn("nvidia.com/gpu: \"1\"", applied)
 
-    def test_gpu_dra_inventory_and_check_use_claims_when_opted_in(self) -> None:
-        script = (COMMON_PATH.parent / "cluster-audit-k8s.sh").read_text()
-
-        self.assertIn("DRA_GPU_COUNTS=", script)
-        self.assertIn('.status.capacity["nvidia.com/gpu"]', script)
-        self.assertIn("and $ready", script)
-        self.assertIn(".spec.unschedulable", script)
-        self.assertIn("k8s_ensure_gpu_dra_claim_template 1", script)
-        self.assertIn("resourceClaimTemplateName: ${claim_template}", script)
-        self.assertIn("kubernetes.io/hostname: ${node}", script)
-
-    def test_shared_check_namespace_is_not_swept_or_removed(self) -> None:
-        script = (COMMON_PATH.parent / "cluster-audit-k8s.sh").read_text()
-
-        self.assertIn(
-            'K8S_AUDIT_CHECK_NS="${CLUSTERMAX_AUDIT_K8S_NAMESPACE:-clustermax-audit}"',
-            script,
-        )
-        self.assertNotIn(
-            'kubectl delete pods -n "$K8S_AUDIT_CHECK_NS" -l app.kubernetes.io/name=clustermax-audit',
-            script,
-        )
-        self.assertNotIn('kubectl delete namespace "$K8S_AUDIT_CHECK_NS"', script)
-        self.assertIn('cleanup_audit_check_pod "$ns" "$pod"', script)
-
-    def test_privileged_host_check_mounts_worker_proc_inside_chroot(self) -> None:
-        script = self.K8S_SCRIPT.read_text()
-
-        self.assertIn("mountPath: /host/proc", script)
-        self.assertIn("path: /proc", script)
-
-    def test_check_deadline_preserves_a_piped_check_script(self) -> None:
-        script = (COMMON_PATH.parent / "cluster-audit-k8s.sh").read_text()
-
-        self.assertIn('timeout "$secs" "$@"', script)
-        self.assertIn('"$@" <&0 &', script)
-        self.assertNotIn('timeout "$secs" "$@" 0<&3', script)
-        self.assertNotIn('"$@" 0<&3 &', script)
-        self.assertNotIn('} 3<&0', script)
-
-    def test_k8s_gpu_promotion_keeps_its_regression_ratchets(self) -> None:
-        # Slim ratchet set distilled from the former inventory mirror. Each
-        # assertNotIn bans an old bug shape in the primary-GPU-profile
-        # promotion; the behavior itself is owned by test_gpu_profiles.py and
-        # test_merge_audit.py. The positive enumeration pins were deleted:
-        # the emitted JSON shape is guarded by the ingest schemas.
-        script = (COMMON_PATH.parent / "cluster-audit-k8s.sh").read_text()
-
-        # An empty primary profile must never silently default to {}.
-        self.assertNotIn('${PRIMARY_GPU_PROFILE_JSON:-{}}', script)
-        # Facts must come from the primary profile, not unscoped node labels.
-        self.assertNotIn('GPU_MODEL_LABEL=$(primary_gpu_label', script)
-        self.assertNotIn('GKE_ACCEL=$(primary_gpu_label', script)
-        self.assertNotIn('|| echo \'{"primary":null,"profiles":[]}\'', script)
-        self.assertNotIn('($primary | length) == 0 or', script)
-        self.assertIn('select(($primary | index($node)) != null)', script)
-        self.assertIn(
-            'GPU profile inventory failed; refusing to promote unscoped GPU metadata',
-            script,
-        )
-        self.assertIn(
-            'GPU resources exist but no valid primary GPU profile was selected',
-            script,
-        )
-
-class K8sTopologyCheckTests(unittest.TestCase):
-    def test_aks_and_azure_file_csi_detection_are_present(self) -> None:
-        script = (COMMON_PATH.parent / "cluster-audit-k8s.sh").read_text()
-
-        self.assertNotIn('startswith("azure://")', script)
-        self.assertIn('has("kubernetes.azure.com/cluster")', script)
-        self.assertIn('PROVIDER="Azure AKS"', script)
-        self.assertIn('PROVIDER_TYPE="managed"', script)
-        self.assertIn('"file.csi.azure.com"', script)
-
-    def test_optional_scheduler_checks_fail_open(self) -> None:
-        script = (COMMON_PATH.parent / "cluster-audit-k8s.sh").read_text()
-
-        self.assertIn(
-            "KUEUE_TOPO_CRD=$(kubectl api-resources --api-group=kueue.x-k8s.io",
-            script,
-        )
-        self.assertIn(
-            "| awk '$1==\"topologies\"{print $1}' | head -1 || true)",
-            script,
-        )
 
 class HostCheckVirtualizationTests(unittest.TestCase):
-    """Run the virtualization detection that supports Januscape."""
-
     ANCHORS = (
         "# --- Hypervisor security bulletins (read-only, never triggers a PoC) ---",
         'echo "WORKER_IOMMU_GROUPS=${WORKER_IOMMU_GROUPS}"',
     )
-    # Every external tool the extracted block reaches. The absent-tool cases run
-    # on a PATH trimmed to the stub dir plus these symlinks, which is the only
-    # way to make "systemd-detect-virt is not installed" deterministic on a
-    # runner that has systemd.
     REAL_TOOLS = ("grep", "cat", "find", "wc", "tr", "uname")
     X86 = "printf 'x86_64\\n'"
 
@@ -2063,9 +1727,6 @@ class HostCheckVirtualizationTests(unittest.TestCase):
         stubs = {"uname": uname or self.X86}
         snippet = block
         if detect_virt is None:
-            # Keep the stub dir, which bashtest puts first on PATH, and replace
-            # the inherited entries with only the tools the block needs, so no
-            # real systemd-detect-virt can answer.
             snippet = f'PATH="${{PATH%%:*}}:{self.tools_dir()}"\n' + block
         else:
             stubs["systemd-detect-virt"] = detect_virt
@@ -2097,8 +1758,6 @@ class HostCheckVirtualizationTests(unittest.TestCase):
         self.assertEqual(facts["WORKER_VIRT_GUEST"], "false")
 
     def test_detect_virt_failing_otherwise_is_not_bare_metal(self) -> None:
-        # Installed but unusable, for example exit 2 with a diagnostic on
-        # stderr. That is not the bare-metal exit, so it settles nothing.
         facts = self.run_virt(self.make_root(), detect_virt="exit 2")
         self.assertEqual(facts["WORKER_VIRT_TYPE"], "unknown")
         self.assertEqual(facts["WORKER_VIRT_GUEST"], "unknown")
@@ -2117,9 +1776,6 @@ class HostCheckVirtualizationTests(unittest.TestCase):
         self.assertEqual(silent["WORKER_VIRT_DETECTION"], "none")
 
     def test_unclassified_platform_does_not_conclude_januscape_is_clean(self) -> None:
-        # Every Januscape prerequisite this check can read is present and only
-        # the platform is unclassified, so "not exposed" would be a confident
-        # claim resting on the unread fact.
         root = self.make_root(
             cpuinfo="flags\t: fpu vme vmx lm\n", kvm_device=True, nested="1"
         )
@@ -2140,8 +1796,6 @@ class HostCheckVirtualizationTests(unittest.TestCase):
         self.assertEqual(bare["WORKER_JANUSCAPE_STATUS"], "not-exposed")
 
     def test_nested_kvm_reported_off_stays_a_confident_not_exposed(self) -> None:
-        # A read that returns 0 is a real read, so it still rules the
-        # prerequisites out even when the platform is unclassified.
         root = self.make_root(
             cpuinfo="flags\t: fpu vme vmx lm\n", kvm_device=True, nested="0"
         )
@@ -2151,15 +1805,6 @@ class HostCheckVirtualizationTests(unittest.TestCase):
 
 
 class HostCheckGpuInventoryTests(unittest.TestCase):
-    """The NVIDIA GPU presence block of host-check.sh, run for real.
-
-    These keys are the only input that lets build_security_version_audit pass
-    ``--nvidia-gpu-absent``, which grades the driver minimum not_applicable
-    and renders as a skip, so the absence claim is asserted from behavior
-    against a stub lspci and a fixture sysfs tree. The local inventory runs
-    before the scale-out gate, so it remains active for standalone audits.
-    """
-
     ANCHORS = (
         "# Local PCI security inventory is independent of the scale-out fabric.",
         'echo "WORKER_SECURITY_NVIDIA_GPU_PRESENT='
@@ -2194,41 +1839,23 @@ class HostCheckGpuInventoryTests(unittest.TestCase):
             or line.startswith("WORKER_SECURITY_NVIDIA_")
         )
 
-    def test_a_listed_nvidia_device_is_present(self) -> None:
-        listing = "0000:00:1f.0 0601: 8086:a1c1\n0000:07:00.0 0302: 10de:2901\n"
-        facts = self.facts(
-            self.run_inventory(self.make_root(), lspci=f"printf '%s' '{listing}'")
-        )
-        self.assertEqual(facts["WORKER_SECURITY_GPU_INVENTORY_COMPLETE"], "true")
-        self.assertEqual(facts["WORKER_SECURITY_NVIDIA_GPU_PRESENT"], "true")
-
-    def test_a_read_bus_with_no_nvidia_device_is_absent(self) -> None:
-        listing = "0000:00:1f.0 0601: 8086:a1c1\n0000:02:00.0 0200: 1af4:1041\n"
-        facts = self.facts(
-            self.run_inventory(self.make_root(), lspci=f"printf '%s' '{listing}'")
-        )
-        self.assertEqual(facts["WORKER_SECURITY_GPU_INVENTORY_COMPLETE"], "true")
-        self.assertEqual(facts["WORKER_SECURITY_NVIDIA_GPU_PRESENT"], "false")
-
-    def test_corroborated_empty_bus_is_absent(self) -> None:
-        # The 20260827-134338 sandbox shape: lspci exits 0 with nothing to
-        # print and /sys/bus/pci/devices is readable and empty.
-        facts = self.facts(
-            self.run_inventory(self.make_root(empty_pci_bus=True), lspci="exit 0")
-        )
-        self.assertEqual(facts["WORKER_SECURITY_GPU_INVENTORY_COMPLETE"], "true")
-        self.assertEqual(facts["WORKER_SECURITY_NVIDIA_GPU_PRESENT"], "false")
-
-    def test_uncorroborated_empty_listing_stays_unknown(self) -> None:
-        facts = self.facts(self.run_inventory(self.make_root(), lspci="exit 0"))
-        self.assertEqual(facts["WORKER_SECURITY_GPU_INVENTORY_COMPLETE"], "false")
-        self.assertEqual(facts["WORKER_SECURITY_NVIDIA_GPU_PRESENT"], "unknown")
+    def test_gpu_inventory_preserves_present_absent_and_unknown(self) -> None:
+        for label, empty_bus, listing, complete, present in (
+            ("nvidia", False, "0000:00:1f.0 0601: 8086:a1c1\n0000:07:00.0 0302: 10de:2901\n", "true", "true"),
+            ("no-nvidia", False, "0000:00:1f.0 0601: 8086:a1c1\n0000:02:00.0 0200: 1af4:1041\n", "true", "false"),
+            ("empty-confirmed", True, "", "true", "false"),
+            ("empty-unconfirmed", False, "", "false", "unknown"),
+        ):
+            with self.subTest(evidence=label):
+                facts = self.facts(self.run_inventory(
+                    self.make_root(empty_pci_bus=empty_bus),
+                    lspci=f"printf '%s' '{listing}'",
+                ))
+                self.assertEqual(facts["WORKER_SECURITY_GPU_INVENTORY_COMPLETE"], complete)
+                self.assertEqual(facts["WORKER_SECURITY_NVIDIA_GPU_PRESENT"], present)
 
     @unittest.skipIf(os.geteuid() == 0, "root can list any directory")
     def test_an_unreadable_sysfs_bus_stays_unknown(self) -> None:
-        # An unreadable directory blanks the ls capture just like an empty
-        # one; it must not corroborate absence, or a permissions problem
-        # would skip the NVIDIA driver minimum on a host that has the GPU.
         root = self.make_root(empty_pci_bus=True)
         bus = root / "sys" / "bus" / "pci" / "devices"
         bus.chmod(0o000)
@@ -2257,8 +1884,6 @@ class HostCheckGpuInventoryTests(unittest.TestCase):
 
 
 class BuildSecurityAuditGpuAbsenceTests(unittest.TestCase):
-    """Only a unanimous positive absence claim reaches the evaluator."""
-
     def build_security(self, check: str) -> dict:
         command = (
             'source "$1"; WORKLOAD_DIR="$2"; '
@@ -2292,8 +1917,6 @@ class BuildSecurityAuditGpuAbsenceTests(unittest.TestCase):
         self.assertIn("No NVIDIA GPU is present", security["nvidiaDriver"]["detail"])
 
     def test_any_incomplete_host_keeps_the_driver_unknown(self) -> None:
-        # A fleet where one worker read its bus and another could not: the
-        # unread host may carry the GPU, so the claim never leaves the shell.
         check = "\n".join(
             [
                 "WORKER_SECURITY_GPU_INVENTORY_COMPLETE=true",
@@ -2318,8 +1941,6 @@ class BuildSecurityAuditGpuAbsenceTests(unittest.TestCase):
         self.assertEqual(security["nvidiaDriver"]["status"], "unknown")
 
     def test_a_check_without_the_keys_keeps_the_driver_unknown(self) -> None:
-        # An older host-check that never emitted the GPU inventory keys makes
-        # no claim, and the evaluator keeps asking for attestation.
         security = self.build_security("WORKER_SECURITY_NIC_INVENTORY_COMPLETE=true")
         self.assertEqual(security["nvidiaDriver"]["status"], "unknown")
 

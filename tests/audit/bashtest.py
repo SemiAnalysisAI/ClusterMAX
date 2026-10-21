@@ -28,9 +28,11 @@ how a tool was invoked as well as on the script's observable result.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -39,6 +41,17 @@ from pathlib import Path
 # tool arguments these workloads pass.
 _FS = "\x1f"
 _RS = "\x1e"
+
+
+def load_python_script(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    # Dataclasses resolve annotations through the registered module.
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
 
 def exec_from(command: str) -> str:
     """Stub body that execs the argv tail starting at the named command.
@@ -101,6 +114,7 @@ def run_bash(
     env: dict[str, str] | None = None,
     cwd: str | Path | None = None,
     timeout: int = 30,
+    path_only: bool = False,
 ) -> BashRun:
     """Run a bash snippet with stub executables prepended to PATH.
 
@@ -109,8 +123,8 @@ def run_bash(
     receives the original "$@". A body of "" makes the stub succeed silently;
     use exec_from() for dispatchers that should exec their payload locally.
     env entries are overlaid on os.environ. The snippet runs without
-    `set -e` unless it opts in, matching how extracted blocks behave inside
-    their scripts.
+    `set -e` unless it opts in. With path_only=True, only the supplied stubs
+    are on PATH, so missing-tool tests do not depend on the host inventory.
     """
     with tempfile.TemporaryDirectory(prefix="bashtest-") as tmp:
         stub_dir = Path(tmp) / "bin"
@@ -134,7 +148,10 @@ def run_bash(
         merged_env = {
             **os.environ,
             **(env or {}),
-            "PATH": f"{stub_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+            "PATH": (
+                str(stub_dir) if path_only
+                else f"{stub_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+            ),
         }
         # The outer interpreter is resolved from the parent environment, not
         # the merged child PATH: execvpe would otherwise find a stub named

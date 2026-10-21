@@ -1,16 +1,4 @@
-"""Behavioral tests for the PCIe ACS virtualization handling.
-
-Two real blocks are executed with stubs, instead of pinning source fragments:
-
-1. host-check.sh sets WORKER_ACS_VIRTUALIZED from systemd-detect-virt and, when
-   that returns "docker" inside a pod, from the emulated QEMU PCI host bridge.
-2. cluster-audit-slurm.sh reports the unresolved-topology ACS case as info
-   ("not applicable") on a virtualized node, and keeps the warning on bare metal.
-
-The guarded incident: on an SR-IOV / passthrough VM the guest cannot see the
-real GPU<->NIC PCIe switch, so the ACS topology never resolves. That is not a
-tenant finding; the old code warned "topology not resolved" anyway.
-"""
+"""Execute the host virtualization and Slurm ACS grading blocks."""
 
 from __future__ import annotations
 

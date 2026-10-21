@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import shlex
 import sys
+from copy import deepcopy
 from datetime import date
 from pathlib import Path
 from unittest import mock
@@ -32,9 +33,14 @@ def evidence(release="31.40"):
     }
 
 
-@pytest.fixture
-def driver_block():
+@pytest.fixture(scope="module")
+def driver_baseline():
     return fr.amd_driver_minimums(fetch=StubFetcher())
+
+
+@pytest.fixture
+def driver_block(driver_baseline):
+    return deepcopy(driver_baseline)
 
 
 @pytest.fixture

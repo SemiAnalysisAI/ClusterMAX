@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""The security audit must report a strict subset of the full audit.
-
-`cmax audit security` filters the full report to the security profile
-(categories {versions, isolation} plus the security extension checks), so for
-one set of collected values every security check must appear in the full audit
-with an identical verdict, and the printed report must be graded against the
-same harness as the exit code.
-"""
+"""Security-profile verdicts must match the full audit for each harness."""
 
 from __future__ import annotations
 
@@ -25,16 +18,7 @@ SECURITY_CATEGORIES = frozenset({"versions", "isolation"})
 
 
 def subset_values(harness: str) -> dict:
-    """Representative audit values covering every reportable check state.
-
-    Includes pass / fail / unknown / not-applicable securityVersions records,
-    the security.* blocks the extension checks read, container / software /
-    networking keys, one guard-suppressed failing value
-    (securityVersions.dpuHostIsolation.status is unknown with no BlueField
-    observed, and containers.nvidiaContainerToolkit is false while the worker
-    check never ran), and one unverified unknown status
-    (security.januscape.status).
-    """
+    """Representative audit values covering every reportable check state."""
     return {
         "cluster": {"orchestrator": harness},
         "audit_data": {
@@ -139,25 +123,6 @@ def _verdicts(checks: list) -> dict[str, tuple]:
 
 
 class SecuritySubsetTests(unittest.TestCase):
-    def test_security_checks_appear_identically_in_the_full_audit(self) -> None:
-        for harness in HARNESSES:
-            with self.subTest(harness=harness):
-                values = subset_values(harness)
-                full = _verdicts(
-                    audit_report.evaluate(
-                        values, RUNTIME_ROOT, category=None, harness=harness
-                    )
-                )
-                subset = _verdicts(
-                    audit_report.evaluate(
-                        values, RUNTIME_ROOT, category="security", harness=harness
-                    )
-                )
-
-                self.assertTrue(subset)
-                for key, verdict in subset.items():
-                    self.assertIn(key, full)
-                    self.assertEqual(verdict, full[key])
 
     def test_security_set_is_the_full_set_filtered_to_security_categories(
         self,
@@ -171,6 +136,12 @@ class SecuritySubsetTests(unittest.TestCase):
                 subset = audit_report.evaluate(
                     values, RUNTIME_ROOT, category="security", harness=harness
                 )
+
+                self.assertTrue(subset)
+                full_verdicts = _verdicts(full)
+                for key, verdict in _verdicts(subset).items():
+                    self.assertIn(key, full_verdicts)
+                    self.assertEqual(verdict, full_verdicts[key])
 
                 subset_keys = {check.key for check in subset}
                 self.assertEqual(
