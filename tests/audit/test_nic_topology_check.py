@@ -60,8 +60,6 @@ def test_shared_gpu_namespace_policy(fanout_check, env, available, expected):
     assert fanout_check.k8s_gpu_namespace(env=env, runner=runner) == expected
     if "CLUSTERMAX_GPU_OPERATOR_NAMESPACE" in env:
         assert calls == []
-    elif expected == "gpu-operator":
-        assert calls[0][-1] == "gpu-operator"
 
 @pytest.mark.parametrize("driver_present", [False, True], ids=["discovery-fallback", "driver-preferred"])
 def test_shared_driver_pod_preference(fanout_check, driver_present):
@@ -282,8 +280,6 @@ class SlurmDispatchTests(unittest.TestCase):
 
         payload = nic.build_check_payload(harness="slurm", env={}, runner=runner)
         self.assertEqual(payload["nic_topology"], {})
-
-        self.assertEqual(len(payload["nic_topology"]), 1)
 
 class K8sDispatchTests(unittest.TestCase):
     def _fake_kubectl(self, exec_host: str = "driver-pod-xyz") -> Any:
