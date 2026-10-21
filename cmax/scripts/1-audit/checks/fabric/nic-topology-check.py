@@ -380,6 +380,7 @@ def run_evidence_tool(
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+_LOCKFILE_WARNING = re.compile(r"warr?ning: failed to create lockfile", re.I)
 
 
 def _first_text_line(lines: Iterable[str]) -> str:
@@ -390,7 +391,9 @@ def _first_text_line(lines: Iterable[str]) -> str:
     """
     for line in lines:
         text = _ANSI_RE.sub("", line).strip()
-        if text:
+        # mstflint warns about its lock directory on read-only hosts before
+        # the actual result; that warning is not the failure.
+        if text and not _LOCKFILE_WARNING.match(text):
             return text[:120]
     return ""
 
@@ -453,7 +456,7 @@ def parse_mlxconfig(text: str) -> dict:
 def parse_mlxlink(text: str) -> dict:
     """Keep port + module identity keys from `mlxlink -d X -m` (colon pairs)."""
     fields: dict[str, str] = {}
-    for line in text.splitlines():
+    for line in _ANSI_RE.sub("", text).splitlines():
         if ":" not in line:
             continue
         key, _, value = line.partition(":")
