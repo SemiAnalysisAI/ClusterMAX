@@ -258,6 +258,10 @@ def collect(namespace):
     for node in scanned["nodes"]:
         spec, name = node["spec"], node["metadata"]["name"]
         for taint in spec.get("taints", []):
+            # PreferNoSchedule is a soft preference: the scheduler still
+            # places pods that do not tolerate it, so it restricts nothing.
+            if taint.get("effect") == "PreferNoSchedule":
+                continue
             label = f"{taint['key']}={taint.get('value', '')}:{taint['effect']}"
             taints.setdefault(label, []).append(name)
         if spec.get("unschedulable"):
