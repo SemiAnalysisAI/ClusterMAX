@@ -246,12 +246,13 @@ def _ncu_install_verdict_available(audit: dict[str, Any]) -> bool:
 
 
 def _vboost_check_unavailable(audit: dict[str, Any]) -> bool:
-    """True when the vboost check never executed nvidia-smi anywhere.
+    """True when the vboost check never reached a GPU with nvidia-smi.
 
     The check aggregates to ``gpu_controls.vboost.status`` = "unavailable" when
     every per-node result is a check failure (nvidia-smi missing, a stub /
-    wrong-arch binary raising OSError, or a timeout), including a non-GPU
-    login node used outside an allocation. The sibling
+    wrong-arch binary raising OSError, no GPU visible to the process, or a
+    timeout), including a non-GPU login node used outside an allocation and a
+    Slurm allocation that requested no GPUs. The sibling
     ``allowed`` = false is then missing data, not a provider denial, so the
     "not allowed" finding must stay silent.
     """
@@ -1508,8 +1509,10 @@ GUARD_SUPPRESSIONS: dict[str, tuple[GuardReason, ...]] = {
         GuardReason(
             _vboost_check_unavailable,
             UNVERIFIED_KIND,
-            "The vBoost check never executed nvidia-smi on any node, so this "
-            "value is unverified rather than a provider denial.",
+            "The vBoost check never reached a GPU with nvidia-smi on any node, "
+            "so this value is unverified rather than a provider denial. In "
+            "Slurm, run the audit in an allocation that requests GPUs, such "
+            "as --gres=gpu:N.",
         ),
     ),
     "nccl_topo_file.status": (
