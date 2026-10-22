@@ -45,6 +45,9 @@ AUDIT_CATEGORIES = (
                 "bmc-ipmi",
                 "kubernetes-nodes-proxy",
                 "nvlink-boundary",
+                "observability-isolation",
+                "qemu-virtio-serial",
+                "vmscape",
                 "pcie-passthrough",
                 "ufm-profile",
                 "securityVersions.virtioNetBluefield.exposure",
@@ -60,6 +63,9 @@ AUDIT_CATEGORIES = (
             "gpus.",
             "gpu_controls.",
             "hbm_memory_exposure.",
+            "thp_madvise.",
+            "static_hugepages.",
+            "hugepage_allocation.",
             "vm_iommu.",
             "arm_smmu_virtualization.",
         ),
@@ -90,7 +96,7 @@ AUDIT_CATEGORIES = (
         "Show checks for Slurm workers, Pyxis, and Kubernetes kubelets.",
         # "slurm." covers scheduler-level checks such as accounting; container
         # runtimes on workers stay in the containers category above.
-        prefixes=("kubelet_cpu_manager_policy.", "slurm."),
+        prefixes=('kubelet_cpu_manager_policy.', 'slurm.', 'tenant_pod_defaults.', 'k8s_scheduling.'),
         keys=frozenset(
             {
                 "containers.workerCheckOk",
@@ -108,7 +114,7 @@ AUDIT_CATEGORIES = (
         "storage",
         "Storage",
         "Show binary storage installation and configuration checks.",
-        prefixes=("storage.",),
+        prefixes=('storage.', 'storage_config.'),
     ),
     AuditCategory(
         "health",

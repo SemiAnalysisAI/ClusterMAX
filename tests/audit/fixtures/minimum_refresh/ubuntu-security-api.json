@@ -1,6 +1,29 @@
 {
   "_comment": "One trimmed response per CVE from the Ubuntu security API (https://ubuntu.com/security/cves/<CVE>.json), keyed by CVE id. Each value is the document that endpoint returns, unchanged in shape, so the extractor under test reads real packages[].statuses[] entries. Folded into one file because these four share a feed and a shape; the CSAF and OSV fixtures stay separate because they do not.",
   "responses": {
+    "CVE-2026-46242": {
+      "priority": "high",
+      "packages": [
+        {
+          "name": "linux-nvidia-6.17",
+          "statuses": [
+            {"release_codename": "noble", "status": "released", "description": "6.17.0-1031.31"}
+          ]
+        },
+        {
+          "name": "linux",
+          "statuses": [
+            {"release_codename": "noble", "status": "released", "description": "6.8.0-137.137"}
+          ]
+        },
+        {
+          "name": "linux-hwe-6.8",
+          "statuses": [
+            {"release_codename": "jammy", "status": "released", "description": "6.8.0-138.138~22.04.1"}
+          ]
+        }
+      ]
+    },
     "CVE-2024-3446": {
       "id": "CVE-2024-3446",
       "priority": "medium",
@@ -101,6 +124,12 @@
         }
       ],
       "packages": [
+        {
+          "name": "linux-nvidia-6.17",
+          "statuses": [
+            {"release_codename": "noble", "status": "released", "description": "6.17.0-1021.21"}
+          ]
+        },
         {
           "name": "linux",
           "source": "https://ubuntu.com/security/cve?package=linux",

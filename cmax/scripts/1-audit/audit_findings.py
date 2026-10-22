@@ -246,12 +246,13 @@ def _ncu_install_verdict_available(audit: dict[str, Any]) -> bool:
 
 
 def _vboost_check_unavailable(audit: dict[str, Any]) -> bool:
-    """True when the vboost check never executed nvidia-smi anywhere.
+    """True when the vboost check never reached a GPU with nvidia-smi.
 
     The check aggregates to ``gpu_controls.vboost.status`` = "unavailable" when
     every per-node result is a check failure (nvidia-smi missing, a stub /
-    wrong-arch binary raising OSError, or a timeout), e.g. the GCore Soperator
-    login node the audit falls back to outside an allocation. The sibling
+    wrong-arch binary raising OSError, no GPU visible to the process, or a
+    timeout), including a non-GPU login node used outside an allocation and a
+    Slurm allocation that requested no GPUs. The sibling
     ``allowed`` = false is then missing data, not a provider denial, so the
     "not allowed" finding must stay silent.
     """
@@ -269,8 +270,7 @@ def _vboost_unsupported_gpu(audit: dict[str, Any]) -> bool:
 
     B300 and GB300 do not implement the ``nvidia-smi boost-slider --vboost``
     interface: the command returns "Invalid Argument" on every node no matter
-    what the provider allows (observed on Crusoe and CoreWeave HGX B300
-    workers and on Google and GMI GB300 NVL72). The resulting
+    what the provider allows. The resulting
     ``allowed=false`` is a hardware capability gap, not a provider policy
     block, so the "not allowed" finding must stay silent on these GPUs.
     """
@@ -514,7 +514,108 @@ def _bluefield_absence_proven(audit: dict[str, Any]) -> bool:
 
 # Declarative rule set. To add a check, append a Rule. Keys are dotted paths into
 # the audit_data blob (see runs/<slug>/<ts>/audit/audit.values.json).
+
+def _host_rdma_active(audit: dict[str, Any]) -> bool:
+    """True when the privileged host check saw an active RDMA fabric.
+
+    ``networking.hostRdma`` comes from the Kubernetes host check, so this guard
+    is false on other harnesses and on runs where the host check never ran.
+    The tenant-pod device rules use it: reporting a missing /dev/infiniband to
+    a provider whose nodes hold no RDMA hardware would be noise.
+    """
+    try:
+        return int(nested_get(audit, "networking", "hostRdma", "activePorts") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _host_gdrdrv_loaded(audit: dict[str, Any]) -> bool:
+    """True when the host check saw the gdrdrv kernel module loaded."""
+    return _is_true(nested_get(audit, "gpus", "gdrcopy", "gdrdrvLoaded"))
+
+
+def _tenant_pod_guidance(
+    audit: dict[str, Any], rule: Rule, value: Any
+) -> tuple[str, str]:
+    """Detected / recommendation for the tenant pod defaults rules.
+
+    The check stores its evidence in ``tenant_pod_defaults.checks.<name>.detail``,
+    which is exactly the sentence the operator needs to see, so it is carried
+    into the finding verbatim.
+    """
+    if rule.key == "networking.rdmaType":
+        ports = nested_get(audit, "networking", "hostRdma", "activePorts")
+        detected = (
+            f"host RDMA fabric with {ports} active port(s); "
+            "no rdma extended resource is advertised"
+        )
+        recommendation = (
+            "Ask the provider to advertise the RDMA fabric as a Kubernetes "
+            "extended resource through an RDMA device plugin or the NVIDIA "
+            "Network Operator."
+        )
+        return detected, recommendation
+    if rule.key == "tenant_pod_defaults.status":
+        message = nested_get(audit, "tenant_pod_defaults", "message")
+        if _status_is("warning")(value):
+            detected = (
+                "One or more tenant pod defaults need changes"
+                if _missing_string(message) else str(message)
+            )
+            return detected, (
+                "Review the per-check tenant pod findings and ask the provider "
+                "to change the runtime or admission defaults they name."
+            )
+        detected = "Check did not run" if _missing_string(message) else str(message)
+        recommendation = (
+            "Run the audit with access that can schedule one unprivileged GPU "
+            "pod, or ask the provider to attest the tenant pod defaults."
+        )
+        return detected, recommendation
+    parts = rule.key.split(".")
+    check = parts[2] if len(parts) >= 4 else ""
+    detail = nested_get(audit, "tenant_pod_defaults", "checks", check, "detail")
+    detected = (
+        str(value).replace("_", " ").capitalize()
+        if _missing_string(detail)
+        else str(detail)
+    )
+    recommendation = _TENANT_POD_RECOMMENDATIONS.get(
+        check, "Correct the reported configuration, and run the audit again."
+    )
+    return detected, recommendation
+
+_TENANT_POD_RECOMMENDATIONS = {
+    "memlock": (
+        "Ask the provider to set LimitMEMLOCK=infinity on the container "
+        "runtime service, or to grant CAP_IPC_LOCK to GPU pods by default."
+    ),
+    "shm": (
+        "Ask the provider to raise the runtime default shm size; the pod-spec "
+        "remedy is a memory-backed emptyDir on /dev/shm."
+    ),
+    "rdmaDevices": (
+        "Ask the provider to deploy an RDMA device plugin or the NVIDIA "
+        "Network Operator, so pods can request the fabric devices."
+    ),
+    "gdrcopyDevice": (
+        "Ask the provider to expose /dev/gdrdrv to pods through the GPU "
+        "Operator or a device plugin."
+    ),
+    "tunedPodAdmission": (
+        "Ask the provider to allow CAP_IPC_LOCK and a memory-backed /dev/shm "
+        "in tenant pod specs."
+    ),
+}
+
+
 RULES: tuple[Rule, ...] = (
+    Rule("thp_madvise.status", "THP madvise policy needs review", CONFIG,
+         lambda value: str(value).lower() in {"warning", "fail", "error", "unknown"}),
+    Rule("static_hugepages.status", "Static HugeTLB capacity needs review", CONFIG,
+         lambda value: str(value).lower() in {"warning", "fail", "error", "unknown"}),
+    Rule("hugepage_allocation.status", "Huge-page allocation trial needs review", CONFIG,
+         lambda value: str(value).lower() in {"warning", "fail", "error", "unknown", "incomplete"}),
     Rule(
         "securityVersions.amdDriver.status",
         "AMD host driver below security minimum",
@@ -526,6 +627,13 @@ RULES: tuple[Rule, ...] = (
         "AMD host driver patch requires provider or distribution evidence",
         CONFIG,
         _status_is("unknown"),
+    ),
+    Rule(
+        "k8s_scheduling.status",
+        "Kubernetes scheduling policy needs review",
+        CONFIG,
+        _status_is("warning"),
+        harnesses=frozenset({"k8s"}),
     ),
     # --- Advisory-backed host security versions -------------------------
     Rule(
@@ -789,7 +897,35 @@ RULES: tuple[Rule, ...] = (
         _status_is("fail"),
         cves=("CVE-2026-46300", "CVE-2026-43284", "CVE-2026-43500"),
     ),
+    Rule(
+        "security.badEpoll.status",
+        "Running kernel is below the Bad Epoll fixed package minimum; update and reboot",
+        VERSION,
+        _status_is("fail"),
+        cves=("CVE-2026-46242",),
+    ),
+    Rule(
+        "security.badEpoll.status",
+        "Bad Epoll patch status is unverified; requires provider patch evidence",
+        CONFIG,
+        _status_is("unknown"),
+        cves=("CVE-2026-46242",),
+    ),
     # --- Containers -------------------------------------------------------
+    Rule(
+        "security.pwnescape.status",
+        "Running upstream kernel is below the PwnEscape minimum version",
+        VERSION,
+        _status_is("fail"),
+        cves=("CVE-2026-99999",),
+    ),
+    Rule(
+        "security.pwnescape.status",
+        "PwnEscape host patch status requires vendor or provider evidence",
+        CONFIG,
+        lambda value: str(value).strip().lower() not in {"pass", "fail"},
+        cves=("CVE-2026-99999",),
+    ),
     # These checks are worker-scoped. A `false` value produced only because the
     # worker check never ran (containers.workerCheckOk == false) is inconclusive,
     # so the "not installed" / "below version" rules are guarded to fire only
@@ -1149,6 +1285,75 @@ RULES: tuple[Rule, ...] = (
         _is_false,
         harnesses=frozenset({"slurm"}),
     ),
+    Rule(
+        "tenant_pod_defaults.status",
+        "Tenant default-pod check could not run; unprivileged workload defaults are unverified (not evidence of absence)",
+        CONFIG,
+        _status_is("unknown"),
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
+        "tenant_pod_defaults.status",
+        "Tenant default pods need configuration changes",
+        CONFIG,
+        _status_is("warning"),
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
+        "tenant_pod_defaults.checks.memlock.status",
+        "Default tenant pod locked-memory limit is too low for RDMA memory registration (UCX, NCCL, NVSHMEM, CUDA-aware MPI)",
+        CONFIG,
+        _status_is("warning"),
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
+        "tenant_pod_defaults.checks.shm.status",
+        "Default tenant pod /dev/shm is too small for multi-GPU shared-memory transports",
+        CONFIG,
+        _status_is("warning"),
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
+        "tenant_pod_defaults.checks.rdmaDevices.status",
+        "Unprivileged tenant pods cannot reach the active host RDMA fabric (no /dev/infiniband and no rdma extended resource)",
+        CONFIG,
+        _status_is("absent"),
+        guard=_host_rdma_active,
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
+        "tenant_pod_defaults.checks.gdrcopyDevice.status",
+        "GDRCopy device /dev/gdrdrv is not injected into unprivileged tenant pods",
+        CONFIG,
+        _status_is("absent"),
+        guard=_host_gdrdrv_loaded,
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
+        "tenant_pod_defaults.checks.tunedPodAdmission.status",
+        "Tenant pod-spec remedy (CAP_IPC_LOCK with a memory-backed /dev/shm) is blocked or ineffective",
+        CONFIG,
+        _status_is("warning"),
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
+        "storage_config.status",
+        "Mounted filesystems differ across worker nodes",
+        CONFIG,
+        _status_is("fail"),
+    ),
+    Rule(
+        "storage_config.status",
+        "Storage configuration advisory across worker nodes; verify hands-on",
+        CONFIG,
+        _status_is("warning"),
+    ),
+    Rule(
+        "storage_config.status",
+        "Storage configuration could not be checked on any worker node",
+        CONFIG,
+        _status_is("unknown"),
+    ),
 )
 
 
@@ -1197,6 +1402,20 @@ _NO_BLUEFIELD = GuardReason(
 # a new guard lands with its classification; keys without an entry (or whose
 # clauses all miss) fall back to the unverified skip.
 GUARD_SUPPRESSIONS: dict[str, tuple[GuardReason, ...]] = {
+    "tenant_pod_defaults.checks.rdmaDevices.status": (
+        GuardReason(
+            lambda audit: str(nested_get(audit, "networking", "hostRdma", "activePorts")).strip() == "0",
+            NOT_APPLICABLE_KIND,
+            "The completed host inventory found no active RDMA ports.",
+        ),
+    ),
+    "tenant_pod_defaults.checks.gdrcopyDevice.status": (
+        GuardReason(
+            lambda audit: str(nested_get(audit, "gpus", "gdrcopy", "gdrdrvLoaded")).lower() == "false",
+            NOT_APPLICABLE_KIND,
+            "The host inventory confirms that gdrdrv is not loaded.",
+        ),
+    ),
     "securityVersions.nvidiaDriver.status": (_AMD_HARDWARE,),
     "securityVersions.nvidiaContainerToolkit.status": (_AMD_HARDWARE,),
     "securityVersions.cudaToolkit.status": (_AMD_HARDWARE,),
@@ -1290,8 +1509,10 @@ GUARD_SUPPRESSIONS: dict[str, tuple[GuardReason, ...]] = {
         GuardReason(
             _vboost_check_unavailable,
             UNVERIFIED_KIND,
-            "The vBoost check never executed nvidia-smi on any node, so this "
-            "value is unverified rather than a provider denial.",
+            "The vBoost check never reached a GPU with nvidia-smi on any node, "
+            "so this value is unverified rather than a provider denial. In "
+            "Slurm, run the audit in an allocation that requests GPUs, such "
+            "as --gres=gpu:N.",
         ),
     ),
     "nccl_topo_file.status": (
@@ -1336,6 +1557,20 @@ def classify_suppression(key: str, audit: dict[str, Any]) -> tuple[str, str]:
 CHECK_CRITERIA: dict[str, str | None] = {
     # CLI-only until the criteria catalog has an AMD host-driver criterion.
     "securityVersions.amdDriver.status": None,
+    "qemu-virtio-serial": "security-qemu-virtio-serial",
+    "vmscape": "security-vmscape",
+    "observability-isolation": "security-observability-isolation",
+    "thp_madvise.status": None,
+    "static_hugepages.status": None,
+    "hugepage_allocation.status": None,
+    "storage_config.status": None,
+    "k8s_scheduling.status": None,
+    "tenant_pod_defaults.status": None,
+    "tenant_pod_defaults.checks.memlock.status": None,
+    "tenant_pod_defaults.checks.shm.status": None,
+    "tenant_pod_defaults.checks.rdmaDevices.status": None,
+    "tenant_pod_defaults.checks.gdrcopyDevice.status": None,
+    "tenant_pod_defaults.checks.tunedPodAdmission.status": None,
     "securityVersions.nvidiaDriver.status": "security-nvidia-driver",
     "securityVersions.nvidiaContainerToolkit.status": "security-nvidia-container-toolkit",
     "securityVersions.cudaToolkit.status": "cuda-toolkit-security",
@@ -1351,6 +1586,9 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "security.guestKernel.newerInstalled": "guest-kernel-current",
     "security.ubuntuNobleKernelMinimum.status": "ubuntu-kernel-minimum-version",
     "security.fragnesia.status": "ubuntu-kernel-fragnesia-dirty-frag",
+    # CLI-only until the website catalog publishes a dedicated Bad Epoll row.
+    "security.badEpoll.status": None,
+    "security.pwnescape.status": None,
     "containers.nvidiaContainerToolkit": "container-toolkit",
     "containers.workerCheckOk": None,
     "containers.pyxisRuntimeWorks": "pyxis",
@@ -1427,6 +1665,7 @@ def _audit_data(values: dict[str, Any]) -> dict[str, Any]:
 
 
 _COMPONENT_NAMES = {
+    "amdDriver": "AMD GPU driver",
     "connectxFirmware": "ConnectX firmware",
     "cudaToolkit": "CUDA Toolkit",
     "dcgm": "DCGM",
@@ -1505,9 +1744,62 @@ def _sentence(text: str) -> str:
     return text[:1].upper() + text[1:]
 
 
+# Statuses that mean the evidence lives on a host the audit cannot read, such
+# as the physical host behind a VM. They are not configuration errors.
+_HOST_EVIDENCE_STATUSES = {"host-version-required", "host-patch-required"}
+
+
+# Rules whose title does not start with what they check.
+_RULE_SUBJECTS = {
+    "nccl_topo_file.status": "container mount of the host NCCL topology file",
+}
+
+
+def _rule_subject(rule: Rule) -> str:
+    """Name what a rule checks, without its verdict wording.
+
+    Rule titles state a verdict ("X requires Y", "X is unverified; ...",
+    "X could not be verified"). The recommendation needs only the X.
+    """
+    if rule.key in _RULE_SUBJECTS:
+        return _RULE_SUBJECTS[rule.key]
+    subject = re.split(
+        r";| requires\b| is unverified\b| could not be verified\b| is present but\b",
+        rule.title,
+        maxsplit=1,
+    )[0].strip()
+    return subject or rule.title
+
+
 def _finding_guidance(
     audit: dict[str, Any], rule: Rule, value: Any
 ) -> tuple[str, str, tuple[str, ...], tuple[str, ...]]:
+    if rule.key in {"thp_madvise.status", "static_hugepages.status", "hugepage_allocation.status"}:
+        payload = nested_get(audit, rule.key.rsplit(".", 1)[0], default={})
+        return (
+            str(payload.get("message") or value),
+            "Review the per-node huge-page policy and pool evidence. Run allocation trials only on an explicitly approved idle host.",
+            (), (),
+        )
+    if rule.key == "storage_config.status":
+        payload = nested_get(audit, "storage_config", default={})
+        return (
+            str(payload.get("message") or value),
+            "Inspect the recorded per-node filesystems, missing mounts, capacity, and collection errors before changing storage.",
+            (), (),
+        )
+    if rule.key == "k8s_scheduling.status":
+        payload = nested_get(audit, "k8s_scheduling", default={})
+        messages = [str(row.get("message", "")) for row in payload.get("findings", [])
+                    if isinstance(row, dict)]
+        return (
+            "; ".join(messages) or str(payload.get("message") or value),
+            "Check the recorded policy against the intended workload. A placement restriction does not establish a provider defect.",
+            (), (),
+        )
+    if rule.key.startswith("tenant_pod_defaults."):
+        detected, recommendation = _tenant_pod_guidance(audit, rule, value)
+        return detected, recommendation, (), ()
     component, observed, minimum = _version_context(audit, rule.key)
     component_name = _COMPONENT_NAMES.get(component, component)
     if (
@@ -1681,11 +1973,32 @@ def _finding_guidance(
             "The collector could not verify this check. Treat this value as "
             "unverified."
         )
-        subject = component_name or rule.title.split(" requires", 1)[0]
+        subject = component_name or _rule_subject(rule)
         recommendation = (
             _sentence(f"{subject} {minimum} or later.")
             if minimum not in (None, "")
-            else f"Ask the provider to attest the {subject} state."
+            else f"Ask the provider to attest the {subject} version with host evidence."
+            if component_name
+            else f"Ask the provider to attest the {subject} with host evidence."
+        )
+    elif str(value).strip().lower() in _HOST_EVIDENCE_STATUSES:
+        detected = (
+            "The audit cannot read the physical host from this target, so the "
+            "host status is unverified."
+        )
+        recommendation = (
+            "Ask the provider for the physical host's running kernel and "
+            "CVE-specific patch evidence."
+        )
+    elif str(value).strip().lower() == "coverage-incomplete":
+        detected = (
+            "The audit could not read every host or could not find the "
+            "control plane, so the fleet result is incomplete. This is not a pass."
+        )
+        recommendation = (
+            "Request running-kernel and CVE-specific patch evidence for each "
+            "host that the audit could not read, including managed "
+            "control-plane hosts."
         )
     else:
         detected = str(value).replace("_", " ").capitalize()

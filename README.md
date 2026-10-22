@@ -14,6 +14,14 @@ This version of the `cmax` CLI provides the following commands:
 
 ## Install ClusterMAX
 
+The [security release preparation checklist](docs/security-release-preparation.md)
+describes the added checks and publication gates. PR validation does not publish
+a stable package.
+
+Stable publication uses a manually dispatched, approved workflow. It verifies
+the PyPI upload before creating the matching GitHub tag and Release from the
+same commit and artifacts. Nightly publication does not create GitHub Releases.
+
 ClusterMAX requires Python 3.10 or later. Install the current release:
 ```
 uv venv
@@ -34,8 +42,9 @@ cmax audit -h
 cmax audit security -h
 ```
 
-Nightly releases use the `0.3.0.devYYYYMMDDNN` format until the stable 0.3.0
-release. This version is newer than stable 0.2.1 when `--pre` is enabled.
+The prepared stable release is `0.3.0`. Subsequent nightly releases use the
+`0.3.1.devYYYYMMDDNN` format, which sorts after `0.3.0` when `--pre` is enabled.
+The version change in this branch does not publish either channel.
 
 ## Public documentation
 
@@ -44,6 +53,73 @@ The [ClusterMAX website](https://clustermax.semianalysis.com/) explains the rati
 ## Run a security audit
 
 The current [minimum-version table](https://www.clustermax.ai/minimum-versions) lists the software and firmware versions used for grading, with vendor advisories behind each value. Its [machine-readable form](https://www.clustermax.ai/minimum-versions.json) is the table `cmax audit security` fetches on startup (skip with `--no-fetch-minimums`).
+
+The read-only Bad Epoll check, `security.badEpoll.status`, checks the running
+kernel against [CVE-2026-46242](https://ubuntu.com/security/CVE-2026-46242).
+It maps Ubuntu 24.04 GA 6.8 generic, Ubuntu 22.04 HWE 6.8 generic, Ubuntu
+24.04 NVIDIA 6.17 (`nvidia` and `nvidia-64k`), and Ubuntu 26.04 GA 7.0 generic
+packages. Each source package uses
+its own fixed-version minimum. It requires matching running-kernel signature and installed-package
+evidence. A newer installed kernel does not clear a failure until it is running.
+Unsupported flavors, missing evidence, and active or unreadable livepatch state
+produce an unknown result that requires provider patch evidence. The check does
+not run an exploit or attest that a provider's kernel is genuine. An explicitly
+pinned minimum table without the mapping produces an unknown result.
+
+Security collection distinguishes the host, GPU Operator containers, and active
+GPU workloads on the sampled worker. Driver detection can read the loaded
+kernel module when `nvidia-smi` is outside the host search path. Toolkit
+detection also checks the GPU Operator installation directory. CUDA Toolkit
+versions come from `nvcc` or toolkit metadata, never the driver compatibility
+version or an image tag.
+
+The network probe prefers a verified privileged host-root mount when available.
+It can enumerate PCI devices through sysfs if `lspci` is missing. It uses
+read-only `mlxconfig -e` queries and grades only the Current column. Defaults
+and next-boot settings do not establish current isolation. It does not install
+tools or start `mst`.
+Missing permissions, incomplete scans, and unassessed firmware trains remain
+unknown. A completed topology scan alone does not prove exclusive ownership
+of the physical NVLink domain.
+
+Held installed kernels participate in the reboot check. Missing installed-kernel
+inventory cannot produce a PASS. The NVIDIA 6.17 and Ubuntu 26.04 mappings also
+check [Fragnesia and Dirty Frag](https://ubuntu.com/security/CVE-2026-46300)
+against the source-package minimum. A newer downloaded table cannot silently remove
+the kernel mappings shipped with this client. If it lacks those mappings,
+the client reports the mismatch and retains its installed table.
+
+An absent host Docker installation or an absent CUDA Toolkit in the inspected
+scope remains not applicable. This differs from an unreadable tool or failed
+probe, which remains unknown. A complete bare-metal PCI scan with no VFIO
+assignment makes that sampled host's passthrough check not applicable. UFM
+control settings require provider evidence. The tenant profile skips this
+provider-side check until a control record is supplied. A skip does not certify
+the fabric. Shared InfiniBand fabrics still need the provider's security review.
+
+The following results have explicit assessment scopes:
+
+- **BMC/IPMI:** A PASS means the completed local read commands returned no
+  usable management data. A generic IPMI error response remains recorded as
+  `error-response`, not an access-denied response. Missing tools, timeouts and
+  incomplete node coverage remain unknown. Network BMC interfaces are not tested.
+- **NVLink:** A complete topology scan plus an operator ownership attestation
+  can pass. Set `CLUSTERMAX_NVLINK_DOMAIN_EXCLUSIVE_ATTESTED=true` only when the
+  entire observed physical domain belongs to the allocation. GPU counts alone
+  do not establish ownership. The evidence records the attestation source.
+- **ConnectX firmware:** The parser preserves NVIDIA's explicit GA
+  ["46.3008 or newer" range](https://raw.githubusercontent.com/NVIDIA/product-security/main/2026/5699/5699.json).
+  Later trains can pass for the mapped ConnectX-8 and BlueField-3 firmware
+  families. Older LTS floors remain separate. Unknown products do not inherit
+  that range merely because their version is higher.
+- **Virtio-Net:** Verified current NIC mode passes the current-exposure check.
+  Stored firmware remains unassessed when unreadable. Recheck it before enabling
+  DPU mode. A NIC-mode sample cannot clear missing or mixed fleet evidence.
+- **DPU host policy:** An enabled RShim path can fail the configured restriction
+  policy without proving DPU login or an exploit. Runtime locks, permissions and
+  ownership need separate checks. The audit does not start RShim or change modes.
+  On BlueField-3, the Arm OS does not boot in NIC mode
+  ([NVIDIA mode documentation](https://docs.nvidia.com/doca/archive/2-9-4/bluefield-modes-of-operation/index.html)).
 
 The security profile selects the version and isolation checks from the complete audit. Use `-s` or `--show` to list the applicable checks before the audit runs:
 
@@ -168,7 +244,7 @@ report format, and evidence limits.
 
 ## Run a cluster audit
 
-Version 0.2.1 runs the core audit. Use `-s` or `--show` to list every check without collecting data:
+Version 0.3.0 runs the core audit. Use `-s` or `--show` to list every check without collecting data:
 
 ```bash
 cmax audit --show
@@ -267,6 +343,17 @@ administrative identity can reach. It does not prove that an ordinary workload
 pod can reach the same local management interface. The check examines up to 32
 worker nodes by default. Set `CLUSTERMAX_AUDIT_K8S_BMC_NODE_LIMIT` to a larger
 positive integer when a larger fleet requires complete coverage.
+
+The focused security audit (`cmax audit security`) grades host-level minimums
+on every GPU host, not only the sampled worker: the GPU driver, NVIDIA
+Container Toolkit, runc, Docker, ConnectX firmware, DCGM, and the kernel
+advisories. Each check reports the worst host, names it, and lists every host's
+result. ConnectX devices are listed as `host/device`. A GPU host the audit
+cannot read leaves a passing check unknown. Kubernetes reuses the BMC host-root
+pod on each node; Slurm runs a short one-GPU step on each GPU node with
+`--immediate=30`, so a busy node is reported as unread instead of waiting. Up
+to 32 GPU hosts are read by default; set `CLUSTERMAX_AUDIT_SECURITY_HOST_LIMIT`
+for larger fleets.
 
 Kubernetes full, security, and isolation audits also inspect ClusterRoles and
 ClusterRoleBindings for `get` permission on `nodes/proxy`. The report identifies

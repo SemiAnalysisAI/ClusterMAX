@@ -1183,10 +1183,19 @@ k8s_cluster_has_rdma_fabric() {
 # rdma/rdma_shared_device_a), excluding per-rail rdma/fabricN resources.
 # Allocatable values are Kubernetes quantities and may carry SI or binary
 # suffixes: the NVIDIA network operator shared device plugin advertises pools
-# like "1k" (seen on Hyperstack cluster42), which bare int() rejects.
+# like "1k", which bare int() rejects.
 k8s_detect_shared_rdma_resource() {
-    kubectl get nodes -o json 2>/dev/null | python3 -c '
-import json, re, sys
+    local sriov_config=""
+    local namespace
+    for namespace in "${CLUSTERMAX_K8S_NETWORK_OPERATOR_NAMESPACE:-}" "${NET_OP_NS:-}" \
+        nvidia-network-operator network-operator mellanox; do
+        [[ -n "$namespace" ]] || continue
+        sriov_config="$(kubectl get configmap network-operator-sriovdp-config \
+            -n "$namespace" --request-timeout=10s -o json 2>/dev/null)" || sriov_config=""
+        [[ -n "$sriov_config" ]] && break
+    done
+    kubectl get nodes -o json 2>/dev/null | SRIOV_CONFIG="$sriov_config" python3 -c '
+import json, os, re, sys
 from decimal import Decimal
 
 SUFFIXES = {
@@ -1207,6 +1216,27 @@ def quantity(value):
         return Decimal(number + suffix)
     return Decimal(number) * SUFFIXES.get(suffix or "", 1)
 
+rdma_hostdev = False
+try:
+    configmap = json.loads(os.environ.get("SRIOV_CONFIG", "") or "{}")
+    config = json.loads(configmap.get("data", {}).get("config.json", "{}"))
+    def has_rdma(selectors):
+        selectors = [selectors] if isinstance(selectors, dict) else selectors
+        return isinstance(selectors, list) and any(
+            isinstance(selector, dict) and selector.get("isRdma") is True
+            for selector in selectors
+        )
+    rdma_hostdev = any(
+        isinstance(resource, dict)
+        and
+        resource.get("resourcePrefix") == "nvidia.com"
+        and
+        resource.get("resourceName") == "hostdev"
+        and has_rdma(resource.get("selectors", {}))
+        for resource in config.get("resourceList", [])
+    )
+except (ValueError, TypeError, AttributeError):
+    pass
 data = json.load(sys.stdin)
 keys = sorted({
     key
@@ -1215,8 +1245,9 @@ keys = sorted({
     if (
         (key.startswith("rdma/") and not key.startswith("rdma/fabric"))
         or key.startswith("nvidia.com/rdma")
+        or (key == "nvidia.com/hostdev" and rdma_hostdev)
     ) and quantity(value) > 0
-})
+}, key=lambda resource: (resource == "nvidia.com/hostdev", resource))
 print(keys[0] if keys else "")
 ' 2>/dev/null
 }

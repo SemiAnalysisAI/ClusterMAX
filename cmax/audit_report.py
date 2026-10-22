@@ -32,6 +32,9 @@ _SECURITY_EXTENSION_IDS = frozenset(
         "pcie-passthrough",
         "nvlink-boundary",
         "kubernetes-nodes-proxy",
+        "observability-isolation",
+        "qemu-virtio-serial",
+        "vmscape",
     }
 )
 _SECURITY_EXTENSION_HARNESSES = {
@@ -65,6 +68,17 @@ _PASS_ASSESSMENTS = {
     "securityVersions.amdDriver.status": (
         "The loaded AMD driver on the inspected host meets the published security minimum."
     ),
+    "thp_madvise.status": "The host THP policy supports madvise.",
+    "static_hugepages.status": "The static HugeTLB pool has available pages.",
+    "hugepage_allocation.status": "The explicit allocation trial passed and restored the pool.",
+    "storage_config.status": "The collected node storage inventory is consistent.",
+    "k8s_scheduling.status": "The scheduling inventory has no recorded findings.",
+    "tenant_pod_defaults.status": "The tenant pod check completed.",
+    "tenant_pod_defaults.checks.memlock.status": "The tenant pod has sufficient locked memory.",
+    "tenant_pod_defaults.checks.shm.status": "The tenant pod has sufficient shared memory.",
+    "tenant_pod_defaults.checks.rdmaDevices.status": "The tenant pod can access RDMA devices.",
+    "tenant_pod_defaults.checks.gdrcopyDevice.status": "The tenant pod can access the GDRCopy device.",
+    "tenant_pod_defaults.checks.tunedPodAdmission.status": "The tenant pod remedies were admitted and took effect.",
     "securityVersions.nvidiaDriver.status": (
         "The NVIDIA driver meets the published security minimum."
     ),
@@ -103,6 +117,12 @@ _PASS_ASSESSMENTS = {
     ),
     "security.fragnesia.status": (
         "The running kernel does not match the affected Fragnesia or Dirty Frag ranges."
+    ),
+    "security.badEpoll.status": (
+        "The running distribution kernel meets the Bad Epoll fixed package minimum."
+    ),
+    "security.pwnescape.status": (
+        "Every audited worker and control-plane host meets the upstream PwnEscape running-kernel minimum."
     ),
     "containers.nvidiaContainerToolkit": (
         "The worker has NVIDIA Container Toolkit support."
@@ -305,6 +325,15 @@ _REPRODUCTION_COMMANDS = {
     "securityVersions.dcgm.status": "on the audited worker: `dcgmi --version`",
     "security.fragnesia.status": "on the audited worker: `uname -r`",
     "security.ubuntuNobleKernelMinimum.status": "on the audited worker: `uname -r`",
+    "security.pwnescape.status": (
+        "on every worker and control-plane host: `uname -r`; inspect "
+        "`/sys/kernel/livepatch`; request provider patch evidence for each host "
+        "that the audit could not read or that runs inside a guest"
+    ),
+    "security.badEpoll.status": (
+        "on the audited worker: `uname -r`; `cat /proc/version_signature`; "
+        "`dpkg-query -W 'linux-image-*'`; inspect `/sys/kernel/livepatch`"
+    ),
     "software.nvhpc.status": (
         "on the audited worker: run `nvc --version`, `nvc++ --version`, and "
         "`nvfortran --version`; inspect the selected SDK release tree for NCCL, "
@@ -407,6 +436,7 @@ _CONTEXT_OBSERVATION_KEYS = frozenset(
         "gpu_controls.vboost.allowed",
         "networking.hcaNamingValid",
         "security.januscape.status",
+        "securityVersions.dpuHostIsolation.status",
     }
 )
 
@@ -521,6 +551,55 @@ def _version_observation(audit: dict[str, Any], key: str, value: Any) -> Any:
                 f"observed version {kernel.get('running', 'unknown')}; "
                 "minimum version not applicable; newest installed version "
                 f"{kernel.get('newestInstalled', 'unknown')}"
+            )
+    if key == "security.pwnescape.status":
+        advisory = _nested(audit, "security.pwnescape")
+        if isinstance(advisory, dict):
+            from cmax import security
+            return (
+                f"observed version {advisory.get('runningKernel', 'unknown')}; "
+                f"minimum version {advisory.get('minimum', 'unknown')}; "
+                f"local status {advisory.get('localKernelStatus', 'unknown')}; "
+                + (
+                    f"{security.pwnescape_fleet_coverage(advisory)}; "
+                    if advisory.get("scope") == "fleet" else ""
+                )
+                + f"CVE-2026-99999; {advisory.get('reason', '')}"
+            )
+    if key == "security.badEpoll.status":
+        advisory = _nested(audit, "security.badEpoll")
+        if isinstance(advisory, dict):
+            return (
+                f"observed version {advisory.get('running', 'unknown')}; "
+                f"minimum version {advisory.get('minimum', 'unknown')}; "
+                f"CVE-2026-46242; {advisory.get('detail', '')}"
+            )
+    if key in {
+        "securityVersions.virtioNetBluefield.status",
+        "securityVersions.virtioNetBluefield.exposure",
+    }:
+        virtio = _nested(audit, "securityVersions.virtioNetBluefield")
+        if isinstance(virtio, dict) and virtio.get("assessmentBasis") == "current-nic-mode":
+            return (
+                "current NIC mode; controller inactive; mode inventory complete; "
+                "stored firmware not certified; reassess before enabling DPU mode"
+            )
+    if key == "securityVersions.dpuHostIsolation.status":
+        evidence = _nested(audit, "securityVersions.dpuHostIsolation")
+        if isinstance(evidence, dict):
+            if not any(field in evidence for field in (
+                "internalCpuRshim", "rshimRestricted", "rshimDeviceNode", "tmfifoNet0",
+            )):
+                return str(evidence.get("status", "unknown"))
+            def dpu_display(field: str) -> str:
+                value = evidence.get(field, "unknown")
+                return str(value).lower() if isinstance(value, bool) else str(value)
+            return (
+                f"INTERNAL_CPU_RSHIM={evidence.get('internalCpuRshim', 'unknown')}; "
+                f"RShim restricted={dpu_display('rshimRestricted')}; "
+                f"/dev/rshim0={dpu_display('rshimDeviceNode')}; "
+                f"tmfifo_net0={dpu_display('tmfifoNet0')}; "
+                f"basis={evidence.get('findingBasis', 'unknown')}"
             )
     if key == "security.fragnesia.status":
         fragnesia = _nested(audit, "security.fragnesia")
@@ -780,6 +859,9 @@ _DEPENDENT_CHECK_PREREQUISITES: dict[str, _DependentCheck] = {
 
 
 def _is_not_applicable(audit: dict[str, Any], key: str, value: Any) -> bool:
+    if key in {"thp_madvise.status", "static_hugepages.status", "hugepage_allocation.status"}:
+        if _normalize_sentinel(value) in {"neutral", "skipped"}:
+            return True
     if _normalize_sentinel(value) in _NOT_APPLICABLE_VALUES:
         return True
     if key == "securityVersions.virtioNetBluefield.exposure":
@@ -988,6 +1070,16 @@ def evaluate(
             continue
         rules = applicable_rules
         observed = findings.nested_get(audit, *key.split("."))
+        if key == "security.guestKernel.newerInstalled" and observed is not None:
+            from cmax import security
+            grade, observation, assessment = security._guest_kernel(audit)
+            checks.append(AuditCheck(
+                key, _title(key), check_category,
+                {security.PASS: PASS, security.CRITICAL: FAIL}.get(grade, WARNING),
+                observation, assessment,
+                references=_with_criteria_reference(key),
+            ))
+            continue
         if observed is None:
             if not any(rule.flag_when_missing for rule in rules):
                 continue
@@ -1097,7 +1189,12 @@ def evaluate(
                 )
             )
             continue
-        if any(rule.severity in {findings.MISSING, findings.VERSION} for rule in failing):
+        if key == "securityVersions.dpuHostIsolation.status" and observed == "fail" and failing:
+            # The collector already completed the scan and established an
+            # isolation-policy violation. CONFIG severity must not downgrade
+            # its explicit failure into an inconclusive warning.
+            status = FAIL
+        elif any(rule.severity in {findings.MISSING, findings.VERSION} for rule in failing):
             status = FAIL
         elif failing:
             status = WARNING

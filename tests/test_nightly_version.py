@@ -2,6 +2,8 @@ import importlib.util
 from pathlib import Path
 
 import pytest
+import yaml
+from packaging.version import Version
 
 
 SCRIPT_PATH = Path(__file__).parents[1] / ".github" / "scripts" / "nightly_version.py"
@@ -9,6 +11,18 @@ SPEC = importlib.util.spec_from_file_location("nightly_version", SCRIPT_PATH)
 assert SPEC and SPEC.loader
 NIGHTLY_VERSION = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(NIGHTLY_VERSION)
+
+
+def test_workflow_nightly_version_sorts_after_stable() -> None:
+    from cmax import __version__
+
+    workflow = yaml.safe_load(
+        (SCRIPT_PATH.parents[1] / "workflows" / "python-nightly.yml").read_text()
+    )
+    configured_base = workflow["env"]["NIGHTLY_VERSION"]
+    nightly = NIGHTLY_VERSION.nightly_version(configured_base, "20260826", 1)
+    assert Version(nightly) > Version(__version__)
+    assert Version(nightly) < Version(configured_base)
 
 
 @pytest.mark.parametrize(

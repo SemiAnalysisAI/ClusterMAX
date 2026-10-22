@@ -43,7 +43,7 @@ DEFAULT_K8S_HOST_CHECK_IMAGE = (
 # 192 GiB per GPU, GB300 288 GiB per GPU, H100 SXM 80 GiB if ever exposed
 # coherently). Bump if a smaller-HBM coherent SKU appears.
 HBM_MIN_KB = 64 * GIB_KB
-NO_K8S_GPU_NODES = "no Kubernetes nodes advertise nvidia.com/gpu capacity"
+NO_K8S_GPU_NODES = "no Kubernetes nodes advertise nvidia.com/gpu or amd.com/gpu capacity"
 COHERENT_GPU_MARKERS = (
     "GH200",
     "GB200",
@@ -567,31 +567,22 @@ def aggregate_cpu_manager_reports(
     )
 
 
-def run_slurm_check(harness: str) -> tuple[list[dict[str, Any]], list[str]]:
+def run_slurm_check(harness: str, *, worker_source: str | None = None) -> tuple[list[dict[str, Any]], list[str]]:
     if not os.environ.get("SLURM_JOB_ID"):
-        report = collect_host(root=Path("/"), harness=harness)
-        report["check_scope"] = "local"
-        return [report], ["SLURM_JOB_ID is not set; HBM check only checked the local host"]
+        return [], ["SLURM_JOB_ID is not set; no compute node was checked for HBM exposure"]
 
     node_count = os.environ.get("SLURM_NNODES") or "1"
-    command = [
-        "srun",
-        "--overlap",
-        "-N",
-        node_count,
-        "--ntasks-per-node=1",
-        sys.executable,
-        str(Path(__file__).resolve()),
-        "--collect-host",
-        "--harness",
-        harness,
-    ]
+    fanout = load_fanout()
+    command = fanout.slurm_python_command(
+        node_count=node_count,
+        worker_args=["--collect-host", "--harness", harness],
+        # nvidia-smi supplies the GPU memory sizes, so the step needs the GPUs.
+        gpus_per_node=fanout.slurm_gpus_per_node(os.environ),
+    )
     try:
-        proc = run_command(command, timeout=120)
+        proc = run_command(command, timeout=120, input_text=worker_source if worker_source is not None else Path(__file__).read_text())
     except (OSError, subprocess.TimeoutExpired) as exc:
-        report = collect_host(root=Path("/"), harness=harness)
-        report["check_scope"] = "local"
-        return [report], [f"srun host check failed; local host only: {exc}"]
+        return [], [f"srun HBM check failed; no compute node was checked: {exc}"]
 
     reports: list[dict[str, Any]] = []
     errors: list[str] = []
@@ -619,10 +610,7 @@ def run_slurm_check(harness: str) -> tuple[list[dict[str, Any]], list[str]]:
         errors.append(proc.stderr.strip())
 
     if not reports:
-        report = collect_host(root=Path("/"), harness=harness)
-        report["check_scope"] = "local"
-        reports.append(report)
-        errors.append("srun host check returned no host JSON; local host only")
+        errors.append("srun HBM check returned no host JSON; no compute node was checked")
     return reports, errors
 
 
@@ -677,7 +665,7 @@ def pod_manifest(namespace: str, node: dict[str, Any], image: str, pod_name: str
     }
 
 
-def run_k8s_host_check(namespace: str, node: dict[str, Any], image: str) -> tuple[dict[str, Any] | None, str | None]:
+def run_k8s_host_check(namespace: str, node: dict[str, Any], image: str, *, worker_source: str | None = None) -> tuple[dict[str, Any] | None, str | None]:
     suffix = uuid.uuid4().hex[:8]
     pod_name = f"clustermax-hbm-{suffix}"
     manifest = json.dumps(pod_manifest(namespace, node, image, pod_name))
@@ -696,7 +684,7 @@ def run_k8s_host_check(namespace: str, node: dict[str, Any], image: str) -> tupl
         exec_proc = kubectl(
             ["exec", "-i", "-n", namespace, pod_name, "--", "python3", "-", "--collect-host", "--root", "/host", "--harness", "k8s"],
             timeout=60,
-            input_text=Path(__file__).read_text(),
+            input_text=worker_source if worker_source is not None else Path(__file__).read_text(),
         )
         if exec_proc.returncode != 0:
             return None, f"{node['name']}: host check exec failed: {exec_proc.stderr.strip()}"
@@ -717,32 +705,26 @@ def run_k8s_host_check(namespace: str, node: dict[str, Any], image: str) -> tupl
             pass
 
 
-def _hbm_per_node(namespace: str, image: str):
+def _hbm_per_node(namespace: str, image: str, *, worker_source: str | None = None):
     """Per-node strategy: a fresh privileged pod with host mounts on each node."""
-    return lambda node: run_k8s_host_check(namespace, node, image)
+    if worker_source is None:
+        return lambda node: run_k8s_host_check(namespace, node, image)
+    return lambda node: run_k8s_host_check(namespace, node, image, worker_source=worker_source)
 
 
-def run_k8s_check() -> tuple[list[dict[str, Any]], list[str]]:
-    try:
-        nodes_proc = kubectl(["get", "nodes", "-o", "json"], timeout=45)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return [], [f"kubectl get nodes failed: {exc}"]
-    if nodes_proc.returncode != 0:
-        return [], [f"kubectl get nodes failed: {nodes_proc.stderr.strip()}"]
-
-    try:
-        nodes_json = json.loads(nodes_proc.stdout)
-    except json.JSONDecodeError as exc:
-        return [], [f"kubectl get nodes returned invalid JSON: {exc}"]
-
-    nodes = load_fanout().k8s_gpu_nodes(nodes_json)
+def run_k8s_check(*, worker_source: str | None = None) -> tuple[list[dict[str, Any]], list[str]]:
+    fanout = load_fanout()
+    nodes_json, error = fanout.k8s_nodes_json(lambda args: kubectl(args, timeout=45))
+    if nodes_json is None:
+        return [], [error]
+    nodes = fanout.k8s_gpu_nodes(nodes_json)
     if not nodes:
         return [], [NO_K8S_GPU_NODES]
 
     namespace = os.environ.get("CLUSTERMAX_AUDIT_K8S_NAMESPACE", "default")
     image = os.environ.get("CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE", DEFAULT_K8S_HOST_CHECK_IMAGE)
-    max_nodes = as_int(os.environ.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS"), default=len(nodes))
-    return load_fanout().fan_out_k8s(_hbm_per_node(namespace, image), nodes=nodes, max_nodes=max_nodes)
+    max_nodes = fanout.k8s_max_host_checks(os.environ, len(nodes))
+    return fanout.fan_out_k8s(_hbm_per_node(namespace, image, worker_source=worker_source), nodes=nodes, max_nodes=max_nodes)
 
 
 def run_default_check(harness: str) -> dict[str, Any]:

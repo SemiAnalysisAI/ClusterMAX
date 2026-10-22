@@ -601,7 +601,7 @@ class SecurityReportTests(unittest.TestCase):
             Path("/tmp/report"),
         )
         self.assertIn("# ClusterMAX security audit report", report)
-        self.assertIn("3 failed, 6 warnings, 4 passed, 3 skipped", report)
+        self.assertIn("3 failed, 11 warnings, 4 passed, 3 skipped", report)
         self.assertIn("Action required: 3 critical findings.", report)
         self.assertNotIn("critical findings are known exposure", report)
         self.assertIn("NVIDIA driver minimum version", report)
@@ -1139,12 +1139,12 @@ class MinimumFreshnessTests(unittest.TestCase):
             security.counts(stale_checks),
             {
                 security.PASS: 3,
-                security.WARNING: 6,
+                security.WARNING: 11,
                 security.CRITICAL: 4,
                 security.NOT_APPLICABLE: 3,
             },
         )
-        self.assertEqual(sum(security.counts(stale_checks).values()), 16)
+        self.assertEqual(sum(security.counts(stale_checks).values()), 21)
         self.assertEqual(clean_exit, 0)
         report = self._report(now=self.generated + timedelta(days=40), verbosity=3)
         self.assertNotIn("minimum-version-freshness", report)
@@ -1199,11 +1199,14 @@ class MinimumFreshnessTests(unittest.TestCase):
 
     def test_minimum_freshness_is_not_a_graded_criterion(self) -> None:
         ids = [spec.id for spec in security.CHECK_SPECS]
-        self.assertEqual(len(ids), 16)
-        self.assertEqual(len(set(ids)), 16)
+        self.assertEqual(len(ids), 21)
+        self.assertEqual(len(set(ids)), 21)
         self.assertEqual(
             ids,
             [
+                "qemu-virtio-serial",
+                "vmscape",
+                "observability-isolation",
                 "nvidia-driver",
                 "nvidia-container-toolkit",
                 "cuda-toolkit",
@@ -1211,7 +1214,9 @@ class MinimumFreshnessTests(unittest.TestCase):
                 "docker",
                 "connectx-firmware",
                 "guest-kernel",
+                "pwnescape",
                 "fragnesia",
+                "bad-epoll",
                 "januscape",
                 "bmc-ipmi",
                 "kubernetes-nodes-proxy",

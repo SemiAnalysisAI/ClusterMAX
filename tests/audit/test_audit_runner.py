@@ -1,7 +1,46 @@
 from pathlib import Path
 from unittest import mock
+import pytest
+import json
 
 from cmax import audit_profiles, audit_report, audit_runner, runtime_paths, security
+
+
+@pytest.fixture(autouse=True)
+def no_external_observability_discovery(monkeypatch):
+    from cmax import obs_discovery
+    monkeypatch.setattr(obs_discovery, "discover", lambda *a, **kw: obs_discovery.Discovery((), (), ()))
+
+
+@pytest.mark.parametrize("category,probes", [(None, True), ("security", True), ("isolation", True), ("hardware", False)])
+def test_observability_runs_for_its_profiles_and_emits_progress(tmp_path, capsys, category, probes):
+    runtime = tmp_path / "runtime"
+    script = runtime_paths.audit_runner(runtime)
+    script.parent.mkdir(parents=True)
+    script.write_text("#!/bin/sh\n")
+    selected = security.SecurityTarget("standalone", "bare-metal", True)
+    outputs = []
+    def finish(*args, **kwargs):
+        path = Path(kwargs["env"]["RUN_RESULTS_DIR"]) / "audit.values.json"
+        path.write_text("{}")
+        outputs.append(path)
+        return 0, ""
+    def inject(values, *, target, progress):
+        assert target == selected
+        progress("one backend checked")
+        values["audit_data"] = {"security": {"observability": {"configured": False}}}
+    with (
+        mock.patch.object(security, "find_runtime_root", return_value=runtime),
+        mock.patch.object(audit_runner.progress, "run_with_progress", side_effect=finish),
+        mock.patch.object(security, "_inject_observability", side_effect=inject) as probe,
+        mock.patch.object(audit_report, "render", return_value="report"),
+        mock.patch.dict(audit_runner.os.environ, {"CLUSTERMAX_RUNS_ROOT": str(tmp_path / "results"), "CLUSTER_SLUG": "fixture"}),
+    ):
+        assert audit_runner.run(category=category, resolved_target=selected) == 0
+    assert probe.called == probes
+    captured = capsys.readouterr()
+    assert ("Observability: one backend checked" in captured.err) == probes
+    assert ("audit_data" in json.loads(outputs[0].read_text())) == probes
 
 
 def test_default_audit_directory_uses_private_audit_storage(tmp_path: Path) -> None:

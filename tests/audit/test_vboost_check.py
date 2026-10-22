@@ -7,6 +7,7 @@ import importlib.util
 import json
 import subprocess
 import unittest
+from unittest import mock
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,19 @@ def load_check_module():
 vboost = load_check_module()
 
 class VboostCheckTests(unittest.TestCase):
+    def test_missing_worker_results_never_run_local_vboost(self) -> None:
+        for harness in ("slurm", "k8s"):
+            with self.subTest(harness=harness):
+                with mock.patch.object(vboost, "slurm_vboost_results", return_value=([], {"status": "missing"})), \
+                        mock.patch.object(vboost, "k8s_vboost_results", return_value=([], ["missing"])), \
+                        mock.patch.object(vboost, "local_vboost_result") as local:
+                    result = vboost.build_check_payload(harness=harness, env={})["gpu_controls"]["vboost"]
+                local.assert_not_called()
+                self.assertFalse(result["checked"])
+                self.assertEqual(result["checked_nodes"], 0)
+                self.assertEqual(result["status"], "not_checked")
+                self.assertEqual(result["mode"], harness)
+
     def test_b300_family_is_not_applicable_without_running_vboost(self) -> None:
         def runner(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
             raise AssertionError(f"vboost must not run on B300: {command}")
@@ -97,6 +111,40 @@ class VboostCheckTests(unittest.TestCase):
         self.assertEqual(result["status"], "denied")
         self.assertEqual(result["exit_code"], 1)
         self.assertIn("Insufficient Permissions", result["stderr"])
+
+    def test_no_visible_gpu_is_not_a_provider_denial(self) -> None:
+        # A Slurm step in an allocation without GPUs runs as root but sees no
+        # device, so nvidia-smi exits 6 with "No devices were found".
+        def which(name: str) -> str | None:
+            return {"nvidia-smi": "/usr/bin/nvidia-smi"}.get(name)
+
+        for stdout, stderr in (("No devices were found", ""), ("", "No devices found.")):
+            def runner(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+                return subprocess.CompletedProcess(command, 6, stdout=stdout, stderr=stderr)
+
+            result = vboost.local_vboost_result(
+                runner=runner, which=which, euid=lambda: 0, hostname=lambda: "gpu-a",
+            )
+            self.assertFalse(result["allowed"])
+            self.assertEqual(result["status"], "no_gpu_visible")
+            self.assertEqual(result["method"], "root")
+        self.assertEqual(vboost.aggregate_status([result]), "unavailable")
+        self.assertEqual(
+            vboost.aggregate_status([result, {"allowed": False, "status": "denied"}]),
+            "denied",
+        )
+
+    def test_k8s_driver_pod_without_visible_gpu_is_not_a_denial(self) -> None:
+        def runner(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+            if command[:3] == ["kubectl", "get", "pods"]:
+                pods = {"items": [{"metadata": {"name": "nvidia-driver-daemonset-a"},
+                                   "status": {"phase": "Running"}}]}
+                return subprocess.CompletedProcess(command, 0, stdout=json.dumps(pods), stderr="")
+            return subprocess.CompletedProcess(command, 6, stdout="No devices were found", stderr="")
+
+        result, error = vboost.k8s_vboost_node("gpu-operator", "gpu-a", runner=runner)
+        self.assertIsNone(error)
+        self.assertEqual(result["status"], "no_gpu_visible")
 
     def test_local_check_skips_when_nvidia_smi_is_missing(self) -> None:
         def runner(_command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
@@ -200,6 +248,29 @@ class VboostCheckTests(unittest.TestCase):
         self.assertFalse(status["allowed"])
         self.assertEqual(status["checked_nodes"], 2)
         self.assertEqual(status["allowed_nodes"], 1)
+
+    def test_slurm_step_requests_the_allocation_gpus(self) -> None:
+        env = {"SLURM_JOB_ID": "123", "SLURM_NNODES": "1"}
+        commands: list[list[str]] = []
+
+        def runner(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+            commands.append(command)
+            if command[0] == "scontrol":
+                return subprocess.CompletedProcess(
+                    command, 0, stderr="",
+                    stdout="     Nodes=gpu-a CPU_IDs=0-127 Mem=1 GRES=gpu:h100:8(IDX:0-7)\n",
+                )
+            return subprocess.CompletedProcess(
+                command, 0, stderr="", stdout='{"host":"gpu-a","allowed":true,"status":"allowed"}',
+            )
+
+        payload = vboost.build_check_payload(
+            harness="slurm", env=env, runner=runner,
+            which=lambda name: {"srun": "/usr/bin/srun"}.get(name),
+        )
+        srun = next(command for command in commands if command[0] == "srun")
+        self.assertIn("--gres=gpu:8", srun)
+        self.assertEqual(payload["gpu_controls"]["vboost"]["status"], "allowed")
 
 if __name__ == "__main__":
     unittest.main()

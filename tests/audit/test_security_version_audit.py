@@ -90,8 +90,11 @@ def unreadable_minimum_table():
 
 
 class NvidiaDriverPolicyTests(unittest.TestCase):
-    def test_runpod_driver_is_below_its_branch_minimum_version(self) -> None:
-        verdict = security.nvidia_driver_verdict("580.126.09")
+    def test_driver_below_its_branch_minimum_version_fails(self) -> None:
+        minimum = read_minimum("components.nvidiaDriver.branches.580")
+        parts = [int(part) for part in minimum.split(".")]
+        parts[-1] -= 1
+        verdict = security.nvidia_driver_verdict(".".join(map(str, parts)))
         self.assertEqual(verdict.status, "fail")
         self.assertEqual(verdict.minimum, read_minimum("components.nvidiaDriver.branches.580"))
         self.assertEqual(verdict.advisory, read_minimum("components.nvidiaDriver.advisory"))
@@ -119,7 +122,7 @@ class NvidiaDriverPolicyTests(unittest.TestCase):
         self.assertIn(str(newest + 5), verdict.detail)
 
     def test_non_nvidia_driver_version_is_never_graded_as_a_pass(self) -> None:
-        verdict = security.nvidia_driver_verdict("6.16.13")
+        verdict = security.nvidia_driver_verdict("6.1.2")
         self.assertEqual(verdict.status, "unknown")
         self.assertNotEqual(verdict.status, "pass")
         self.assertIn("does not look like an NVIDIA Linux driver version", verdict.detail)
@@ -231,9 +234,9 @@ class DcgmPolicyTests(unittest.TestCase):
         self.assertEqual(security.dcgm_verdict(discriminator).status, "pass")
         self.assertEqual(security.dcgm_exporter_verdict(discriminator).status, "fail")
 
-    def test_audited_cluster_tag_grades_both_components_as_failed(self) -> None:
-        self.assertEqual(security.dcgm_verdict("4.4.2").status, "fail")
-        self.assertEqual(security.dcgm_exporter_verdict("4.7.1").status, "fail")
+    def test_synthetic_old_versions_fail_for_both_components(self) -> None:
+        self.assertEqual(security.dcgm_verdict("1.0.0").status, "fail")
+        self.assertEqual(security.dcgm_exporter_verdict("1.0.0").status, "fail")
 
     def test_package_revision_suffix_does_not_change_the_verdict(self) -> None:
         self.assertEqual(security.dcgm_verdict(f"{self.dcgm_minimum}-1").status, "pass")
@@ -373,11 +376,44 @@ class ConnectxFirmwarePolicyTests(unittest.TestCase):
         self.assertEqual(passing.minimum, f"{train}.{patch}")
         self.assertIn("Meets", passing.detail)
 
-    def test_unlisted_newer_train_requires_attestation(self) -> None:
+    def test_ga_range_covers_every_listed_nic_and_dpu_family(self) -> None:
         train = max(self.trains) + 1
-        verdict = security.connectx_firmware_verdict(f"40.{train}.2526")
+        cases = {
+            22: "pass", 24: "pass", 26: "pass", 28: "pass", 32: "pass", 40: "pass",
+            20: "unknown",
+        }
+        for family, status in cases.items():
+            with self.subTest(family=family):
+                verdict = security.connectx_firmware_verdict(f"{family}.{train}.2526")
+                self.assertEqual(verdict.status, status)
+                if family == 40:
+                    self.assertIn("explicit ConnectX-8 GA fixed range", verdict.detail)
+                    self.assertIn(str(max(self.trains)), verdict.detail)
+
+    def test_shared_family_needs_every_product_in_the_ga_row(self) -> None:
+        component = minimums.component
+        block = dict(component("connectxFirmware"))
+        block["gaRanges"] = [{
+            "product": "ConnectX GA", "architectures": "ConnectX-6 DX",
+            "minimum": "46.3008", "relation": "or-newer",
+        }]
+        with mock.patch.object(
+            minimums, "component",
+            side_effect=lambda name: block if name == "connectxFirmware" else component(name),
+        ):
+            verdict = security.connectx_firmware_verdict(f"22.{max(self.trains) + 1}.2526")
         self.assertEqual(verdict.status, "unknown")
-        self.assertIn(str(train), verdict.detail)
+
+    def test_unlisted_train_without_explicit_ga_range_stays_unknown(self) -> None:
+        component = minimums.component
+        block = dict(component("connectxFirmware"))
+        block.pop("gaRanges", None)
+        with mock.patch.object(
+            minimums, "component",
+            side_effect=lambda name: block if name == "connectxFirmware" else component(name),
+        ):
+            verdict = security.connectx_firmware_verdict(f"40.{max(self.trains) + 1}.2526")
+        self.assertEqual(verdict.status, "unknown")
 
     def test_older_unassessed_train_is_unknown_rather_than_failed(self) -> None:
         train = next(
@@ -555,7 +591,7 @@ class VirtioNetPlatformModeTests(unittest.TestCase):
             self.fixed.values(), key=lambda value: security.numeric_version(value, parts=3)
         )
 
-    def test_nic_mode_below_the_minimum_is_a_latent_exposure_not_a_silent_not_applicable(
+    def test_nic_mode_passes_current_exposure_without_certifying_stored_firmware(
         self,
     ) -> None:
         below = _shift_patch(min(
@@ -563,27 +599,28 @@ class VirtioNetPlatformModeTests(unittest.TestCase):
         ), -1)
         record = security.virtio_net_result(below, mode="nic")
 
-        self.assertEqual(record["status"], "unknown")
+        self.assertEqual(record["status"], "pass")
         self.assertNotEqual(record["status"], "not_applicable")
         self.assertNotEqual(record["status"], "fail")
-        self.assertEqual(record["exposure"], "latent")
+        self.assertEqual(record["exposure"], "none")
+        self.assertEqual(record["floorStatus"], "fail")
         self.assertEqual(record["platformMode"], "nic")
         self.assertIs(record["controllerRunning"], False)
         detail = record["detail"]
         self.assertIn("NIC mode", detail)
-        self.assertIn("latent", detail)
+        self.assertIn("does not certify stored", detail)
         self.assertIn("DPU mode", detail)
-        self.assertIn("no firmware update", detail)
+        self.assertIn("Reassess", detail)
 
-    def test_nic_mode_with_an_unreadable_version_is_also_latent(self) -> None:
+    def test_nic_mode_with_unreadable_version_passes_current_exposure(self) -> None:
         record = security.virtio_net_result(
             "unknown", mode="nic", version_reason="virtnet is not installed on the host"
         )
-        self.assertEqual(record["floorStatus"], "unknown")
-        self.assertEqual(record["status"], "unknown")
-        self.assertEqual(record["exposure"], "latent")
-        self.assertIn("could not be read", record["detail"])
+        self.assertEqual(record["status"], "pass")
+        self.assertEqual(record["exposure"], "none")
+        self.assertIn("does not certify stored", record["detail"])
         self.assertEqual(record["versionUnavailableReason"], "not-observed")
+        self.assertEqual(record["floorStatus"], "unknown")
         self.assertEqual(
             record["versionUnavailableDetail"], "virtnet is not installed on the host"
         )
@@ -592,7 +629,7 @@ class VirtioNetPlatformModeTests(unittest.TestCase):
         record = security.virtio_net_result(self.highest, mode="nic")
         self.assertEqual(record["status"], "pass")
         self.assertEqual(record["exposure"], "none")
-        self.assertIn("not currently running", record["detail"])
+        self.assertIn("disables the virtio-net controller", record["detail"])
 
     def test_patched_idle_firmware_beside_a_gap_is_not_a_latent_exposure(self) -> None:
         gapped = security.virtio_net_result(
@@ -617,7 +654,7 @@ class VirtioNetPlatformModeTests(unittest.TestCase):
                     coverage_complete=coverage,
                 )
                 self.assertEqual(record["floorStatus"], "fail")
-                self.assertEqual(record["exposure"], "latent")
+                self.assertEqual(record["exposure"], "none" if coverage else "latent")
 
     def test_dpu_mode_below_the_minimum_is_a_live_exposure(self) -> None:
         below = _shift_patch(min(
@@ -838,8 +875,12 @@ class VirtioNetFleetCoverageTests(unittest.TestCase):
                 gapped = security.virtio_net_result(
                     version, coverage_complete=False, **kwargs
                 )
-                self.assertEqual(covered["status"], gapped["status"])
-                self.assertEqual(covered["exposure"], gapped["exposure"])
+                if label == "idle in nic mode":
+                    self.assertEqual(covered["status"], "pass")
+                    self.assertEqual(gapped["status"], "unknown")
+                else:
+                    self.assertEqual(covered["status"], gapped["status"])
+                    self.assertEqual(covered["exposure"], gapped["exposure"])
 
     def test_a_gapped_rollup_pass_is_withdrawn_to_unknown(self) -> None:
         covered = security.virtio_net_result(
@@ -1198,8 +1239,13 @@ class VirtioNetRollupReachesTheVerdictTests(unittest.TestCase):
         )
         self.assertEqual(summary["worstObserved"], None)
         self.assertNotEqual(record["exposure"], "live")
-        self.assertEqual(record["exposure"], "latent")
-        self.assertEqual(record["status"], "unknown")
+        self.assertEqual(record["exposure"], "none")
+        self.assertEqual(record["status"], "pass")
+        self.assertEqual(record["gradedHost"], "node-b")
+        self.assertTrue(any(
+            row["host"] == "node-a" and row["floorStatus"] == "fail"
+            for row in record["storedFirmwareFindings"]
+        ))
 
     def test_a_nic_mode_reading_never_speaks_for_a_fleet_with_a_dpu_host(self) -> None:
         summary, record = self.verdict(
@@ -1214,7 +1260,7 @@ class VirtioNetRollupReachesTheVerdictTests(unittest.TestCase):
         self.assertNotIn("not currently running", record["detail"])
         self.assertEqual(record["gradedHost"], "node-b")
 
-    def test_the_tie_break_never_drops_a_proven_below_minimum_reading(self) -> None:
+    def test_unknown_running_controller_outranks_idle_firmware_without_losing_evidence(self) -> None:
         below = "24.10.17"
         summary, record = self.verdict(
             [
@@ -1224,9 +1270,13 @@ class VirtioNetRollupReachesTheVerdictTests(unittest.TestCase):
                           versionSource="virtnet-version"),
             ]
         )
-        self.assertEqual(record["gradedHost"], "node-a")
-        self.assertEqual(record["floorStatus"], "fail")
-        self.assertEqual(record["exposure"], "latent")
+        self.assertEqual(record["gradedHost"], "node-b")
+        self.assertEqual(record["floorStatus"], "unknown")
+        self.assertEqual(record["exposure"], "unknown")
+        self.assertTrue(any(
+            row["host"] == "node-a" and row["floorStatus"] == "fail"
+            for row in record["storedFirmwareFindings"]
+        ))
 
     def test_a_patched_tie_still_lets_the_running_host_own_the_detail(self) -> None:
         summary, record = self.verdict(
@@ -1534,7 +1584,7 @@ class DpuHostIsolationTests(unittest.TestCase):
         self.assertEqual(covered.minimum, gapped.minimum)
 
         self.assertNotEqual(covered.detail, gapped.detail)
-        self.assertIn("can reach the DPU control plane", gapped.detail)
+        self.assertIn("does not prove usable RShim access or DPU login", gapped.detail)
         self.assertIn("confirmed on at least one host", gapped.detail)
         self.assertIn("could not be assessed", gapped.detail)
         self.assertIn("node-b", gapped.detail)

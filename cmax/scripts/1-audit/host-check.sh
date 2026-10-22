@@ -25,6 +25,46 @@ fi
 echo "WORKER_KERNEL=$(uname -r 2>/dev/null || echo unknown)"
 
 if ! security_checks_only; then
+# --- External IP and geolocation ---
+collect_worker_geolocation() {
+    local geo_json="" geo_lines=""
+    if ! command -v curl >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+        echo "WORKER_GEO_CHECK_STATUS=unavailable"
+        return
+    fi
+    geo_json=$(curl -sf --max-time 10 "https://ipinfo.io/json" 2>/dev/null) || {
+        echo "WORKER_GEO_CHECK_STATUS=unavailable"
+        return
+    }
+    if geo_lines=$(printf '%s' "$geo_json" | python3 -c '
+import json
+import sys
+
+try:
+    body = json.load(sys.stdin)
+except (json.JSONDecodeError, OSError):
+    raise SystemExit(1)
+if not isinstance(body, dict) or not body.get("ip"):
+    raise SystemExit(1)
+for source, target in (
+    ("ip", "IP"),
+    ("city", "CITY"),
+    ("region", "REGION"),
+    ("country", "COUNTRY"),
+    ("org", "ORG"),
+    ("loc", "LOC"),
+):
+    value = str(body.get(source) or "").replace("\n", " ").replace("\r", " ")
+    print(f"WORKER_GEO_{target}={value}")
+'); then
+        echo "WORKER_GEO_CHECK_STATUS=success"
+        printf '%s\n' "$geo_lines"
+    else
+        echo "WORKER_GEO_CHECK_STATUS=invalid-response"
+    fi
+}
+collect_worker_geolocation
+
 # --- CPU inventory (model, topology, clocks, power limit) ---
 # OEMs and providers can set a CPU below its datasheet: a lowered RAPL package
 # power limit (cTDP), a capped max frequency, or a powersave governor all
@@ -294,6 +334,35 @@ fi
 # state and can otherwise report no pending update while the live kernel stays
 # vulnerable until reboot.
 WORKER_GUEST_KERNEL_RUNNING=$(uname -r 2>/dev/null || echo unknown)
+# Bad Epoll identity evidence. These reads never exercise the vulnerability.
+# /proc describes the running kernel; dpkg must identify that same image.
+WORKER_BAD_EPOLL_SIGNATURE=$(cat "${CLUSTERMAX_AUDIT_ROOT:-}/proc/version_signature" 2>/dev/null || echo unknown)
+WORKER_BAD_EPOLL_PACKAGE=unknown
+if command -v dpkg-query >/dev/null 2>&1; then
+    WORKER_BAD_EPOLL_PACKAGE=$(dpkg-query -W \
+        -f='${db:Status-Abbrev}|${source:Package}|${source:Version}' \
+        "linux-image-${WORKER_GUEST_KERNEL_RUNNING}" 2>/dev/null) \
+        || WORKER_BAD_EPOLL_PACKAGE=unknown
+fi
+WORKER_BAD_EPOLL_LIVEPATCH=unknown
+bad_epoll_livepatch_dir="${CLUSTERMAX_AUDIT_ROOT:-}/sys/kernel/livepatch"
+if [[ -d "$bad_epoll_livepatch_dir" && -r "$bad_epoll_livepatch_dir" && -x "$bad_epoll_livepatch_dir" ]]; then
+    WORKER_BAD_EPOLL_LIVEPATCH=none
+    for bad_epoll_patch in "$bad_epoll_livepatch_dir"/*; do
+        [[ -e "$bad_epoll_patch" ]] || continue
+        bad_epoll_enabled=$(cat "$bad_epoll_patch/enabled" 2>/dev/null || echo unknown)
+        if [[ "$bad_epoll_enabled" == 1 ]]; then
+            WORKER_BAD_EPOLL_LIVEPATCH=active
+            break
+        elif [[ "$bad_epoll_enabled" != 0 ]]; then
+            WORKER_BAD_EPOLL_LIVEPATCH=unknown
+        fi
+    done
+fi
+echo "WORKER_BAD_EPOLL_SIGNATURE=${WORKER_BAD_EPOLL_SIGNATURE}"
+echo "WORKER_BAD_EPOLL_PACKAGE=${WORKER_BAD_EPOLL_PACKAGE}"
+echo "WORKER_BAD_EPOLL_LIVEPATCH=${WORKER_BAD_EPOLL_LIVEPATCH}"
+# End Bad Epoll identity evidence.
 WORKER_GUEST_KERNEL_NEWEST_INSTALLED=unknown
 WORKER_GUEST_KERNEL_NEWER_INSTALLED=false
 WORKER_GUEST_REBOOT_REQUIRED=false
@@ -306,7 +375,7 @@ if command -v dpkg-query >/dev/null 2>&1; then
     WORKER_GUEST_KERNEL_NEWEST_INSTALLED=$(
         dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'linux-image-[0-9]*' 2>/dev/null \
             | awk -v suffix="-${WORKER_GUEST_KERNEL_FLAVOR}" \
-                '$1 == "ii" && index($2, suffix) == length($2) - length(suffix) + 1 {
+                '$1 ~ /^[uihrp]i$/ && index($2, suffix) == length($2) - length(suffix) + 1 {
                     sub(/^linux-image-/, "", $2); print $2
                 }' \
             | sort -V | tail -1
@@ -490,7 +559,8 @@ WORKER_VIRT_TYPE=unknown
 WORKER_VIRT_GUEST=unknown
 WORKER_VIRT_DETECTION=none
 if command -v systemd-detect-virt >/dev/null 2>&1; then
-    virt_reading=$(systemd-detect-virt 2>/dev/null)
+    # Classify the physical/VM machine, not the collector's container cgroup.
+    virt_reading=$(systemd-detect-virt --vm 2>/dev/null)
     virt_rc=$?
     virt_reading="${virt_reading//[[:space:]]/}"
     if [[ "$virt_rc" -eq 0 && -n "$virt_reading" && "$virt_reading" != none ]]; then
@@ -612,6 +682,82 @@ echo "WORKER_VIRTIO_SERIAL=${WORKER_VIRTIO_SERIAL}"
 echo "WORKER_QEMU_CVE_2024_3446_STATUS=${WORKER_QEMU_CVE_2024_3446_STATUS}"
 echo "WORKER_VMSCAPE_STATUS=${WORKER_VMSCAPE_STATUS}"
 echo "WORKER_IOMMU_GROUPS=${WORKER_IOMMU_GROUPS}"
+# Direct host PCI assignment evidence. Guest observations cannot attest the
+# provider's IOMMU, and a missing/unreadable sysfs tree never means no VFIO.
+WORKER_PCIE_SCAN_COMPLETE=false
+WORKER_PCIE_VFIO_DEVICES=0
+WORKER_PCIE_UNSAFE_GROUPS=0
+pcie_root="${CLUSTERMAX_AUDIT_ROOT:-}/sys/bus/pci/devices"
+if [[ -d "$pcie_root" && -r "$pcie_root" && -x "$pcie_root" ]]; then
+    WORKER_PCIE_SCAN_COMPLETE=true
+    pcie_seen=0
+    for pcie_dev in "$pcie_root"/*; do
+        [[ -d "$pcie_dev" ]] || continue
+        pcie_seen=$((pcie_seen + 1))
+        [[ -r "$pcie_dev/vendor" && -r "$pcie_dev/device" ]] \
+            || WORKER_PCIE_SCAN_COMPLETE=false
+        pcie_driver=$(readlink "$pcie_dev/driver" 2>/dev/null || true)
+        [[ "${pcie_driver##*/}" == vfio-pci ]] || continue
+        WORKER_PCIE_VFIO_DEVICES=$((WORKER_PCIE_VFIO_DEVICES + 1))
+        if [[ ! -d "$pcie_dev/iommu_group/devices" ]]; then
+            WORKER_PCIE_UNSAFE_GROUPS=$((WORKER_PCIE_UNSAFE_GROUPS + 1))
+            continue
+        fi
+        for group_peer in "$pcie_dev/iommu_group/devices"/*; do
+            peer_driver=$(readlink "$group_peer/driver" 2>/dev/null || true)
+            if [[ -n "$peer_driver" && "${peer_driver##*/}" != vfio-pci ]]; then
+                WORKER_PCIE_UNSAFE_GROUPS=$((WORKER_PCIE_UNSAFE_GROUPS + 1))
+                break
+            fi
+        done
+    done
+    (( pcie_seen > 0 )) || WORKER_PCIE_SCAN_COMPLETE=false
+fi
+echo "WORKER_PCIE_SCAN_COMPLETE=$WORKER_PCIE_SCAN_COMPLETE"
+echo "WORKER_PCIE_VFIO_DEVICES=$WORKER_PCIE_VFIO_DEVICES"
+echo "WORKER_PCIE_UNSAFE_GROUPS=$WORKER_PCIE_UNSAFE_GROUPS"
+
+# PwnEscape facts are passive observations. No device is opened, no network
+# setting is changed, and absence of a device never proves this CVE is fixed.
+collect_pwnescape_facts() {
+    local root="${CLUSTERMAX_AUDIT_ROOT:-}"
+    local livepatch=unknown tun=unknown virtio=unknown userns=unknown
+    local entry enabled
+    if [[ -d "${root}/sys/kernel/livepatch" && -r "${root}/sys/kernel/livepatch" \
+          && -x "${root}/sys/kernel/livepatch" ]]; then
+        livepatch=none
+        for entry in "${root}"/sys/kernel/livepatch/*; do
+            [[ -e "$entry" ]] || continue
+            enabled=$(cat "$entry/enabled" 2>/dev/null) || enabled=unknown
+            if [[ "$enabled" != 0 ]]; then
+                livepatch=active-or-unreadable
+            fi
+        done
+    elif [[ -d "${root}/sys/kernel" && -r "${root}/sys/kernel" \
+            && -x "${root}/sys/kernel" && ! -e "${root}/sys/kernel/livepatch" \
+            && ! -L "${root}/sys/kernel/livepatch" ]]; then
+        livepatch=not-supported
+    fi
+    if [[ -d "${root}/dev/net" && -r "${root}/dev/net" && -x "${root}/dev/net" ]]; then
+        tun=false
+        [[ -c "${root}/dev/net/tun" ]] && tun=true
+    fi
+    if [[ -r "${root}/sys/class/net" && -x "${root}/sys/class/net" ]]; then
+        virtio=false
+        for entry in "${root}"/sys/class/net/*/device/driver; do
+            [[ -L "$entry" ]] || continue
+            [[ "$(readlink "$entry" 2>/dev/null)" == */virtio_net ]] && virtio=true
+        done
+    fi
+    userns=$(cat "${root}/proc/sys/user/max_user_namespaces" 2>/dev/null) || userns=unknown
+    [[ "$userns" =~ ^[0-9]+$ ]] || userns=unknown
+    printf 'WORKER_PWNESCAPE_LIVEPATCH=%s\n' "$livepatch"
+    printf 'WORKER_PWNESCAPE_TUN_PRESENT=%s\n' "$tun"
+    printf 'WORKER_PWNESCAPE_VIRTIO_NET=%s\n' "$virtio"
+    printf 'WORKER_PWNESCAPE_USERNS_MAX=%s\n' "$userns"
+}
+collect_pwnescape_facts
+
 
 # --- GPU ---
 if command -v nvidia-smi &>/dev/null; then
@@ -622,7 +768,11 @@ if command -v nvidia-smi &>/dev/null; then
     echo "WORKER_GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | wc -l || echo 0)"
 else
     echo "WORKER_GPU_MODEL=no-nvidia-smi"
-    echo "WORKER_DRIVER_VERSION=unknown"
+    # GPU Operator mounts the driver root separately. The loaded kernel module
+    # is stronger evidence than a DaemonSet image tag or a node label.
+    module_driver=$(sed -nE 's/^NVRM version:.*[[:space:]]([0-9]{3}\.[0-9]+\.[0-9]+)[[:space:]].*/\1/p' \
+        "${CLUSTERMAX_AUDIT_ROOT:-}/proc/driver/nvidia/version" 2>/dev/null | head -1)
+    echo "WORKER_DRIVER_VERSION=${module_driver:-unknown}"
     echo "WORKER_CUDA_VERSION=unknown"
     echo "WORKER_GPU_MEMORY=0"
     echo "WORKER_GPU_COUNT=0"
@@ -657,8 +807,10 @@ if command -v nvidia-smi >/dev/null 2>&1; then
             WORKER_NVIDIA_MAY_2026_PATCHED=true   # branch newer than the newest in the May 2026 bulletin
         fi
     fi
+    # A step that sees no GPU still prints the NIC matrix, which proves nothing
+    # about NVLink, so the topology counts as checked only with a GPU row.
     if nvlink_topology=$(nvidia-smi topo -m 2>/dev/null) \
-            && [[ -n "$nvlink_topology" ]]; then
+            && grep -qE '^[^[:alnum:]]*GPU[0-9]+[[:space:]]' <<< "$nvlink_topology"; then
         WORKER_NVLINK_TOPOLOGY_CHECKED=true
         WORKER_NVLINK_EXPOSED=false
         if grep -qE '(^|[[:space:]])NV[0-9]+([[:space:]]|$)' <<< "$nvlink_topology"; then
@@ -669,6 +821,32 @@ fi
 echo "WORKER_NVIDIA_MAY_2026_PATCHED=${WORKER_NVIDIA_MAY_2026_PATCHED}"
 echo "WORKER_NVLINK_EXPOSED=${WORKER_NVLINK_EXPOSED}"
 echo "WORKER_NVLINK_TOPOLOGY_CHECKED=${WORKER_NVLINK_TOPOLOGY_CHECKED}"
+# A container sees only its allocated GPUs in nvidia-smi, but sysfs PCI is not
+# namespaced, so it still lists every NVIDIA GPU on the physical host. When the
+# host has GPUs this target cannot see, a physical NVLink to another tenant's
+# GPU cannot be ruled out from here. A VM's sysfs lists only its own GPUs.
+WORKER_NVLINK_HOST_GPU_COUNT=unknown
+WORKER_NVLINK_VISIBLE_GPU_COUNT=unknown
+WORKER_NVLINK_ALL_HOST_GPUS_VISIBLE=unknown
+if [[ "$WORKER_NVLINK_TOPOLOGY_CHECKED" == true && -d /sys/bus/pci/devices ]]; then
+    host_gpus=0
+    for pci_dev in /sys/bus/pci/devices/*; do
+        [[ "$(cat "$pci_dev/vendor" 2>/dev/null)" == 0x10de ]] || continue
+        case "$(cat "$pci_dev/class" 2>/dev/null)" in
+            0x0300*|0x0302*) host_gpus=$((host_gpus + 1)) ;;
+        esac
+    done
+    visible_gpus=$(nvidia-smi --query-gpu=pci.bus_id --format=csv,noheader 2>/dev/null | grep -c . || true)
+    if [[ "$visible_gpus" =~ ^[0-9]+$ ]] && (( host_gpus > 0 && visible_gpus > 0 )); then
+        WORKER_NVLINK_HOST_GPU_COUNT=$host_gpus
+        WORKER_NVLINK_VISIBLE_GPU_COUNT=$visible_gpus
+        WORKER_NVLINK_ALL_HOST_GPUS_VISIBLE=true
+        (( visible_gpus < host_gpus )) && WORKER_NVLINK_ALL_HOST_GPUS_VISIBLE=false
+    fi
+fi
+echo "WORKER_NVLINK_HOST_GPU_COUNT=${WORKER_NVLINK_HOST_GPU_COUNT}"
+echo "WORKER_NVLINK_VISIBLE_GPU_COUNT=${WORKER_NVLINK_VISIBLE_GPU_COUNT}"
+echo "WORKER_NVLINK_ALL_HOST_GPUS_VISIBLE=${WORKER_NVLINK_ALL_HOST_GPUS_VISIBLE}"
 
 if ! security_checks_only; then
 # --- GPUDirect RDMA ---
@@ -1271,7 +1449,7 @@ echo "WORKER_AMD_GPU_MODEL=$(detect_amd_gpu_model)"
 # whenever the module is loaded - independent of the ROCm userspace CLI and of
 # the AMD GPU Operator - and it is the same value rocm-smi --showdriverversion
 # reports. Hosts that bake the driver into the node image but ship no ROCm CLI
-# on the host (e.g. Oracle MI355X) reach this path. modinfo (reads the .ko) is a
+# on the host reach this path. modinfo (reads the .ko) is a
 # secondary source for in-tree builds where the sysfs version attribute is absent.
 if [[ -z "$_amd_drv" ]]; then
     _amd_drv=$(cat /sys/module/amdgpu/version 2>/dev/null | head -1)
@@ -1752,6 +1930,26 @@ fi
 fi
 
 # --- NVCC ---
+collect_worker_cuda_home() {
+    local canonical="${CLUSTERMAX_CUDA_CANONICAL_DIR:-/usr/local/cuda}"
+    local value="${CUDA_HOME:-}"
+    local source="environment"
+    local exists=false
+    if [[ -z "$value" && -d "$canonical" ]]; then
+        value="$canonical"
+        source="canonical-path"
+    elif [[ -z "$value" ]]; then
+        value="none"
+        source="not-found"
+    fi
+    [[ "$value" != "none" && -d "$value" ]] && exists=true
+    value=$(printf '%s' "$value" | tr '\r\n' '  ')
+    echo "WORKER_CUDA_HOME=$value"
+    echo "WORKER_CUDA_HOME_SOURCE=$source"
+    echo "WORKER_CUDA_HOME_EXISTS=$exists"
+}
+collect_worker_cuda_home
+
 NVCC_P=$(which nvcc 2>/dev/null || echo "")
 if [[ -n "$NVCC_P" ]]; then
     echo "WORKER_NVCC_PATH=$NVCC_P"
@@ -2027,6 +2225,60 @@ echo "WORKER_SHARP_CONF=${WORKER_SHARP_CONF}"
 fi
 
 if ! security_checks_only; then
+# --- Slurm worker daemon ---
+WORKER_SLURMD_RUNNING=false
+if command -v pgrep >/dev/null 2>&1 && pgrep -x slurmd >/dev/null 2>&1; then
+    WORKER_SLURMD_RUNNING=true
+fi
+echo "WORKER_SLURMD_RUNNING=${WORKER_SLURMD_RUNNING}"
+
+# --- Monitoring services ---
+WORKER_MONITORING_CHECK_OK=false
+WORKER_DCGM_EXPORTER_DETECTED=false
+WORKER_NODE_EXPORTER_DETECTED=false
+WORKER_GRAFANA_DETECTED=false
+WORKER_MONITORING_LISTENING=""
+
+if command -v ss >/dev/null 2>&1; then
+    if monitoring_output=$(ss -tln 2>/dev/null); then
+        WORKER_MONITORING_LISTENING=$(awk 'NR>1 {print $4}' <<< "$monitoring_output")
+        WORKER_MONITORING_CHECK_OK=true
+    fi
+elif command -v netstat >/dev/null 2>&1; then
+    if monitoring_output=$(netstat -tln 2>/dev/null); then
+        WORKER_MONITORING_LISTENING=$(awk 'NR>2 {print $4}' <<< "$monitoring_output")
+        WORKER_MONITORING_CHECK_OK=true
+    fi
+fi
+
+grep -qE ':9400([[:space:]]|$)' <<< "$WORKER_MONITORING_LISTENING" && WORKER_DCGM_EXPORTER_DETECTED=true
+grep -qE ':9100([[:space:]]|$)' <<< "$WORKER_MONITORING_LISTENING" && WORKER_NODE_EXPORTER_DETECTED=true
+grep -qE ':3000([[:space:]]|$)' <<< "$WORKER_MONITORING_LISTENING" && WORKER_GRAFANA_DETECTED=true
+
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl is-active dcgm-exporter >/dev/null 2>&1 && WORKER_DCGM_EXPORTER_DETECTED=true
+    systemctl is-active grafana-server >/dev/null 2>&1 && WORKER_GRAFANA_DETECTED=true
+    if systemctl is-active node-exporter >/dev/null 2>&1 \
+            || systemctl is-active prometheus-node-exporter >/dev/null 2>&1; then
+        WORKER_NODE_EXPORTER_DETECTED=true
+    fi
+fi
+
+if command -v pgrep >/dev/null 2>&1; then
+    pgrep -x dcgm-exporter >/dev/null 2>&1 && WORKER_DCGM_EXPORTER_DETECTED=true
+    pgrep -x 'node_exporter|prometheus-node' >/dev/null 2>&1 && WORKER_NODE_EXPORTER_DETECTED=true
+    if pgrep -x grafana >/dev/null 2>&1 \
+            || pgrep -x grafana-server >/dev/null 2>&1; then
+        WORKER_GRAFANA_DETECTED=true
+    fi
+fi
+
+echo "WORKER_MONITORING_CHECK_OK=${WORKER_MONITORING_CHECK_OK}"
+echo "WORKER_DCGM_EXPORTER_DETECTED=${WORKER_DCGM_EXPORTER_DETECTED}"
+echo "WORKER_NODE_EXPORTER_DETECTED=${WORKER_NODE_EXPORTER_DETECTED}"
+echo "WORKER_GRAFANA_DETECTED=${WORKER_GRAFANA_DETECTED}"
+echo "WORKER_MONITORING_LISTENING=$(printf '%s' "$WORKER_MONITORING_LISTENING" | tr '\n' '|')"
+
 # --- DCGM ---
 WORKER_HEALTH_PROGRAM_DCGM=false
 WORKER_HEALTH_PROGRAM_DCGM_EVIDENCE=none
@@ -2061,8 +2313,7 @@ echo "WORKER_HEALTH_PROGRAM_DCGM_EVIDENCE=${WORKER_HEALTH_PROGRAM_DCGM_EVIDENCE}
 # --- NHC (Node Health Check) ---
 # NHC runs on compute nodes via the slurm.conf HealthCheckProgram; login and
 # head nodes commonly do not carry the binary at all, so worker detection is
-# the authoritative signal (GMI GB300 was reported as a false negative from a
-# head-node-only check).
+# the authoritative signal. A head-node-only check cannot establish absence.
 WORKER_NHC_INSTALLED=false
 WORKER_NHC_PATH=none
 if command -v nhc &>/dev/null; then
@@ -2345,6 +2596,88 @@ else
 fi
 
 if ! security_checks_only; then
+# --- InfiniBand control-plane queries ---
+# saquery and sminfo must run from a fabric-connected compute node. The OpenSM
+# key is authoritative only when this node runs the subnet manager and exposes
+# its configuration. A compute node with no OpenSM file proves nothing about a
+# remote subnet manager.
+WORKER_SAQUERY_STATUS=not-found
+WORKER_SAQUERY_NODE_RECORDS=0
+WORKER_SAQUERY_ACCESS=unverified
+WORKER_SAQUERY_RC=127
+if command -v saquery >/dev/null 2>&1; then
+    WORKER_SAQUERY_OUTPUT=$(timeout 15 saquery NodeRecord 2>/dev/null)
+    WORKER_SAQUERY_RC=$?
+    [[ "$WORKER_SAQUERY_RC" -eq 0 ]] && WORKER_SAQUERY_ACCESS=current-user
+fi
+if [[ "$WORKER_SAQUERY_RC" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+    WORKER_SAQUERY_OUTPUT=$(timeout 15 sudo -n saquery NodeRecord 2>/dev/null)
+    WORKER_SAQUERY_RC=$?
+    [[ "$WORKER_SAQUERY_RC" -eq 0 ]] && WORKER_SAQUERY_ACCESS=sudo
+fi
+if [[ "$WORKER_SAQUERY_RC" -eq 0 ]]; then
+    WORKER_SAQUERY_STATUS=pass
+    WORKER_SAQUERY_NODE_RECORDS=$(printf '%s\n' "$WORKER_SAQUERY_OUTPUT" \
+        | grep -c 'NodeDescription' | tr -d '[:space:]' || true)
+elif [[ "$WORKER_SAQUERY_RC" -eq 124 ]]; then
+    WORKER_SAQUERY_STATUS=timeout
+elif [[ "$WORKER_SAQUERY_RC" -ne 127 ]]; then
+    WORKER_SAQUERY_STATUS=fail
+fi
+echo "WORKER_SAQUERY_ACCESS=${WORKER_SAQUERY_ACCESS}"
+
+WORKER_SMINFO_STATUS=not-found
+WORKER_SM_LID=unknown
+if command -v sminfo >/dev/null 2>&1; then
+    WORKER_SMINFO_OUTPUT=$(timeout 15 sminfo 2>/dev/null)
+    WORKER_SMINFO_RC=$?
+    if [[ "$WORKER_SMINFO_RC" -eq 0 && -n "$WORKER_SMINFO_OUTPUT" ]]; then
+        WORKER_SMINFO_STATUS=pass
+        WORKER_SM_LID=$(printf '%s\n' "$WORKER_SMINFO_OUTPUT" \
+            | sed -nE 's/.*[Ss][Mm][[:space:]_-]*[Ll][Ii][Dd][[:space:]:]*([0-9]+).*/\1/p' \
+            | head -1)
+        [[ -n "$WORKER_SM_LID" ]] || WORKER_SM_LID=unknown
+    elif [[ "$WORKER_SMINFO_RC" -eq 124 ]]; then
+        WORKER_SMINFO_STATUS=timeout
+    else
+        WORKER_SMINFO_STATUS=fail
+    fi
+fi
+
+WORKER_OPENSM_RUNNING=false
+WORKER_IB_SM_KEY_CONFIGURED=unknown
+WORKER_IB_SM_KEY_STATUS=unverified
+WORKER_IB_SM_KEY_CHECK_SCOPE=remote-sm-unavailable
+if command -v pgrep >/dev/null 2>&1 && pgrep -x opensm >/dev/null 2>&1; then
+    WORKER_OPENSM_RUNNING=true
+    WORKER_OPENSM_CONF="${CLUSTERMAX_OPENSM_CONF:-/etc/opensm/opensm.conf}"
+    WORKER_IB_SM_KEY_CHECK_SCOPE=local-subnet-manager
+    if [[ -r "$WORKER_OPENSM_CONF" ]]; then
+        WORKER_SM_KEY_VAL=$(grep -E '^[[:space:]]*sm_key[[:space:]]+' \
+            "$WORKER_OPENSM_CONF" 2>/dev/null | awk '{print $2}' | head -1)
+        if [[ -n "$WORKER_SM_KEY_VAL" \
+                && "$WORKER_SM_KEY_VAL" != "0x0000000000000000" \
+                && "$WORKER_SM_KEY_VAL" != "0" ]]; then
+            WORKER_IB_SM_KEY_CONFIGURED=true
+            WORKER_IB_SM_KEY_STATUS=configured
+        else
+            WORKER_IB_SM_KEY_CONFIGURED=false
+            WORKER_IB_SM_KEY_STATUS=unsecured
+        fi
+    else
+        WORKER_IB_SM_KEY_STATUS=config-unreadable
+    fi
+fi
+
+echo "WORKER_SAQUERY_STATUS=${WORKER_SAQUERY_STATUS}"
+echo "WORKER_SAQUERY_NODE_RECORDS=${WORKER_SAQUERY_NODE_RECORDS}"
+echo "WORKER_SMINFO_STATUS=${WORKER_SMINFO_STATUS}"
+echo "WORKER_SM_LID=${WORKER_SM_LID}"
+echo "WORKER_OPENSM_RUNNING=${WORKER_OPENSM_RUNNING}"
+echo "WORKER_IB_SM_KEY_CONFIGURED=${WORKER_IB_SM_KEY_CONFIGURED}"
+echo "WORKER_IB_SM_KEY_STATUS=${WORKER_IB_SM_KEY_STATUS}"
+echo "WORKER_IB_SM_KEY_CHECK_SCOPE=${WORKER_IB_SM_KEY_CHECK_SCOPE}"
+
 # --- Storage / Drive Config ---
 # Boot device
 W_BOOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null || df / 2>/dev/null | tail -1 | awk '{print $1}')

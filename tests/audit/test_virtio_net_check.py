@@ -34,19 +34,19 @@ NO_BLUEFIELD_LSPCI = (
 DPU_MODE_MLXCONFIG = """
 Device #1:
 ----------
-Configurations:                              Next Boot
+Configurations:                              Current
          INTERNAL_CPU_MODEL                  EMBEDDED_CPU(1)
          INTERNAL_CPU_OFFLOAD_ENGINE         ENABLED(0)
          INTERNAL_CPU_RSHIM                  ENABLED(0)
 """
 NIC_MODE_MLXCONFIG = """
-Configurations:                              Next Boot
+Configurations:                              Current
          INTERNAL_CPU_MODEL                  EMBEDDED_CPU(1)
          INTERNAL_CPU_OFFLOAD_ENGINE         DISABLED(1)
          INTERNAL_CPU_RSHIM                  ENABLED(0)
 """
 ZERO_TRUST_MLXCONFIG = """
-Configurations:                              Next Boot
+Configurations:                              Current
          INTERNAL_CPU_MODEL                  EMBEDDED_CPU(1)
          INTERNAL_CPU_OFFLOAD_ENGINE         ENABLED(0)
          INTERNAL_CPU_RSHIM                  DISABLED(1)
@@ -561,16 +561,16 @@ class PrivilegedModeReadTests(CheckHarness):
         self.assertTrue(self.calls_for("sudo"))
         self.assertIn("sudo -n retry did not answer", record["reason"])
 
-    def test_mst_start_carries_the_same_privilege_as_the_query(self) -> None:
-
+    def test_failed_mode_read_never_loads_host_kernel_modules(self) -> None:
         self.stub_output("lspci", BLUEFIELD3_LSPCI)
         self.stub("mlxconfig", 'echo "-E- Failed to open the device" >&2\nexit 1')
         self.stub("mst", "exit 0")
         self.stub_sudo()
 
-        self.host_record()
-
-        self.assertTrue(any(call.startswith("-n mst") for call in self.calls_for("sudo")))
+        record = self.host_record()
+        self.assertEqual(record["state"], "incomplete")
+        self.assertFalse(self.calls_for("mst"))
+        self.assertFalse(any(call.startswith("-n mst") for call in self.calls_for("sudo")))
 
 class RshimEvidenceTests(CheckHarness):
 
@@ -1071,7 +1071,7 @@ class KubernetesNamespaceTests(unittest.TestCase):
         namespaces = {
             "items": [
                 {"metadata": {"name": "default"}},
-                {"metadata": {"name": "cw-nvidia-gpu-operator"}},
+                {"metadata": {"name": "example-nvidia-gpu-operator"}},
             ]
         }
 
@@ -1084,7 +1084,7 @@ class KubernetesNamespaceTests(unittest.TestCase):
 
         namespace = self.check.k8s_namespace(env={}, runner=runner)
 
-        self.assertEqual(namespace, "cw-nvidia-gpu-operator")
+        self.assertEqual(namespace, "example-nvidia-gpu-operator")
 
     def test_privileged_device_plugin_collects_from_host_root(self) -> None:
         pods = {
@@ -1123,7 +1123,7 @@ class KubernetesNamespaceTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, collector, "")
 
         record, error = self.check.run_k8s_node_check(
-            "cw-nvidia-gpu-operator", "gpu-1", runner=runner
+            "example-nvidia-gpu-operator", "gpu-1", runner=runner
         )
 
         self.assertIsNone(error)

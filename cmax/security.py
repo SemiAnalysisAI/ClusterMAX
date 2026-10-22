@@ -9,10 +9,10 @@ import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from cmax import minimum_links, report_style, runtime_paths
 from cmax.yaml_support import load_yaml_module
@@ -565,7 +565,8 @@ def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
         return (
             CRITICAL,
             observed,
-            "A security-updated kernel is installed but inactive until the machine reboots.",
+            "A newer kernel is installed but inactive until the machine reboots; "
+            "its security-fix contents require a separate advisory check.",
         )
     unknown_values = {"", "unknown", "not collected", "none", "null"}
     if (
@@ -578,12 +579,51 @@ def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
             "The installed kernel inventory was unavailable, so a pending security reboot cannot be ruled out.",
         )
     if newer is False or str(newer).lower() == "false":
-        return PASS, observed, "The host is running its newest detected kernel."
+        return PASS, observed, "The audit did not find a newer installed kernel that is waiting for a reboot."
     return (
         WARNING,
         observed,
         "The installed kernel inventory was unavailable, so a pending security reboot cannot be ruled out.",
     )
+
+
+def pwnescape_fleet_coverage(value: dict[str, Any]) -> str:
+    """Summarize which worker and control-plane hosts the fleet check read."""
+    control = value.get("controlPlane") if isinstance(value.get("controlPlane"), dict) else {}
+    roles = value.get("roles") if isinstance(value.get("roles"), dict) else {}
+    plane = roles.get("control-plane") if isinstance(roles.get("control-plane"), dict) else {}
+    if control.get("discovered"):
+        control_text = f"control plane checked {plane.get('checked', 0)}/{plane.get('total', 0)}"
+    else:
+        control_text = "control plane not visible to the audit"
+    text = (
+        f"hosts checked {value.get('nodesChecked', 0)}/{value.get('nodesTotal', 0)}; "
+        f"{control_text}; kernels {', '.join(value.get('runningKernels') or []) or 'unknown'}"
+    )
+    for label, key in (("failing", "failingNodes"), ("unassessed", "unassessedNodes")):
+        nodes = value.get(key) or []
+        if nodes:
+            shown = ", ".join(str(node) for node in nodes[:10])
+            more = f" and {len(nodes) - 10} more" if len(nodes) > 10 else ""
+            text += f"; {label} {shown}{more}"
+    return text
+
+
+def _pwnescape(audit: dict[str, Any]) -> tuple[str, str, str]:
+    value = _get(audit, "security.pwnescape")
+    if not isinstance(value, dict):
+        return WARNING, "not collected", "PwnEscape host patch evidence was not collected."
+    status = {"pass": PASS, "fail": CRITICAL}.get(value.get("status"), WARNING)
+    observed = (
+        f"running={value.get('runningKernel', 'unknown')}; "
+        f"minimum={value.get('minimum', 'unknown')}; "
+        f"local={value.get('localKernelStatus', 'unknown')}; "
+        f"scope={value.get('scope', 'unknown')}"
+    )
+    if value.get("scope") == "fleet":
+        observed += "; " + pwnescape_fleet_coverage(value)
+    return status, observed, str(value.get("reason") or "Host patch evidence is required.")
+
 
 
 def _fragnesia(audit: dict[str, Any]) -> tuple[str, str, str]:
@@ -625,6 +665,22 @@ def _fragnesia(audit: dict[str, Any]) -> tuple[str, str, str]:
         WARNING,
         observed,
         "The kernel applicability or fixed package level could not be verified.",
+    )
+
+
+def _bad_epoll(audit: dict[str, Any]) -> tuple[str, str, str]:
+    advisory = _get(audit, "security.badEpoll")
+    if not isinstance(advisory, dict):
+        advisory = {}
+    status = {"pass": PASS, "fail": CRITICAL}.get(
+        advisory.get("status"), WARNING
+    )
+    observed = (
+        f"observed version {advisory.get('running', 'unknown')}; "
+        f"minimum version {advisory.get('minimum', 'unknown')}; CVE-2026-46242"
+    )
+    return status, observed, advisory.get("detail") or (
+        "Bad Epoll patch status is unverified; requires provider patch evidence."
     )
 
 
@@ -684,6 +740,19 @@ def _ufm(audit: dict[str, Any]) -> tuple[str, str, str]:
         )
     status = str(value.get("status") or "unknown").lower()
     observed = f"status {status}"
+    if value.get("probeComplete") is False:
+        return WARNING, observed, "The UFM probe did not complete; profile isolation is unverified."
+    controls = value.get("controls")
+    if value.get("probeComplete") is True and isinstance(controls, dict):
+        required = (
+            "madKeyProtection", "guidAccessControl", "serviceAuthentication",
+            "saTrustModel", "madRateLimiting", "dosProtection", "sourceRateLimiting",
+        )
+        if any(controls.get(key) is False for key in required):
+            return CRITICAL, observed, "A completed UFM probe found a required fabric control disabled."
+        if all(controls.get(key) is True for key in required):
+            return PASS, observed, "The completed UFM probe verified every required fabric control."
+        return WARNING, observed, "The completed UFM probe omitted one or more required fabric controls."
     if status == "pass":
         return PASS, observed, "The secured bare-metal UFM profile was verified."
     if status == "fail":
@@ -691,6 +760,13 @@ def _ufm(audit: dict[str, Any]) -> tuple[str, str, str]:
             CRITICAL,
             observed,
             "Required fabric authentication or rate-limiting controls are disabled.",
+        )
+    if status == "provider_attestation_required":
+        return (
+            NOT_APPLICABLE, "provider-side control; not tested from tenant",
+            "UFM administers the InfiniBand fabric. Tenant credentials cannot "
+            "verify its full security profile. Request a provider configuration "
+            "export for shared fabrics; this skip is not a fabric-security pass.",
         )
     return (
         WARNING,
@@ -737,14 +813,16 @@ def _bmc_ipmi(audit: dict[str, Any]) -> tuple[str, str, str]:
         names = exposed_nodes if isinstance(exposed_nodes, list) else []
         listed = ", ".join(str(name) for name in names) or "none"
         observed = (
-            f"{len(names)}/{nodes_total} worker nodes exposed local BMC or IPMI access; "
+            f"{len(names)}/{nodes_total} worker nodes returned data on tested local IPMI reads; "
             f"checked {nodes_checked}/{nodes_total}; exposed nodes {listed}; "
             f"access mode {access_mode}"
         )
         scope = (
             "The check used the Kubernetes identity to create a privileged pod "
             "that mounted each worker host root. It did not test access from an "
-            "ordinary workload pod."
+            "ordinary workload pod. A pass means the tested local management "
+            "reads returned no usable data. Error responses are retained; this "
+            "does not certify untested commands or network BMC interfaces."
         )
         if exposed is True or str(exposed).lower() == "true":
             return CRITICAL, observed, scope
@@ -891,6 +969,39 @@ def _manual_boundary(
     return evaluate
 
 
+def _pcie_boundary(audit: dict[str, Any]) -> tuple[str, str, str]:
+    evidence = _get(audit, "security.pciePassthrough")
+    virt = _get(audit, "security.virtualization")
+    if not isinstance(evidence, dict):
+        evidence = {}
+    if not isinstance(virt, dict):
+        virt = {}
+    guest = virt.get("guest")
+    complete = evidence.get("inventoryComplete") is True
+    devices = evidence.get("vfioDevices")
+    unsafe = evidence.get("unsafeGroups")
+    observed = (
+        f"target guest={_display(guest)}; inventory complete={complete}; "
+        f"VFIO devices={_display(devices)}; unsafe IOMMU groups={_display(unsafe)}; "
+        f"scope={evidence.get('scope', 'unknown')}"
+    )
+    if guest is False and complete and type(devices) is int and type(unsafe) is int:
+        if devices > 0 and unsafe > 0:
+            return CRITICAL, observed, (
+                "A host VFIO device has no IOMMU group or shares it with a "
+                "host-driver device. The required assignment isolation is not established."
+            )
+        if devices == 0:
+            return NOT_APPLICABLE, observed, (
+                "The complete sampled bare-metal PCI inventory found no VFIO "
+                "passthrough devices. This does not certify other hosts or tenant boundaries."
+            )
+    return WARNING, observed, (
+        "PCIe assignment requires physical-host IOMMU, ACS, reset, and memory "
+        "sanitization evidence. Guest-visible groups or an incomplete scan cannot establish it."
+    )
+
+
 def _nvlink_boundary(audit: dict[str, Any]) -> tuple[str, str, str]:
     boundary = _get(audit, "security.nvlinkBoundary")
     if not isinstance(boundary, dict):
@@ -936,12 +1047,23 @@ def _nvlink_boundary(audit: dict[str, Any]) -> tuple[str, str, str]:
             "The completed GPU inventory found no NVIDIA GPU, so NVLink and "
             "NVBleed do not apply to this target.",
         )
+    if domain_exclusive is False and exposed:
+        return CRITICAL, observed, (
+            "NVLink is visible and the physical domain is explicitly recorded "
+            "as shared across trust boundaries. Tenant-exclusive isolation failed."
+        )
     if exclusive:
+        if not (checked and complete):
+            return WARNING, observed, (
+                "Exclusive ownership is attested, but the topology scan did not "
+                "complete. The allocation cannot yet be matched to the observed domain."
+            )
         return (
             PASS,
             observed,
-            "Provider evidence confirms that the complete physical NVLink or "
-            "NVSwitch domain is exclusive to this tenant. A whole-host VM is "
+            "The operator attests that the complete physical NVLink or "
+            "NVSwitch domain is exclusive to this tenant, and the topology scan "
+            "completed. A whole-host VM is "
             "sufficient only when the domain is node-local; rack-scale NVLink "
             "requires a tenant-exclusive NVLink partition.",
         )
@@ -955,6 +1077,17 @@ def _nvlink_boundary(audit: dict[str, Any]) -> tuple[str, str, str]:
             "NVLink or NVSwitch domain belongs to the same trust boundary. A "
             "whole-host VM clears a node-local SXM/NVSwitch domain; rack-scale "
             "NVLink requires a tenant-exclusive NVLink partition.",
+        )
+    all_visible = boundary.get("allHostGpusVisible")
+    if not_exposed and (all_visible is False or str(all_visible).lower() == "false"):
+        return WARNING, observed + (
+            f"; host GPUs visible={_display(boundary.get('visibleGpuCount'))} of "
+            f"{_display(boundary.get('hostGpuCount'))}"
+        ), (
+            "This target sees only some of the NVIDIA GPUs on its physical host, "
+            "as a container on a shared host does. GPUs assigned to other tenants "
+            "are not visible here, so a physical NVLink to them cannot be ruled "
+            "out. The provider must attest the complete physical domain."
         )
     if not_exposed and checked and complete and guest is False:
         return (
@@ -1025,6 +1158,13 @@ def _virtio_net_bluefield(audit: dict[str, Any]) -> tuple[str, str, str]:
             "No BlueField DPU is present in the completed device scan.",
         )
     if status == "pass":
+        if verdict.get("assessmentBasis") == "current-nic-mode":
+            return (
+                PASS, "current NIC mode; controller inactive",
+                "The completed mode inventory found no active Virtio-Net "
+                "controller. Stored firmware is not certified; reassess before "
+                "enabling DPU mode.",
+            )
         grace_active, grace_note = _grace_details(verdict)
         if grace_active:
             detail = str(verdict.get("detail") or "").strip()
@@ -1235,7 +1375,183 @@ def minimum_freshness(
     return state
 
 
+def _observability_context(obs: dict[str, Any]) -> str:
+    """Render the backend product, guard, and discovery vantage for the report.
+
+    An operator who must reproduce or escalate a finding needs to know which
+    product answered, what guards it, and how the check found it.
+    """
+    parts: list[str] = []
+    platforms = obs.get("backend_platforms")
+    if not isinstance(platforms, dict) or not platforms:
+        detected = obs.get("platforms_detected")
+        if isinstance(detected, list) and detected:
+            parts.append("detected " + ",".join(str(name) for name in detected))
+    else:
+        parts.append(
+            "platform " + ",".join(f"{name}={count}" for name, count in sorted(platforms.items()))
+        )
+    schemes = obs.get("auth_schemes")
+    if isinstance(schemes, dict) and schemes:
+        parts.append("auth " + ",".join(sorted(schemes)))
+    source = obs.get("discovery")
+    if source:
+        parts.append(f"via {source}")
+    return f" [{'; '.join(parts)}]" if parts else ""
+
+def _observability(audit: dict[str, Any]) -> tuple[str, str, str]:
+    """Evaluate the sanitized observability-backend check result.
+
+    Facts live at `security.observability` and are populated by
+    run_security_audit whenever a target was named or discovered. Counts only;
+    the check never records other tenants' identities.
+
+    A PASS needs an ANSWERED query. Reachability alone proves nothing: a backend
+    that refuses every read is reachable, so grading it as enforced tenancy would
+    be a vacuous green check.
+    """
+    obs = _get(audit, "security.observability")
+    if not isinstance(obs, dict) or not obs.get("configured"):
+        return (
+            WARNING,
+            "not assessed (no backend found)",
+            "Observability isolation was not tested. Auto-discovery found no "
+            "metrics or Grafana endpoint from the audit evidence, this node's "
+            "listening sockets and processes, or Kubernetes Services. Set "
+            "CLUSTERMAX_OBS_TARGETS to the endpoint to assess whether the backend "
+            "enforces per-tenant query isolation.",
+        )
+    reachable = int(obs.get("backends_reachable") or 0)
+    cross = bool(obs.get("cross_tenant_series_visible"))
+    unauth = bool(obs.get("unauth_query_ok"))
+    admin = bool(obs.get("admin_api_exposed"))
+    counts = obs.get("foreign_tenant_counts") or {}
+    detail = ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "none"
+    context = _observability_context(obs)
+    if cross or unauth or admin:
+        flags = []
+        if cross:
+            flags.append(f"cross-tenant series visible (foreign label values: {detail})")
+        if unauth:
+            flags.append("query answered with no authentication")
+        if admin:
+            flags.append("administrative/delete API exposed")
+        if cross:
+            assessment = (
+                "The monitoring backend does not enforce per-tenant query isolation. "
+                "The query path exposed data from other tenants, so client-side "
+                "dashboard filtering is not a security boundary."
+            )
+        elif unauth:
+            assessment = (
+                "The monitoring backend allowed anonymous reads on the query path."
+            )
+        else:
+            assessment = (
+                "The monitoring backend exposed an administrative or delete API "
+                "without authentication."
+            )
+        return (CRITICAL, "; ".join(flags) + context, assessment)
+    answered = int(obs.get("queries_answered") or 0)
+    skipped = int(obs.get("targets_skipped") or 0)
+    if skipped:
+        # An incomplete run must never read as clean. Bounding the check is
+        # correct; hiding what the bound dropped is not. Two bounds can drop a
+        # target, and naming only the request budget described a hung backend as an
+        # oversized endpoint list, which sends the operator to the wrong fix.
+        return (
+            WARNING,
+            f"{skipped} endpoint(s) not fully checked; check limit reached" + context,
+            "The target cap, request budget, or unanswered-time allowance was reached, so "
+            "not every endpoint was checked and the result is incomplete. Narrow "
+            "the endpoint list with CLUSTERMAX_OBS_TARGETS and re-run to assess "
+            "the remainder.",
+        )
+    if answered:
+        return (
+            PASS,
+            f"{answered} of {reachable} backend(s) answered a query; "
+            "no cross-tenant data returned" + context,
+            "A monitoring backend answered the query path and returned only our "
+            "own tenant's data, so the query path enforced tenancy.",
+        )
+    if reachable:
+        # Reachability alone proves nothing. A backend that refuses every read
+        # is reachable, and calling that "enforced tenancy" is a vacuous pass.
+        return (
+            WARNING,
+            f"{reachable} backend(s) reachable but refused every read" + context,
+            "The monitoring backend was reachable but answered no query, so "
+            "tenancy on the query path was not assessed.",
+        )
+    return (
+        WARNING,
+        f"{int(obs.get('targets_found') or 0)} endpoint(s) not reachable" + context,
+        "The observability endpoint was not reachable from this vantage, so "
+        "isolation could not be assessed.",
+    )
+
 CHECK_SPECS: tuple[CheckSpec, ...] = (
+    CheckSpec(
+        "qemu-virtio-serial",
+        "QEMU virtio-serial security fix",
+        "A vulnerable host QEMU process can be attacked by a guest through an exposed virtio-serial device.",
+        "Upgrade the physical host QEMU package to the fixed vendor release.",
+        _references(
+            ("Ubuntu CVE-2024-3446", "https://ubuntu.com/security/CVE-2024-3446"),
+            ("NVD CVE-2024-3446", "https://nvd.nist.gov/vuln/detail/CVE-2024-3446"),
+        ),
+        _status_evaluator(
+            "security.qemuCve20243446.status",
+            critical={"fail"},
+            warning={"host-version-required", "unknown"},
+            passing={"pass", "not-applicable", "not_applicable"},
+            missing_assessment="QEMU applicability or the physical-host package version could not be verified.",
+        ),
+    ),
+    CheckSpec(
+        "vmscape",
+        "VMSCAPE host mitigation",
+        "Affected KVM hosts can leak host memory through speculative execution across the guest boundary.",
+        "Install the fixed physical-host kernel and confirm the VMSCAPE mitigation is active.",
+        _references(
+            (
+                "Ubuntu VMSCAPE guidance",
+                "https://ubuntu.com/security/vulnerabilities/vmscape",
+            ),
+            ("Ubuntu CVE-2025-40300", "https://ubuntu.com/security/CVE-2025-40300"),
+        ),
+        _status_evaluator(
+            "security.vmscape.status",
+            critical={"fail"},
+            warning={"host-mitigation-required", "unknown"},
+            passing={"pass", "not-applicable", "not_applicable"},
+            missing_assessment="VMSCAPE applicability or the physical-host mitigation could not be verified.",
+        ),
+    ),
+
+    CheckSpec(
+        "observability-isolation",
+        "Observability backend tenant isolation",
+        "A shared metrics backend that filters tenants only in the dashboard lets "
+        "any authenticated tenant read every tenant's metrics by querying the "
+        "backend directly, exposing a map of the whole platform.",
+        "Enforce per-tenant scoping in the query path on the server (tenant "
+        "derived from an authenticated identity, not a client-supplied filter). "
+        "Auto-discovery finds a local or in-cluster backend; set "
+        "CLUSTERMAX_OBS_TARGETS for an endpoint that only a URL reaches.",
+        _references(
+            (
+                "Grafana data source permissions",
+                "https://grafana.com/docs/grafana/latest/administration/data-source-management/",
+            ),
+            (
+                "Mimir multi-tenancy",
+                "https://grafana.com/docs/mimir/latest/manage/secure/authentication-and-authorization/",
+            ),
+        ),
+        _observability,
+    ),
     CheckSpec(
         "nvidia-driver",
         "NVIDIA driver minimum version",
@@ -1337,6 +1653,21 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
         _guest_kernel,
     ),
     CheckSpec(
+        "pwnescape",
+        "PwnEscape host networking kernel fix",
+        "Malformed checksum metadata can cross the guest-to-host boundary through the Linux networking stack.",
+        (
+            "Install the vendor kernel fix for CVE-2026-99999 and boot it on the host. "
+            "Request provider evidence when the physical host is hidden."
+        ),
+        _references(
+            ("CVE-2026-99999", "https://nvd.nist.gov/vuln/detail/CVE-2026-99999"),
+            ("PwnEscape research", "https://pwn.ai/blog/pwnescape"),
+            ("Ubuntu tracker", "https://ubuntu.com/security/CVE-2026-99999"),
+        ),
+        _pwnescape,
+    ),
+    CheckSpec(
         "fragnesia",
         "Fragnesia and Dirty Frag kernel fixes",
         "Affected kernels permit local privilege escalation and may facilitate container escape.",
@@ -1355,6 +1686,15 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
             ("CVE-2026-43500", "https://ubuntu.com/security/CVE-2026-43500"),
         ),
         _fragnesia,
+    ),
+    CheckSpec(
+        "bad-epoll",
+        "Bad Epoll running-kernel fix",
+        "CVE-2026-46242 permits local privilege escalation in affected kernels and may allow shared-kernel container escape.",
+        "Install the fixed host kernel for the distribution and flavor, reboot, "
+        "and verify the running kernel. Obtain provider evidence for custom kernels or livepatches.",
+        _references(("CVE-2026-46242", "https://ubuntu.com/security/CVE-2026-46242")),
+        _bad_epoll,
     ),
     CheckSpec(
         "januscape",
@@ -1440,10 +1780,7 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
                 "https://docs.kernel.org/6.8/userspace-api/iommu.html",
             ),
         ),
-        _manual_boundary(
-            "security.pciePassthrough.hostVerificationRequired",
-            "host verification required",
-        ),
+        _pcie_boundary,
     ),
     CheckSpec(
         "nvlink-boundary",
@@ -1590,6 +1927,121 @@ def _minimum_bound_details(
         )
     return remediation, (*references, *spec.references)
 
+
+
+
+def _canonical_targets(urls: Iterable[str]) -> list[str]:
+    """Strip trailing slashes and drop repeats, keeping first-seen order.
+
+    `obs_check` treats `http://prom:9090/` and `http://prom:9090` as one backend,
+    so they must take one target slot. Operator-named targets come first.
+    """
+    seen: set[str] = set()
+    canonical: list[str] = []
+    for url in urls:
+        stripped = url.strip().rstrip("/")
+        if not stripped or stripped in seen:
+            continue
+        seen.add(stripped)
+        canonical.append(stripped)
+    return canonical
+
+
+def _inject_observability(
+    values: dict[str, Any], *, progress: Callable[[str], None] | None = None,
+    target: SecurityTarget | None = None,
+) -> None:
+    """Run the observability-backend check and stash the sanitized result.
+
+    Targets come from CLUSTERMAX_OBS_TARGETS (comma/space separated), or else from
+    `cmax.obs_discovery` (audit evidence, local sockets and processes, Kubernetes
+    Services); CLUSTERMAX_OBS_DISCOVER=0 disables discovery. Requests are anonymous,
+    bounded, read-only GETs. Writes a counts-only summary to
+    audit_data.security.observability; with no target the check stays a WARNING.
+    """
+    from cmax import obs_check
+
+    def emit(message: str) -> None:
+        if progress:
+            progress(message)
+
+    emit("# ClusterMAX observability isolation check")
+
+    raw = os.environ.get("CLUSTERMAX_OBS_TARGETS", "").strip()
+    targets = _canonical_targets(re.split(r"[,\s]+", raw) if raw else [])
+    discovery = None
+    if targets:
+        discovery_label = "operator"
+        platforms: list[str] = []
+        emit(f"  discovery: using {len(targets)} operator-named target(s)")
+    else:
+        if os.environ.get("CLUSTERMAX_OBS_DISCOVER", "1").strip() in ("0", "false", "no"):
+            emit("  discovery: disabled by CLUSTERMAX_OBS_DISCOVER")
+            return
+        from cmax import obs_discovery
+
+        emit("  discovery: reading audit evidence, local services, and Kubernetes services")
+        remote_k8s = bool(target and target.harness == "k8s")
+        discovery = obs_discovery.discover(
+            values,
+            max_targets=None,
+            services=None if remote_k8s else {},
+            # A Kubernetes audit runs from an operator machine, so its local
+            # sockets, processes, and loopback addresses are not the cluster's.
+            local_vantage=not remote_k8s,
+        )
+        targets = _canonical_targets(discovery.urls())
+        discovery_label = discovery.source_label()
+        platforms = list(discovery.platforms)
+        emit(f"  discovery: found {len(targets)} target(s) via {discovery_label}")
+    if not targets:
+        emit("  backend check: no targets found; nothing to check")
+        return
+
+    own_ns = os.environ.get("CMAX_OWN_NAMESPACE", "default")
+    selected_targets = targets[: obs_check.MAX_TARGETS]
+    if discovery is not None:
+        # Keep all candidates for skipped-target accounting, but label only
+        # sources contributing to the selected, canonical target set.
+        endpoint_sources: dict[str, str] = {}
+        for endpoint in discovery.endpoints:
+            endpoint_sources.setdefault(
+                endpoint.url.strip().rstrip("/"), endpoint.source,
+            )
+        sources = dict.fromkeys(endpoint_sources[url] for url in selected_targets)
+        discovery_label = "+".join(sources) or "none"
+    emit(
+        f"  backend check: {len(selected_targets)} target(s); "
+        f"{obs_check.REQUEST_TIMEOUT_S:g}s per request; "
+        f"up to {obs_check.MAX_UNANSWERED_PER_TARGET_MS // 1000}s unanswered "
+        "time per target"
+    )
+    check_options: dict[str, Any] = {}
+    if progress:
+        check_options["progress"] = lambda message: emit(f"  {message}")
+    summary = obs_check.check(
+        targets,
+        own_namespace=own_ns,
+        **check_options,
+    )
+    emit(
+        "  backend check: complete; "
+        f"{summary.get('request_count', 0)} request(s), "
+        f"{summary.get('backends_reachable', 0)}/{len(selected_targets)} reachable"
+    )
+    summary["discovery"] = discovery_label
+    summary["targets_found"] = len(targets)
+    if platforms:
+        # Platforms seen by discovery, including a backend the check could not
+        # reach. "Grafana is running but did not answer" must stay visible.
+        summary["platforms_detected"] = platforms
+    audit = values.setdefault("audit_data", {})
+    if not isinstance(audit, dict):
+        audit = values["audit_data"] = {}
+    security = audit.setdefault("security", {})
+    if not isinstance(security, dict):
+        security = audit["security"] = {}
+    security["observability"] = summary
 
 def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
     audit = (
@@ -1884,15 +2336,50 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
         return False
     installed_generated: str | None = None
     installed_path: Path | None = None
+    installed_document: dict[str, Any] = {}
     try:
         installed_path = minimum_table_path(repo)
-        installed_generated = str(
-            json.loads(installed_path.read_text()).get("generated") or ""
-        )
+        installed_document = json.loads(installed_path.read_text())
+        installed_generated = str(installed_document.get("generated") or "")
     except (SecurityAuditError, OSError, json.JSONDecodeError, AttributeError):
         # The installed table is missing or unreadable. The fetch is then the
         # only path to a usable table, so it continues with no age minimum.
         installed_generated = None
+
+    def supports_release_checks(path: Path) -> bool:
+        # A newly published client may precede website-table publication. Do
+        # not replace its shipped kernel mappings with an otherwise newer table
+        # that silently drops those checks. Explicit user pins remain untouched.
+        requirements = (
+            "components.ubuntuNoble.packages.linuxBadEpoll",
+            "components.ubuntuNoble.packages.linuxBadEpollNvidia617",
+            "components.ubuntuNoble.packages.linuxFragnesiaNvidia617",
+            "components.ubuntuJammy.packages.linuxBadEpoll",
+            "components.ubuntuResolute.packages.linuxBadEpoll",
+            "components.ubuntuResolute.packages.linuxFragnesia",
+        )
+        try:
+            candidate = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return False
+        missing = [
+            key for key in requirements
+            if isinstance(_get(installed_document, key), dict)
+            and not isinstance(_get(candidate, key), dict)
+        ]
+        if (_get(installed_document, "components.connectxFirmware.gaRanges")
+                and not _get(candidate, "components.connectxFirmware.gaRanges")):
+            missing.append("components.connectxFirmware.gaRanges")
+        if missing:
+            print(
+                "minimum fetch warning: published/cache table lacks mappings required "
+                "by this release: " + ", ".join(missing)
+                + ". Keeping the installed table.",
+                flush=True,
+            )
+            return False
+        return True
+
     result = minimum_sync.sync(installed_generated=installed_generated)
     print(f"minimum fetch: {result.message}", flush=True)
     installed = minimum_sync.parse_stamp(installed_generated)
@@ -1909,7 +2396,8 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
         if cached is not None:
             cache_file, cached_generated = cached
             stamp = minimum_sync.parse_stamp(cached_generated)
-            if stamp is not None and (installed is None or stamp >= installed):
+            if stamp is not None and (installed is None or stamp >= installed) \
+                    and supports_release_checks(cache_file):
                 os.environ[MINIMUMS_ENV] = str(cache_file)
                 print(
                     f"minimum fetch warning: could not update the minimum "
@@ -1926,6 +2414,8 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
             f"Grading against the installed table{suffix}.",
             flush=True,
         )
+        return False
+    if not supports_release_checks(result.path):
         return False
     fetched = minimum_sync.parse_stamp(result.generated)
     if fetched is not None and installed is not None and fetched < installed:

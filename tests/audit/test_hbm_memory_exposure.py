@@ -368,6 +368,24 @@ class RunSlurmCheckTests(unittest.TestCase):
         self.assertEqual(aggregate["status"], "pass")
         self.assertEqual(aggregate["message"], "HBM exposure check passed")
 
+    def test_command_streams_source_to_each_compute_node(self) -> None:
+        with mock.patch.dict(
+            hbm_memory_exposure.os.environ,
+            {"SLURM_JOB_ID": "42", "SLURM_NNODES": "2"},
+        ), mock.patch.object(
+            hbm_memory_exposure,
+            "run_command",
+            return_value=subprocess.CompletedProcess(["srun"], 0, self.HOST_JSON + "\n", ""),
+        ) as runner:
+            hbm_memory_exposure.run_slurm_check("slurm")
+
+        command = runner.call_args.args[0]
+        self.assertIn("--input=all", command)
+        self.assertTrue(runner.call_args.kwargs["input_text"])
+        self.assertNotIn(
+            str(Path(hbm_memory_exposure.__file__).resolve()), command
+        )
+
     def test_nonzero_exit_still_records_stderr(self) -> None:
         proc = subprocess.CompletedProcess(
             args=["srun"],
@@ -382,23 +400,17 @@ class RunSlurmCheckTests(unittest.TestCase):
         )
         self.assertIn("srun: error: node-1: task 1: Exited with exit code 1", errors)
 
-    def test_no_host_json_records_stderr_and_falls_back_to_local(self) -> None:
+    def test_no_host_json_records_stderr_and_keeps_hosts_empty(self) -> None:
         proc = subprocess.CompletedProcess(
             args=["srun"],
             returncode=0,
             stdout="",
             stderr="srun: error: fan-out produced nothing\n",
         )
-        local = {
-            "host": "head-0",
-            "summary": {"status": "pass", "failures": [], "warnings": []},
-        }
-        with mock.patch.object(hbm_memory_exposure, "collect_host", return_value=dict(local)):
-            reports, errors = self.run_check(proc)
-        self.assertEqual(len(reports), 1)
-        self.assertEqual(reports[0]["check_scope"], "local")
+        reports, errors = self.run_check(proc)
+        self.assertEqual(reports, [])
         self.assertIn("srun: error: fan-out produced nothing", errors)
-        self.assertIn("srun host check returned no host JSON; local host only", errors)
+        self.assertIn("srun HBM check returned no host JSON; no compute node was checked", errors)
 
 
 class AggregateReportsTests(unittest.TestCase):

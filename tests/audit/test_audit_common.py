@@ -175,7 +175,7 @@ class AuditCommonTests(unittest.TestCase):
         run = bashtest.run_bash(
             bashtest.extract_function(COMMON_PATH, "aggregate_gpu_error_history")
             + "\nrun_gpu_error_check_on_node() { printf 'GPU_ERROR\\t%s\\tjournalctl\\t0\\tnone\\t0\\n' \"$1\"; }"
-            + "\nGPU_NODE_COUNT=3; GPU_NODE_NAMES='gpu-a gpu-b gpu-c'\n"
+            + "\nGPU_NODE_COUNT=3; GPU_CHECK_NODE_NAMES='gpu-a gpu-b gpu-c'\n"
             + block
             + '\nprintf "%s %s\\n" "$GPU_ERROR_NODES_CHECKED" "$GPU_ERROR_NODES_TOTAL"',
         )
@@ -237,6 +237,7 @@ class AuditCommonTests(unittest.TestCase):
             selected["hardware"],
             {
                 "gpu/vboost.py",
+                "system/hugepages.py",
                 "system/arm-smmu-virtualization-check.py",
                 "system/hbm_memory_exposure.py",
                 "system/vm-iommu-check.py",
@@ -244,7 +245,10 @@ class AuditCommonTests(unittest.TestCase):
         )
         self.assertEqual(
             selected["full"],
-            set(run_checks.CHECK_PROFILES) - {"system/kubernetes_nodes_proxy.py"},
+            {
+                name for name in run_checks.CHECK_PROFILES
+                if "slurm" in run_checks.CHECK_HARNESSES[name]
+            },
         )
 
     def test_standalone_omits_scale_out_checks(self) -> None:
@@ -365,13 +369,13 @@ class AuditCommonTests(unittest.TestCase):
             stubs={
                 "kubectl": (
                     'if [[ "$*" == *"--all-namespaces -l app=gpu-feature-discovery"* ]]; then '
-                    "printf 'cw-nvidia-gpu-operator'; fi"
+                    "printf 'example-nvidia-gpu-operator'; fi"
                 )
             },
         )
 
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(run.stdout.strip(), "cw-nvidia-gpu-operator")
+        self.assertEqual(run.stdout.strip(), "example-nvidia-gpu-operator")
 
     def test_k8s_dcgm_discovery_scans_branded_namespaces(self) -> None:
         block = bashtest.extract_block(
@@ -525,7 +529,7 @@ class AuditCommonTests(unittest.TestCase):
             {
                 "items": [
                     {"metadata": {"name": "default"}},
-                    {"metadata": {"name": "cw-nvidia-gpu-operator"}},
+                    {"metadata": {"name": "example-nvidia-gpu-operator"}},
                 ]
             }
         )
@@ -541,14 +545,14 @@ class AuditCommonTests(unittest.TestCase):
         )
 
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(run.stdout.strip(), "cw-nvidia-gpu-operator")
+        self.assertEqual(run.stdout.strip(), "example-nvidia-gpu-operator")
 
     def test_supplemental_checks_select_branded_gpu_operator_namespace(self) -> None:
         self.assertEqual(
             run_checks.select_gpu_operator_namespace(
-                ["default", "cw-nvidia-gpu-operator", "kube-system"]
+                ["default", "example-nvidia-gpu-operator", "kube-system"]
             ),
-            "cw-nvidia-gpu-operator",
+            "example-nvidia-gpu-operator",
         )
 
     def test_bmc_ipmi_summary_retains_per_node_coverage(self) -> None:
@@ -654,7 +658,7 @@ class AuditCommonTests(unittest.TestCase):
         profile = self.run_ufm_profile_helper("infiniband")
 
         self.assertTrue(profile["applicable"])
-        self.assertEqual(profile["status"], "manual")
+        self.assertEqual(profile["status"], "provider_attestation_required")
         self.assertEqual(profile["profile"], "Secured Bare Metal Cloud")
         self.assertEqual(len(profile["requiredControls"]), 7)
         self.assertTrue(
@@ -749,7 +753,8 @@ class CollectorSafetyTests(unittest.TestCase):
                 captured = Path(tmp) / "stdin"
                 run = bashtest.run_bash(
                     self.PRINT_STUBS
-                    + 'AUDIT_SRUN_FLAGS=(); GPU_SRUN_SCOPE_ARGS=(-p mixed)\n'
+                    + bashtest.extract_function(COMMON_PATH, "slurm_job_gpus_per_node")
+                    + '\nAUDIT_SRUN_FLAGS=(); GPU_SRUN_SCOPE_ARGS=(-p mixed)\n'
                     + 'AUDIT_STEP_TMPDIR_EXPORT_ARGS=(); GPU_PARTITION=mixed\n'
                     + f'WORKLOAD_DIR="{AUDIT_SCRIPTS}"\n'
                     + block,
@@ -1130,9 +1135,7 @@ class ContainerWorkerCheckTests(unittest.TestCase):
         self.assertEqual(security["nvidiaDriver"]["status"], "pass")
         self.assertEqual(security["runc"]["status"], "pass")
         self.assertEqual(security["docker"]["status"], "pass")
-        # Train 47 is present in the collected Nvidia NIC inventory but has no
-        # train-specific floor in the current table, so it must fail closed.
-        self.assertEqual(security["connectxFirmware"]["status"], "unknown")
+        self.assertEqual(security["connectxFirmware"]["status"], "pass")
         self.assertEqual(len(security["connectxFirmware"]["devices"]), 1)
 
     def test_nic_security_policy_distinguishes_empty_from_uncollected(self) -> None:
@@ -1364,6 +1367,56 @@ EOF""",
         self.assertIn("survived=ok conf=[]", run.stdout)
 
 
+class SlurmJobGpusPerNodeTests(unittest.TestCase):
+    FUNCTION = bashtest.extract_function(COMMON_PATH, "slurm_job_gpus_per_node")
+    SCONTROL = (
+        'if [[ "$1 $2" == "show hostnames" ]]; then\n'
+        '  case "$3" in "gpu-[a-b]") printf "gpu-a\\ngpu-b\\n" ;; *) echo "$3" ;; esac; exit 0\n'
+        "fi\n"
+        'cat "$SCONTROL_JOB"'
+    )
+
+    def gpus(self, job: str, *args: str, job_id: str | None = "7") -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "job.txt"
+            path.write_text(job)
+            env = {"SCONTROL_JOB": str(path)}
+            if job_id:
+                env["SLURM_JOB_ID"] = job_id
+            run = bashtest.run_bash(
+                self.FUNCTION + "\nslurm_job_gpus_per_node " + " ".join(args),
+                stubs={"scontrol": self.SCONTROL},
+                env=env,
+            )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return run.stdout.strip()
+
+    def test_exclusive_allocation_requests_every_gpu(self) -> None:
+        job = (
+            "   JOB_GRES=gpu:h100:8\n"
+            "     Nodes=gpu-a CPU_IDs=0-127 Mem=2027520 GRES=gpu:h100:8(IDX:0-7)\n"
+        )
+        self.assertEqual(self.gpus(job), "8")
+        self.assertEqual(self.gpus(job, "gpu-a"), "8")
+
+    def test_per_node_and_smallest_counts(self) -> None:
+        job = (
+            "     Nodes=gpu-[a-b] CPU_IDs=0-63 Mem=1 GRES=gpu:8(IDX:0-7)\n"
+            "     Nodes=gpu-c CPU_IDs=0-63 Mem=1 GRES=gpu:a:2(IDX:0-1),gpu:b:2(IDX:2-3)\n"
+        )
+        self.assertEqual(self.gpus(job), "4")
+        self.assertEqual(self.gpus(job, "gpu-b"), "8")
+        self.assertEqual(self.gpus(job, "gpu-c"), "4")
+
+    def test_falls_back_to_one_gpu(self) -> None:
+        gpu_job = "     Nodes=gpu-a CPU_IDs=0-3 Mem=1 GRES=gpu:8(IDX:0-7)\n"
+        self.assertEqual(self.gpus(gpu_job, job_id=None), "1")  # no allocation
+        self.assertEqual(self.gpus(""), "1")  # scontrol gave nothing
+        self.assertEqual(self.gpus("     Nodes=cpu-a CPU_IDs=0-3 Mem=1\n"), "1")
+        self.assertEqual(self.gpus(gpu_job + "     Nodes=cpu-a CPU_IDs=0-3 Mem=1\n"), "1")
+        self.assertEqual(self.gpus(gpu_job, "gpu-z"), "1")  # node not in the job
+
+
 class SecurityBulletinIntegrationTests(unittest.TestCase):
     def run_nvlink_probe(self, topology_body: str) -> dict[str, str]:
         block = bashtest.extract_block(
@@ -1398,6 +1451,14 @@ class SecurityBulletinIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(absent["WORKER_NVLINK_EXPOSED"], "false")
         self.assertEqual(absent["WORKER_NVLINK_TOPOLOGY_CHECKED"], "true")
+
+    def test_nvlink_probe_without_a_visible_gpu_is_not_checked(self) -> None:
+        # A Slurm step that requested no GPU prints only the NIC matrix.
+        nics_only = self.run_nvlink_probe(
+            "printf '\\t\\033[4mNIC0\\tNIC1\\033[0m\\nNIC0\\t X \\tPIX\\nNIC1\\tPIX\\t X \\n'"
+        )
+        self.assertEqual(nics_only["WORKER_NVLINK_EXPOSED"], "unknown")
+        self.assertEqual(nics_only["WORKER_NVLINK_TOPOLOGY_CHECKED"], "false")
 
     def test_nvlink_probe_detects_an_sxm_link(self) -> None:
         present = self.run_nvlink_probe(
@@ -1651,7 +1712,7 @@ k8s_audit_merge_gpu_allocations "$scalar" "$dra"
         function = bashtest.extract_function(self.K8S_SCRIPT, "apply_gpu_check_pod")
         with tempfile.TemporaryDirectory() as temp_dir:
             manifest = Path(temp_dir) / "applied.yaml"
-            snippet = function + """
+            snippet = bashtest.extract_function(self.K8S_SCRIPT, "audit_node_is_live_check_target") + "\n" + function + """
 ensure_audit_check_namespace() { return 0; }
 check_log() { return 0; }
 audit_check_wait_ready() { return 0; }

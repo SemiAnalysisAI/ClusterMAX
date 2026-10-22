@@ -87,6 +87,14 @@ def run(
     values_path = audit_dir / "audit.values.json"
     if not values_path.is_file():
         raise AuditError(f"audit produced no results; logs: {audit_dir}")
+    if category in (None, "security", "isolation"):
+        values = json.loads(values_path.read_text())
+        security._inject_observability(
+            values,
+            target=selected_target,
+            progress=lambda message: print(f"Observability: {message}", file=sys.stderr, flush=True),
+        )
+        values_path.write_text(json.dumps(values, indent=2) + "\n")
     report = audit_report.render(
         values_path,
         runtime_root,

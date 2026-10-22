@@ -230,15 +230,24 @@ def detection_snippet() -> str:
         ]
     )
 
-def run_detection(resources: dict[str, str]) -> bashtest.BashRun:
+def run_detection(
+    resources: dict[str, str], sriov_config: dict | None = None, namespace: str = ""
+) -> bashtest.BashRun:
     node = {
         "status": {"capacity": resources, "allocatable": resources},
         "metadata": {"labels": {}},
     }
     return bashtest.run_bash(
         detection_snippet(),
-        stubs=FUNCTION_STUBS,
-        env={"NODES_JSON": json.dumps({"items": [node]})},
+        stubs={
+            **FUNCTION_STUBS,
+            "kubectl": 'printf "%s\\n" "$CMAX_SRIOV_CONFIG"',
+        },
+        env={
+            "NODES_JSON": json.dumps({"items": [node]}),
+            "CMAX_SRIOV_CONFIG": json.dumps(sriov_config or {}),
+            "NETWORK_NS": namespace,
+        },
     )
 
 def info_lines(run: bashtest.BashRun) -> list[str]:
@@ -435,6 +444,8 @@ def test_python_host_checks_use_pinned_default_and_preserve_override(check_path,
     spec.loader.exec_module(module)
     node = {"name": "gpu-0"}
     fanout = mock.Mock()
+    fanout.k8s_nodes_json.return_value = ({}, "")
+    fanout.k8s_max_host_checks.return_value = 1
     fanout.k8s_gpu_nodes.return_value = [node]
     fanout.fan_out_k8s.side_effect = lambda worker, **kwargs: worker(node)
     env = {} if override is None else {"CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE": override}
@@ -454,6 +465,7 @@ def test_python_host_checks_use_pinned_default_and_preserve_override(check_path,
 
 def _applied_manifest(function_name: str, setup: str) -> dict:
     function = bashtest.extract_function(SCRIPT, function_name)
+    function = bashtest.extract_function(SCRIPT, "audit_node_is_live_check_target") + "\n" + function
     with tempfile.TemporaryDirectory() as temp_dir:
         applied = Path(temp_dir) / "applied.yaml"
         run = bashtest.run_bash(
@@ -513,3 +525,256 @@ result="$(check_deadline 5 bash -c 'printf complete')"
 """
 
     subprocess.run(["bash", "-c", script], check=True, timeout=2)
+
+
+def _check_node_selection_snippet() -> str:
+    return "\n".join(
+        [
+            bashtest.extract_block(
+                SCRIPT,
+                'GPU_NODE_NAMES=$(echo "$NODES_JSON"',
+                "K8S_AUDIT_CHECK_NODE_TRIES=3",
+            ),
+            'printf "INVENTORY=%s\\n" "$(printf %s "$GPU_NODE_NAMES" | paste -sd, -)"',
+            'printf "CHECK=%s\\n" "$(printf %s "$GPU_CHECK_NODE_NAMES" | paste -sd, -)"',
+            'printf "FIRST=%s\\n" "$FIRST_GPU_NODE"',
+            'printf "FREE=%s\\n" "$(printf %s "$GPU_FREE_NODE_NAMES" | paste -sd, -)"',
+        ]
+    )
+
+
+def _selection_gpu_node(
+    name: str,
+    *,
+    ready: str,
+    allocatable: str,
+    capacity: str = "8",
+    labels: dict[str, str] | None = None,
+    unschedulable: bool = False,
+    unreachable: bool = False,
+) -> dict:
+    spec: dict = {}
+    if unschedulable:
+        spec["unschedulable"] = True
+    if unreachable:
+        spec["taints"] = [
+            {"key": "node.kubernetes.io/unreachable", "effect": "NoSchedule"}
+        ]
+    return {
+        "metadata": {"name": name, "labels": labels or {}},
+        "spec": spec,
+        "status": {
+            "capacity": {"nvidia.com/gpu": capacity},
+            "allocatable": {"nvidia.com/gpu": allocatable},
+            "conditions": [{"type": "Ready", "status": ready}],
+        },
+    }
+
+
+def _run_check_node_selection(
+    nodes: list[dict], primary_names: list[str] | None = None,
+    primary_model: str = "NVIDIA-H100-80GB-HBM3",
+) -> bashtest.BashRun:
+    return bashtest.run_bash(
+        _check_node_selection_snippet(),
+        env={
+            "NODES_JSON": json.dumps({"items": nodes}),
+            "GPU_ALLOC_BY_NODE": "{}",
+            "PRIMARY_GPU_NODE_NAMES_JSON": json.dumps(
+                primary_names
+                if primary_names is not None
+                else [node["metadata"]["name"] for node in nodes]
+            ),
+            "PRIMARY_GPU_PROFILE_JSON": json.dumps(
+                {
+                    "model": primary_model,
+                    "perNode": 8,
+                    "nodeCount": len(nodes),
+                    "totalCpus": 0,
+                    "totalMemoryGB": 0,
+                }
+            ),
+            "GPU_RESOURCE_KEY": "nvidia.com/gpu",
+            "GPU_VENDOR": "nvidia",
+        },
+    )
+
+
+def _selection_outputs(run: bashtest.BashRun) -> dict[str, list[str]]:
+    parsed: dict[str, list[str]] = {}
+    for line in run.stdout.splitlines():
+        key, _, value = line.partition("=")
+        parsed[key] = [item for item in value.split(",") if item]
+    return parsed
+
+
+def test_ready_worker_is_selected_ahead_of_unreachable_free_gpu_nodes() -> None:
+    run = _run_check_node_selection(
+        [
+            _selection_gpu_node("p2-a", ready="Unknown", allocatable="8", unreachable=True),
+            _selection_gpu_node("p2-b", ready="Unknown", allocatable="8", unreachable=True),
+            _selection_gpu_node("p2-c", ready="False", allocatable="8", unreachable=True),
+            _selection_gpu_node(
+                "p1-ready",
+                ready="True",
+                allocatable="0",
+                capacity="0",
+                labels={
+                    "nvidia.com/gpu.count": "8",
+                    "nvidia.com/gpu.product": "NVIDIA-H100-80GB-HBM3",
+                },
+            ),
+        ],
+        primary_names=["p2-a", "p2-b", "p2-c"],
+    )
+
+    assert run.returncode == 0, run.stderr
+    result = _selection_outputs(run)
+    assert set(result["INVENTORY"]) == {"p2-a", "p2-b", "p2-c"}
+    assert result["CHECK"] == ["p1-ready"]
+    assert result["FIRST"] == ["p1-ready"]
+
+
+def test_cordoned_or_unreachable_tainted_ready_nodes_are_not_check_targets() -> None:
+    run = _run_check_node_selection(
+        [
+            _selection_gpu_node(
+                "ready-cordoned",
+                ready="True",
+                allocatable="8",
+                unschedulable=True,
+            ),
+            _selection_gpu_node(
+                "ready-unreachable-taint",
+                ready="True",
+                allocatable="8",
+                unreachable=True,
+            ),
+            _selection_gpu_node("ready-open", ready="True", allocatable="0"),
+        ]
+    )
+
+    assert run.returncode == 0, run.stderr
+    assert _selection_outputs(run)["CHECK"] == ["ready-open"]
+    assert _selection_outputs(run)["FREE"] == []
+
+
+def test_gpu_consuming_probes_require_both_ready_and_free_capacity() -> None:
+    run = _run_check_node_selection([
+        _selection_gpu_node("down-free", ready="False", allocatable="8"),
+        _selection_gpu_node("ready-free", ready="True", allocatable="1"),
+        _selection_gpu_node("ready-busy", ready="True", allocatable="0"),
+    ])
+    assert run.returncode == 0, run.stderr
+    assert _selection_outputs(run)["FREE"] == ["ready-free"]
+
+
+def test_secondary_pool_cannot_supply_primary_profile_facts() -> None:
+    run = _run_check_node_selection(
+        [
+            _selection_gpu_node("primary-down", ready="False", allocatable="8"),
+            _selection_gpu_node(
+                "secondary-ready", ready="True", allocatable="1", capacity="1",
+                labels={"nvidia.com/gpu.product": "NVIDIA-A10G"},
+            ),
+        ],
+        primary_names=["primary-down"],
+    )
+    assert run.returncode == 0, run.stderr
+    assert _selection_outputs(run)["CHECK"] == []
+    assert _selection_outputs(run)["FIRST"] == []
+
+
+def test_label_fallback_requires_primary_model_and_density() -> None:
+    candidates = [
+        ("wrong-model", "NVIDIA-A10G", "8"),
+        ("wrong-density", "NVIDIA-H100-80GB-HBM3", "1"),
+        ("unknown-density", "NVIDIA-H100-80GB-HBM3", "unknown"),
+        ("matching-labels", "NVIDIA-H100-80GB-HBM3", "8"),
+    ]
+    run = _run_check_node_selection(
+        [
+            _selection_gpu_node("primary-down", ready="False", allocatable="8"),
+            *[
+                _selection_gpu_node(
+                    name, ready="True", allocatable="0", capacity="0",
+                    labels={"nvidia.com/gpu.product": model, "nvidia.com/gpu.count": density},
+                )
+                for name, model, density in candidates
+            ],
+        ],
+        primary_names=["primary-down"],
+    )
+    assert run.returncode == 0, run.stderr
+    assert _selection_outputs(run)["CHECK"] == ["matching-labels"]
+
+
+def test_unknown_primary_model_does_not_allow_an_unrelated_fallback() -> None:
+    run = _run_check_node_selection(
+        [
+            _selection_gpu_node("primary-down", ready="False", allocatable="8"),
+            _selection_gpu_node("secondary-ready", ready="True", allocatable="8"),
+        ],
+        primary_names=["primary-down"],
+        primary_model="unknown",
+    )
+    assert run.returncode == 0, run.stderr
+    assert _selection_outputs(run)["CHECK"] == []
+
+
+def _run_configured_rdma_detection(
+    resources: dict[str, str], sriov_config: dict, namespace: str = ""
+) -> bashtest.BashRun:
+    node = {
+        "status": {"capacity": resources, "allocatable": resources},
+        "metadata": {"labels": {}},
+    }
+    return bashtest.run_bash(
+        detection_snippet(),
+        stubs={
+            **FUNCTION_STUBS,
+            "kubectl": 'printf "%s\\n" "$CMAX_SRIOV_CONFIG"',
+        },
+        env={
+            "NODES_JSON": json.dumps({"items": [node]}),
+            "CMAX_SRIOV_CONFIG": json.dumps(sriov_config),
+            "NETWORK_NS": namespace,
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    ("selector", "namespace", "expected_type"),
+    [
+        ({"isRdma": True}, "", "rdma"),
+        ([{"isRdma": True}], "", "rdma"),
+        ({"isRdma": True}, "mellanox", "rdma"),
+        ([{"isRdma": True}], "mellanox", "rdma"),
+        ({"isRdma": False}, "", "none"),
+        (None, "", "none"),
+    ],
+)
+def test_sriov_hostdev_resource_requires_an_rdma_selector(
+    selector, namespace, expected_type
+) -> None:
+    config = {
+        "resourceList": [
+            {
+                "resourcePrefix": "nvidia.com",
+                "resourceName": "hostdev",
+                "selectors": selector,
+            }
+        ]
+    }
+    run = _run_configured_rdma_detection({"nvidia.com/hostdev": "10"}, config, namespace)
+    assert run.returncode == 0, run.stderr
+    assert f"TYPE={expected_type}" in run.stdout
+    if expected_type == "rdma":
+        assert "RDMA devices: 10" in info_lines(run)
+        assert "Resource(s): nvidia.com/hostdev" in [
+            call[0] for call in run.calls("print_detail")
+        ]
+    assert run.calls("kubectl") == [[
+        "-n", namespace or "nvidia-network-operator", "get", "configmap",
+        "network-operator-sriovdp-config", "-o", "jsonpath={.data.config\\.json}",
+    ]]

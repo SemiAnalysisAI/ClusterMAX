@@ -17,7 +17,7 @@ def package_version() -> str:
         for line in package_info.read_text(encoding="utf-8").splitlines():
             if line.startswith("Version: "):
                 return line.removeprefix("Version: ").strip()
-    return "0.2.1"
+    return "0.3.0"
 
 
 class PublicBuildPy(build_py):

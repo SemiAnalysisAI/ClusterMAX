@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import shlex
 import threading
 import unittest
 from pathlib import Path
 from typing import Any
+
+import bashtest
 
 
 MODULE_PATH = (
@@ -52,6 +56,16 @@ class ParseJsonLinesTests(unittest.TestCase):
 
 
 class K8sGpuNodesTests(unittest.TestCase):
+    def test_vendor_filter_keeps_mixed_cluster_checks_scoped(self) -> None:
+        nodes = {"items": [
+            {"metadata": {"name": "nvidia-worker"}, "status": {"capacity": {"nvidia.com/gpu": "8"}}},
+            {"metadata": {"name": "amd-worker"}, "status": {"capacity": {"amd.com/gpu": "8"}}},
+        ]}
+        self.assertEqual(
+            [n["name"] for n in fanout.k8s_gpu_nodes(nodes, gpu_vendor="nvidia")],
+            ["nvidia-worker"],
+        )
+        self.assertEqual(len(fanout.k8s_gpu_nodes(nodes)), 2)
     def test_returns_rich_dicts_for_gpu_nodes(self) -> None:
         nodes_json = {
             "items": [
@@ -66,8 +80,8 @@ class K8sGpuNodesTests(unittest.TestCase):
         }
         nodes = fanout.k8s_gpu_nodes(nodes_json)
         self.assertEqual([n["name"] for n in nodes], ["gpu-1", "gpu-2"])
-        self.assertEqual(nodes[0], {"name": "gpu-1", "gpu_count": 8, "gpu_model": "NVIDIA-B300", "gpu_memory_mb": 196608})
-        self.assertEqual(nodes[1], {"name": "gpu-2", "gpu_count": 4, "gpu_model": "", "gpu_memory_mb": 0})
+        self.assertEqual(nodes[0], {"name": "gpu-1", "gpu_count": 8, "gpu_vendor": "nvidia", "gpu_model": "NVIDIA-B300", "gpu_memory_mb": 196608})
+        self.assertEqual(nodes[1], {"name": "gpu-2", "gpu_count": 4, "gpu_vendor": "nvidia", "gpu_model": "", "gpu_memory_mb": 0})
 
     def test_uses_gpu_count_label_for_dra_nodes(self) -> None:
         nodes_json = {
@@ -85,6 +99,55 @@ class K8sGpuNodesTests(unittest.TestCase):
             ]
         }
         self.assertEqual(fanout.k8s_gpu_nodes(nodes_json)[0]["gpu_count"], 4)
+
+    def test_returns_amd_operator_gpu_metadata(self) -> None:
+        nodes_json = {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "mi355-worker",
+                        "labels": {
+                            "amd.com/gpu.product-name": "AMD_Instinct_MI355_OAM",
+                            "amd.com/gpu.vram": "288G",
+                        },
+                    },
+                    "status": {"capacity": {"amd.com/gpu": "8"}},
+                }
+            ]
+        }
+
+        self.assertEqual(
+            fanout.k8s_gpu_nodes(nodes_json),
+            [
+                {
+                    "name": "mi355-worker",
+                    "gpu_count": 8,
+                    "gpu_vendor": "amd",
+                    "gpu_model": "AMD_Instinct_MI355_OAM",
+                    "gpu_memory_mb": 294912,
+                }
+            ],
+        )
+
+    def test_uses_beta_amd_labels_when_stable_labels_are_absent(self) -> None:
+        nodes_json = {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "mi300-worker",
+                        "labels": {
+                            "beta.amd.com/gpu.product-name": "AMD_Instinct_MI300X_OAM",
+                            "beta.amd.com/gpu.vram": "192Gi",
+                        },
+                    },
+                    "status": {"capacity": {"amd.com/gpu": "8"}},
+                }
+            ]
+        }
+
+        node = fanout.k8s_gpu_nodes(nodes_json)[0]
+        self.assertEqual(node["gpu_model"], "AMD_Instinct_MI300X_OAM")
+        self.assertEqual(node["gpu_memory_mb"], 196608)
 
 
 class FanOutK8sTests(unittest.TestCase):
@@ -144,3 +207,118 @@ class FanOutK8sTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SlurmPythonCommandTests(unittest.TestCase):
+    def test_reads_broadcast_standard_input_instead_of_a_controller_path(self) -> None:
+        command = fanout.slurm_python_command(
+            node_count="4",
+            worker_args=["--collect-host"],
+        )
+        script = 'import json, sys; print(json.dumps({"worker_args": sys.argv[1:]}))'
+        run = bashtest.run_bash(
+            f"printf '%s\\n' {shlex.quote(script)} | {shlex.join(command)}",
+            stubs={
+                "srun": (
+                    '[[ " $* " == *" --input=all "* ]] || exit 2\n'
+                    'while [[ "$1" != python3 ]]; do shift; done\n'
+                    'exec "$@"'
+                )
+            },
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(json.loads(run.stdout), {"worker_args": ["--collect-host"]})
+        self.assertIn("--input=all", run.calls("srun")[0])
+
+
+class SlurmGpusPerNodeTests(unittest.TestCase):
+    @staticmethod
+    def runner_for(stdout: str, returncode: int = 0):
+        calls: list[list[str]] = []
+
+        def runner(command: list[str], **_: Any):
+            import subprocess
+
+            calls.append(command)
+            return subprocess.CompletedProcess(command, returncode, stdout=stdout, stderr="")
+
+        return runner, calls
+
+    def test_requests_the_gpus_an_exclusive_allocation_holds(self) -> None:
+        # salloc --exclusive holds every GPU, but a step without --gres sees none.
+        runner, calls = self.runner_for(
+            "   AllocTRES=cpu=128,mem=1980G,node=1,billing=128,gres/gpu=8\n"
+            "   JOB_GRES=gpu:h100:8\n"
+            "     Nodes=gpu-a CPU_IDs=0-127 Mem=2027520 GRES=gpu:h100:8(IDX:0-7)\n"
+        )
+        count = fanout.slurm_gpus_per_node({"SLURM_JOB_ID": "7"}, runner)
+        self.assertEqual(count, 8)
+        self.assertEqual(calls, [["scontrol", "show", "job", "-d", "7"]])
+        command = fanout.slurm_python_command(
+            node_count="1", worker_args=["--worker"], gpus_per_node=count,
+        )
+        self.assertEqual(command[:7], [
+            "srun", "--overlap", "--input=all", "-N", "1",
+            "--ntasks-per-node=1", "--gres=gpu:8",
+        ])
+
+    def test_uses_the_smallest_per_node_count_and_untyped_gres(self) -> None:
+        runner, _ = self.runner_for(
+            "     Nodes=gpu-a CPU_IDs=0-63 Mem=1 GRES=gpu:8(IDX:0-7)\n"
+            "     Nodes=gpu-b CPU_IDs=0-63 Mem=1 GRES=gpu:a:2(IDX:0-1),gpu:b:2(IDX:2-3)\n"
+        )
+        self.assertEqual(fanout.slurm_gpus_per_node({"SLURM_JOB_ID": "7"}, runner), 4)
+
+    def test_no_request_when_gpu_count_is_not_known(self) -> None:
+        cases = (
+            ({}, "     Nodes=gpu-a GRES=gpu:8(IDX:0-7)\n", 0),            # no job
+            ({"SLURM_JOB_ID": "7"}, "", 1),                             # scontrol denied
+            ({"SLURM_JOB_ID": "7"}, "     Nodes=cpu-a CPU_IDs=0-63 Mem=1\n", 0),
+            ({"SLURM_JOB_ID": "7"},
+             "     Nodes=gpu-a GRES=gpu:8(IDX:0-7)\n     Nodes=cpu-a CPU_IDs=0-3 Mem=1\n", 0),
+        )
+        for env, stdout, rc in cases:
+            runner, _ = self.runner_for(stdout, rc)
+            self.assertIsNone(fanout.slurm_gpus_per_node(env, runner), stdout)
+        self.assertNotIn(
+            "--gres=gpu:0",
+            " ".join(fanout.slurm_python_command(node_count="1", worker_args=[], gpus_per_node=None)),
+        )
+
+    def test_missing_scontrol_is_not_fatal(self) -> None:
+        def runner(command: list[str], **_: Any):
+            raise FileNotFoundError("scontrol")
+
+        self.assertIsNone(fanout.slurm_gpus_per_node({"SLURM_JOB_ID": "7"}, runner))
+
+
+class K8sNodeListTests(unittest.TestCase):
+    def test_nodes_json_and_errors(self) -> None:
+        import subprocess
+
+        def answer(code: int, stdout: str, stderr: str = ""):
+            return lambda args: subprocess.CompletedProcess(["kubectl", *args], code, stdout, stderr)
+
+        self.assertEqual(fanout.k8s_nodes_json(answer(0, '{"items": []}')), ({"items": []}, ""))
+        self.assertEqual(
+            fanout.k8s_nodes_json(answer(1, "", "forbidden\n")),
+            (None, "kubectl get nodes failed: forbidden"),
+        )
+        nodes, error = fanout.k8s_nodes_json(answer(0, "not json"))
+        self.assertIsNone(nodes)
+        self.assertTrue(error.startswith("kubectl get nodes returned invalid JSON"))
+
+        def timeout(args):
+            raise subprocess.TimeoutExpired(["kubectl", *args], 45)
+
+        nodes, error = fanout.k8s_nodes_json(timeout)
+        self.assertIsNone(nodes)
+        self.assertTrue(error.startswith("kubectl get nodes failed"))
+
+    def test_max_host_checks_caps_only_on_a_positive_value(self) -> None:
+        key = "CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS"
+        self.assertEqual(fanout.k8s_max_host_checks({}, 5), 5)
+        self.assertEqual(fanout.k8s_max_host_checks({key: "2"}, 5), 2)
+        # Zero, negative and unparsable values check every node.
+        for value in ("0", "-1", "abc", ""):
+            self.assertEqual(fanout.k8s_max_host_checks({key: value}, 5), 5, value)

@@ -1823,50 +1823,21 @@ def slurm_fabric_tiers() -> tuple[int, list[str]]:
     return 0, ["no Slurm topology data; the fabric tier count is not known"]
 
 
-def run_slurm_check(
-    harness: str,
-    *,
-    include_scale_out: bool = True,
-    include_rdma_iommu: bool = True,
-) -> tuple[list[dict[str, Any]], list[str]]:
+def run_slurm_check(harness: str, *, include_scale_out: bool = True, include_rdma_iommu: bool = True) -> tuple[list[dict[str, Any]], list[str]]:
     if not os.environ.get("SLURM_JOB_ID"):
-        report = collect_host(
-            root=Path("/"),
-            harness=harness,
-            include_scale_out=include_scale_out,
-            include_rdma_iommu=include_rdma_iommu,
-        )
-        report["check_scope"] = "local"
-        return [report], ["SLURM_JOB_ID is not set; the platform check only checked the local host"]
+        return [], ["SLURM_JOB_ID is not set; no compute node was checked for platform settings"]
 
     node_count = os.environ.get("SLURM_NNODES") or "1"
-    command = [
-        "srun",
-        "--overlap",
-        "-N",
-        node_count,
-        "--ntasks-per-node=1",
-        sys.executable,
-        str(Path(__file__).resolve()),
-        "--collect-host",
-        "--harness",
-        harness,
-    ]
-    if not include_scale_out:
-        command.append("--skip-scale-out")
-    if not include_rdma_iommu:
-        command.append("--skip-rdma-iommu")
+    command = load_fanout().slurm_python_command(
+        node_count=node_count,
+        worker_args=["--collect-host", "--harness", harness]
+        + ([] if include_scale_out else ["--skip-scale-out"])
+        + ([] if include_rdma_iommu else ["--skip-rdma-iommu"]),
+    )
     try:
-        proc = run_command(command, timeout=180)
+        proc = run_command(command, timeout=180, input_text=Path(__file__).read_text())
     except (OSError, subprocess.SubprocessError) as exc:
-        report = collect_host(
-            root=Path("/"),
-            harness=harness,
-            include_scale_out=include_scale_out,
-            include_rdma_iommu=include_rdma_iommu,
-        )
-        report["check_scope"] = "local"
-        return [report], [f"srun host check failed; local host only: {exc}"]
+        return [], [f"srun platform check failed; no compute node was checked: {exc}"]
 
     reports: list[dict[str, Any]] = []
     errors: list[str] = []
@@ -1877,15 +1848,7 @@ def run_slurm_check(
     if proc.stderr and (proc.returncode != 0 or not reports):
         errors.append(proc.stderr.strip())
     if not reports:
-        report = collect_host(
-            root=Path("/"),
-            harness=harness,
-            include_scale_out=include_scale_out,
-            include_rdma_iommu=include_rdma_iommu,
-        )
-        report["check_scope"] = "local"
-        reports.append(report)
-        errors.append("srun host check returned no host JSON; local host only")
+        errors.append("srun platform check returned no host JSON; no compute node was checked")
     return reports, errors
 
 
@@ -2003,17 +1966,11 @@ def run_k8s_host_check(
 
 
 def k8s_gpu_node_list() -> tuple[list[dict[str, Any]], list[str]]:
-    try:
-        nodes_proc = kubectl(["get", "nodes", "-o", "json"], timeout=45)
-    except (OSError, subprocess.SubprocessError) as exc:
-        return [], [f"kubectl get nodes failed: {exc}"]
-    if nodes_proc.returncode != 0:
-        return [], [f"kubectl get nodes failed: {nodes_proc.stderr.strip()}"]
-    try:
-        nodes_json = json.loads(nodes_proc.stdout)
-    except json.JSONDecodeError as exc:
-        return [], [f"kubectl get nodes returned invalid JSON: {exc}"]
-    nodes = load_fanout().k8s_gpu_nodes(nodes_json)
+    fanout = load_fanout()
+    nodes_json, error = fanout.k8s_nodes_json(lambda args: kubectl(args, timeout=45))
+    if nodes_json is None:
+        return [], [error]
+    nodes = fanout.k8s_gpu_nodes(nodes_json)
     if not nodes:
         return [], ["no Kubernetes nodes advertise nvidia.com/gpu capacity"]
     return nodes, []
@@ -2027,7 +1984,7 @@ def run_k8s_check(
 ) -> tuple[list[dict[str, Any]], list[str]]:
     namespace = os.environ.get("CLUSTERMAX_AUDIT_K8S_NAMESPACE", "default")
     image = os.environ.get("CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE", DEFAULT_K8S_HOST_CHECK_IMAGE)
-    max_nodes = as_int(os.environ.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS"), default=len(nodes))
+    max_nodes = load_fanout().k8s_max_host_checks(os.environ, len(nodes))
     return load_fanout().fan_out_k8s(
         lambda node: run_k8s_host_check(
             namespace,

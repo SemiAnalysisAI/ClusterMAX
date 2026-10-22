@@ -908,7 +908,7 @@ class AuditReportTests(unittest.TestCase):
             "Observed: observed version 580.126.09; minimum version 580.126.09",
             report,
         )
-        self.assertIn("1 failed, 6 warnings, 2 passed, 0 skipped", report)
+        self.assertIn("1 failed, 9 warnings, 2 passed, 0 skipped", report)
         self.assertIn("run 'cmax audit -vv'", report)
 
     def test_guarded_inconclusive_value_is_not_counted_as_pass(self) -> None:
@@ -1599,7 +1599,11 @@ class VersionDetailReportTests(unittest.TestCase):
         }
         for key, command in expected_commands.items():
             check = by_key[key]
-            self.assertEqual(check.status, audit_report.WARNING)
+            self.assertEqual(
+                check.status,
+                audit_report.FAIL if key == "securityVersions.dpuHostIsolation.status"
+                else audit_report.WARNING,
+            )
             self.assertIn(command, check.reproduce)
             self.assertNotEqual(
                 check.recommendation,
