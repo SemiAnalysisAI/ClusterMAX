@@ -24,6 +24,7 @@ validated I/O paths are untouched.
 from __future__ import annotations
 
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Optional
 
@@ -63,29 +64,48 @@ def parse_json_lines(stdout: str, *, require_host: bool = False) -> list[dict[st
     return records
 
 
-def k8s_gpu_nodes(nodes_json: dict[str, Any]) -> list[dict[str, Any]]:
+def k8s_gpu_nodes(nodes_json: dict[str, Any], *, gpu_vendor: str | None = None) -> list[dict[str, Any]]:
     """GPU nodes from ``kubectl get nodes -o json``.
 
-    Returns a rich dict per node (``{name, gpu_count, gpu_model, gpu_memory_mb}``);
-    callers that only need the name read ``["name"]`` and ignore the rest.
+    Returns a rich dict per node
+    (``{name, gpu_count, gpu_vendor, gpu_model, gpu_memory_mb}``); callers that
+    only need the name read ``["name"]`` and ignore the rest.
     """
     gpu_nodes: list[dict[str, Any]] = []
     for item in nodes_json.get("items", []):
         capacity = item.get("status", {}).get("capacity", {})
         labels = item.get("metadata", {}).get("labels", {})
         gpu_count = _as_int(capacity.get("nvidia.com/gpu"))
+        vendor = "nvidia"
         if gpu_count <= 0:
             # NVIDIA GPU DRA clusters do not publish a scalar capacity. GFD
             # still publishes the node-local device count used by the audit.
             gpu_count = _as_int(labels.get("nvidia.com/gpu.count"))
         if gpu_count <= 0:
+            gpu_count = _as_int(capacity.get("amd.com/gpu"))
+            vendor = "amd"
+        if gpu_count <= 0:
             continue
+        if gpu_vendor is not None and vendor != gpu_vendor:
+            continue
+        if vendor == "amd":
+            gpu_model = labels.get("amd.com/gpu.product-name") or labels.get(
+                "beta.amd.com/gpu.product-name", ""
+            )
+            gpu_memory_mb = _memory_mb(
+                labels.get("amd.com/gpu.vram")
+                or labels.get("beta.amd.com/gpu.vram")
+            )
+        else:
+            gpu_model = labels.get("nvidia.com/gpu.product", "")
+            gpu_memory_mb = _memory_mb(labels.get("nvidia.com/gpu.memory"))
         gpu_nodes.append(
             {
                 "name": item.get("metadata", {}).get("name", ""),
                 "gpu_count": gpu_count,
-                "gpu_model": labels.get("nvidia.com/gpu.product", ""),
-                "gpu_memory_mb": _as_int(labels.get("nvidia.com/gpu.memory")),
+                "gpu_vendor": vendor,
+                "gpu_model": gpu_model,
+                "gpu_memory_mb": gpu_memory_mb,
             }
         )
     return [node for node in gpu_nodes if node["name"]]
@@ -123,3 +143,44 @@ def fan_out_k8s(
             f"checked {max_nodes} of {len(nodes)} GPU nodes due to CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS"
         )
     return records, errors
+
+
+def slurm_python_command(
+    *,
+    node_count: str,
+    worker_args: list[str],
+) -> list[str]:
+    """Build an srun command that does not require a shared checkout.
+
+    Slurm broadcasts standard input to each task. The caller supplies the
+    source through standard input, so no controller path reaches a compute node.
+    """
+    return [
+        "srun",
+        "--overlap",
+        "--input=all",
+        "-N",
+        node_count,
+        "--ntasks-per-node=1",
+        "python3",
+        "-",
+        *worker_args,
+    ]
+
+
+def _memory_mb(value: Any) -> int:
+    """Normalize integer MiB labels and AMD labels such as ``288G``."""
+    text = str(value or "").strip().upper()
+    match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)([KMGT]I?B?|)", text)
+    if not match:
+        return 0
+    amount = float(match.group(1))
+    unit = match.group(2).rstrip("B").rstrip("I")
+    factors = {
+        "": 1,
+        "K": 1 / 1024,
+        "M": 1,
+        "G": 1024,
+        "T": 1024 * 1024,
+    }
+    return int(amount * factors[unit])

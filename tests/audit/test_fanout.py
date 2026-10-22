@@ -52,6 +52,16 @@ class ParseJsonLinesTests(unittest.TestCase):
 
 
 class K8sGpuNodesTests(unittest.TestCase):
+    def test_vendor_filter_keeps_mixed_cluster_checks_scoped(self) -> None:
+        nodes = {"items": [
+            {"metadata": {"name": "nvidia-worker"}, "status": {"capacity": {"nvidia.com/gpu": "8"}}},
+            {"metadata": {"name": "amd-worker"}, "status": {"capacity": {"amd.com/gpu": "8"}}},
+        ]}
+        self.assertEqual(
+            [n["name"] for n in fanout.k8s_gpu_nodes(nodes, gpu_vendor="nvidia")],
+            ["nvidia-worker"],
+        )
+        self.assertEqual(len(fanout.k8s_gpu_nodes(nodes)), 2)
     def test_returns_rich_dicts_for_gpu_nodes(self) -> None:
         nodes_json = {
             "items": [
@@ -66,8 +76,8 @@ class K8sGpuNodesTests(unittest.TestCase):
         }
         nodes = fanout.k8s_gpu_nodes(nodes_json)
         self.assertEqual([n["name"] for n in nodes], ["gpu-1", "gpu-2"])
-        self.assertEqual(nodes[0], {"name": "gpu-1", "gpu_count": 8, "gpu_model": "NVIDIA-B300", "gpu_memory_mb": 196608})
-        self.assertEqual(nodes[1], {"name": "gpu-2", "gpu_count": 4, "gpu_model": "", "gpu_memory_mb": 0})
+        self.assertEqual(nodes[0], {"name": "gpu-1", "gpu_count": 8, "gpu_vendor": "nvidia", "gpu_model": "NVIDIA-B300", "gpu_memory_mb": 196608})
+        self.assertEqual(nodes[1], {"name": "gpu-2", "gpu_count": 4, "gpu_vendor": "nvidia", "gpu_model": "", "gpu_memory_mb": 0})
 
     def test_uses_gpu_count_label_for_dra_nodes(self) -> None:
         nodes_json = {
@@ -85,6 +95,55 @@ class K8sGpuNodesTests(unittest.TestCase):
             ]
         }
         self.assertEqual(fanout.k8s_gpu_nodes(nodes_json)[0]["gpu_count"], 4)
+
+    def test_returns_amd_operator_gpu_metadata(self) -> None:
+        nodes_json = {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "mi355-worker",
+                        "labels": {
+                            "amd.com/gpu.product-name": "AMD_Instinct_MI355_OAM",
+                            "amd.com/gpu.vram": "288G",
+                        },
+                    },
+                    "status": {"capacity": {"amd.com/gpu": "8"}},
+                }
+            ]
+        }
+
+        self.assertEqual(
+            fanout.k8s_gpu_nodes(nodes_json),
+            [
+                {
+                    "name": "mi355-worker",
+                    "gpu_count": 8,
+                    "gpu_vendor": "amd",
+                    "gpu_model": "AMD_Instinct_MI355_OAM",
+                    "gpu_memory_mb": 294912,
+                }
+            ],
+        )
+
+    def test_uses_beta_amd_labels_when_stable_labels_are_absent(self) -> None:
+        nodes_json = {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "mi300-worker",
+                        "labels": {
+                            "beta.amd.com/gpu.product-name": "AMD_Instinct_MI300X_OAM",
+                            "beta.amd.com/gpu.vram": "192Gi",
+                        },
+                    },
+                    "status": {"capacity": {"amd.com/gpu": "8"}},
+                }
+            ]
+        }
+
+        node = fanout.k8s_gpu_nodes(nodes_json)[0]
+        self.assertEqual(node["gpu_model"], "AMD_Instinct_MI300X_OAM")
+        self.assertEqual(node["gpu_memory_mb"], 196608)
 
 
 class FanOutK8sTests(unittest.TestCase):
@@ -144,3 +203,25 @@ class FanOutK8sTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SlurmPythonCommandTests(unittest.TestCase):
+    def test_reads_broadcast_standard_input_instead_of_a_controller_path(self) -> None:
+        command = fanout.slurm_python_command(
+            node_count="4",
+            worker_args=["--collect-host"],
+        )
+        self.assertEqual(
+            command,
+            [
+                "srun",
+                "--overlap",
+                "--input=all",
+                "-N",
+                "4",
+                "--ntasks-per-node=1",
+                "python3",
+                "-",
+                "--collect-host",
+            ],
+        )
