@@ -361,7 +361,7 @@ print_section "Collect security host evidence"
 if [[ "$SECURITY_HARNESS" == "slurm" ]]; then
     WORKER_CHECK_OUTPUT=$(srun "${AUDIT_SRUN_FLAGS[@]}" \
         "${GPU_SRUN_SCOPE_ARGS[@]}" \
-        -N1 --ntasks=1 --gres=gpu:1 --time=5:00 \
+        -N1 --ntasks=1 --gres=gpu:"$(slurm_job_gpus_per_node)" --time=5:00 \
         env CLUSTERMAX_AUDIT_SCOPE=security CLUSTERMAX_AUDIT_HARNESS=slurm \
         bash -s < "$WORKLOAD_DIR/host-check.sh" 2>/dev/null || true)
 elif [[ "$SECURITY_HARNESS" == "standalone" ]]; then
