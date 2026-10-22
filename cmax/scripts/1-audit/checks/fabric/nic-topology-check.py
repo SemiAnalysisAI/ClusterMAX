@@ -3,15 +3,23 @@
 
 Emits one check object to stdout:
 
-    {"nic_topology": {"worker-0": [{"name": "mlx5_0", "role": "fabric", ...}], ...}}
+    {"nic_topology": {"worker-0": [{"name": "mlx5_0", "role": "fabric", ...}], ...},
+     "nic_plane_evidence": {"worker-0": [{"ibdev": "mlx5_0", ...}], ...}}
+
+``nic_plane_evidence`` (present when the host has fabric-role HCAs) carries
+read-only plane evidence:
+per fabric HCA, best-effort mlxconfig / mlxlink / ibnetdiscover / lldptool
+attempts plus the port's width+speed attrs, every derived value tri-state
+(ok / not determined + the exact denial reason). See the "Plane evidence"
+section below.
 
 Self-dispatches by harness (``CLUSTERMAX_AUDIT_HARNESS`` / ``CLUSTERMAX_HARNESS``):
 
 * ``slurm``      - srun one ``--collect-host`` worker per node, aggregate the
   per-node JSON lines.
-* ``k8s``        - for each GPU node, exec a POSIX-sh collector inside that
-  node's nvidia-driver daemonset pod (it has ``nvidia-smi`` and host IB sysfs but
-  NO python3), then parse + classify its raw output on the orchestrator.
+* ``k8s``        - for each GPU node, exec a POSIX-sh collector inside a
+  privileged NVIDIA or AMD GPU Operator system pod. The pod exposes host RDMA
+  sysfs and can omit python3. Parse and classify its raw output on the operator.
   Mirrors the per-node daemonset exec the k8s collector already uses for its
   host/storage checks.
 * otherwise      - run the worker on the local host (standalone).
@@ -74,21 +82,23 @@ import re
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 Runner = Callable[..., subprocess.CompletedProcess]
 
-# Namespaces the NVIDIA GPU Operator installs into, in the same order the k8s
-# collector checks them.
+# Namespaces the NVIDIA and AMD GPU Operators install into, in check order.
 GPU_OPERATOR_NAMESPACES = (
     "gpu-operator",
     "gpu-operator-resources",
     "nvidia-gpu-operator",
     "nvidia",
+    "amd-gpu-operator",
+    "kube-amd-gpu",
     "gpu",
 )
-SLURM_TIMEOUT_S = 120
+SLURM_TIMEOUT_S = 240
 KUBECTL_TIMEOUT_S = 60
 
 _FANOUT = None
@@ -97,10 +107,8 @@ _FANOUT = None
 def load_fanout():
     """Import the shared checks/_fanout.py module, lazily.
 
-    Lazy (not a top-level import) because the worker arm runs this file on
-    compute nodes via ``srun sys.executable <path> --collect-host`` and never
-    calls into _fanout, so only the orchestrator arm (run_checks.py) pays for
-    the import and the sys.path mutation.
+    The worker reads this file through ``python3 -`` and does not call this
+    function. The controller imports the helper before it starts the worker.
     """
     global _FANOUT
     if _FANOUT is None:
@@ -297,6 +305,353 @@ def classify_nics(topo: str, hcas: list, netdevs: list) -> list:
     return nics
 
 
+# ---------------------------------------------------------------------------
+# Read-only fabric plane evidence.
+#
+# An 800G XDR port reports 4 lanes x 200G in ibv-level attrs whether the cage
+# is cabled 2x400G (dual-plane) or 4x200G (quad-plane), so the plane split is
+# invisible to the classification above. The tools that CAN pin it --
+# mlxconfig (port split / planarized mode), mlxlink (per-lane state, module
+# identity), ibnetdiscover / lldptool (the neighbor on the other end of each
+# lane) -- usually need privileges a tenancy withholds. Per the methodology,
+# every derived value here is tri-state: ok / not determined (with the exact
+# denial reason). "Not determined" is not a failure; the tenant-vs-privileged
+# visibility delta is itself a recorded finding.
+# ---------------------------------------------------------------------------
+
+PLANE_TOOL_TIMEOUT_S = 10
+# Without the MST kernel driver (/dev/mst absent, the usual case), MFT reads
+# the device through PCI config space in sysfs, with thousands of config reads
+# and writes per parameter. A full `mlxconfig query` reads every parameter, so
+# it can take several seconds, far longer than mlxlink. It needs its own bound.
+PLANE_MLXCONFIG_TIMEOUT_S = 20
+# Sized for an 8-rail node with each HCA well inside its tool timeouts. The budget is checked before each HCA,
+# so the worst case is 90s + one HCA at its timeouts (20+10+10s) = 130s,
+# inside SLURM_TIMEOUT_S.
+PLANE_BUDGET_S = 90.0
+PLANE_MATCH_CAP = 8
+K8S_PLANE_EXEC_TIMEOUT_S = 360
+
+# mlxconfig fields worth keeping: link type, port split / planarized mode,
+# SR-IOV layout. Everything else in the ~200-key dump is noise here.
+_MLXCONFIG_KEEP = re.compile(r"LINK_TYPE|SPLIT|PLANE|SRIOV_EN|NUM_OF_VFS|NUM_OF_PF", re.I)
+# The subset that actually answers the plane question.
+_PLANE_FIELD = re.compile(r"SPLIT|PLANE", re.I)
+_MLXLINK_KEEP = (
+    "Speed",
+    "Width",
+    "State",
+    "Vendor Name",
+    "Vendor Part Number",
+    "Vendor Serial Number",
+    "Identifier",
+)
+_LLDP_KEEP = ("System Name TLV", "Port Description TLV", "Port ID TLV")
+
+
+def run_evidence_tool(
+    command: list[str],
+    *,
+    runner: Runner = subprocess.run,
+    timeout: float = PLANE_TOOL_TIMEOUT_S,
+) -> tuple[str, str | None]:
+    """Best-effort evidence command: (stdout, None) or ("", short reason).
+
+    Never raises. Reasons are stable strings the report can group on:
+    "tool not installed", "timeout", "insufficient privilege (...)",
+    "exit N: first stderr line".
+    """
+    try:
+        proc = runner(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout,
+        )
+    except FileNotFoundError:
+        return "", "tool not installed"
+    except subprocess.TimeoutExpired:
+        return "", "timeout"
+    except Exception as exc:  # noqa: BLE001 - check must not crash the audit
+        return "", type(exc).__name__
+    if proc.returncode != 0:
+        first = ""
+        for stream in (proc.stderr, proc.stdout):
+            first = _first_text_line((stream or "").splitlines())
+            if first:
+                break
+        return "", _failure_reason(proc.returncode, first)
+    if not proc.stdout.strip():
+        return "", f"no output (exit {proc.returncode})"
+    return proc.stdout, None
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+_LOCKFILE_WARNING = re.compile(r"warr?ning: failed to create lockfile", re.I)
+
+
+def _first_text_line(lines: Iterable[str]) -> str:
+    """First line with visible text after ANSI color codes are removed.
+
+    mlxlink prints a bare color escape before its error text, which would
+    otherwise be kept as the whole failure reason.
+    """
+    for line in lines:
+        text = _ANSI_RE.sub("", line).strip()
+        # mstflint warns about its lock directory on read-only hosts before
+        # the actual result; that warning is not the failure.
+        if text and not _LOCKFILE_WARNING.match(text):
+            return text[:120]
+    return ""
+
+
+def tool_device(sysfs_root: str, dev: str) -> str:
+    """PCI address for an RDMA device, falling back to its ibdev name.
+
+    mlxconfig and mlxlink resolve mlx5_N names, but not names that udev or a
+    provider renamed (for example rail0). The PCI function always resolves.
+    """
+    target = os.path.realpath(f"{sysfs_root}/{dev}/device")
+    name = os.path.basename(target)
+    return name if re.fullmatch(r"[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]", name) else dev
+
+
+def _failure_reason(returncode: int, first_line: str) -> str:
+    """Stable failure-reason string for a nonzero evidence-tool exit.
+
+    Shared by the local runner path and the k8s block parser so both record
+    identical reasons. Exit 124 is `timeout(1)`'s kill status in the k8s
+    shell collector.
+    """
+    if returncode == 124:
+        return "timeout"
+    low = first_line.lower()
+    if (
+        "permission" in low
+        or "operation not permitted" in low
+        or "/dev/mst" in low
+        or "failed to open" in low
+        or "umad" in low
+    ):
+        return f"insufficient privilege ({first_line})" if first_line else "insufficient privilege"
+    return f"exit {returncode}: {first_line}" if first_line else f"exit {returncode}"
+
+
+def parse_port_attrs(rate_raw: str) -> dict:
+    """sysfs ports/1/rate ('800 Gb/sec (4X XDR)') -> rate/width/speed attrs."""
+    m = re.match(r"\s*(\d+(?:\.\d+)?)\s*Gb/sec(?:\s*\((\d+X)\s+([A-Z0-9]+)\))?", rate_raw or "")
+    if not m:
+        return {"raw": (rate_raw or "").strip()}
+    attrs: dict[str, Any] = {"rate_gbps": int(float(m.group(1)))}
+    if m.group(2):
+        attrs["width"] = m.group(2)
+    if m.group(3):
+        attrs["speed"] = m.group(3)
+    return attrs
+
+
+def parse_mlxconfig(text: str) -> dict:
+    """Keep LINK_TYPE / split / plane / SR-IOV keys from `mlxconfig -d X query`."""
+    fields: dict[str, str] = {}
+    for line in text.splitlines():
+        m = re.match(r"\s*([A-Z][A-Z0-9_]+)\s+(\S.*?)\s*$", line)
+        if m and _MLXCONFIG_KEEP.search(m.group(1)):
+            fields[m.group(1)] = m.group(2)
+    return fields
+
+
+def parse_mlxlink(text: str) -> dict:
+    """Keep port + module identity keys from `mlxlink -d X -m` (colon pairs)."""
+    fields: dict[str, str] = {}
+    for line in _ANSI_RE.sub("", text).splitlines():
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        key = key.strip()
+        value = value.strip()
+        if key in _MLXLINK_KEEP and value and key not in fields:
+            fields[key] = value[:120]
+    return fields
+
+
+def parse_lldp(text: str) -> dict:
+    """Neighbor identity TLVs from `lldptool get-tlv -n -i <netdev>`."""
+    fields: dict[str, str] = {}
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        name = line.strip()
+        if name in _LLDP_KEEP and i + 1 < len(lines):
+            value = lines[i + 1].strip()
+            if value and name not in fields:
+                fields[name] = value[:120]
+    return fields
+
+
+def parse_ibnetdiscover(text: str, node_guid: str, host: str) -> dict:
+    """Per-plane neighbor summary from `ibnetdiscover -C <dev> -p`.
+
+    Matches lines carrying our node GUID (sysfs '0011:2233:...' form,
+    colons stripped) or, failing that, our hostname in the node description.
+    Also counts distinct `SW`-typed lines as the plane's visible switch count.
+    """
+    guid_hex = (node_guid or "").replace(":", "").lower().lstrip("0")
+    guid_matches: list[str] = []
+    host_matches: list[str] = []
+    host_pattern = re.compile(r"(?<![a-z0-9_.-])" + re.escape(host.lower()) + r"(?![a-z0-9_.-])") if host else None
+    switches = 0
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("SW"):
+            switches += 1
+        low = stripped.lower()
+        guids = {value.lstrip("0") for value in re.findall(r"\b0x([0-9a-f]+)\b", low)}
+        if guid_hex and guid_hex in guids and len(guid_matches) < PLANE_MATCH_CAP:
+            guid_matches.append(stripped[:200])
+        if host_pattern and host_pattern.search(low) and len(host_matches) < PLANE_MATCH_CAP:
+            host_matches.append(stripped[:200])
+    matched = guid_matches or host_matches
+    return {"switch_count": switches, "matched": matched}
+
+
+def _tri(raw: str, reason: str | None, parse: Callable[[str], dict], key: str = "fields") -> dict:
+    if reason is not None:
+        return {"status": "not determined", "reason": reason}
+    return {"status": "ok", key: parse(raw)}
+
+
+def evidence_from_raw(
+    dev: str,
+    layer: str,
+    rate_raw: str,
+    raws: dict[str, tuple[str, str | None]],
+    *,
+    node_guid: str = "",
+    host: str = "",
+) -> dict:
+    """Assemble one HCA's tri-state evidence record from raw tool outputs.
+
+    ``raws`` maps tool name (mlxconfig / mlxlink / ibnetdiscover / lldp) to
+    (stdout, failure-reason). Shared by the local collector and the k8s
+    orchestrator so both paths emit identical shapes.
+    """
+    record: dict[str, Any] = {"ibdev": dev, "port": parse_port_attrs(rate_raw)}
+    record["mlxconfig"] = _tri(*raws.get("mlxconfig", ("", "not attempted")), parse_mlxconfig)
+    record["mlxlink"] = _tri(*raws.get("mlxlink", ("", "not attempted")), parse_mlxlink)
+
+    if layer == "InfiniBand":
+        raw, reason = raws.get("ibnetdiscover", ("", "not attempted"))
+        if reason is None:
+            neighbor: dict[str, Any] = {"status": "ok", "method": "ibnetdiscover"}
+            neighbor.update(parse_ibnetdiscover(raw, node_guid, host))
+        else:
+            neighbor = {"status": "not determined", "method": "ibnetdiscover", "reason": reason}
+    else:
+        raw, reason = raws.get("lldp", ("", "not attempted"))
+        if reason is None:
+            neighbor = {"status": "ok", "method": "lldp", "fields": parse_lldp(raw)}
+        else:
+            neighbor = {"status": "not determined", "method": "lldp", "reason": reason}
+    record["neighbor"] = neighbor
+
+    # Derived plane presentation: only mlxconfig split/plane keys answer it
+    # from the node alone. Anything else stays honestly not-determined.
+    mlxc = record["mlxconfig"]
+    plane_fields = (
+        {k: v for k, v in mlxc.get("fields", {}).items() if _PLANE_FIELD.search(k)}
+        if mlxc["status"] == "ok"
+        else {}
+    )
+    if plane_fields:
+        record["presentation"] = {"status": "ok", "fields": plane_fields}
+    else:
+        why = (
+            "mlxconfig visible but exposes no split/plane key"
+            if mlxc["status"] == "ok"
+            else f"mlxconfig {mlxc.get('reason', 'unavailable')}"
+        )
+        record["presentation"] = {
+            "status": "not determined",
+            "reason": f"{why}; needs Tier A (mlxconfig/mlxlink) or Tier B (SM view) access",
+        }
+    return record
+
+
+def _read_sysfs(path: str) -> str:
+    try:
+        return open(path).read().strip()
+    except OSError:
+        return ""
+
+
+def plane_candidate(nic: dict[str, Any]) -> bool:
+    """Include down IB ports whose fabric role can be recovered from peers."""
+    return nic.get("role") == "fabric" or (
+        nic.get("layer") == "InfiniBand"
+        and isinstance(nic.get("state"), str)
+        and nic["state"] != "ACTIVE"
+    )
+
+
+def collect_plane_evidence(
+    nics: list,
+    *,
+    runner: Runner = subprocess.run,
+    sysfs_root: str = "/sys/class/infiniband",
+    budget_s: float = PLANE_BUDGET_S,
+    time_fn: Callable[[], float] = time.monotonic,
+) -> list:
+    """Tier A/B evidence for fabric HCAs and down-IB reconciliation candidates.
+
+    Bounded: per-tool timeout plus an overall budget so a hung /dev/mst can
+    never starve the srun window that also carries the role classification.
+    HCAs skipped by the budget are recorded as not-determined, not dropped.
+    """
+    started = time_fn()
+    out: list[dict[str, Any]] = []
+    host = os.environ.get("NODE_NAME") or socket.gethostname()
+    for nic in sorted(nics, key=lambda item: item.get("role") != "fabric"):
+        if not plane_candidate(nic):
+            continue
+        dev = nic["name"]
+        rate_raw = _read_sysfs(f"{sysfs_root}/{dev}/ports/1/rate")
+        if time_fn() - started > budget_s:
+            record = evidence_from_raw(
+                dev,
+                nic.get("layer", "?"),
+                rate_raw,
+                {tool: ("", "budget exhausted") for tool in ("mlxconfig", "mlxlink", "ibnetdiscover", "lldp")},
+            )
+            out.append(record)
+            continue
+        node_guid = _read_sysfs(f"{sysfs_root}/{dev}/node_guid")
+        netdevs = sorted(glob.glob(f"{sysfs_root}/{dev}/device/net/*"))
+        netdev = os.path.basename(netdevs[0]) if netdevs else ""
+        tool_dev = tool_device(sysfs_root, dev)
+        raws: dict[str, tuple[str, str | None]] = {
+            "mlxconfig": run_evidence_tool(
+                ["mlxconfig", "-d", tool_dev, "query"], runner=runner, timeout=PLANE_MLXCONFIG_TIMEOUT_S,
+            ),
+            "mlxlink": run_evidence_tool(["mlxlink", "-d", tool_dev, "-m"], runner=runner),
+        }
+        if nic.get("layer") == "InfiniBand":
+            raws["ibnetdiscover"] = run_evidence_tool(
+                ["ibnetdiscover", "-C", dev, "-p"], runner=runner
+            )
+        elif netdev:
+            raws["lldp"] = run_evidence_tool(
+                ["lldptool", "get-tlv", "-n", "-i", netdev], runner=runner
+            )
+        else:
+            raws["lldp"] = ("", "no netdev exposed for this HCA")
+        out.append(
+            evidence_from_raw(
+                dev, nic.get("layer", "?"), rate_raw, raws, node_guid=node_guid, host=host
+            )
+        )
+    return out
+
+
 def _collect_hcas_local() -> list:
     """Per-HCA rate / link layer / state from local sysfs."""
     hcas = []
@@ -344,12 +699,13 @@ def gather(*, runner: Runner = subprocess.run) -> dict:
     topo, topo_error = collect_topo(runner=runner)
     nics = classify_nics(topo, _collect_hcas_local(), _collect_netdevs_local())
     host = os.environ.get("NODE_NAME") or socket.gethostname()
-    record: dict[str, Any] = {
-        "host": host, "nics": nics, "topo_collected": topo_error is None,
-        "nvlinkExposed": bool(re.search(r"\bNV[0-9]+\b", topo)) if topo_error is None else None,
-    }
+    record: dict[str, Any] = {"host": host, "nics": nics, "topo_collected": topo_error is None}
+    record["nvlinkExposed"] = bool(re.search(r"\bNV[0-9]+\b", topo)) if topo_error is None else None
     if topo_error is not None:
         record["topo_error"] = topo_error
+    evidence = collect_plane_evidence(nics, runner=runner)
+    if evidence:
+        record["plane_evidence"] = evidence
     return record
 
 
@@ -359,13 +715,77 @@ def gather(*, runner: Runner = subprocess.run) -> dict:
 
 
 def aggregate(records: list[dict[str, Any]]) -> dict[str, Any]:
+    # A down InfiniBand port reports a fallback rate, and a pod may not see
+    # that HCA in nvidia-smi topology. Preserve its fabric purpose when two
+    # healthy GPU workers classify the same named port as active fabric.
+    active_fabric_peers: dict[str, set[str]] = {}
+    for record in records:
+        host = str(record.get("host") or "")
+        if not host:
+            continue
+        for nic in record.get("nics", []):
+            if (nic.get("layer") == "InfiniBand" and nic.get("state") == "ACTIVE"
+                    and nic.get("role") == "fabric"):
+                active_fabric_peers.setdefault(nic["name"], set()).add(host)
+
     nic_topology: dict[str, Any] = {}
     for record in records:
         host = str(record.get("host") or "")
         if not host:
             continue
-        nic_topology[host] = record.get("nics", [])
+        nics = []
+        for nic in record.get("nics", []):
+            corrected = dict(nic)
+            peers = active_fabric_peers.get(nic.get("name", ""), set()) - {host}
+            if (nic.get("layer") == "InfiniBand" and nic.get("state") != "ACTIVE"
+                    and nic.get("role") != "fabric" and len(peers) >= 2):
+                corrected["role"] = "fabric"
+                corrected["reason"] = (
+                    f"down InfiniBand port; same HCA is active fabric on "
+                    f"{len(peers)} peer GPU workers"
+                )
+            nics.append(corrected)
+        nic_topology[host] = nics
     return nic_topology
+
+
+def plane_evidence_by_host(
+    records: list[dict[str, Any]], topology: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Sibling ``nic_plane_evidence`` payload: host -> per-fabric-HCA evidence.
+
+    Kept out of ``nic_topology`` so that mapping's host -> NIC-list shape
+    stays exactly what merge_audit.py and the dashboard already consume.
+    """
+    topology = aggregate(records) if topology is None else topology
+    out: dict[str, Any] = {}
+    for record in records:
+        host = str(record.get("host") or "")
+        if not host:
+            continue
+        collected = {
+            entry["ibdev"]: entry for entry in record.get("plane_evidence", [])
+            if isinstance(entry, dict) and entry.get("ibdev")
+        }
+        evidence = []
+        for nic in topology.get(host, []):
+            if nic.get("role") != "fabric":
+                continue
+            dev = nic["name"]
+            if dev in collected:
+                evidence.append(collected[dev])
+            else:
+                # Older workers may not have probed a port before peer-based
+                # role recovery. Keep that missing evidence explicit.
+                reason = "not collected before fabric role aggregation"
+                evidence.append(evidence_from_raw(
+                    dev, nic.get("layer", "?"), "",
+                    {tool: ("", reason) for tool in ("mlxconfig", "mlxlink", "ibnetdiscover", "lldp")},
+                    host=host,
+                ))
+        if evidence:
+            out[host] = evidence
+    return out
 
 
 def topo_status(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -380,7 +800,8 @@ def topo_status(records: list[dict[str, Any]]) -> dict[str, Any]:
     status: dict[str, Any] = {}
     for record in records:
         host = str(record.get("host") or "")
-        if not host or record.get("topo_collected") is not False:
+        if (not host or record.get("topo_collected") is not False
+                or record.get("topo_applicable") is False):
             continue
         entry: dict[str, Any] = {"topo_collected": False}
         topo_error = record.get("topo_error")
@@ -396,31 +817,31 @@ def slurm_records(
     runner: Runner = subprocess.run,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     if not env.get("SLURM_JOB_ID"):
-        return [gather()], ["SLURM_JOB_ID is not set; NIC topology only checked the local host"]
+        return [], ["SLURM_JOB_ID is not set; no compute node was checked for NIC topology"]
 
     node_count = env.get("SLURM_NNODES") or "1"
-    command = [
-        "srun",
-        "--overlap",
-        "-N",
-        node_count,
-        "--ntasks-per-node=1",
-        sys.executable,
-        str(Path(__file__).resolve()),
-        "--collect-host",
-    ]
+    command = load_fanout().slurm_python_command(
+        node_count=node_count, worker_args=["--collect-host"]
+    )
     try:
-        proc = runner(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=SLURM_TIMEOUT_S)
+        proc = runner(
+            command,
+            input=Path(__file__).read_text(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=SLURM_TIMEOUT_S,
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return [gather()], [f"srun NIC check failed; local host only: {exc}"]
+        return [], [f"srun NIC check failed; no compute node was checked: {exc}"]
 
     records = load_fanout().parse_json_lines(proc.stdout, require_host=True)
     errors: list[str] = []
     if proc.returncode != 0 and not records:
         errors.append(f"srun NIC check exited {proc.returncode}: {proc.stderr.strip()}")
-        return [gather()], errors
+        return [], errors
     if not records:
-        return [gather()], ["srun NIC check returned no host JSON; local host only"]
+        return [], ["srun NIC check returned no host JSON; no compute node was checked"]
     return records, errors
 
 
@@ -439,33 +860,50 @@ def kubectl(
     )
 
 
-def k8s_gpu_namespace(*, env: dict[str, str], runner: Runner) -> str | None:
+def k8s_gpu_namespaces(*, env: dict[str, str], runner: Runner) -> list[str]:
     override = env.get("CLUSTERMAX_GPU_OPERATOR_NAMESPACE")
     if override:
-        return override
+        return [override]
+    try:
+        proc = kubectl(["get", "namespaces", "-o", "json"], runner=runner, timeout=20)
+        data = json.loads(proc.stdout) if proc.returncode == 0 else None
+        items = data.get("items") if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            raise ValueError("namespace inventory unavailable")
+        names = {
+            name
+            for item in items
+            if isinstance(item, dict) and isinstance(item.get("metadata"), dict)
+            and isinstance(name := item["metadata"].get("name"), str)
+            and (name in GPU_OPERATOR_NAMESPACES
+                 or re.search(r"gpu-operator|nvidia-gpu", name, re.IGNORECASE))
+        }
+        priority = {name: index for index, name in enumerate(GPU_OPERATOR_NAMESPACES[:-1])}
+        if names:
+            return sorted(names, key=lambda name: (
+                priority.get(name, len(priority) + (name == "gpu")), name
+            ))
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
+        pass
+    # Some tenants can read specific namespaces but cannot list all of them.
+    names = []
     for ns in GPU_OPERATOR_NAMESPACES:
         try:
-            proc = kubectl(["get", "namespace", ns], runner=runner, timeout=20)
+            if kubectl(["get", "namespace", ns], runner=runner, timeout=20).returncode == 0:
+                names.append(ns)
         except (OSError, subprocess.TimeoutExpired):
             continue
-        if proc.returncode == 0:
-            return ns
-    try:
-        proc = kubectl(["get", "namespaces", "-o", "json"], runner=runner, timeout=30)
-        namespaces = json.loads(proc.stdout) if proc.returncode == 0 else {"items": []}
-    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
-        namespaces = {"items": []}
-    matches = sorted(
-        item.get("metadata", {}).get("name", "")
-        for item in namespaces.get("items", [])
-        if re.search(r"gpu-operator|nvidia-gpu", item.get("metadata", {}).get("name", ""), re.I)
-    )
-    if matches:
-        return matches[0]
-    return None
+    return names
 
 
-def k8s_driver_pod(namespace: str, node: str, *, runner: Runner) -> dict[str, Any] | None:
+def k8s_gpu_namespace(*, env: dict[str, str], runner: Runner) -> str | None:
+    """Compatibility helper for callers that need the first namespace."""
+    return next(iter(k8s_gpu_namespaces(env=env, runner=runner)), None)
+
+
+def k8s_driver_pod(
+    namespace: str, node: str, *, runner: Runner, gpu_vendor: str | None = None,
+) -> dict[str, Any] | None:
     try:
         proc = kubectl(
             ["get", "pods", "-n", namespace, "--field-selector", f"spec.nodeName={node}", "-o", "json"],
@@ -486,6 +924,12 @@ def k8s_driver_pod(namespace: str, node: str, *, runner: Runner) -> dict[str, An
         phase = item.get("status", {}).get("phase", "")
         if phase != "Running":
             continue
+        if gpu_vendor == "amd" and (
+            re.search(r"(?:^|[-_])nvidia(?:[-_]|$)", name) or name.startswith("gpu-feature-discovery-")
+        ):
+            continue
+        if gpu_vendor == "nvidia" and re.search(r"(?:^|[-_])amd(?:[-_]|$)", name):
+            continue
         volumes = {
             volume.get("name")
             for volume in item.get("spec", {}).get("volumes", [])
@@ -505,21 +949,28 @@ def k8s_driver_pod(namespace: str, node: str, *, runner: Runner) -> dict[str, An
             candidates.append((2, name, None, False))
         elif name.startswith("nvidia-dcgm-exporter-"):
             candidates.append((3, name, None, False))
+        elif "-device-plugin-" in name or "-metrics-exporter-" in name:
+            for container in item.get("spec", {}).get("containers", []):
+                if container.get("securityContext", {}).get("privileged") is True:
+                    candidates.append((4, name, container.get("name"), False))
     if not candidates:
         return None
     _, name, container, host_root = min(candidates)
     return {"name": name, "container": container, "hostRoot": host_root}
 
 
-# Shell collector run inside the driver pod. The nvidia-driver daemonset image
-# carries nvidia-smi and host IB/net sysfs but NOT python3, so the worker cannot
-# run there as python. This POSIX-sh snippet emits the same raw inputs
+# Shell collector run inside the GPU system pod. NVIDIA driver pods carry
+# nvidia-smi, and both NVIDIA and AMD pods expose host IB/net sysfs. These pods
+# can omit python3, so the worker cannot run there as Python. This POSIX-sh
+# snippet emits the same raw inputs
 # classify_nics() needs (topo text + per-HCA rate/layer/state + frontend
 # netdevs), tab-delimited, and the orchestrator (which has python3) parses and
 # classifies them. Mirrors the local sysfs reads in _collect_*_local().
 K8S_COLLECTOR_SH = r'''
 echo @@TOPO_BEGIN@@
-nvidia-smi topo -m 2>/dev/null
+if [ "${CLUSTERMAX_GPU_VENDOR:-nvidia}" = nvidia ]; then
+  nvidia-smi topo -m 2>/dev/null
+fi
 echo @@TOPO_END@@
 for d in /sys/class/infiniband/*; do
   [ -e "$d" ] || continue
@@ -537,6 +988,74 @@ for p in /sys/class/net/*; do
   [ -e "$p/device/infiniband" ] && continue
   sp=$(cat "$p/speed" 2>/dev/null)
   printf '@@NET@@\t%s\t%s\n' "$n" "$sp"
+done
+# Plane evidence (Tier A/B): high-rate HCAs first, then failed IB candidates.
+# Tools are usually
+# absent or unprivileged in system pods; the orchestrator records the exact
+# reason as tri-state instead of failing. Bounded so a hung tool can never
+# kill the exec and lose the classification above: `timeout 8` per command
+# (`timeout 20` for mlxconfig, whose full query reads PCI config space and
+# can take several seconds without the MST driver), at most 8 HCAs, and tools are
+# SKIPPED outright when the pod image has no timeout(1) to enforce the bound
+# (worst case 8 x (20 + 8 + 8)s = 288s, inside this check's 360s exec window).
+TO=""; command -v timeout >/dev/null 2>&1 && TO="timeout 8"
+MLXCONFIG_TO=""; [ -n "$TO" ] && MLXCONFIG_TO="timeout 20"
+plane_run() {
+  pr_n="$1"; pr_t="$2"; shift 2
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "@@PLANE@@ $pr_n $pr_t MISSING"; return
+  fi
+  if [ -z "$TO" ]; then
+    echo "@@PLANE@@ $pr_n $pr_t SKIPPED"; return
+  fi
+  pr_to="$TO"; [ "$pr_t" = mlxconfig ] && pr_to="$MLXCONFIG_TO"
+  echo "@@PLANE@@ $pr_n $pr_t BEGIN"
+  $pr_to "$@" 2>&1
+  echo "@@PLANE@@ $pr_n $pr_t END $?"
+}
+checked=0
+for plane_pass in active failed; do
+for d in /sys/class/infiniband/*; do
+  [ -e "$d" ] || continue
+  n=$(basename "$d"); case "$n" in bond*) continue;; esac
+  r=$(cat "$d/ports/1/rate" 2>/dev/null)
+  l=$(cat "$d/ports/1/link_layer" 2>/dev/null)
+  s=$(cat "$d/ports/1/state" 2>/dev/null)
+  failed_ib=false
+  if [ "$l" = InfiniBand ]; then
+    case "$s" in *": ACTIVE"|ACTIVE) ;; *) failed_ib=true ;; esac
+  fi
+  if [ "$plane_pass" = failed ]; then
+    [ "$failed_ib" = true ] || continue
+  else
+    [ "$failed_ib" = false ] || continue
+    case "$r" in [1-9][0-9][0-9]*) ;; *) continue;; esac
+  fi
+  [ "$checked" -ge 8 ] && continue
+  checked=$((checked+1))
+  g=$(cat "$d/node_guid" 2>/dev/null)
+  printf '@@PLANEGUID@@\t%s\t%s\n' "$n" "$g"
+  l=$(cat "$d/ports/1/link_layer" 2>/dev/null)
+  # Renamed ibdevs (for example rail0) do not resolve in the mlx tools; the
+  # PCI function does.
+  td=$(basename "$(readlink -f "$d/device" 2>/dev/null)" 2>/dev/null)
+  case "$td" in [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]:*.[0-7]) ;; *) td="$n";; esac
+  plane_run "$n" mlxconfig mlxconfig -d "$td" query
+  plane_run "$n" mlxlink mlxlink -d "$td" -m
+  case "$l" in
+    InfiniBand*)
+      plane_run "$n" ibnetdiscover ibnetdiscover -C "$n" -p
+      ;;
+    *)
+      nd=$(ls "$d/device/net" 2>/dev/null | head -1)
+      if [ -n "$nd" ]; then
+        plane_run "$n" lldp lldptool get-tlv -n -i "$nd"
+      else
+        echo "@@PLANE@@ $n lldp NONETDEV"
+      fi
+      ;;
+  esac
+done
 done
 '''
 
@@ -575,43 +1094,156 @@ def _parse_k8s_collector(text: str) -> tuple[str, list, list]:
     return "\n".join(topo_lines), hcas, netdevs
 
 
-def run_k8s_node_check(namespace: str, node: str, *, runner: Runner) -> tuple[dict[str, Any] | None, str | None]:
-    access = k8s_driver_pod(namespace, node, runner=runner)
+def _k8s_rate_raws(text: str) -> dict[str, str]:
+    """Raw sysfs rate strings per HCA from the @@HCA@@ lines (width/speed attrs)."""
+    raws: dict[str, str] = {}
+    for line in text.splitlines():
+        if line.startswith("@@HCA@@\t"):
+            parts = line.split("\t")
+            if len(parts) >= 3:
+                raws[parts[1]] = parts[2].strip()
+    return raws
+
+
+def _parse_k8s_plane(text: str) -> tuple[dict[str, dict[str, tuple[str, str | None]]], dict[str, str]]:
+    """Parse @@PLANE@@ / @@PLANEGUID@@ blocks from K8S_COLLECTOR_SH output.
+
+    Returns (raws, guids): ``raws[dev][tool] = (stdout, failure_reason)`` in
+    exactly the shape ``evidence_from_raw`` consumes, and ``guids[dev]`` the
+    sysfs node_guid. MISSING marks a tool absent from the pod image; a
+    nonzero END status is mapped through ``_failure_reason`` so the k8s and
+    local paths record identical reasons.
+    """
+    raws: dict[str, dict[str, tuple[str, str | None]]] = {}
+    guids: dict[str, str] = {}
+    block: list[str] = []
+    current: tuple[str, str] | None = None
+    for line in text.splitlines():
+        if line.startswith("@@PLANEGUID@@\t"):
+            parts = line.split("\t")
+            if len(parts) >= 3:
+                guids[parts[1]] = parts[2].strip()
+            continue
+        if line.startswith("@@PLANE@@ "):
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            dev, tool, marker = parts[1], parts[2], parts[3]
+            if marker == "BEGIN":
+                current = (dev, tool)
+                block = []
+            elif marker == "MISSING":
+                raws.setdefault(dev, {})[tool] = ("", "tool not installed")
+                current = None
+            elif marker == "SKIPPED":
+                raws.setdefault(dev, {})[tool] = ("", "skipped (no timeout binary in pod)")
+                current = None
+            elif marker == "NONETDEV":
+                raws.setdefault(dev, {})[tool] = ("", "no netdev exposed for this HCA")
+                current = None
+            elif marker == "END" and current == (dev, tool):
+                status = int(parts[4]) if len(parts) > 4 and parts[4].lstrip("-").isdigit() else 0
+                raw = "\n".join(block)
+                if status != 0:
+                    first = _first_text_line(block)
+                    raws.setdefault(dev, {})[tool] = ("", _failure_reason(status, first))
+                elif not raw.strip():
+                    raws.setdefault(dev, {})[tool] = ("", "no output (exit 0)")
+                else:
+                    raws.setdefault(dev, {})[tool] = (raw, None)
+                current = None
+            continue
+        if current is not None:
+            block.append(line)
+    return raws, guids
+
+
+def run_k8s_node_check(
+    namespace: str, node: str, *, runner: Runner, gpu_vendor: str = "nvidia",
+    pod_access: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    access = pod_access if pod_access is not None else k8s_driver_pod(
+        namespace, node, runner=runner, gpu_vendor=gpu_vendor,
+    )
     if not access:
-        return None, f"{node}: no running nvidia-smi-capable GPU Operator pod for NIC classification"
+        return None, f"{node}: no running GPU Operator system pod for NIC classification"
     exec_args = ["exec", "-i", "-n", namespace, access["name"]]
     if access["container"]:
         exec_args.extend(["-c", access["container"]])
-    exec_args.extend(["--", "sh", "-c", K8S_COLLECTOR_SH])
+    topo_applicable = gpu_vendor != "amd"
+    collector = f"CLUSTERMAX_GPU_VENDOR={'nvidia' if topo_applicable else 'amd'}\n{K8S_COLLECTOR_SH}"
+    exec_args.extend(["--", "sh", "-c", collector])
     if access["hostRoot"]:
-        exec_args[-4:] = ["--", "chroot", "/host", "sh", "-c", K8S_COLLECTOR_SH]
+        exec_args[-4:] = ["--", "chroot", "/host", "sh", "-c", collector]
     try:
+        # 180s (not the default 60): the collector now also runs the bounded
+        # plane-evidence tool attempts (worst case 144s when mft/ib tools are
+        # actually installed in the pod; near-instant when absent).
         proc = kubectl(
             exec_args,
             runner=runner,
-            timeout=KUBECTL_TIMEOUT_S,
+            timeout=K8S_PLANE_EXEC_TIMEOUT_S,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return None, f"{node}: NIC check exec failed: {exc}"
     if proc.returncode != 0:
         return None, f"{node}: NIC check exec failed: {proc.stderr.strip()}"
     topo, hcas, netdevs = _parse_k8s_collector(proc.stdout)
+    if not topo_applicable:
+        topo = ""
     if not hcas and not netdevs:
         return None, f"{node}: NIC check returned no devices"
     record: dict[str, Any] = {
         "host": node,
+        "gpu_vendor": gpu_vendor,
         "nics": classify_nics(topo, hcas, netdevs),
         "topo_collected": bool(topo.strip()),
         "nvlinkExposed": bool(re.search(r"\bNV[0-9]+\b", topo)) if topo.strip() else None,
     }
-    if not topo.strip():
+    if not topo_applicable:
+        record["topo_applicable"] = False
+    elif not topo.strip():
         record["topo_error"] = "no output"
+    plane_raws, plane_guids = _parse_k8s_plane(proc.stdout)
+    rate_raws = _k8s_rate_raws(proc.stdout)
+    evidence = [
+        evidence_from_raw(
+            nic["name"],
+            nic.get("layer", "?"),
+            rate_raws.get(nic["name"], ""),
+            plane_raws.get(nic["name"], {}),
+            node_guid=plane_guids.get(nic["name"], ""),
+            host=node,
+        )
+        for nic in record["nics"]
+        if plane_candidate(nic)
+    ]
+    if evidence:
+        record["plane_evidence"] = evidence
     return record, None
 
 
-def _nic_per_node(namespace: str, *, runner: Runner):
-    """Per-node strategy: exec the worker inside the node's nvidia-driver pod."""
-    return lambda node: run_k8s_node_check(namespace, node["name"], runner=runner)
+def _nic_per_node(namespaces: list[str], *, runner: Runner):
+    """Per-node strategy: exec the worker inside a privileged GPU system pod."""
+    def check_node(node):
+        vendor = node.get("gpu_vendor", "nvidia")
+
+        def priority(namespace):
+            amd = "amd" in namespace.lower()
+            nvidia = "nvidia" in namespace.lower() or namespace in {"gpu-operator", "gpu-operator-resources"}
+            if (vendor == "amd" and amd) or (vendor == "nvidia" and nvidia):
+                return 0
+            return 2 if (amd or nvidia) else 1
+
+        for namespace in sorted(namespaces, key=priority):
+            access = k8s_driver_pod(namespace, node["name"], runner=runner, gpu_vendor=vendor)
+            if access:
+                return run_k8s_node_check(
+                    namespace, node["name"], runner=runner, gpu_vendor=vendor, pod_access=access,
+                )
+        return None, f"{node['name']}: no running {vendor} GPU Operator system pod in the discovered namespaces"
+
+    return check_node
 
 
 def k8s_records(
@@ -630,20 +1262,20 @@ def k8s_records(
     except json.JSONDecodeError as exc:
         return [], [f"kubectl get nodes returned invalid JSON: {exc}"]
 
-    nodes = load_fanout().k8s_gpu_nodes(nodes_json, gpu_vendor="nvidia")
+    nodes = load_fanout().k8s_gpu_nodes(nodes_json)
     if not nodes:
-        return [], ["no Kubernetes nodes advertise nvidia.com/gpu capacity"]
+        return [], ["no Kubernetes nodes advertise nvidia.com/gpu or amd.com/gpu capacity"]
 
-    namespace = k8s_gpu_namespace(env=env, runner=runner)
-    if not namespace:
-        return [], ["no NVIDIA GPU Operator namespace found; cannot reach a driver pod for NIC classification"]
+    namespaces = k8s_gpu_namespaces(env=env, runner=runner)
+    if not namespaces:
+        return [], ["no supported GPU Operator namespace found; cannot reach a system pod for NIC classification"]
 
     try:
         max_nodes = int(str(env.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS")))
     except (TypeError, ValueError):
         max_nodes = len(nodes)
 
-    return load_fanout().fan_out_k8s(_nic_per_node(namespace, runner=runner), nodes=nodes, max_nodes=max_nodes)
+    return load_fanout().fan_out_k8s(_nic_per_node(namespaces, runner=runner), nodes=nodes, max_nodes=max_nodes)
 
 
 def build_check_payload(
@@ -659,6 +1291,25 @@ def build_check_payload(
     else:
         records, errors = [gather()], []
 
+    nvlink_records = [r for r in records if r.get("topo_applicable") is not False]
+    nvlink_coverage_complete = bool(nvlink_records) and not errors and all(
+        r.get("topo_collected") is True and isinstance(r.get("nvlinkExposed"), bool)
+        for r in nvlink_records
+    )
+    topology = aggregate(records)
+    evidence = plane_evidence_by_host(records, topology)
+    undetermined = sorted(
+        host
+        for host, evs in evidence.items()
+        if evs and all(e.get("presentation", {}).get("status") != "ok" for e in evs)
+    )
+    if undetermined:
+        sample = evidence[undetermined[0]][0].get("presentation", {}).get("reason", "")
+        errors.append(
+            f"plane presentation not determined on {len(undetermined)} host(s) "
+            f"(tenant privilege boundary; e.g. {sample})"
+        )
+
     status = topo_status(records)
     if status:
         detail = ", ".join(
@@ -670,20 +1321,20 @@ def build_check_payload(
         )
     for error in errors:
         print(f"  WARNING: nic_topology: {error}", file=sys.stderr)
-    payload: dict[str, Any] = {"nic_topology": aggregate(records)}
+    payload: dict[str, Any] = {"nic_topology": topology}
     payload["nvlink_topology"] = {
         "hosts": {
             str(r["host"]): {"checked": r.get("topo_collected") is True,
-                             "exposed": r.get("nvlinkExposed")}
+                             "exposed": r.get("nvlinkExposed"),
+                             **({"applicable": False} if r.get("topo_applicable") is False else {})}
             for r in records if r.get("host")
         },
-        "coverageComplete": bool(records) and not errors and all(
-            r.get("topo_collected") is True and isinstance(r.get("nvlinkExposed"), bool)
-            for r in records
-        ),
+        "coverageComplete": nvlink_coverage_complete,
     }
     if status:
         payload["nic_topology_status"] = status
+    if evidence:
+        payload["nic_plane_evidence"] = evidence
     return payload
 
 
