@@ -104,7 +104,11 @@ UBUNTU_OSV_VULN_URL = "https://api.osv.dev/v1/vulns/"
 UBUNTU_OSV_RAW_URL = (
     "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/main/osv/cve/"
 )
-UBUNTU_OSV_ECOSYSTEMS = {"noble": "Ubuntu:24.04:LTS"}
+UBUNTU_OSV_ECOSYSTEMS = {
+    "noble": "Ubuntu:24.04:LTS",
+    "jammy": "Ubuntu:22.04:LTS",
+    "resolute": "Ubuntu:26.04:LTS",
+}
 UBUNTU_NOTICE_URL = "https://ubuntu.com/security/notices/"
 UBUNTU_NOTICES_URL = "https://ubuntu.com/security/notices.json"
 UBUNTU_NOTICE_PAGE_LIMIT = 20
@@ -209,6 +213,12 @@ DCGM_EXPORTER_RELEASE_REPO = "NVIDIA/dcgm-exporter"
 
 UBUNTU_RELEASE = "noble"
 UBUNTU_PACKAGES: tuple[dict[str, Any], ...] = (
+    {"key": "linuxBadEpoll", "cve": "CVE-2026-46242", "package": "linux"},
+    {"key": "linuxBadEpollNvidia617", "cve": "CVE-2026-46242",
+     "package": "linux-nvidia-6.17"},
+    {"key": "linuxFragnesiaNvidia617", "cve": "CVE-2026-46300",
+     "relatedCves": ["CVE-2026-43284", "CVE-2026-43500"],
+     "package": "linux-nvidia-6.17"},
     {"key": "qemu", "cve": "CVE-2024-3446", "package": "qemu"},
     {"key": "linuxVmscape", "cve": "CVE-2025-40300", "package": "linux"},
     {
@@ -219,6 +229,18 @@ UBUNTU_PACKAGES: tuple[dict[str, Any], ...] = (
         "abi": True,
     },
     {"key": "linuxJanuscape", "cve": "CVE-2026-53359", "package": "linux"},
+)
+
+# Ubuntu 26.04 (resolute) GA kernel fixes the audit grades by source package.
+UBUNTU_RESOLUTE_PACKAGES: tuple[dict[str, Any], ...] = (
+    {"key": "linuxBadEpoll", "cve": "CVE-2026-46242", "package": "linux"},
+    {
+        "key": "linuxFragnesia",
+        "cve": "CVE-2026-46300",
+        "package": "linux",
+        "relatedCves": ["CVE-2026-43284", "CVE-2026-43500"],
+        "abi": True,
+    },
 )
 
 # Docker Engine majors whose release-note pages feed the Docker minimum. Docker
@@ -907,10 +929,30 @@ def connectx_minimums(
     trains: dict[str, int] = {}
     train_availability: dict[str, dict[str, Any]] = {}
     sources: list[dict] = []
+    ga_ranges: list[dict[str, str]] = []
     for ref, doc in documents:
         extracted = connectx_trains_in(doc)
         if not extracted:
             continue
+        # Preserve explicit vendor GA ranges from every applicable bulletin.
+        for arch, kids in csaf_arch_branches(doc):
+            for kid in kids:
+                product = str(kid.get("name") or "")
+                phrase = str(kid.get("product", {}).get("name") or "")
+                match = re.fullmatch(r"(\d+\.\d+)\s+or newer", phrase.strip(), re.I)
+                if product in {"ConnectX GA", "BlueField GA"} and match:
+                    ga_range = {
+                        "product": product, "architectures": arch,
+                        "minimum": match.group(1), "relation": "or-newer",
+                    }
+                    previous = next((
+                        item for item in ga_ranges
+                        if item["product"] == product and item["architectures"] == arch
+                    ), None)
+                    if previous is None:
+                        ga_ranges.append(ga_range)
+                    elif version_key(ga_range["minimum"]) > version_key(previous["minimum"]):
+                        previous["minimum"] = ga_range["minimum"]
         year, a_id = ref["year"], ref["aId"]
         source = nvidia_source(a_id, year, doc)
         sources.append(source)
@@ -928,6 +970,7 @@ def connectx_minimums(
     return {
         "kind": "trainMap",
         "trains": dict(sorted(trains.items(), key=lambda kv: int(kv[0]))),
+        "gaRanges": ga_ranges,
         "floorAvailability": dict(
             sorted(train_availability.items(), key=lambda kv: int(kv[0]))
         ),
@@ -2687,6 +2730,19 @@ def build_minimums(
             "rocm": amd_rocm_minimums(fetch=fetch),
             "amdDriver": amd_driver_minimums(fetch=fetch),
             "ubuntuNoble": ubuntu_minimums(fetch=fetch),
+            "ubuntuJammy": ubuntu_minimums(
+                codename="jammy",
+                specs=({"key": "linuxBadEpoll", "cve": "CVE-2026-46242",
+                        "package": "linux-hwe-6.8"},),
+                package_policy=(),
+                fetch=fetch,
+            ),
+            "ubuntuResolute": ubuntu_minimums(
+                codename="resolute",
+                specs=UBUNTU_RESOLUTE_PACKAGES,
+                package_policy=(),
+                fetch=fetch,
+            ),
         },
     }
     record_minimum_bulletin_dates(doc)
@@ -2816,6 +2872,19 @@ def verify(doc: dict, existing: dict | None = None) -> None:
             problems.extend(
                 _minimum_downgrades(name, "firmware train", payload, old_block.get("trains"))
             )
+            ranges = block.get("gaRanges") or []
+            old_ranges = old_block.get("gaRanges") or []
+            for old_range in old_ranges:
+                matching = next((
+                    new for new in ranges
+                    if new.get("product") == old_range.get("product")
+                    and new.get("architectures") == old_range.get("architectures")
+                    and new.get("relation") == "or-newer"
+                ), None)
+                if matching is None:
+                    problems.append(f"{name}: missing previously published GA range {old_range}")
+                elif version_key(matching.get("minimum", "")) < version_key(old_range.get("minimum", "")):
+                    problems.append(f"{name}: GA minimum moved backwards for {old_range.get('product')}")
             continue
         if kind == "programMap":
             problems.extend(

@@ -565,7 +565,8 @@ def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
         return (
             CRITICAL,
             observed,
-            "A security-updated kernel is installed but inactive until the machine reboots.",
+            "A newer kernel is installed but inactive until the machine reboots; "
+            "its security-fix contents require a separate advisory check.",
         )
     unknown_values = {"", "unknown", "not collected", "none", "null"}
     if (
@@ -578,12 +579,27 @@ def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
             "The installed kernel inventory was unavailable, so a pending security reboot cannot be ruled out.",
         )
     if newer is False or str(newer).lower() == "false":
-        return PASS, observed, "The host is running its newest detected kernel."
+        return PASS, observed, "The audit did not find a newer installed kernel that is waiting for a reboot."
     return (
         WARNING,
         observed,
         "The installed kernel inventory was unavailable, so a pending security reboot cannot be ruled out.",
     )
+
+
+def _pwnescape(audit: dict[str, Any]) -> tuple[str, str, str]:
+    value = _get(audit, "security.pwnescape")
+    if not isinstance(value, dict):
+        return WARNING, "not collected", "PwnEscape host patch evidence was not collected."
+    status = {"pass": PASS, "fail": CRITICAL}.get(value.get("status"), WARNING)
+    observed = (
+        f"running={value.get('runningKernel', 'unknown')}; "
+        f"minimum={value.get('minimum', 'unknown')}; "
+        f"local={value.get('localKernelStatus', 'unknown')}; "
+        f"scope={value.get('scope', 'unknown')}"
+    )
+    return status, observed, str(value.get("reason") or "Host patch evidence is required.")
+
 
 
 def _fragnesia(audit: dict[str, Any]) -> tuple[str, str, str]:
@@ -625,6 +641,22 @@ def _fragnesia(audit: dict[str, Any]) -> tuple[str, str, str]:
         WARNING,
         observed,
         "The kernel applicability or fixed package level could not be verified.",
+    )
+
+
+def _bad_epoll(audit: dict[str, Any]) -> tuple[str, str, str]:
+    advisory = _get(audit, "security.badEpoll")
+    if not isinstance(advisory, dict):
+        advisory = {}
+    status = {"pass": PASS, "fail": CRITICAL}.get(
+        advisory.get("status"), WARNING
+    )
+    observed = (
+        f"observed version {advisory.get('running', 'unknown')}; "
+        f"minimum version {advisory.get('minimum', 'unknown')}; CVE-2026-46242"
+    )
+    return status, observed, advisory.get("detail") or (
+        "Bad Epoll patch status is unverified; requires provider patch evidence."
     )
 
 
@@ -684,6 +716,19 @@ def _ufm(audit: dict[str, Any]) -> tuple[str, str, str]:
         )
     status = str(value.get("status") or "unknown").lower()
     observed = f"status {status}"
+    if value.get("probeComplete") is False:
+        return WARNING, observed, "The UFM probe did not complete; profile isolation is unverified."
+    controls = value.get("controls")
+    if value.get("probeComplete") is True and isinstance(controls, dict):
+        required = (
+            "madKeyProtection", "guidAccessControl", "serviceAuthentication",
+            "saTrustModel", "madRateLimiting", "dosProtection", "sourceRateLimiting",
+        )
+        if any(controls.get(key) is False for key in required):
+            return CRITICAL, observed, "A completed UFM probe found a required fabric control disabled."
+        if all(controls.get(key) is True for key in required):
+            return PASS, observed, "The completed UFM probe verified every required fabric control."
+        return WARNING, observed, "The completed UFM probe omitted one or more required fabric controls."
     if status == "pass":
         return PASS, observed, "The secured bare-metal UFM profile was verified."
     if status == "fail":
@@ -691,6 +736,13 @@ def _ufm(audit: dict[str, Any]) -> tuple[str, str, str]:
             CRITICAL,
             observed,
             "Required fabric authentication or rate-limiting controls are disabled.",
+        )
+    if status == "provider_attestation_required":
+        return (
+            NOT_APPLICABLE, "provider-side control; not tested from tenant",
+            "UFM administers the InfiniBand fabric. Tenant credentials cannot "
+            "verify its full security profile. Request a provider configuration "
+            "export for shared fabrics; this skip is not a fabric-security pass.",
         )
     return (
         WARNING,
@@ -737,14 +789,16 @@ def _bmc_ipmi(audit: dict[str, Any]) -> tuple[str, str, str]:
         names = exposed_nodes if isinstance(exposed_nodes, list) else []
         listed = ", ".join(str(name) for name in names) or "none"
         observed = (
-            f"{len(names)}/{nodes_total} worker nodes exposed local BMC or IPMI access; "
+            f"{len(names)}/{nodes_total} worker nodes returned data on tested local IPMI reads; "
             f"checked {nodes_checked}/{nodes_total}; exposed nodes {listed}; "
             f"access mode {access_mode}"
         )
         scope = (
             "The check used the Kubernetes identity to create a privileged pod "
             "that mounted each worker host root. It did not test access from an "
-            "ordinary workload pod."
+            "ordinary workload pod. A pass means the tested local management "
+            "reads returned no usable data. Error responses are retained; this "
+            "does not certify untested commands or network BMC interfaces."
         )
         if exposed is True or str(exposed).lower() == "true":
             return CRITICAL, observed, scope
@@ -891,6 +945,39 @@ def _manual_boundary(
     return evaluate
 
 
+def _pcie_boundary(audit: dict[str, Any]) -> tuple[str, str, str]:
+    evidence = _get(audit, "security.pciePassthrough")
+    virt = _get(audit, "security.virtualization")
+    if not isinstance(evidence, dict):
+        evidence = {}
+    if not isinstance(virt, dict):
+        virt = {}
+    guest = virt.get("guest")
+    complete = evidence.get("inventoryComplete") is True
+    devices = evidence.get("vfioDevices")
+    unsafe = evidence.get("unsafeGroups")
+    observed = (
+        f"target guest={_display(guest)}; inventory complete={complete}; "
+        f"VFIO devices={_display(devices)}; unsafe IOMMU groups={_display(unsafe)}; "
+        f"scope={evidence.get('scope', 'unknown')}"
+    )
+    if guest is False and complete and type(devices) is int and type(unsafe) is int:
+        if devices > 0 and unsafe > 0:
+            return CRITICAL, observed, (
+                "A host VFIO device has no IOMMU group or shares it with a "
+                "host-driver device. The required assignment isolation is not established."
+            )
+        if devices == 0:
+            return NOT_APPLICABLE, observed, (
+                "The complete sampled bare-metal PCI inventory found no VFIO "
+                "passthrough devices. This does not certify other hosts or tenant boundaries."
+            )
+    return WARNING, observed, (
+        "PCIe assignment requires physical-host IOMMU, ACS, reset, and memory "
+        "sanitization evidence. Guest-visible groups or an incomplete scan cannot establish it."
+    )
+
+
 def _nvlink_boundary(audit: dict[str, Any]) -> tuple[str, str, str]:
     boundary = _get(audit, "security.nvlinkBoundary")
     if not isinstance(boundary, dict):
@@ -936,12 +1023,23 @@ def _nvlink_boundary(audit: dict[str, Any]) -> tuple[str, str, str]:
             "The completed GPU inventory found no NVIDIA GPU, so NVLink and "
             "NVBleed do not apply to this target.",
         )
+    if domain_exclusive is False and exposed:
+        return CRITICAL, observed, (
+            "NVLink is visible and the physical domain is explicitly recorded "
+            "as shared across trust boundaries. Tenant-exclusive isolation failed."
+        )
     if exclusive:
+        if not (checked and complete):
+            return WARNING, observed, (
+                "Exclusive ownership is attested, but the topology scan did not "
+                "complete. The allocation cannot yet be matched to the observed domain."
+            )
         return (
             PASS,
             observed,
-            "Provider evidence confirms that the complete physical NVLink or "
-            "NVSwitch domain is exclusive to this tenant. A whole-host VM is "
+            "The operator attests that the complete physical NVLink or "
+            "NVSwitch domain is exclusive to this tenant, and the topology scan "
+            "completed. A whole-host VM is "
             "sufficient only when the domain is node-local; rack-scale NVLink "
             "requires a tenant-exclusive NVLink partition.",
         )
@@ -1025,6 +1123,13 @@ def _virtio_net_bluefield(audit: dict[str, Any]) -> tuple[str, str, str]:
             "No BlueField DPU is present in the completed device scan.",
         )
     if status == "pass":
+        if verdict.get("assessmentBasis") == "current-nic-mode":
+            return (
+                PASS, "current NIC mode; controller inactive",
+                "The completed mode inventory found no active Virtio-Net "
+                "controller. Stored firmware is not certified; reassess before "
+                "enabling DPU mode.",
+            )
         grace_active, grace_note = _grace_details(verdict)
         if grace_active:
             detail = str(verdict.get("detail") or "").strip()
@@ -1337,6 +1442,21 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
         _guest_kernel,
     ),
     CheckSpec(
+        "pwnescape",
+        "PwnEscape host networking kernel fix",
+        "Malformed checksum metadata can cross the guest-to-host boundary through the Linux networking stack.",
+        (
+            "Install the vendor kernel fix for CVE-2026-99999 and boot it on the host. "
+            "Request provider evidence when the physical host is hidden."
+        ),
+        _references(
+            ("CVE-2026-99999", "https://nvd.nist.gov/vuln/detail/CVE-2026-99999"),
+            ("PwnEscape research", "https://pwn.ai/blog/pwnescape"),
+            ("Ubuntu tracker", "https://ubuntu.com/security/CVE-2026-99999"),
+        ),
+        _pwnescape,
+    ),
+    CheckSpec(
         "fragnesia",
         "Fragnesia and Dirty Frag kernel fixes",
         "Affected kernels permit local privilege escalation and may facilitate container escape.",
@@ -1355,6 +1475,15 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
             ("CVE-2026-43500", "https://ubuntu.com/security/CVE-2026-43500"),
         ),
         _fragnesia,
+    ),
+    CheckSpec(
+        "bad-epoll",
+        "Bad Epoll running-kernel fix",
+        "CVE-2026-46242 permits local privilege escalation in affected kernels and may allow shared-kernel container escape.",
+        "Install the fixed host kernel for the distribution and flavor, reboot, "
+        "and verify the running kernel. Obtain provider evidence for custom kernels or livepatches.",
+        _references(("CVE-2026-46242", "https://ubuntu.com/security/CVE-2026-46242")),
+        _bad_epoll,
     ),
     CheckSpec(
         "januscape",
@@ -1440,10 +1569,7 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
                 "https://docs.kernel.org/6.8/userspace-api/iommu.html",
             ),
         ),
-        _manual_boundary(
-            "security.pciePassthrough.hostVerificationRequired",
-            "host verification required",
-        ),
+        _pcie_boundary,
     ),
     CheckSpec(
         "nvlink-boundary",
@@ -1884,15 +2010,50 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
         return False
     installed_generated: str | None = None
     installed_path: Path | None = None
+    installed_document: dict[str, Any] = {}
     try:
         installed_path = minimum_table_path(repo)
-        installed_generated = str(
-            json.loads(installed_path.read_text()).get("generated") or ""
-        )
+        installed_document = json.loads(installed_path.read_text())
+        installed_generated = str(installed_document.get("generated") or "")
     except (SecurityAuditError, OSError, json.JSONDecodeError, AttributeError):
         # The installed table is missing or unreadable. The fetch is then the
         # only path to a usable table, so it continues with no age minimum.
         installed_generated = None
+
+    def supports_release_checks(path: Path) -> bool:
+        # A newly published client may precede website-table publication. Do
+        # not replace its shipped kernel mappings with an otherwise newer table
+        # that silently drops those checks. Explicit user pins remain untouched.
+        requirements = (
+            "components.ubuntuNoble.packages.linuxBadEpoll",
+            "components.ubuntuNoble.packages.linuxBadEpollNvidia617",
+            "components.ubuntuNoble.packages.linuxFragnesiaNvidia617",
+            "components.ubuntuJammy.packages.linuxBadEpoll",
+            "components.ubuntuResolute.packages.linuxBadEpoll",
+            "components.ubuntuResolute.packages.linuxFragnesia",
+        )
+        try:
+            candidate = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return False
+        missing = [
+            key for key in requirements
+            if isinstance(_get(installed_document, key), dict)
+            and not isinstance(_get(candidate, key), dict)
+        ]
+        if (_get(installed_document, "components.connectxFirmware.gaRanges")
+                and not _get(candidate, "components.connectxFirmware.gaRanges")):
+            missing.append("components.connectxFirmware.gaRanges")
+        if missing:
+            print(
+                "minimum fetch warning: published/cache table lacks mappings required "
+                "by this release: " + ", ".join(missing)
+                + ". Keeping the installed table.",
+                flush=True,
+            )
+            return False
+        return True
+
     result = minimum_sync.sync(installed_generated=installed_generated)
     print(f"minimum fetch: {result.message}", flush=True)
     installed = minimum_sync.parse_stamp(installed_generated)
@@ -1909,7 +2070,8 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
         if cached is not None:
             cache_file, cached_generated = cached
             stamp = minimum_sync.parse_stamp(cached_generated)
-            if stamp is not None and (installed is None or stamp >= installed):
+            if stamp is not None and (installed is None or stamp >= installed) \
+                    and supports_release_checks(cache_file):
                 os.environ[MINIMUMS_ENV] = str(cache_file)
                 print(
                     f"minimum fetch warning: could not update the minimum "
@@ -1926,6 +2088,8 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
             f"Grading against the installed table{suffix}.",
             flush=True,
         )
+        return False
+    if not supports_release_checks(result.path):
         return False
     fetched = minimum_sync.parse_stamp(result.generated)
     if fetched is not None and installed is not None and fetched < installed:

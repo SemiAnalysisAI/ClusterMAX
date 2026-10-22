@@ -284,6 +284,33 @@ class ExtractorTest(unittest.TestCase):
             )
         )
 
+    def test_multiple_connectx_bulletins_keep_the_highest_matching_ga_floor(self) -> None:
+        older = fixture("nvidia-connectx-5699.json")
+        newer = copy.deepcopy(older)
+        baseline_ranges = fr.connectx_minimums(
+            documents=[({"year": 2026, "aId": 5699}, older)], fetch=self.stub
+        )["gaRanges"]
+        selected = baseline_ranges[0]
+        for architecture, products in fr.csaf_arch_branches(newer):
+            if architecture != selected["architectures"]:
+                continue
+            for product in products:
+                if (
+                    product["name"] == selected["product"]
+                    and product["product"]["name"].endswith(" or newer")
+                ):
+                    product["product"]["name"] = "99.9999 or newer"
+        combined = fr.connectx_minimums(
+            documents=[
+                ({"year": 2026, "aId": 5700}, newer),
+                ({"year": 2026, "aId": 5699}, older),
+            ],
+            fetch=self.stub,
+        )["gaRanges"]
+        expected = copy.deepcopy(baseline_ranges)
+        expected[0]["minimum"] = "99.9999"
+        self.assertEqual(combined, expected)
+
     def test_network_bulletin_for_legacy_products_is_not_applied(self) -> None:
         doc = fixture("nvidia-connectx-5847.json")
         self.assertEqual(fr.connectx_trains_in(doc), {})
@@ -491,6 +518,44 @@ class ExtractorTest(unittest.TestCase):
         self.assertEqual(blocks["dcgm"]["source"], blocks["dcgmExporter"]["source"])
         self.assertEqual(blocks["dcgm"]["source"]["aId"], 5857)
 
+
+    def test_bad_epoll_uses_release_and_source_package_specific_fixes(self) -> None:
+        noble = fr.ubuntu_minimums(fetch=self.stub)
+        self.assertEqual(
+            noble["packages"]["linuxBadEpollNvidia617"]["fixed"], "6.17.0-1031.31"
+        )
+        self.assertEqual(
+            noble["packages"]["linuxBadEpollNvidia617"]["package"], "linux-nvidia-6.17"
+        )
+        self.assertEqual(
+            noble["packages"]["linuxBadEpoll"]["fixed"], "6.8.0-137.137"
+        )
+        jammy = fr.ubuntu_minimums(
+            codename="jammy",
+            specs=({"key": "linuxBadEpoll", "cve": "CVE-2026-46242",
+                    "package": "linux-hwe-6.8"},),
+            package_policy=(),
+            fetch=self.stub,
+        )
+        self.assertEqual(
+            jammy["packages"]["linuxBadEpoll"]["fixed"], "6.8.0-138.138~22.04.1"
+        )
+        resolute = fr.ubuntu_minimums(
+            codename="resolute", specs=fr.UBUNTU_RESOLUTE_PACKAGES,
+            package_policy=(), fetch=self.stub,
+        )
+        self.assertEqual(resolute["release"], "resolute")
+        bad_epoll = resolute["packages"]["linuxBadEpoll"]
+        self.assertEqual(bad_epoll["fixed"], "7.0.0-28.28")
+        self.assertEqual(bad_epoll["package"], "linux")
+        self.assertEqual(bad_epoll["source"]["id"], "USN-8566-1")
+        fragnesia = resolute["packages"]["linuxFragnesia"]
+        self.assertEqual(fragnesia["fixed"], "7.0.0-22.22")
+        self.assertEqual(fragnesia["abi"], 22)
+        self.assertEqual(fragnesia["relatedCves"], ["CVE-2026-43284", "CVE-2026-43500"])
+        # The Noble and Jammy fixes for the same CVEs are untouched.
+        self.assertEqual(noble["packages"]["linuxFragnesia"]["fixed"], "6.8.0-124.124")
+
     def test_ubuntu_noble_packages(self) -> None:
         osv_url = fr.ubuntu_osv_urls("CVE-2024-3446")[0]
         self.stub.json_by_url[osv_url]["related"] = [
@@ -523,7 +588,12 @@ class ExtractorTest(unittest.TestCase):
             "unconfirmed",
         )
         api_calls = [url for url in self.stub.calls if url.startswith(fr.UBUNTU_CVE_URL)]
-        self.assertEqual(api_calls, [f"{fr.UBUNTU_CVE_URL}CVE-2026-53359.json"])
+        self.assertCountEqual(api_calls, [
+            f"{fr.UBUNTU_CVE_URL}CVE-2026-46242.json",
+            f"{fr.UBUNTU_CVE_URL}CVE-2026-46242.json",
+            f"{fr.UBUNTU_CVE_URL}CVE-2026-46300.json",
+            f"{fr.UBUNTU_CVE_URL}CVE-2026-53359.json",
+        ])
 
     def test_ubuntu_notice_discovery_fails_closed_on_incomplete_pagination(self) -> None:
         first_url = fr.ubuntu_notices_query_url("qemu", fr.UBUNTU_RELEASE)

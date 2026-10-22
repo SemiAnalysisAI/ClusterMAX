@@ -558,6 +558,19 @@ def build_values(
     if not isinstance(nic_topology, dict):
         nic_topology = {}
     audit["nic_topology"] = nic_topology
+    topology = check_data.get("nvlink_topology")
+    if isinstance(topology, dict) and isinstance(topology.get("hosts"), dict):
+        readings = list(topology["hosts"].values())
+        if readings:
+            boundary = audit.setdefault("security", {}).setdefault("nvlinkBoundary", {})
+            boundary["topologyHosts"] = topology["hosts"]
+            boundary["topologyChecked"] = any(r.get("checked") is True for r in readings)
+            boundary["topologyCoverageComplete"] = topology.get("coverageComplete") is True
+            boundary["nvlinkExposed"] = (
+                True if any(r.get("exposed") is True for r in readings)
+                else False if boundary["topologyCoverageComplete"]
+                else "unknown"
+            )
     refine_rdma_fabric_from_topology(audit, nic_topology)
 
     if harness == "k8s":

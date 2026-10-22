@@ -104,6 +104,12 @@ _PASS_ASSESSMENTS = {
     "security.fragnesia.status": (
         "The running kernel does not match the affected Fragnesia or Dirty Frag ranges."
     ),
+    "security.badEpoll.status": (
+        "The running distribution kernel meets the Bad Epoll fixed package minimum."
+    ),
+    "security.pwnescape.status": (
+        "The sampled physical host meets the upstream PwnEscape running-kernel minimum."
+    ),
     "containers.nvidiaContainerToolkit": (
         "The worker has NVIDIA Container Toolkit support."
     ),
@@ -305,6 +311,14 @@ _REPRODUCTION_COMMANDS = {
     "securityVersions.dcgm.status": "on the audited worker: `dcgmi --version`",
     "security.fragnesia.status": "on the audited worker: `uname -r`",
     "security.ubuntuNobleKernelMinimum.status": "on the audited worker: `uname -r`",
+    "security.pwnescape.status": (
+        "on the audited worker: `uname -r`; inspect `/sys/kernel/livepatch`; "
+        "request provider patch evidence when the physical host is hidden"
+    ),
+    "security.badEpoll.status": (
+        "on the audited worker: `uname -r`; `cat /proc/version_signature`; "
+        "`dpkg-query -W 'linux-image-*'`; inspect `/sys/kernel/livepatch`"
+    ),
     "software.nvhpc.status": (
         "on the audited worker: run `nvc --version`, `nvc++ --version`, and "
         "`nvfortran --version`; inspect the selected SDK release tree for NCCL, "
@@ -407,6 +421,7 @@ _CONTEXT_OBSERVATION_KEYS = frozenset(
         "gpu_controls.vboost.allowed",
         "networking.hcaNamingValid",
         "security.januscape.status",
+        "securityVersions.dpuHostIsolation.status",
     }
 )
 
@@ -521,6 +536,50 @@ def _version_observation(audit: dict[str, Any], key: str, value: Any) -> Any:
                 f"observed version {kernel.get('running', 'unknown')}; "
                 "minimum version not applicable; newest installed version "
                 f"{kernel.get('newestInstalled', 'unknown')}"
+            )
+    if key == "security.pwnescape.status":
+        advisory = _nested(audit, "security.pwnescape")
+        if isinstance(advisory, dict):
+            return (
+                f"observed version {advisory.get('runningKernel', 'unknown')}; "
+                f"minimum version {advisory.get('minimum', 'unknown')}; "
+                f"local status {advisory.get('localKernelStatus', 'unknown')}; "
+                f"CVE-2026-99999; {advisory.get('reason', '')}"
+            )
+    if key == "security.badEpoll.status":
+        advisory = _nested(audit, "security.badEpoll")
+        if isinstance(advisory, dict):
+            return (
+                f"observed version {advisory.get('running', 'unknown')}; "
+                f"minimum version {advisory.get('minimum', 'unknown')}; "
+                f"CVE-2026-46242; {advisory.get('detail', '')}"
+            )
+    if key in {
+        "securityVersions.virtioNetBluefield.status",
+        "securityVersions.virtioNetBluefield.exposure",
+    }:
+        virtio = _nested(audit, "securityVersions.virtioNetBluefield")
+        if isinstance(virtio, dict) and virtio.get("assessmentBasis") == "current-nic-mode":
+            return (
+                "current NIC mode; controller inactive; mode inventory complete; "
+                "stored firmware not certified; reassess before enabling DPU mode"
+            )
+    if key == "securityVersions.dpuHostIsolation.status":
+        evidence = _nested(audit, "securityVersions.dpuHostIsolation")
+        if isinstance(evidence, dict):
+            if not any(field in evidence for field in (
+                "internalCpuRshim", "rshimRestricted", "rshimDeviceNode", "tmfifoNet0",
+            )):
+                return str(evidence.get("status", "unknown"))
+            def dpu_display(field: str) -> str:
+                value = evidence.get(field, "unknown")
+                return str(value).lower() if isinstance(value, bool) else str(value)
+            return (
+                f"INTERNAL_CPU_RSHIM={evidence.get('internalCpuRshim', 'unknown')}; "
+                f"RShim restricted={dpu_display('rshimRestricted')}; "
+                f"/dev/rshim0={dpu_display('rshimDeviceNode')}; "
+                f"tmfifo_net0={dpu_display('tmfifoNet0')}; "
+                f"basis={evidence.get('findingBasis', 'unknown')}"
             )
     if key == "security.fragnesia.status":
         fragnesia = _nested(audit, "security.fragnesia")
@@ -988,6 +1047,16 @@ def evaluate(
             continue
         rules = applicable_rules
         observed = findings.nested_get(audit, *key.split("."))
+        if key == "security.guestKernel.newerInstalled" and observed is not None:
+            from cmax import security
+            grade, observation, assessment = security._guest_kernel(audit)
+            checks.append(AuditCheck(
+                key, _title(key), check_category,
+                {security.PASS: PASS, security.CRITICAL: FAIL}.get(grade, WARNING),
+                observation, assessment,
+                references=_with_criteria_reference(key),
+            ))
+            continue
         if observed is None:
             if not any(rule.flag_when_missing for rule in rules):
                 continue
@@ -1097,7 +1166,12 @@ def evaluate(
                 )
             )
             continue
-        if any(rule.severity in {findings.MISSING, findings.VERSION} for rule in failing):
+        if key == "securityVersions.dpuHostIsolation.status" and observed == "fail" and failing:
+            # The collector already completed the scan and established an
+            # isolation-policy violation. CONFIG severity must not downgrade
+            # its explicit failure into an inconclusive warning.
+            status = FAIL
+        elif any(rule.severity in {findings.MISSING, findings.VERSION} for rule in failing):
             status = FAIL
         elif failing:
             status = WARNING

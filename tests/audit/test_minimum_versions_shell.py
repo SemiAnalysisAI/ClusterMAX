@@ -429,6 +429,35 @@ class AdvisoryBlockTests(TempDirMixin):
         # Append a sentinel to splice the builder's trailing-comma fragment.
         return json.loads("{" + fragment + '"sentinel": true}')
 
+    def resolute_block(self, abi: int) -> dict:
+        version = f"7.0.0-{abi}.{abi}"
+        table = json.loads(
+            (Path(AUDIT_COMMON).parent / "minimum-versions.json").read_text()
+        )
+        return self.parse(self.build(
+            table,
+            "--bad-epoll-os", "ubuntu",
+            "--bad-epoll-release", "26.04",
+            "--bad-epoll-running", f"7.0.0-{abi}-generic",
+            "--bad-epoll-signature", f"Ubuntu {version}-generic 7.0.14",
+            "--bad-epoll-package", f"ii |linux-signed|{version}",
+            "--bad-epoll-livepatch", "none",
+            "--fragnesia-status", "not-applicable",
+        ))
+
+    def test_ubuntu_resolute_kernels_use_the_shipped_resolute_minimums(self) -> None:
+        fixed = self.resolute_block(38)
+        self.assertEqual(fixed["badEpoll"]["status"], "pass")
+        self.assertEqual(fixed["badEpoll"]["minimum"], "7.0.0-28.28")
+        self.assertEqual(fixed["fragnesia"]["status"], "pass")
+        self.assertEqual(fixed["fragnesia"]["ubuntuNoblePackageMinimum"], "7.0.0-22.22")
+        self.assertEqual(fixed["fragnesia"]["comparedAbiFloor"], "22")
+
+        old = self.resolute_block(21)
+        self.assertEqual(old["badEpoll"]["status"], "fail")
+        self.assertEqual(old["fragnesia"]["status"], "fail")
+        self.assertIsNone(old["fragnesia"]["gracePeriod"])
+
     def test_check_results_and_minimums_are_reported_together(self) -> None:
         bulletin_released = (datetime.now(timezone.utc) - timedelta(days=7)).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
@@ -874,8 +903,9 @@ class DcgmVersionTests(TempDirMixin):
 
 
 class SecurityGpuVendorGateTests(unittest.TestCase):
+
     GATES = (("slurm", SLURM_VENDOR_GATE), ("standalone", STANDALONE_VENDOR_GATE))
-    AMD_DRIVER_VERSION = "6.16.13"
+    AMD_DRIVER_VERSION = "6.1.2"
 
     def vendor(self, gate: str, **variables: str) -> str:
         assignments = "".join(f'{key}="{value}"\n' for key, value in variables.items())

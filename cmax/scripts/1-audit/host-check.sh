@@ -294,6 +294,35 @@ fi
 # state and can otherwise report no pending update while the live kernel stays
 # vulnerable until reboot.
 WORKER_GUEST_KERNEL_RUNNING=$(uname -r 2>/dev/null || echo unknown)
+# Bad Epoll identity evidence. These reads never exercise the vulnerability.
+# /proc describes the running kernel; dpkg must identify that same image.
+WORKER_BAD_EPOLL_SIGNATURE=$(cat "${CLUSTERMAX_AUDIT_ROOT:-}/proc/version_signature" 2>/dev/null || echo unknown)
+WORKER_BAD_EPOLL_PACKAGE=unknown
+if command -v dpkg-query >/dev/null 2>&1; then
+    WORKER_BAD_EPOLL_PACKAGE=$(dpkg-query -W \
+        -f='${db:Status-Abbrev}|${source:Package}|${source:Version}' \
+        "linux-image-${WORKER_GUEST_KERNEL_RUNNING}" 2>/dev/null) \
+        || WORKER_BAD_EPOLL_PACKAGE=unknown
+fi
+WORKER_BAD_EPOLL_LIVEPATCH=unknown
+bad_epoll_livepatch_dir="${CLUSTERMAX_AUDIT_ROOT:-}/sys/kernel/livepatch"
+if [[ -d "$bad_epoll_livepatch_dir" && -r "$bad_epoll_livepatch_dir" && -x "$bad_epoll_livepatch_dir" ]]; then
+    WORKER_BAD_EPOLL_LIVEPATCH=none
+    for bad_epoll_patch in "$bad_epoll_livepatch_dir"/*; do
+        [[ -e "$bad_epoll_patch" ]] || continue
+        bad_epoll_enabled=$(cat "$bad_epoll_patch/enabled" 2>/dev/null || echo unknown)
+        if [[ "$bad_epoll_enabled" == 1 ]]; then
+            WORKER_BAD_EPOLL_LIVEPATCH=active
+            break
+        elif [[ "$bad_epoll_enabled" != 0 ]]; then
+            WORKER_BAD_EPOLL_LIVEPATCH=unknown
+        fi
+    done
+fi
+echo "WORKER_BAD_EPOLL_SIGNATURE=${WORKER_BAD_EPOLL_SIGNATURE}"
+echo "WORKER_BAD_EPOLL_PACKAGE=${WORKER_BAD_EPOLL_PACKAGE}"
+echo "WORKER_BAD_EPOLL_LIVEPATCH=${WORKER_BAD_EPOLL_LIVEPATCH}"
+# End Bad Epoll identity evidence.
 WORKER_GUEST_KERNEL_NEWEST_INSTALLED=unknown
 WORKER_GUEST_KERNEL_NEWER_INSTALLED=false
 WORKER_GUEST_REBOOT_REQUIRED=false
@@ -306,7 +335,7 @@ if command -v dpkg-query >/dev/null 2>&1; then
     WORKER_GUEST_KERNEL_NEWEST_INSTALLED=$(
         dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'linux-image-[0-9]*' 2>/dev/null \
             | awk -v suffix="-${WORKER_GUEST_KERNEL_FLAVOR}" \
-                '$1 == "ii" && index($2, suffix) == length($2) - length(suffix) + 1 {
+                '$1 ~ /^[uihrp]i$/ && index($2, suffix) == length($2) - length(suffix) + 1 {
                     sub(/^linux-image-/, "", $2); print $2
                 }' \
             | sort -V | tail -1
@@ -490,7 +519,8 @@ WORKER_VIRT_TYPE=unknown
 WORKER_VIRT_GUEST=unknown
 WORKER_VIRT_DETECTION=none
 if command -v systemd-detect-virt >/dev/null 2>&1; then
-    virt_reading=$(systemd-detect-virt 2>/dev/null)
+    # Classify the physical/VM machine, not the collector's container cgroup.
+    virt_reading=$(systemd-detect-virt --vm 2>/dev/null)
     virt_rc=$?
     virt_reading="${virt_reading//[[:space:]]/}"
     if [[ "$virt_rc" -eq 0 && -n "$virt_reading" && "$virt_reading" != none ]]; then
@@ -612,6 +642,82 @@ echo "WORKER_VIRTIO_SERIAL=${WORKER_VIRTIO_SERIAL}"
 echo "WORKER_QEMU_CVE_2024_3446_STATUS=${WORKER_QEMU_CVE_2024_3446_STATUS}"
 echo "WORKER_VMSCAPE_STATUS=${WORKER_VMSCAPE_STATUS}"
 echo "WORKER_IOMMU_GROUPS=${WORKER_IOMMU_GROUPS}"
+# Direct host PCI assignment evidence. Guest observations cannot attest the
+# provider's IOMMU, and a missing/unreadable sysfs tree never means no VFIO.
+WORKER_PCIE_SCAN_COMPLETE=false
+WORKER_PCIE_VFIO_DEVICES=0
+WORKER_PCIE_UNSAFE_GROUPS=0
+pcie_root="${CLUSTERMAX_AUDIT_ROOT:-}/sys/bus/pci/devices"
+if [[ -d "$pcie_root" && -r "$pcie_root" && -x "$pcie_root" ]]; then
+    WORKER_PCIE_SCAN_COMPLETE=true
+    pcie_seen=0
+    for pcie_dev in "$pcie_root"/*; do
+        [[ -d "$pcie_dev" ]] || continue
+        pcie_seen=$((pcie_seen + 1))
+        [[ -r "$pcie_dev/vendor" && -r "$pcie_dev/device" ]] \
+            || WORKER_PCIE_SCAN_COMPLETE=false
+        pcie_driver=$(readlink "$pcie_dev/driver" 2>/dev/null || true)
+        [[ "${pcie_driver##*/}" == vfio-pci ]] || continue
+        WORKER_PCIE_VFIO_DEVICES=$((WORKER_PCIE_VFIO_DEVICES + 1))
+        if [[ ! -d "$pcie_dev/iommu_group/devices" ]]; then
+            WORKER_PCIE_UNSAFE_GROUPS=$((WORKER_PCIE_UNSAFE_GROUPS + 1))
+            continue
+        fi
+        for group_peer in "$pcie_dev/iommu_group/devices"/*; do
+            peer_driver=$(readlink "$group_peer/driver" 2>/dev/null || true)
+            if [[ -n "$peer_driver" && "${peer_driver##*/}" != vfio-pci ]]; then
+                WORKER_PCIE_UNSAFE_GROUPS=$((WORKER_PCIE_UNSAFE_GROUPS + 1))
+                break
+            fi
+        done
+    done
+    (( pcie_seen > 0 )) || WORKER_PCIE_SCAN_COMPLETE=false
+fi
+echo "WORKER_PCIE_SCAN_COMPLETE=$WORKER_PCIE_SCAN_COMPLETE"
+echo "WORKER_PCIE_VFIO_DEVICES=$WORKER_PCIE_VFIO_DEVICES"
+echo "WORKER_PCIE_UNSAFE_GROUPS=$WORKER_PCIE_UNSAFE_GROUPS"
+
+# PwnEscape facts are passive observations. No device is opened, no network
+# setting is changed, and absence of a device never proves this CVE is fixed.
+collect_pwnescape_facts() {
+    local root="${CLUSTERMAX_AUDIT_ROOT:-}"
+    local livepatch=unknown tun=unknown virtio=unknown userns=unknown
+    local entry enabled
+    if [[ -d "${root}/sys/kernel/livepatch" && -r "${root}/sys/kernel/livepatch" \
+          && -x "${root}/sys/kernel/livepatch" ]]; then
+        livepatch=none
+        for entry in "${root}"/sys/kernel/livepatch/*; do
+            [[ -e "$entry" ]] || continue
+            enabled=$(cat "$entry/enabled" 2>/dev/null) || enabled=unknown
+            if [[ "$enabled" != 0 ]]; then
+                livepatch=active-or-unreadable
+            fi
+        done
+    elif [[ -d "${root}/sys/kernel" && -r "${root}/sys/kernel" \
+            && -x "${root}/sys/kernel" && ! -e "${root}/sys/kernel/livepatch" \
+            && ! -L "${root}/sys/kernel/livepatch" ]]; then
+        livepatch=not-supported
+    fi
+    if [[ -d "${root}/dev/net" && -r "${root}/dev/net" && -x "${root}/dev/net" ]]; then
+        tun=false
+        [[ -c "${root}/dev/net/tun" ]] && tun=true
+    fi
+    if [[ -r "${root}/sys/class/net" && -x "${root}/sys/class/net" ]]; then
+        virtio=false
+        for entry in "${root}"/sys/class/net/*/device/driver; do
+            [[ -L "$entry" ]] || continue
+            [[ "$(readlink "$entry" 2>/dev/null)" == */virtio_net ]] && virtio=true
+        done
+    fi
+    userns=$(cat "${root}/proc/sys/user/max_user_namespaces" 2>/dev/null) || userns=unknown
+    [[ "$userns" =~ ^[0-9]+$ ]] || userns=unknown
+    printf 'WORKER_PWNESCAPE_LIVEPATCH=%s\n' "$livepatch"
+    printf 'WORKER_PWNESCAPE_TUN_PRESENT=%s\n' "$tun"
+    printf 'WORKER_PWNESCAPE_VIRTIO_NET=%s\n' "$virtio"
+    printf 'WORKER_PWNESCAPE_USERNS_MAX=%s\n' "$userns"
+}
+collect_pwnescape_facts
+
 
 # --- GPU ---
 if command -v nvidia-smi &>/dev/null; then
@@ -622,7 +728,11 @@ if command -v nvidia-smi &>/dev/null; then
     echo "WORKER_GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | wc -l || echo 0)"
 else
     echo "WORKER_GPU_MODEL=no-nvidia-smi"
-    echo "WORKER_DRIVER_VERSION=unknown"
+    # GPU Operator mounts the driver root separately. The loaded kernel module
+    # is stronger evidence than a DaemonSet image tag or a node label.
+    module_driver=$(sed -nE 's/^NVRM version:.*[[:space:]]([0-9]{3}\.[0-9]+\.[0-9]+)[[:space:]].*/\1/p' \
+        "${CLUSTERMAX_AUDIT_ROOT:-}/proc/driver/nvidia/version" 2>/dev/null | head -1)
+    echo "WORKER_DRIVER_VERSION=${module_driver:-unknown}"
     echo "WORKER_CUDA_VERSION=unknown"
     echo "WORKER_GPU_MEMORY=0"
     echo "WORKER_GPU_COUNT=0"
@@ -1271,7 +1381,7 @@ echo "WORKER_AMD_GPU_MODEL=$(detect_amd_gpu_model)"
 # whenever the module is loaded - independent of the ROCm userspace CLI and of
 # the AMD GPU Operator - and it is the same value rocm-smi --showdriverversion
 # reports. Hosts that bake the driver into the node image but ship no ROCm CLI
-# on the host (e.g. Oracle MI355X) reach this path. modinfo (reads the .ko) is a
+# on the host reach this path. modinfo (reads the .ko) is a
 # secondary source for in-tree builds where the sysfs version attribute is absent.
 if [[ -z "$_amd_drv" ]]; then
     _amd_drv=$(cat /sys/module/amdgpu/version 2>/dev/null | head -1)
@@ -2061,8 +2171,7 @@ echo "WORKER_HEALTH_PROGRAM_DCGM_EVIDENCE=${WORKER_HEALTH_PROGRAM_DCGM_EVIDENCE}
 # --- NHC (Node Health Check) ---
 # NHC runs on compute nodes via the slurm.conf HealthCheckProgram; login and
 # head nodes commonly do not carry the binary at all, so worker detection is
-# the authoritative signal (GMI GB300 was reported as a false negative from a
-# head-node-only check).
+# the authoritative signal. A head-node-only check cannot establish absence.
 WORKER_NHC_INSTALLED=false
 WORKER_NHC_PATH=none
 if command -v nhc &>/dev/null; then

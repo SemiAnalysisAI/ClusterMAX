@@ -296,6 +296,11 @@ def sync(
 
     This function never raises. The audit continues against the installed
     table for every failure.
+
+    A response with no body means the server reported no change. This function
+    validates the cached file with the same checks as a new body. A file that
+    fails those checks clears the stored validators and reports failure, so
+    the audit keeps the installed table and the next run fetches the table.
     """
     address = url or published_url()
     try:
@@ -304,11 +309,11 @@ def sync(
         return SyncResult(False, False, None, None, str(exc))
     cached = cache_path()
     if body is None:
-        # 304 Not Modified. The cache holds the current published table.
-        generated = None
+        # The server reported no change, so the response has no body. The
+        # cached file still has to pass the same checks as a new body.
         try:
-            generated = str(json.loads(cached.read_text()).get("generated") or "")
-        except (OSError, json.JSONDecodeError, AttributeError):
+            table = validate(cached.read_bytes())
+        except (OSError, MinimumSyncError):
             # The validators and the cached file disagree. Drop the validators
             # so that the next run fetches the complete body again.
             write_state({})
@@ -320,6 +325,7 @@ def sync(
                 f"{address} reported no change, and the cached table {cached} "
                 f"could not be read. The next run fetches it again.",
             )
+        generated = str(table.get("generated") or "")
         return SyncResult(
             True,
             False,

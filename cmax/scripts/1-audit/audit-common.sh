@@ -164,6 +164,9 @@ minimum_version_grace() {
 # An omitted check status becomes "unknown", and an unresolved minimum becomes
 # "unknown" as well. Neither ever becomes a value that reads as a pass.
 build_security_advisory_json() {
+    local host_facts="" pwnescape_json=""
+    local bad_epoll_os=unknown bad_epoll_release=unknown bad_epoll_running=unknown
+    local bad_epoll_signature=unknown bad_epoll_package=unknown bad_epoll_livepatch=unknown
     local fragnesia_status="unknown" fragnesia_compared_abi="unknown"
     local ubuntu_kernel_status="unknown" ubuntu_kernel_abi="unknown"
     local ubuntu_kernel_floor="unknown"
@@ -176,6 +179,13 @@ build_security_advisory_json() {
     # truncated argument list from spinning here instead of shifting.
     while [[ $# -gt 1 ]]; do
         case "$1" in
+            --host-facts) host_facts="$2"; shift 2 ;;
+            --bad-epoll-os) bad_epoll_os="$2"; shift 2 ;;
+            --bad-epoll-release) bad_epoll_release="$2"; shift 2 ;;
+            --bad-epoll-running) bad_epoll_running="$2"; shift 2 ;;
+            --bad-epoll-signature) bad_epoll_signature="$2"; shift 2 ;;
+            --bad-epoll-package) bad_epoll_package="$2"; shift 2 ;;
+            --bad-epoll-livepatch) bad_epoll_livepatch="$2"; shift 2 ;;
             --fragnesia-status) fragnesia_status="$2"; shift 2 ;;
             --fragnesia-compared-abi) fragnesia_compared_abi="$2"; shift 2 ;;
             --ubuntu-kernel-status) ubuntu_kernel_status="$2"; shift 2 ;;
@@ -193,6 +203,12 @@ build_security_advisory_json() {
         esac
     done
 
+    local bad_epoll_json
+    bad_epoll_json=$(python3 "${AUDIT_COMMON_DIR}/bad_epoll.py" \
+        --os-id "$bad_epoll_os" --release "$bad_epoll_release" \
+        --running "$bad_epoll_running" --signature "$bad_epoll_signature" \
+        --package "$bad_epoll_package" --livepatch "$bad_epoll_livepatch" 2>/dev/null) \
+        || bad_epoll_json='{"status":"unknown","cve":"CVE-2026-46242","detail":"Bad Epoll grader unavailable; requires provider patch evidence."}'
     local frag_cve frag_related frag_fixed frag_abi frag_fix_status
     local ubuntu_kernel_fixed ubuntu_kernel_abi_min ubuntu_kernel_fix_status
     local frag_grace="null"
@@ -220,6 +236,45 @@ build_security_advisory_json() {
         frag_grace="null"
     fi
     jan_cve=$(minimum_version "${jan_key}.cve")
+    # Use source-package identity where current collectors provide it. This
+    # prevents NVIDIA ABIs from being compared against Ubuntu generic floors.
+    local frag_record=""
+    if [[ "$bad_epoll_running" != unknown ]] && ! {
+        [[ "$bad_epoll_os" == ubuntu && "$bad_epoll_release" == 24.04 \
+            && "$bad_epoll_running" =~ ^6\.8\.0-[0-9]+-generic$ ]] \
+        && [[ "$bad_epoll_signature" == unknown || "$bad_epoll_package" == unknown ]]
+    }; then
+        frag_record=$(python3 "${AUDIT_COMMON_DIR}/bad_epoll.py" \
+            --advisory fragnesia --os-id "$bad_epoll_os" \
+            --release "$bad_epoll_release" --running "$bad_epoll_running" \
+            --signature "$bad_epoll_signature" --package "$bad_epoll_package" \
+            --livepatch "$bad_epoll_livepatch" 2>/dev/null) \
+            || frag_record='{"status":"unknown","cve":"CVE-2026-46300","detail":"Kernel package advisory grader unavailable"}'
+        fragnesia_status=$(printf '%s' "$frag_record" | jq -r '.status // "unknown"')
+        frag_fixed=$(printf '%s' "$frag_record" | jq -r '.minimum // "unknown"')
+        frag_cve=CVE-2026-46300
+        frag_grace=null
+        frag_abi=unknown
+        if [[ "$frag_fixed" =~ ^[0-9]+\.[0-9]+\.[0-9]+-([0-9]+)\. ]]; then
+            frag_abi="${BASH_REMATCH[1]}"
+        fi
+        fragnesia_compared_abi="$frag_abi"
+        if [[ "$fragnesia_status" == fail ]]; then
+            local frag_entry=linuxFragnesia
+            [[ "$bad_epoll_running" == 6.17.0-*-nvidia* ]] && frag_entry=linuxFragnesiaNvidia617
+            local frag_component=""
+            case "$bad_epoll_release" in
+                24.04) frag_component=ubuntuNoble ;;
+                26.04) frag_component=ubuntuResolute ;;
+            esac
+            if [[ -n "$frag_component" ]] && \
+                frag_grace=$(minimum_version_grace "$frag_component" "$frag_entry"); then
+                fragnesia_status=pass
+            else
+                frag_grace=null
+            fi
+        fi
+    fi
     jan_fixed=$(minimum_version "${jan_key}.fixed")
     jan_fix_status=$(minimum_version "${jan_key}.status")
     qemu_cve=$(minimum_version "${qemu_key}.cve")
@@ -228,6 +283,9 @@ build_security_advisory_json() {
     vmscape_cve=$(minimum_version "${vmscape_key}.cve")
     vmscape_fixed=$(minimum_version "${vmscape_key}.fixed")
     vmscape_fix_status=$(minimum_version "${vmscape_key}.status")
+    pwnescape_json=$(printf '%s\n' "$host_facts" | \
+        python3 "${AUDIT_COMMON_DIR}/pwnescape.py" 2>/dev/null) || pwnescape_json=""
+    [[ -n "$pwnescape_json" ]] || pwnescape_json='{"status":"unknown","reason":"PwnEscape grader unavailable","exploitTested":false}'
 
     # ubuntuNobleFixStatus carries the Ubuntu tracker state for the fix itself.
     # Januscape reads "pending" today: Canonical tracks the fix as 6.8.0-137.137
@@ -235,6 +293,8 @@ build_security_advisory_json() {
     # ubuntuNobleKernelFix (a tracked fix), not as a "Minimum" (a released
     # minimum), and the pair replaces the retired "no fix available" claim.
     cat <<EOF
+    "badEpoll": ${bad_epoll_json},
+    "pwnescape": ${pwnescape_json},
     "fragnesia": {
       "cve": "${frag_cve}",
       "relatedCves": ${frag_related},
@@ -244,6 +304,7 @@ build_security_advisory_json() {
       "ubuntuNoblePackageMinimumAbi": "${frag_abi}",
       "ubuntuNobleFixStatus": "${frag_fix_status}",
       "comparedAbiFloor": "${fragnesia_compared_abi}"
+      ,"kernelEvidence": ${frag_record:-null}
     },
     "ubuntuNobleKernelMinimum": {
       "status": "${ubuntu_kernel_status}",
@@ -814,9 +875,9 @@ audit_ufm_secured_profile() {
     case "$rdma_type" in
         infiniband)
             applicable="true"
-            verification_status="manual"
-            print_warn 'Manual verification required: confirm the UFM "Secured Bare Metal Cloud" profile is enabled.'
-            print_detail "Review the UFM Continuous Security Verification report and confirm:"
+            verification_status="provider_attestation_required"
+            print_info 'Provider-side control: the complete UFM profile cannot be tested with tenant credentials.'
+            print_detail "For a shared fabric, request the provider's security verification report:"
             for control in "${required_controls[@]}"; do
                 print_detail "  - ${control}"
             done
@@ -838,6 +899,7 @@ audit_ufm_secured_profile() {
         '{
             applicable: $applicable,
             status: $status,
+            verificationScope: "provider-fabric",
             profile: "Secured Bare Metal Cloud",
             verification: "Confirm in UFM and review the Continuous Security Verification report",
             requiredControls: .
@@ -1013,6 +1075,13 @@ build_audit_json() {
     fi
     [[ -n "$security_version_audit_json" ]] || security_version_audit_json="{}"
     security_advisory_json=$(build_security_advisory_json \
+        --host-facts "${WORKER_CHECK_OUTPUT:-}" \
+        --bad-epoll-os "${WORKER_OS_ID:-unknown}" \
+        --bad-epoll-release "${WORKER_OS_VERSION_ID:-unknown}" \
+        --bad-epoll-running "${WORKER_GUEST_KERNEL_RUNNING:-unknown}" \
+        --bad-epoll-signature "${WORKER_BAD_EPOLL_SIGNATURE:-unknown}" \
+        --bad-epoll-package "${WORKER_BAD_EPOLL_PACKAGE:-unknown}" \
+        --bad-epoll-livepatch "${WORKER_BAD_EPOLL_LIVEPATCH:-unknown}" \
         --fragnesia-status "${WORKER_FRAGNESIA_STATUS:-unknown}" \
         --fragnesia-compared-abi "${WORKER_FRAGNESIA_ABI_FLOOR:-unknown}" \
         --ubuntu-kernel-status "${WORKER_UBUNTU_KERNEL_MINIMUM_STATUS:-unknown}" \
@@ -1319,7 +1388,8 @@ ${security_advisory_json}
       "topologyCoverageComplete": ${nvlink_topology_coverage_complete},
       "nvidiaGpuPresent": $(json_bool_or_unknown "${WORKER_SECURITY_NVIDIA_GPU_PRESENT:-unknown}"),
       "targetIsVm": $(json_bool_or_unknown "${WORKER_VIRT_GUEST:-unknown}"),
-      "domainExclusive": $(json_bool_or_unknown "${CLUSTERMAX_NVLINK_DOMAIN_EXCLUSIVE_ATTESTED:-unknown}")
+      "domainExclusive": $(json_bool_or_unknown "${CLUSTERMAX_NVLINK_DOMAIN_EXCLUSIVE_ATTESTED:-unknown}"),
+      "domainExclusivitySource": "operator-attestation"
     },
     "pciePassthrough": {
       "guestIommuGroupCount": ${WORKER_IOMMU_GROUPS:-0},

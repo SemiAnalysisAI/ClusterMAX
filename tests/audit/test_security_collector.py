@@ -309,6 +309,7 @@ WORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.6
                 "nvidiaGpuPresent": True,
                 "targetIsVm": True,
                 "domainExclusive": True,
+                "domainExclusivitySource": "operator-attestation",
             },
         )
         exec_calls = [call for call in run.calls("kubectl") if call[0] == "exec"]

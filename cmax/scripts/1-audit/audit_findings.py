@@ -250,8 +250,8 @@ def _vboost_check_unavailable(audit: dict[str, Any]) -> bool:
 
     The check aggregates to ``gpu_controls.vboost.status`` = "unavailable" when
     every per-node result is a check failure (nvidia-smi missing, a stub /
-    wrong-arch binary raising OSError, or a timeout), e.g. the GCore Soperator
-    login node the audit falls back to outside an allocation. The sibling
+    wrong-arch binary raising OSError, or a timeout), including a non-GPU
+    login node used outside an allocation. The sibling
     ``allowed`` = false is then missing data, not a provider denial, so the
     "not allowed" finding must stay silent.
     """
@@ -269,8 +269,7 @@ def _vboost_unsupported_gpu(audit: dict[str, Any]) -> bool:
 
     B300 and GB300 do not implement the ``nvidia-smi boost-slider --vboost``
     interface: the command returns "Invalid Argument" on every node no matter
-    what the provider allows (observed on Crusoe and CoreWeave HGX B300
-    workers and on Google and GMI GB300 NVL72). The resulting
+    what the provider allows. The resulting
     ``allowed=false`` is a hardware capability gap, not a provider policy
     block, so the "not allowed" finding must stay silent on these GPUs.
     """
@@ -789,7 +788,35 @@ RULES: tuple[Rule, ...] = (
         _status_is("fail"),
         cves=("CVE-2026-46300", "CVE-2026-43284", "CVE-2026-43500"),
     ),
+    Rule(
+        "security.badEpoll.status",
+        "Running kernel is below the Bad Epoll fixed package minimum; update and reboot",
+        VERSION,
+        _status_is("fail"),
+        cves=("CVE-2026-46242",),
+    ),
+    Rule(
+        "security.badEpoll.status",
+        "Bad Epoll patch status is unverified; requires provider patch evidence",
+        CONFIG,
+        _status_is("unknown"),
+        cves=("CVE-2026-46242",),
+    ),
     # --- Containers -------------------------------------------------------
+    Rule(
+        "security.pwnescape.status",
+        "Running upstream kernel is below the PwnEscape minimum version",
+        VERSION,
+        _status_is("fail"),
+        cves=("CVE-2026-99999",),
+    ),
+    Rule(
+        "security.pwnescape.status",
+        "PwnEscape host patch status requires vendor or provider evidence",
+        CONFIG,
+        lambda value: str(value).strip().lower() not in {"pass", "fail"},
+        cves=("CVE-2026-99999",),
+    ),
     # These checks are worker-scoped. A `false` value produced only because the
     # worker check never ran (containers.workerCheckOk == false) is inconclusive,
     # so the "not installed" / "below version" rules are guarded to fire only
@@ -1351,6 +1378,9 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "security.guestKernel.newerInstalled": "guest-kernel-current",
     "security.ubuntuNobleKernelMinimum.status": "ubuntu-kernel-minimum-version",
     "security.fragnesia.status": "ubuntu-kernel-fragnesia-dirty-frag",
+    # CLI-only until the website catalog publishes a dedicated Bad Epoll row.
+    "security.badEpoll.status": None,
+    "security.pwnescape.status": None,
     "containers.nvidiaContainerToolkit": "container-toolkit",
     "containers.workerCheckOk": None,
     "containers.pyxisRuntimeWorks": "pyxis",
@@ -1427,6 +1457,7 @@ def _audit_data(values: dict[str, Any]) -> dict[str, Any]:
 
 
 _COMPONENT_NAMES = {
+    "amdDriver": "AMD GPU driver",
     "connectxFirmware": "ConnectX firmware",
     "cudaToolkit": "CUDA Toolkit",
     "dcgm": "DCGM",
@@ -1503,6 +1534,33 @@ def _version_context(
 def _sentence(text: str) -> str:
     """Capitalize only the first character (e.g. "runc 1.2.5" -> "Runc 1.2.5")."""
     return text[:1].upper() + text[1:]
+
+
+# Statuses that mean the evidence lives on a host the audit cannot read, such
+# as the physical host behind a VM. They are not configuration errors.
+_HOST_EVIDENCE_STATUSES = {"host-version-required", "host-patch-required"}
+
+
+# Rules whose title does not start with what they check.
+_RULE_SUBJECTS = {
+    "nccl_topo_file.status": "container mount of the host NCCL topology file",
+}
+
+
+def _rule_subject(rule: Rule) -> str:
+    """Name what a rule checks, without its verdict wording.
+
+    Rule titles state a verdict ("X requires Y", "X is unverified; ...",
+    "X could not be verified"). The recommendation needs only the X.
+    """
+    if rule.key in _RULE_SUBJECTS:
+        return _RULE_SUBJECTS[rule.key]
+    subject = re.split(
+        r";| requires\b| is unverified\b| could not be verified\b| is present but\b",
+        rule.title,
+        maxsplit=1,
+    )[0].strip()
+    return subject or rule.title
 
 
 def _finding_guidance(
@@ -1681,11 +1739,22 @@ def _finding_guidance(
             "The collector could not verify this check. Treat this value as "
             "unverified."
         )
-        subject = component_name or rule.title.split(" requires", 1)[0]
+        subject = component_name or _rule_subject(rule)
         recommendation = (
             _sentence(f"{subject} {minimum} or later.")
             if minimum not in (None, "")
-            else f"Ask the provider to attest the {subject} state."
+            else f"Ask the provider to attest the {subject} version with host evidence."
+            if component_name
+            else f"Ask the provider to attest the {subject} with host evidence."
+        )
+    elif str(value).strip().lower() in _HOST_EVIDENCE_STATUSES:
+        detected = (
+            "The audit cannot read the physical host from this target, so the "
+            "host status is unverified."
+        )
+        recommendation = (
+            "Ask the provider for the physical host's running kernel and "
+            "CVE-specific patch evidence."
         )
     else:
         detected = str(value).replace("_", " ").capitalize()

@@ -175,7 +175,7 @@ class AuditCommonTests(unittest.TestCase):
         run = bashtest.run_bash(
             bashtest.extract_function(COMMON_PATH, "aggregate_gpu_error_history")
             + "\nrun_gpu_error_check_on_node() { printf 'GPU_ERROR\\t%s\\tjournalctl\\t0\\tnone\\t0\\n' \"$1\"; }"
-            + "\nGPU_NODE_COUNT=3; GPU_NODE_NAMES='gpu-a gpu-b gpu-c'\n"
+            + "\nGPU_NODE_COUNT=3; GPU_CHECK_NODE_NAMES='gpu-a gpu-b gpu-c'\n"
             + block
             + '\nprintf "%s %s\\n" "$GPU_ERROR_NODES_CHECKED" "$GPU_ERROR_NODES_TOTAL"',
         )
@@ -365,13 +365,13 @@ class AuditCommonTests(unittest.TestCase):
             stubs={
                 "kubectl": (
                     'if [[ "$*" == *"--all-namespaces -l app=gpu-feature-discovery"* ]]; then '
-                    "printf 'cw-nvidia-gpu-operator'; fi"
+                    "printf 'example-nvidia-gpu-operator'; fi"
                 )
             },
         )
 
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(run.stdout.strip(), "cw-nvidia-gpu-operator")
+        self.assertEqual(run.stdout.strip(), "example-nvidia-gpu-operator")
 
     def test_k8s_dcgm_discovery_scans_branded_namespaces(self) -> None:
         block = bashtest.extract_block(
@@ -525,7 +525,7 @@ class AuditCommonTests(unittest.TestCase):
             {
                 "items": [
                     {"metadata": {"name": "default"}},
-                    {"metadata": {"name": "cw-nvidia-gpu-operator"}},
+                    {"metadata": {"name": "example-nvidia-gpu-operator"}},
                 ]
             }
         )
@@ -541,14 +541,14 @@ class AuditCommonTests(unittest.TestCase):
         )
 
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(run.stdout.strip(), "cw-nvidia-gpu-operator")
+        self.assertEqual(run.stdout.strip(), "example-nvidia-gpu-operator")
 
     def test_supplemental_checks_select_branded_gpu_operator_namespace(self) -> None:
         self.assertEqual(
             run_checks.select_gpu_operator_namespace(
-                ["default", "cw-nvidia-gpu-operator", "kube-system"]
+                ["default", "example-nvidia-gpu-operator", "kube-system"]
             ),
-            "cw-nvidia-gpu-operator",
+            "example-nvidia-gpu-operator",
         )
 
     def test_bmc_ipmi_summary_retains_per_node_coverage(self) -> None:
@@ -654,7 +654,7 @@ class AuditCommonTests(unittest.TestCase):
         profile = self.run_ufm_profile_helper("infiniband")
 
         self.assertTrue(profile["applicable"])
-        self.assertEqual(profile["status"], "manual")
+        self.assertEqual(profile["status"], "provider_attestation_required")
         self.assertEqual(profile["profile"], "Secured Bare Metal Cloud")
         self.assertEqual(len(profile["requiredControls"]), 7)
         self.assertTrue(
@@ -1130,9 +1130,7 @@ class ContainerWorkerCheckTests(unittest.TestCase):
         self.assertEqual(security["nvidiaDriver"]["status"], "pass")
         self.assertEqual(security["runc"]["status"], "pass")
         self.assertEqual(security["docker"]["status"], "pass")
-        # Train 47 is present in the collected Nvidia NIC inventory but has no
-        # train-specific floor in the current table, so it must fail closed.
-        self.assertEqual(security["connectxFirmware"]["status"], "unknown")
+        self.assertEqual(security["connectxFirmware"]["status"], "pass")
         self.assertEqual(len(security["connectxFirmware"]["devices"]), 1)
 
     def test_nic_security_policy_distinguishes_empty_from_uncollected(self) -> None:
@@ -1651,7 +1649,7 @@ k8s_audit_merge_gpu_allocations "$scalar" "$dra"
         function = bashtest.extract_function(self.K8S_SCRIPT, "apply_gpu_check_pod")
         with tempfile.TemporaryDirectory() as temp_dir:
             manifest = Path(temp_dir) / "applied.yaml"
-            snippet = function + """
+            snippet = bashtest.extract_function(self.K8S_SCRIPT, "audit_node_is_live_check_target") + "\n" + function + """
 ensure_audit_check_namespace() { return 0; }
 check_log() { return 0; }
 audit_check_wait_ready() { return 0; }

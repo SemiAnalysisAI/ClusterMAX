@@ -17,6 +17,11 @@ if [[ -z "$RUNTIME_SCOPE" ]]; then
     fi
 fi
 echo "WORKER_CONTAINER_RUNTIME_SCOPE=$RUNTIME_SCOPE"
+# GPU Operator installs host-runtime wrappers here rather than in /usr/bin.
+# Search the host location only when this script is inspecting the host root.
+if [[ "$RUNTIME_SCOPE" == host && -d /usr/local/nvidia/toolkit ]]; then
+    export PATH="/usr/local/nvidia/toolkit:$PATH"
+fi
 
 # Docker and the NVIDIA runtime registration.  `docker info` is intentionally
 # executed as the audit user: a root-only Docker daemon is not usable by the

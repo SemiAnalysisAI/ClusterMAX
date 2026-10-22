@@ -804,7 +804,7 @@ class DetectFindingsTests(unittest.TestCase):
         self.assertIn("NVIDIA Container Toolkit not installed", titles(findings))
 
     def test_source_is_stamped_on_each_finding(self) -> None:
-        src = "runs/oracle-gb300/20260612-185451/audit/audit.values.json"
+        src = "runs/synthetic-cluster/20000101-000000/audit/audit.values.json"
         findings = audit_findings.detect_findings(
             {"audit_data": {"containers": {"nvidiaContainerToolkit": False}}},
             source=src,
@@ -821,31 +821,20 @@ class DetectFindingsTests(unittest.TestCase):
             titles(findings),
         )
 
-    def test_oci_gb300_style_values_surface_expected_findings(self) -> None:
-        audit_data = {
-            "containers": {
-                "dockerVersionOk": True,
-                "nvidiaContainerToolkit": False,
-                "nvidiaContainerToolkitVersionOk": False,
-                "singularity": False,
-            },
-            "software": {"nvhpc": {"status": "fail"}},
-            "gpus": {"gdrcopy": {"installed": False}},
-            "gpu_controls": {"vboost": {"allowed": False}},
-        }
-        keyed = by_key(audit_findings.detect_findings({"audit_data": audit_data}))
-        for key in (
-            "containers.nvidiaContainerToolkit",
-            "software.nvhpc.status",
-            "gpus.gdrcopy.installed",
-            "gpu_controls.vboost.allowed",
-        ):
-            self.assertIn(key, keyed)
-        self.assertIn("containers.singularity", keyed)
-        self.assertEqual(
-            keyed["containers.singularity"].severity,
-            audit_findings.MISSING,
+    def test_synthetic_missing_components_surface_expected_findings(self) -> None:
+        cases = (
+            ("containers.nvidiaContainerToolkit", {"containers": {"nvidiaContainerToolkit": False}}),
+            ("software.nvhpc.status", {"software": {"nvhpc": {"status": "fail"}}}),
+            ("gpus.gdrcopy.installed", {"gpus": {"gdrcopy": {"installed": False}}}),
+            ("gpu_controls.vboost.allowed", {"gpu_controls": {"vboost": {"allowed": False}}}),
+            ("containers.singularity", {"containers": {"singularity": False}}),
         )
+        for key, audit_data in cases:
+            with self.subTest(key=key):
+                keyed = by_key(audit_findings.detect_findings({"audit_data": audit_data}))
+                self.assertIn(key, keyed)
+                if key == "containers.singularity":
+                    self.assertEqual(keyed[key].severity, audit_findings.MISSING)
 
 
 class DpuAndDcgmFindingTests(unittest.TestCase):
@@ -1570,3 +1559,43 @@ class DcgmRuleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnverifiedGuidanceTest(unittest.TestCase):
+    """Recommendations for unverified results read as plain sentences."""
+
+    def test_every_unknown_rule_names_its_subject_cleanly(self):
+        for rule in audit_findings.RULES:
+            if not rule.failing("unknown"):
+                continue
+            _, recommendation, _, _ = audit_findings._finding_guidance({}, rule, "unknown")
+            with self.subTest(rule=rule.key, title=rule.title):
+                self.assertNotIn("; state", recommendation)
+                self.assertNotIn("unverified", recommendation.lower())
+                self.assertNotIn("could not be verified", recommendation.lower())
+                self.assertNotIn(" is present but ", recommendation)
+                self.assertNotRegex(recommendation, r"the [a-z]+[A-Z]\w* ")
+
+    def test_bad_epoll_unknown_recommendation(self):
+        rule = next(
+            r for r in audit_findings.RULES
+            if r.key == "security.badEpoll.status" and r.failing("unknown")
+        )
+        _, recommendation, _, _ = audit_findings._finding_guidance({}, rule, "unknown")
+        self.assertEqual(
+            recommendation,
+            "Ask the provider to attest the Bad Epoll patch status with host evidence.",
+        )
+
+    def test_hidden_host_status_is_not_called_a_configuration_error(self):
+        rule = next(
+            r for r in audit_findings.RULES
+            if r.key == "security.pwnescape.status" and r.failing("host-version-required")
+        )
+        detected, recommendation, _, _ = audit_findings._finding_guidance(
+            {}, rule, "host-version-required"
+        )
+        self.assertIn("physical host", detected)
+        self.assertNotIn("Host-version-required", detected)
+        self.assertIn("patch evidence", recommendation)
+        self.assertNotIn("Correct the reported configuration", recommendation)
