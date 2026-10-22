@@ -9,10 +9,10 @@ import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from cmax import minimum_links, report_style, runtime_paths
 from cmax.yaml_support import load_yaml_module
@@ -1909,16 +1909,8 @@ def _minimum_bound_details(
 def _canonical_targets(urls: Iterable[str]) -> list[str]:
     """Strip trailing slashes and drop repeats, keeping first-seen order.
 
-    `obs_check.check` strips a trailing slash when it builds each request path, so
-    `http://prom:9090/` and `http://prom:9090` are the same backend to the check but
-    two different strings to a membership test. Deduplicating on the raw string
-    therefore let one backend take two slots: a provisioned datasource URL written
-    with a trailing slash, plus the same host from Service discovery. Both were
-    checked, which doubled that backend's share of the shared request budget and
-    could push a real target past MAX_TARGETS or into `targets_skipped` on a run
-    that was otherwise complete.
-
-    Order is preserved because operator-named targets outrank discovered ones.
+    `obs_check` treats `http://prom:9090/` and `http://prom:9090` as one backend,
+    so they must take one target slot. Operator-named targets come first.
     """
     seen: set[str] = set()
     canonical: list[str] = []
@@ -1930,28 +1922,18 @@ def _canonical_targets(urls: Iterable[str]) -> list[str]:
         canonical.append(stripped)
     return canonical
 
+
 def _inject_observability(
     values: dict[str, Any], *, progress: Callable[[str], None] | None = None,
     target: SecurityTarget | None = None,
 ) -> None:
     """Run the observability-backend check and stash the sanitized result.
 
-    Targets come from CLUSTERMAX_OBS_TARGETS (comma/space separated) when the
-    operator names them. Otherwise `cmax.obs_discovery` finds them from evidence
-    already on the machine: the audit's monitoring-stack block, this node's
-    listening sockets and process names, and Kubernetes Services. Discovery keeps
-    the check from reporting "not assessed" on a cluster whose audit just
-    reported a running Prometheus or Grafana.
-
-    Set CLUSTERMAX_OBS_DISCOVER=0 to check only what the operator names.
-    Discovery reads local evidence only; every network request belongs to the
-    check, is a bounded read-only GET, and goes only to a backend that this
-    machine or this cluster already exposes.
-
-    The check sends anonymous requests only.
-    Writes a SANITIZED counts-only summary to audit_data.security.observability
-    for _observability to evaluate. A no-op when no target is named and discovery
-    finds none, which leaves the check as a WARNING and never a silent pass.
+    Targets come from CLUSTERMAX_OBS_TARGETS (comma/space separated), or else from
+    `cmax.obs_discovery` (audit evidence, local sockets and processes, Kubernetes
+    Services); CLUSTERMAX_OBS_DISCOVER=0 disables discovery. Requests are anonymous,
+    bounded, read-only GETs. Writes a counts-only summary to
+    audit_data.security.observability; with no target the check stays a WARNING.
     """
     from cmax import obs_check
 

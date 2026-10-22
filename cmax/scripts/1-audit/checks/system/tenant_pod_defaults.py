@@ -632,16 +632,9 @@ def run_k8s_check() -> dict[str, Any]:
     }
     empty_tuned: dict[str, Any] = {"attempted": False, "admitted": False, "ready": False, "reason": "", "node": "", "rdmaResourceRequested": "", "facts": None}
 
-    try:
-        nodes_proc = kubectl(["get", "nodes", "-o", "json"], timeout=45)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return aggregate({}, default_pod={"admitted": False, "ready": False, "reason": f"kubectl get nodes failed: {exc}", "node": "", "facts": None}, tuned=empty_tuned, errors=[], context=context)
-    if nodes_proc.returncode != 0:
-        return aggregate({}, default_pod={"admitted": False, "ready": False, "reason": f"kubectl get nodes failed: {nodes_proc.stderr.strip()}", "node": "", "facts": None}, tuned=empty_tuned, errors=[], context=context)
-    try:
-        nodes_json = json.loads(nodes_proc.stdout)
-    except json.JSONDecodeError as exc:
-        return aggregate({}, default_pod={"admitted": False, "ready": False, "reason": f"kubectl get nodes returned invalid JSON: {exc}", "node": "", "facts": None}, tuned=empty_tuned, errors=[], context=context)
+    nodes_json, error = load_fanout().k8s_nodes_json(lambda args: kubectl(args, timeout=45))
+    if nodes_json is None:
+        return aggregate({}, default_pod={"admitted": False, "ready": False, "reason": error, "node": "", "facts": None}, tuned=empty_tuned, errors=[], context=context)
 
     if not load_fanout().k8s_gpu_nodes(nodes_json):
         result = aggregate({}, default_pod={"admitted": False, "ready": False, "reason": NO_K8S_GPU_NODES, "node": "", "facts": None}, tuned=empty_tuned, errors=[], context=context)

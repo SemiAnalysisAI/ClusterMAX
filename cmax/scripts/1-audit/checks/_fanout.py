@@ -113,6 +113,31 @@ def k8s_gpu_nodes(nodes_json: dict[str, Any], *, gpu_vendor: str | None = None) 
     return [node for node in gpu_nodes if node["name"]]
 
 
+def k8s_nodes_json(
+    run_kubectl: Callable[[list[str]], Any],
+) -> tuple[dict[str, Any] | None, str]:
+    """Return ``kubectl get nodes -o json`` as a dict, or ``(None, error)``.
+
+    ``run_kubectl`` takes kubectl arguments and returns a CompletedProcess.
+    """
+    try:
+        proc = run_kubectl(["get", "nodes", "-o", "json"])
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"kubectl get nodes failed: {exc}"
+    if proc.returncode != 0:
+        return None, f"kubectl get nodes failed: {(proc.stderr or '').strip()}"
+    try:
+        return json.loads(proc.stdout), ""
+    except (TypeError, json.JSONDecodeError) as exc:
+        return None, f"kubectl get nodes returned invalid JSON: {exc}"
+
+
+def k8s_max_host_checks(env: Mapping[str, str], total: int) -> int:
+    """Nodes to check: CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS when positive, else all."""
+    limit = _as_int(env.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS"), default=0)
+    return limit if limit > 0 else total
+
+
 def fan_out_k8s(
     per_node: PerNode,
     *,
@@ -121,9 +146,9 @@ def fan_out_k8s(
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Apply ``per_node`` over ``nodes[:max_nodes]``, collecting records + errors.
 
-    Appends the shared cap message when ``max_nodes < len(nodes)``. Node
-    discovery, namespace resolution, the max-nodes parse, and the empty-list
-    guards stay with the caller (their wording differs per check).
+    Appends the shared cap message when ``max_nodes < len(nodes)``. Namespace
+    resolution and the empty-list guards stay with the caller (their wording
+    differs per check).
     """
     selected = nodes[:max_nodes]
     records: list[dict[str, Any]] = []

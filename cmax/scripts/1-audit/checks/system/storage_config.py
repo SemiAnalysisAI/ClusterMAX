@@ -189,18 +189,17 @@ def k8s_node_report(namespace: str, node: str, image: str, *, runner: Callable[.
 
 
 def k8s_reports(env: dict[str, str], runner: Callable[..., Any], fanout: Any) -> tuple[list[dict[str, Any]], list[str], int]:
-    try:
-        nodes_proc = runner(["kubectl", "get", "nodes", "-o", "json"], capture_output=True, text=True, timeout=45)
-        if nodes_proc.returncode != 0:
-            return [], [f"kubectl get nodes failed: {nodes_proc.stderr.strip()}"], 0
-        nodes = [n["name"] for n in fanout.k8s_gpu_nodes(json.loads(nodes_proc.stdout))]
-    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
-        return [], [f"kubectl get nodes failed: {exc}"], 0
+    nodes_json, error = fanout.k8s_nodes_json(
+        lambda args: runner(["kubectl", *args], capture_output=True, text=True, timeout=45)
+    )
+    if nodes_json is None:
+        return [], [error], 0
+    nodes = [n["name"] for n in fanout.k8s_gpu_nodes(nodes_json)]
     if not nodes:
         return [], ["no Kubernetes GPU node was found"], 0
     namespace = env.get("CLUSTERMAX_AUDIT_K8S_NAMESPACE", "default")
     image = env.get("CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE", DEFAULT_K8S_HOST_CHECK_IMAGE)
-    max_nodes = fanout._as_int(env.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS"), default=len(nodes)) or len(nodes)
+    max_nodes = fanout.k8s_max_host_checks(env, len(nodes))
     reports, errors = fanout.fan_out_k8s(
         lambda node: k8s_node_report(namespace, node, image, runner=runner), nodes=nodes, max_nodes=max_nodes
     )

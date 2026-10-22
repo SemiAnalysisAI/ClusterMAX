@@ -55,126 +55,33 @@ GRAFANA_DATASOURCES = "/api/datasources"
 TENANT_LABEL_KEYS = ("account", "org_id", "tenant", "project", "namespace")
 
 MAX_TARGETS = 8
-# Sized for 8 targets, 1 anonymous pass plus 4 credential retries each. A refused
-# pass stops at its first refused label query, so a retry that fails stays cheap.
-# The shape this bound covers is a Grafana that lists its datasources without a
-# credential and answers the proxy read with one: the listing plus a label sweep
-# for each of MAX_DATASOURCES, twice over, because a read by the operator's own
-# credential does not stop the sweep. That measures 36 requests per target HERE,
-# where TENANT_LABEL_KEYS has five entries, so 288 for eight targets.
-# `test_the_budget_covers_the_worst_case_sweep_on_every_target` in
-# test_obs_check.py runs that shape on all MAX_TARGETS and asserts both figures,
-# so this comment cannot drift from what the code spends. The diagnostic twin
-# sweeps nine labels and spends more; size that constant from its own test.
-#
-# This is NOT the worst case. The cheap exit fires only for a GUARDED scheme, so a
-# pass whose first label answers a non-guarded non-200 sweeps every label of every
-# datasource and still does not read, which leaves no operator hold and five
-# full-price passes: 60 per target, 480 for eight. A Grafana proxying a
-# provisioned datasource whose own backend is dead answers 502 exactly that way,
-# and stale provisioning is common. That case is deliberately left above the
-# bound: it is counted in `targets_skipped`, which blocks a clean pass in every
-# verdict path, so exceeding the budget degrades to an INCONCLUSIVE result and
-# never to a silent green check. `test_a_dead_provisioned_backend_exceeds_the_
-# budget_and_says_so` pins that.
+# Covers MAX_TARGETS targets, each with one anonymous pass and up to four
+# credential passes over MAX_DATASOURCES datasources (36 requests per target).
+# A backend that answers every label with a non-guarded error sweeps more and can
+# exceed this; it is then counted in `targets_skipped`, so the result is
+# incomplete rather than a clean pass. Both cases are pinned in test_obs_check.py.
 MAX_REQUESTS = 448
 MAX_DATASOURCES = 2
 REQUEST_TIMEOUT_S = 4.0
-# Seconds this check may spend on requests that answer NOTHING, across the whole
-# run. The request budget bounds requests, and a request that times out costs one
-# unit but REQUEST_TIMEOUT_S seconds. A Grafana that holds the proxy connection
-# open instead of answering is the bad case: a timeout is not a guarded scheme, so
-# the cheap exit never fires and every label of every datasource is swept on all
-# five passes, which measures 25 minutes for eight targets under escalation.
-#
-# The bound counts UNANSWERED time, and it counts it CUMULATIVELY. Two weaker
-# shapes were tried and both fail:
-#
-# - A ceiling on TOTAL time cannot separate the two clusters it must treat
-#   differently: one that hangs, and one that is slow but answering. Any ceiling
-#   short enough to cut off the first also truncates the second, and truncation is
-#   reported as an incomplete result, so a large healthy cluster whose label reads
-#   are merely slow would be recorded as INCONCLUSIVE.
-# - A deadline that any answer pushes forward, so only CONSECUTIVE dead time
-#   counts, never fires on the shape above. Every escalation pass opens with
-#   `/api/health` and `/api/datasources`, which answer, so at most ten proxy
-#   timeouts accumulate before an answer resets the deadline. Measured: the full
-#   448-request budget spent, 1488 seconds of it wasted, and the bound silent.
-#   `test_a_hanging_proxy_cannot_be_kept_alive_by_the_passes_that_answer` pins it.
-#
-# Counting unanswered time cumulatively separates the cases for the right reason. A
-# backend that answers spends none of this allowance however slow it is, and a
-# backend that hangs spends it whatever else answers alongside. A request that
-# fails FAST, such as a refused connection, costs nearly nothing, which is correct:
-# it wastes no time.
-#
-# A target that has spent its share, and a run that has spent the total, both stop
-# through `out_of_budget`, so the run degrades through `targets_skipped` exactly
-# like an exhausted request budget and reports an incomplete result rather than a
-# clean one.
-#
-# The total must cover every target timing out on the direct path, because that is
-# what a CORRECTLY firewalled tenant looks like: a Kubernetes NetworkPolicy DROPs by
-# default, so a blocked connection hangs until the timeout rather than being refused
-# at once. Such a run must report `backends_reachable == 0` and pass. A flat 30
-# timeouts emptied the pool during target six, so a properly isolated tenant was
-# reported as two targets not checked and INCONCLUSIVE.
+# Time spent on requests that get no answer is bounded separately from the
+# request count, cumulatively across the run. A total-time limit would cut off
+# slow but healthy backends, and a deadline reset by any answer never fires,
+# because every pass opens with requests that do answer. A firewalled tenant
+# whose connections hang until timeout must still finish every target and pass.
 DEAD_DIRECT_PATH_REQUESTS = 4  # health, buildinfo, /-/healthy, first label
-# Keep the run-wide allowance independent from the shorter dead-target path. It
-# preserves the published 40-timeout, 240-second ceiling for mixed target shapes.
+# Run-wide allowance: 40 full timeouts.
 MAX_UNANSWERED_REQUESTS = MAX_TARGETS * 5
-# Derived from this file's own timeout, so the two check copies do not share a
-# hand-picked number: 240 s here, and 120 s in the diagnostic, whose timeout is 2 s.
-# The threshold is a request COUNT because that is the quantity with a meaning: a
-# run that has waited out that many full timeouts has learned all it is going to.
-# Held as integer MILLISECONDS, and each charge is ROUNDED. Subtracting float
-# seconds one request at a time leaves a residue: 8.0 - 4.0 - 4.0 came out as
-# 8.9e-16 rather than 0, which read as allowance remaining and bought one request
-# past the bound. Truncating the charge instead biased every one of them low.
-# Rounded integers make the boundary exact and let a test pin it.
-#
-# The overhead factor is what makes the guarantee above true. `spend_request` charges
-# MEASURED WALL CLOCK, from before the connect to after the socket teardown, while
-# REQUEST_TIMEOUT_S bounds only the wait for data, so every charge is LARGER than the
-# timeout. An allowance of exactly N * REQUEST_TIMEOUT_S therefore empties before the
-# Nth timeout returns, and the eight-hanging-target case this constant exists to admit
-# was cut off around target six or seven. Name resolution against an unreachable DNS
-# server and TLS setup both land in that gap.
+# Held as integer milliseconds so the boundary is exact. Each charge is measured
+# wall clock (connect, TLS, teardown), which exceeds REQUEST_TIMEOUT_S, so the
+# allowance carries an overhead factor or it empties before the Nth timeout.
 UNANSWERED_OVERHEAD = 1.5
 MAX_UNANSWERED_MS = int(
     MAX_UNANSWERED_REQUESTS * REQUEST_TIMEOUT_S * UNANSWERED_OVERHEAD * 1000
 )
-# The share of that allowance one target may spend. A single pool for the whole run
-# is a resource the FIRST target can drain, and the target that drains it is the
-# likely one rather than the unlucky one: `endpoints_from_services` sorts by URL, so
-# on a release-prefixed install `<release>-grafana` sorts ahead of
-# `<release>-prometheus`. One hanging Grafana under escalation sweeps
-# MAX_DATASOURCES * len(TENANT_LABEL_KEYS) dead proxy reads per pass, which waits out
-# 40 s of TIMEOUTS here, so a single pool was gone inside that one target's
-# escalation. Every later target then returned from the `check_endpoint` entry check
-# having made no request, so a cluster with one hanging Grafana and seven healthy
-# guarded backends reported eight targets not checked and a WARNING, and a cross-tenant
-# CRITICAL on any of the seven was never reached.
-#
-# Exactly one worst-case pass: the Grafana proxy sweep reads
-# MAX_DATASOURCES * len(TENANT_LABEL_KEYS) labels and cannot abort early, because
-# `_check_grafana` starts `reachable` at True and a timeout is not a guarded scheme.
-# That sweep is 40 s of timeouts here, and 36 s in the diagnostic, whose sweep is
-# longer and whose timeout is shorter.
-#
-# The SHARE is that sweep plus the same overhead factor the run total carries, for
-# the same reason: the real charge per unanswered request exceeds REQUEST_TIMEOUT_S,
-# so a share of exactly one sweep's worth of timeouts empties INSIDE that sweep and
-# truncates the anonymous pass it exists to protect. That makes the share 60 s here
-# and 54 s in the diagnostic. Keep the two figures distinct: 40 s is what the sweep
-# waits out, 60 s is what the share allows it.
-#
-# Sized so the ANONYMOUS pass of a hanging target always completes, because that is
-# the pass which produces `unauth_query_ok`, `admin_api_exposed`, and the datasource
-# listing. Only escalation on that target is cut short, and it is cut short with
-# `budget_exhausted` set, so the lost coverage is reported. A smaller share, such as
-# a flat quarter of the run allowance, truncates the anonymous pass itself and
-# throws away the findings the run exists to collect.
+# Per-target share, refilled for each target, so one hanging backend cannot spend
+# the coverage of the targets after it. It fits one full Grafana proxy sweep of
+# timeouts plus overhead, so a hanging target's anonymous pass always completes
+# and only its escalation is cut short, with `budget_exhausted` set.
 MAX_UNANSWERED_PER_TARGET_MS = int(
     MAX_DATASOURCES
     * len(TENANT_LABEL_KEYS)
@@ -186,23 +93,13 @@ MAX_UNANSWERED_PER_TARGET_MS = int(
 # stops at the first TENANT-OWNED credential that reads, so this only bounds the
 # worst case.
 MAX_CREDENTIALS_PER_TARGET = 4
-# Tries held back for the vendor `default` source, which `harvest` appends last
-# because it is the least trusted. Taking the first four credentials dropped the
-# defaults on exactly the hosts where they are worth trying: a Grafana that yields
-# a service-account token, `grafana.ini`, provisioning, and process-env values
-# fills all four tries, so `admin:admin` and `admin:prom-operator` were never
-# offered although reaching them is why the source exists. The reservation is half
-# the cap, because a harvested value is likelier to read than a vendor default and
-# the request bound must not move.
+# Tries reserved for vendor default credentials, which `harvest` appends last, so
+# hosts with many harvested values still try `admin:admin` and the like.
 RESERVED_DEFAULT_TRIES = 2
-# The source label of the vendor defaults, which the reservation above selects on.
-# Historical fixtures use this label for vendor default credentials.
 DEFAULT_CREDENTIAL_SOURCE = "default"
-# Historical fixtures use this label for credentials that an operator supplied.
 OPERATOR_CREDENTIAL_SOURCE = "env"
-# The sweep-stop rule is the WIDER of the two, because `process-env` is not tenant
-# evidence either. Attribution keeps the narrower rule and still reports
-# `process-env`, so the two are deliberately different sets.
+# Neither source is evidence of what a tenant holds, so a read by either does not
+# stop the credential sweep. Attribution still reports `process-env`.
 PROCESS_ENV_CREDENTIAL_SOURCE = "process-env"
 NON_TENANT_CREDENTIAL_SOURCES = frozenset(
     {OPERATOR_CREDENTIAL_SOURCE, PROCESS_ENV_CREDENTIAL_SOURCE}
@@ -287,15 +184,8 @@ _UPGRADE_CODES = (301, 302, 307, 308)
 def _scheme_upgrade(url: str, location: str) -> str:
     """Return `location` when it is only an https upgrade of the same request.
 
-    A plain `http` to `https` redirect to the same host, port, and path carries no
-    authentication meaning. Without this one hop an https-only backend would
-    read as unreachable, and the isolation question would never be asked.
-
-    The port must match too. A redirect from `http://host:9090/x` to
-    `https://host/x` lands on 443, which is a different service, and continuing
-    the check there would attribute another endpoint's answers to this target.
-    Both ports implicit is the one exception, because that is the ordinary
-    80-to-443 upgrade of the same service.
+    Host, path and port must match (both ports implicit counts as 80 to 443), so
+    the check never follows a redirect onto a different service.
     """
     if not location:
         return ""
@@ -349,14 +239,8 @@ def _lower_headers(items: Iterable[tuple[str, str]]) -> dict[str, str]:
 
 
 def detect_auth_scheme(status: int | None, headers: dict[str, str]) -> str:
-    """Name the authentication scheme that guards an endpoint.
-
-    The scheme is what an operator needs in order to reproduce a finding with a
-    legitimate credential, and it is free: it is already in the response to a
-    request the check makes anyway. A `401` carries the scheme in
-    `WWW-Authenticate`; a single-sign-on proxy answers with a redirect to its own
-    login path instead.
-    """
+    """Name the authentication scheme that guards an endpoint, from a 401/407
+    challenge or a login redirect."""
     if status is None:
         return "unreachable"
     if status in (401, 407):
@@ -381,17 +265,10 @@ def detect_auth_scheme(status: int | None, headers: dict[str, str]) -> str:
 
 
 def merge_auth_scheme(result: dict, status: int | None, headers: dict[str, str]) -> None:
-    """Record the guard on the QUERY path, upgrading an earlier "none".
+    """Record the guard on the QUERY path, upgrading an earlier unguarded scheme.
 
-    A Grafana can list its datasources without a credential and still refuse the
-    proxy read that actually queries the store. Taking the scheme only from the
-    listing then reports `none` while every tenancy query was refused, which
-    makes `auth_required` false on a guarded query path. An existing "none" is
-    therefore replaced when a later request is refused; a guard already found is
-    never downgraded. Every scheme outside GUARDED_SCHEMES is upgradable, which
-    covers an earlier `unreachable`, `redirect`, or `unknown` from a failed
-    request. Those would otherwise stick and leave `auth_required` false on a
-    path that did refuse.
+    Grafana can list datasources anonymously and still refuse the proxy query, so a
+    later refusal replaces "none". A guard already found is never downgraded.
     """
     scheme = detect_auth_scheme(status, headers)
     current = result.get("auth_scheme") or ""
@@ -507,18 +384,10 @@ def classify_cross_tenant(
 
 
 def out_of_budget(budget: list) -> bool:
-    """Report whether the check may make no further request for THIS target.
+    """Report whether the check may make no further request for this target.
 
-    Three limits stop a request, and this is the ONE place that weighs them, so a
-    call site cannot honour some of them and miss the rest. The request count at
-    index 0 is a run-wide resource. The unanswered-time allowance at index 1 belongs
-    to the current target, and `check` refills it for the next one, so a hanging
-    backend costs its own coverage and not the coverage of every target behind it.
-    The run-wide unanswered-time total at index 2 is never refilled, so once it is
-    spent every remaining target is refused and the run ends.
-
-    A shorter budget list is accepted, so a caller that only bounds requests, and a
-    test that only bounds one target, both work unchanged.
+    `budget` is [requests left (run-wide), this target's unanswered-ms share, the
+    run's unanswered-ms total]. Shorter lists are accepted.
     """
     if budget[0] <= 0:
         return True
@@ -529,29 +398,13 @@ def out_of_budget(budget: list) -> bool:
 
 
 def spend_request(budget: list, url: str, header: str) -> tuple[int | None, str, dict[str, str]]:
-    """Spend one request, and charge the time to it when it answers nothing.
-
-    Every request the check makes goes through here, so the accounting holds by
-    construction instead of by convention at each call site. `status is None` is the
-    one thing that counts as no answer: `_get` returns it for a timeout and for
-    every other transport failure, while a 401 or a redirect is a real reply that
-    tells the check what guards the endpoint.
-
-    The charge is the time this request actually took, so a connection refused
-    instantly costs nearly nothing while a held-open connection costs the full
-    timeout. Dead time is charged to this target's share AND to the run total.
-    Neither is acted on here: `out_of_budget` is the single place that decides
-    whether the next request may be made, so a spent share stops one target and a
-    spent run total stops the run.
-    """
+    """Make one request and charge its wall time to both unanswered-time budgets
+    when it gets no answer (`status is None`). A 401 or redirect is an answer."""
     budget[0] -= 1
     if len(budget) > 1 and budget[1] is not None:
         started = time.monotonic()
         status, body, headers = _get(url, header)
         if status is None:
-            # Each charge is rounded, because `int()` floors and lost up to a
-            # millisecond every time, which drifted the bound later than the
-            # constant says.
             charge = round((time.monotonic() - started) * 1000)
             budget[1] -= charge
             if len(budget) > 2 and budget[2] is not None:
@@ -561,18 +414,8 @@ def spend_request(budget: list, url: str, header: str) -> tuple[int | None, str,
 
 
 def want_request(result: dict, budget: list) -> bool:
-    """Report whether one more request is affordable, and record it when it is not.
-
-    A target whose coverage was cut short must not read as fully checked. Setting the
-    flag only where a pass never STARTED left the mid-pass case silent: a label sweep
-    that stopped part way returned no flag, so the target counted as checked and
-    clean, and a hanging backend scored as "refused every read" instead of as
-    incomplete. Every site that wants a request and cannot afford it records that
-    here, so the flag cannot be forgotten at one of them.
-
-    Every limit is weighed by `out_of_budget`, so a caller that starts with its
-    share already spent makes no request at all.
-    """
+    """Report whether one more request is affordable; mark the target incomplete
+    when it is not, so a pass cut short mid-sweep never reads as fully checked."""
     if out_of_budget(budget):
         result["budget_exhausted"] = True
         return False
@@ -611,49 +454,20 @@ def _check_prometheus(
             detect_auth_scheme(status, headers) in GUARDED_SCHEMES
             or not result["reachable"]
         ):
-            # This identity cannot read the query path at all, so the remaining
-            # labels would spend the budget to learn the same thing. Escalation
-            # relies on this: a refused credential pass must be cheap. The test is
-            # the GUARDED_SCHEMES set rather than a status list, because a
-            # single-sign-on proxy refuses by redirecting to its login path, not
-            # with a 401, and that pass must be cheap too.
-            #
-            # A transport failure is different. TENANT_LABEL_KEYS is ordered
-            # most-specific first, and `namespace` is last, so aborting on one
-            # timeout would skip the label that usually carries another tenant's
-            # series. The reachability test keeps a live target sweeping while a
-            # dead one still stops after a single request.
+            # Refused (any guarded scheme, including an SSO redirect) or dead: the
+            # other labels would show the same, so a refused credential pass stays
+            # cheap. A timeout on a reachable target keeps sweeping, because
+            # `namespace`, last in TENANT_LABEL_KEYS, usually shows other tenants.
             break
         if status == 200:
-            # The query path actually ANSWERED. Reachability alone proves
-            # nothing about tenancy: a backend that refuses every read is
-            # reachable, and reporting that as enforced tenancy is a vacuous
-            # pass. Only an answered query licenses a PASS. With a credential
-            # it also means that credential works, which stops the escalation
-            # loop.
+            # Only an answered query can support a PASS; reachability alone cannot.
             result["query_ok"] = True
             if not header:
                 result["unauth_query_ok"] = True
         result["labels"][key] = extract_label_values(status, body)
     if admin_check and result["reachable"] and want_request(result, budget):
-        # Skipped only on an ESCALATION RETRY. `admin_api_exposed` is defined as the
-        # delete API being routed AND unauthenticated, so a credentialed 405 or 400
-        # only says this identity is authorized, which is not the finding.
-        # `check_endpoint_escalating` already discards the credentialed answer and
-        # keeps the anonymous one, so making the request on every credential pass
-        # could contribute no evidence and spent one request of a shared budget
-        # each time. On eight targets under escalation that waste could push a
-        # later backend into `targets_skipped`.
-        #
-        # The caller decides instead of this function testing `not header`, which
-        # keeps this low-level helper correct for historical credential fixtures.
-        #
-        # The request itself is sent WITHOUT the header even when the rest of the
-        # pass carries one, which is what keeps the finding anonymous by
-        # construction in every configuration. Sending the operator's credential
-        # here would let a `405` that only proves this identity is authorized raise
-        # a CRITICAL, and the operator credential is commonly an administrator one
-        # the provider handed over.
+        # The finding is an unauthenticated delete API, so the probe is always
+        # sent without a credential, and credential retries skip it.
         result["requests"] += 1
         status, _body, _headers = spend_request(budget, base + ADMIN, "")
         if interpret_admin_status(status):
@@ -739,56 +553,12 @@ def select_credentials(
     cap: int = MAX_CREDENTIALS_PER_TARGET,
     reserved: int = RESERVED_DEFAULT_TRIES,
 ) -> list[tuple[str, str]]:
-    """Choose which credentials one target may try, keeping the defaults reachable.
+    """Choose which credentials one target may try, at most `cap`.
 
-    The four categories below are ordered by trust with TWO deliberate departures,
-    each stated where it is made: the operator credential takes its slot from the
-    DEFAULTS reserve, and `PROCESS_ENV_CREDENTIAL_SOURCE` moves from its collection
-    rank of 5 to the tail, behind the vendor defaults. So the selection is not a prefix
-    of the collection order with reservations applied. On
-    `[service-account, process-env, kubernetes-secret, default, default]` it comes out
-    `['service-account', 'kubernetes-secret', 'default', 'default']`, with rank 5
-    dropped and rank 6 promoted over it, which is the whole point of the fourth
-    category.
-
-    This holds for ANY input order, so it does not depend on `cap_keeping_defaults`
-    having held the same two sources back at collection. Both layers protect them, and
-    each is needed: a slot the harvest cap already spent cannot be recovered here, and
-    a list this function is handed directly is not capped there.
-
-    The reservation only changes the outcome on a host that yields enough harvested
-    values to fill the cap on its own, which is where taking the first `cap` entries
-    silently dropped the vendor defaults.
-
-    Leftover room goes to the defaults, so a host with one harvested value still
-    tries both of them rather than holding two tries empty.
-
-    FOUR categories, because they answer different questions:
-
-    - `OPERATOR_CREDENTIAL_SOURCE` is the credential the operator named. It must be
-      tried, but a read by it is not attributed and does not stop the sweep, so it
-      cannot produce the finding on its own.
-    - Tenant-owned sources are the ones that DO produce the finding.
-    - `DEFAULT_CREDENTIAL_SOURCE` is a finding in its own right.
-    - `PROCESS_ENV_CREDENTIAL_SOURCE` can produce NEITHER. It cannot support the
-      tenant-held claim, for the reason it is gated opt-in, and it is not the
-      credential the operator named for this cluster. It is tried LAST, out of
-      whatever room the other three leave.
-
-    The operator credential takes its slot from the DEFAULTS reserve rather than from
-    the tenant-owned quota. Counting it as a tenant-owned try left only one such try
-    whenever an operator credential was present with collected credentials. The extra
-    passes exist to attribute ordinary tenant access,
-    and the cap was dropping `grafana-ini` and provisioning before they ran.
-
-    `process-env` sat in the tenant-owned quota for the same reason, and cost more,
-    because `harvest` puts it at trust rank 5. On
-    `[service-account, process-env, kubernetes-secret]` it took the second of two
-    tenant tries, so `kubernetes-secret` was never offered and the attributed claim was
-    unreachable. Historical callers could supply that shape. Trying it last means a
-    credential that cannot produce either finding never displaces one that can.
-
-    The total is unchanged in every case, so the request bound does not move.
+    Order: the operator credential (taking its slot from the defaults reserve), then
+    tenant-owned sources, then vendor defaults (`reserved` slots are held for them),
+    then `process-env` in any room left, since it cannot produce either finding.
+    The result is the same for any input order.
     """
     if cap <= 0:
         return []
@@ -805,36 +575,13 @@ def select_credentials(
     ]
     if not defaults and not operator and not shell:
         return list(credentials)[:cap]
-    # Historical fixtures can contain two `env` credentials, and both are tried
-    # when they fit. They fit when the host yielded no
-    # vendor defaults, because then nothing is held back for that source.
-    #
-    # With defaults present, four slots cannot hold two operator credentials, the
-    # two tenant-owned tries that produce the finding, and a default. One operator
-    # credential yields, because it is the try that can contribute least: a read by
-    # this source is not attributed and does not stop the sweep, and `auth_header` has
-    # always preferred the token over the basic pair when both are set, so the
-    # non-escalating path never used the second one either. Raising the cap instead
-    # would move the request bound and its derivation above `MAX_REQUESTS`.
-    # Reached only when `defaults` is non-empty, because `chosen` below ignores
-    # `operator_room` otherwise. The floor of 1 keeps one operator credential when the
-    # reserve arithmetic would otherwise leave none: the source the operator named
-    # explicitly is never the one to drop entirely.
+    # With defaults present, keep at least one operator credential but leave room
+    # for tenant-owned tries and the defaults reserve.
     operator_room = max(cap - reserved - min(len(tenant), reserved), 1)
-    # `operator_room` is at least 1 by its own floor, so it needs no second clamp.
     chosen = operator[:operator_room] if defaults else operator[:cap]
-    # What the operator credential took comes out of the defaults reserve. With no
-    # defaults collected there is nothing to hold back, so every remaining slot goes
-    # to the tenant-owned sources.
     reserve = max(reserved - len(chosen), 0) if defaults else 0
     chosen += tenant[: max(cap - len(chosen) - reserve, 0)]
     chosen += defaults[: max(cap - len(chosen), 0)]
-    # The shell credential is last, and only if the three categories above left room.
-    # It is the one source that can produce neither finding, so it never displaces a
-    # try that can. It is dropped whenever the categories above already fill the cap,
-    # which is why the sweep-stop rule for it is a guard rather than the common path:
-    # `harvest` ranks it fifth, and after this it is offered behind every tenant-owned
-    # source that fits.
     chosen += shell[: max(cap - len(chosen), 0)]
     return chosen[:cap]
 
@@ -844,36 +591,10 @@ def check_endpoint_escalating(
 ) -> dict:
     """Check anonymously first, then retry with each credential until one reads.
 
-    Order matters twice. The anonymous pass must come first, because
-    `unauth_query_ok` is only true when NO credential was sent, and an
-    authenticated read must never be recorded as an unauthenticated one. The
-    credentials then run in descending order of trust, so the operator's own
-    credential is tried before a harvested one. The opt-in shell credential is the one
-    source offered behind a vendor default, so a default is second to last whenever
-    that source is present and the cap leaves room for it, and last otherwise.
-
-    Escalation stops at the first TENANT-OWNED credential whose query is
-    answered. That is the credential that reproduces the finding, and its SOURCE
-    LABEL is recorded. The value is never recorded.
-
-    A read by any source in `NON_TENANT_CREDENTIAL_SOURCES` does not stop the sweep.
-    Neither the operator's own credential nor one out of the operator's shell is
-    evidence about what an ordinary tenant holds, so returning on either reported the
-    finding against a source the assessment then declines to treat as tenant access.
-    What each one costs differs, because their trust ranks differ.
-    `OPERATOR_CREDENTIAL_SOURCE` is tried first, so returning on it left EVERY
-    tenant-owned credential untried. `PROCESS_ENV_CREDENTIAL_SOURCE` sits at rank 5 in
-    `harvest`, behind `service-account`, `grafana-ini`, and `grafana-provisioning`, so
-    returning on it left `kubernetes-secret` untried on a login-node run, where those
-    two were the whole tenant quota. `select_credentials` now offers `process-env` last
-    of all, out of whatever room the other three categories leave, so that second case
-    is a guard rather than the common path. The read is held and returned only when
-    nothing lower in the trust order also reads, so the finding itself is never lost.
-
-    When both non-tenant sources read, the held read is the one attribution can
-    name. `OPERATOR_CREDENTIAL_SOURCE` is dropped from attribution entirely, so
-    holding it reports no source at all, while `process-env` carries its own
-    sentence in the report.
+    The anonymous pass comes first so an authenticated read is never recorded as an
+    unauthenticated one. Escalation stops at the first tenant-owned credential that
+    reads and records its source label, never its value. A read by a non-tenant
+    source is held and returned only if no tenant-owned source also reads.
 
     `credentials` is a sequence of `(source_label, header_value)` pairs.
     """
@@ -882,85 +603,37 @@ def check_endpoint_escalating(
     if result.get("query_ok"):
         return result
     if not result.get("reachable"):
-        # NOTHING answered on the anonymous pass, so the transport is blocked and no
-        # credential can change that. Escalating would spend four more passes to
-        # learn the same thing, at the full timeout for every read. That is the
-        # CORRECT posture for a tenant whose NetworkPolicy cuts it off from the
-        # monitoring namespace, and a DROP hangs rather than refuses, so without this
-        # a properly isolated tenant spent five times its share on every target and
-        # the run reported the later ones as not checked instead of passing.
-        #
-        # `_check_grafana` starts `reachable` at True, so a Grafana that lists its
-        # datasources and hangs on the proxy is still escalated. That is the shape
-        # this feature exists to reach, and it is not this case.
+        # Nothing answered, so no credential can help. This is what a correctly
+        # firewalled tenant looks like; escalating would only spend its budget.
         return result
     anonymous_scheme = result.get("auth_scheme", "")
     anonymous_requests = int(result.get("requests", 0))
     held_read: dict | None = None
     truncated = False
-    # The cap is applied by the selection, which holds tries back for the vendor
-    # defaults instead of letting harvested values fill every slot.
     for source, header in select_credentials(credentials):
         if not header:
             break
         if out_of_budget(budget):
-            # The budget ran out with credentials still untried, so a tenant-owned
-            # credential was never offered and the target must not read as fully
-            # swept. That is the silent green check `targets_skipped` exists to
-            # prevent. `out_of_budget` covers a spent per-target share as well as a
-            # spent request count, because a share that runs out inside a credential
-            # pass leaves the remaining credentials just as untried.
-            #
-            # This is the CHEAP EXIT rather than the only guard. `want_request` sets
-            # the flag on any pass that cannot afford its next request, including the
-            # entry check in `check_endpoint`, so falling through would report the
-            # same thing for the cost of one call that makes no request. Deleting
-            # this block leaves every test passing. Breaking here keeps the reason
-            # in one place.
+            # Credentials left untried: the target is not fully swept.
             truncated = True
             break
         retry = check_endpoint(base, header, budget, admin_check=False)
         anonymous_requests += int(retry.get("requests", 0))
         if not retry.get("query_ok"):
             if retry.get("budget_exhausted"):
-                # THIS pass was cut short inside its own label sweep, so "did not
-                # read" is not a finding about the credential. Recording it as one
-                # would report a guarded backend on evidence the check never
-                # gathered. `want_request` guards every request in the pass and
-                # sets the flag on the pass that could not afford one, so the test
-                # is whether coverage was lost.
-                #
-                # Testing `out_of_budget` here instead marked a COMPLETE pass
-                # truncated whenever it spent the last of the budget, which put a
-                # fully assessed guarded backend into `targets_skipped` and turned
-                # a clean result into an incomplete WARNING. A credential left
-                # untried is already caught by the `out_of_budget` test at the top
-                # of this loop on the next iteration, so nothing needs that test
-                # twice.
+                # This pass was cut short, so "did not read" is not a finding.
                 truncated = True
                 break
             continue
-        # Three facts belong to the ANONYMOUS pass, not to the authenticated one.
-        # The guard is what the endpoint demanded of a caller with no credential.
-        # `unauth_query_ok` is false by construction, because the anonymous pass
-        # did not read. And `admin_api_exposed` means the delete API is routed AND
-        # unauthenticated: a credentialed 405 or 400 only means this identity is
-        # authorized, which is not the finding, so taking it from the retry would
-        # make a properly guarded admin API a CRITICAL false positive on exactly
-        # the backends escalation exists to reach.
+        # The guard, `unauth_query_ok` and `admin_api_exposed` describe the
+        # anonymous caller, so they come from the anonymous pass.
         retry["auth_scheme"] = anonymous_scheme or retry.get("auth_scheme", "")
         retry["unauth_query_ok"] = False
         retry["admin_api_exposed"] = bool(result.get("admin_api_exposed"))
         retry["credential_source"] = source
         if source in NON_TENANT_CREDENTIAL_SOURCES:
-            # Keep sweeping. A shell credential that answers is a reachable exposure
-            # and says nothing about ordinary tenant access, so stopping here reported
-            # the finding against a source the assessment then declines to treat as
-            # tenant evidence, and left `kubernetes-secret` and the provisioned
-            # Grafana credentials untried.
-            #
-            # `process-env` wins the hold, because it is the one attribution can name.
-            # The trust order puts `env` first, so this only replaces a held `env`.
+            # Not tenant evidence: hold the read and keep sweeping. `process-env`
+            # replaces a held operator read, because attribution can name it.
             if (
                 held_read is None
                 or held_read.get("credential_source") == OPERATOR_CREDENTIAL_SOURCE
@@ -971,11 +644,7 @@ def check_endpoint_escalating(
         return retry
     if held_read is not None:
         held_read["requests"] = anonymous_requests
-        # Both sources of the flag are merged. `truncated` covers a credential left
-        # unevaluated, and `want_request` sets the same flag on this dict when THIS
-        # pass was cut short inside its own sweep. A plain assignment discarded the
-        # second one, so a held pass that read two of five labels reported complete
-        # coverage.
+        # Incomplete if a credential was left untried or this pass was cut short.
         held_read["budget_exhausted"] = bool(
             truncated or held_read.get("budget_exhausted")
         )
@@ -1027,9 +696,7 @@ def check(
     if skipped and progress:
         progress(f"{skipped} target(s) skipped: limit of {MAX_TARGETS} per run")
     for index, base in enumerate(candidates, start=1):
-        # Refill this target's share. The run total at index 2 is never refilled, so
-        # it stays the ceiling on wasted time. Refilling is what stops one hanging
-        # backend from spending the coverage of every target behind it.
+        # Refill the per-target share; the run total is never refilled.
         budget[1] = MAX_UNANSWERED_PER_TARGET_MS
         canonical_base = base.rstrip("/")
         started = time.monotonic()
@@ -1087,17 +754,8 @@ def check(
             for key, count in group_counts.items():
                 foreign_counts[key] = max(foreign_counts.get(key, 0), count)
         cross_tenant = cross_tenant or own_cross
-        # The operator's own credential is excluded from attribution, because a
-        # read it made says nothing about ordinary tenant access. Every other
-        # source is recorded, INCLUDING `process-env`, which `security.py` then
-        # reports in a sentence of its own rather than as tenant-held access. The
-        # dict is the evidence the assessment splits three ways, so dropping a
-        # source here would delete a finding instead of re-wording it. The
-        # diagnostic twin reports one boolean with no source label beside it, so it
-        # excludes `process-env` at this step instead.
-        #
-        # The sweep keeps going past both non-tenant reads, so a tenant-owned
-        # source that also reads is the one recorded here.
+        # Attribute every accepted source except the operator's own credential,
+        # including `process-env`, which the report words separately.
         if accepted and accepted != OPERATOR_CREDENTIAL_SOURCE:
             # Attribute only the evidence returned by this target.
             if own_cross:

@@ -290,3 +290,35 @@ class SlurmGpusPerNodeTests(unittest.TestCase):
             raise FileNotFoundError("scontrol")
 
         self.assertIsNone(fanout.slurm_gpus_per_node({"SLURM_JOB_ID": "7"}, runner))
+
+
+class K8sNodeListTests(unittest.TestCase):
+    def test_nodes_json_and_errors(self) -> None:
+        import subprocess
+
+        def answer(code: int, stdout: str, stderr: str = ""):
+            return lambda args: subprocess.CompletedProcess(["kubectl", *args], code, stdout, stderr)
+
+        self.assertEqual(fanout.k8s_nodes_json(answer(0, '{"items": []}')), ({"items": []}, ""))
+        self.assertEqual(
+            fanout.k8s_nodes_json(answer(1, "", "forbidden\n")),
+            (None, "kubectl get nodes failed: forbidden"),
+        )
+        nodes, error = fanout.k8s_nodes_json(answer(0, "not json"))
+        self.assertIsNone(nodes)
+        self.assertTrue(error.startswith("kubectl get nodes returned invalid JSON"))
+
+        def timeout(args):
+            raise subprocess.TimeoutExpired(["kubectl", *args], 45)
+
+        nodes, error = fanout.k8s_nodes_json(timeout)
+        self.assertIsNone(nodes)
+        self.assertTrue(error.startswith("kubectl get nodes failed"))
+
+    def test_max_host_checks_caps_only_on_a_positive_value(self) -> None:
+        key = "CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS"
+        self.assertEqual(fanout.k8s_max_host_checks({}, 5), 5)
+        self.assertEqual(fanout.k8s_max_host_checks({key: "2"}, 5), 2)
+        # Zero, negative and unparsable values check every node.
+        for value in ("0", "-1", "abc", ""):
+            self.assertEqual(fanout.k8s_max_host_checks({key: value}, 5), 5, value)

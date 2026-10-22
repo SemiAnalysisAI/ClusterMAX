@@ -444,6 +444,8 @@ def test_python_host_checks_use_pinned_default_and_preserve_override(check_path,
     spec.loader.exec_module(module)
     node = {"name": "gpu-0"}
     fanout = mock.Mock()
+    fanout.k8s_nodes_json.return_value = ({}, "")
+    fanout.k8s_max_host_checks.return_value = 1
     fanout.k8s_gpu_nodes.return_value = [node]
     fanout.fan_out_k8s.side_effect = lambda worker, **kwargs: worker(node)
     env = {} if override is None else {"CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE": override}
