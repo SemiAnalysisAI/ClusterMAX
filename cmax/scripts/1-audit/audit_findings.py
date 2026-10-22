@@ -1650,6 +1650,7 @@ def _audit_data(values: dict[str, Any]) -> dict[str, Any]:
 
 
 _COMPONENT_NAMES = {
+    "amdDriver": "AMD GPU driver",
     "connectxFirmware": "ConnectX firmware",
     "cudaToolkit": "CUDA Toolkit",
     "dcgm": "DCGM",
@@ -1726,6 +1727,33 @@ def _version_context(
 def _sentence(text: str) -> str:
     """Capitalize only the first character (e.g. "runc 1.2.5" -> "Runc 1.2.5")."""
     return text[:1].upper() + text[1:]
+
+
+# Statuses that mean the evidence lives on a host the audit cannot read, such
+# as the physical host behind a VM. They are not configuration errors.
+_HOST_EVIDENCE_STATUSES = {"host-version-required", "host-patch-required"}
+
+
+# Rules whose title does not start with what they check.
+_RULE_SUBJECTS = {
+    "nccl_topo_file.status": "container mount of the host NCCL topology file",
+}
+
+
+def _rule_subject(rule: Rule) -> str:
+    """Name what a rule checks, without its verdict wording.
+
+    Rule titles state a verdict ("X requires Y", "X is unverified; ...",
+    "X could not be verified"). The recommendation needs only the X.
+    """
+    if rule.key in _RULE_SUBJECTS:
+        return _RULE_SUBJECTS[rule.key]
+    subject = re.split(
+        r";| requires\b| is unverified\b| could not be verified\b| is present but\b",
+        rule.title,
+        maxsplit=1,
+    )[0].strip()
+    return subject or rule.title
 
 
 def _finding_guidance(
@@ -1923,11 +1951,22 @@ def _finding_guidance(
             "The collector could not verify this check. Treat this value as "
             "unverified."
         )
-        subject = component_name or rule.title.split(" requires", 1)[0]
+        subject = component_name or _rule_subject(rule)
         recommendation = (
             _sentence(f"{subject} {minimum} or later.")
             if minimum not in (None, "")
-            else f"Ask the provider to attest the {subject} state."
+            else f"Ask the provider to attest the {subject} version with host evidence."
+            if component_name
+            else f"Ask the provider to attest the {subject} with host evidence."
+        )
+    elif str(value).strip().lower() in _HOST_EVIDENCE_STATUSES:
+        detected = (
+            "The audit cannot read the physical host from this target, so the "
+            "host status is unverified."
+        )
+        recommendation = (
+            "Ask the provider for the physical host's running kernel and "
+            "CVE-specific patch evidence."
         )
     else:
         detected = str(value).replace("_", " ").capitalize()
