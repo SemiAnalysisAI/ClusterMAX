@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Read-only CVE-2026-46242 grading from the audited worker's kernel evidence.
 
-Maps Ubuntu 24.04 GA/22.04 HWE 6.8 generic and Ubuntu 24.04 NVIDIA 6.17.
+Maps Ubuntu 24.04 GA/22.04 HWE 6.8 generic, Ubuntu 24.04 NVIDIA 6.17, and
+Ubuntu 26.04 GA 7.0 generic.
 Never compare cloud-flavor ABIs, mainline kernels, or container image versions
 against a generic-kernel minimum. This is a package advisory check, not an
 exploit test or cryptographic attestation of a provider's kernel.
@@ -24,6 +25,9 @@ MAPPINGS = {
     ("22.04", "6.8.0", "generic"): (
         "ubuntuJammy", "linuxBadEpoll", "linux-hwe-6.8",
         {"linux-hwe-6.8", "linux-signed-hwe-6.8"}, "~22.04.",
+    ),
+    ("26.04", "7.0.0", "generic"): (
+        "ubuntuResolute", "linuxBadEpoll", "linux", {"linux", "linux-signed"}, "",
     ),
     **{
         ("24.04", "6.17.0", flavor): (
@@ -55,7 +59,7 @@ def evaluate(
                   "requires provider patch evidence.",
     }
     kernel = re.fullmatch(
-        r"(6\.8\.0|6\.17\.0)-([1-9][0-9]*)-(generic|nvidia|nvidia-64k)", running
+        r"(6\.8\.0|6\.17\.0|7\.0\.0)-([1-9][0-9]*)-(generic|nvidia|nvidia-64k)", running
     )
     if os_id != "ubuntu" or kernel is None:
         return result
