@@ -489,11 +489,16 @@ add_kubectl_auth_check() {
     local resource="$3"
     local scope="${4:-}"
     local result allowed
+    # kubectl auth can-i prints "no" and also exits 1 on a denial, so keep only
+    # the first word of its answer. An empty answer (API or client error) is
+    # recorded as "no".
     if [[ -n "$scope" ]]; then
-        result=$(kubectl auth can-i "$verb" "$resource" "$scope" 2>/dev/null || echo "no")
+        result=$(kubectl auth can-i "$verb" "$resource" "$scope" 2>/dev/null || true)
     else
-        result=$(kubectl auth can-i "$verb" "$resource" 2>/dev/null || echo "no")
+        result=$(kubectl auth can-i "$verb" "$resource" 2>/dev/null || true)
     fi
+    result=$(printf '%s\n' "$result" | awk '{ sub(/\r$/, "") } NF { print $1; exit }')
+    result=${result:-no}
     allowed="false"
     if [[ "$result" == "yes" ]]; then
         allowed="true"
@@ -502,7 +507,10 @@ add_kubectl_auth_check() {
         KUBECTL_RBAC_SUMMARY="fail"
         print_warn "kubectl auth can-i ${verb} ${resource} ${scope}: ${result}"
     fi
-    KUBECTL_AUTH_JSON_ENTRIES+=("{\"name\":\"${name}\",\"verb\":\"${verb}\",\"resource\":\"${resource}\",\"scope\":\"${scope:-cluster}\",\"allowed\":${allowed},\"result\":\"${result}\"}")
+    KUBECTL_AUTH_JSON_ENTRIES+=("$(jq -cn \
+        --arg name "$name" --arg verb "$verb" --arg resource "$resource" \
+        --arg scope "${scope:-cluster}" --argjson allowed "$allowed" --arg result "$result" \
+        '{name: $name, verb: $verb, resource: $resource, scope: $scope, allowed: $allowed, result: $result}')")
 }
 add_kubectl_auth_check listNodes list nodes
 add_kubectl_auth_check listPods list pods --all-namespaces
