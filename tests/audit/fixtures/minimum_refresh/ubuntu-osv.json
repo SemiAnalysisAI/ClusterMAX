@@ -1,6 +1,17 @@
 {
   "_comment": "Trimmed Canonical OSV records as OSV.dev serves them (https://api.osv.dev/v1/vulns/UBUNTU-<CVE> and .../<USN-id>). Each CVE record keeps only the Noble (Ubuntu:24.04:LTS), Jammy, and Resolute (Ubuntu:26.04:LTS) entries for the tracked source package, so the extractor must pick the right ecosystem. CVE-2026-53359 is trimmed to the state it had while Canonical tracked the Noble fix as pending: Noble is listed without a fixed event, so the generator falls back to the Ubuntu security API fixture. Each USN record keeps only the fields the generator reads.",
   "cves": {
+    "CVE-2026-99999": {
+      "id": "UBUNTU-CVE-2026-99999",
+      "affected": [
+        {"package": {"name": "linux", "ecosystem": "Ubuntu:24.04:LTS"},
+         "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}]}]},
+        {"package": {"name": "linux", "ecosystem": "Ubuntu:26.04:LTS"},
+         "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}]}]},
+        {"package": {"name": "linux-hwe-6.8", "ecosystem": "Ubuntu:22.04:LTS"},
+         "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}]}]}
+      ]
+    },
     "CVE-2026-46242": {
       "_comment": "Synthetic OSV projection for source-package and release selection.",
       "id": "UBUNTU-CVE-2026-46242",

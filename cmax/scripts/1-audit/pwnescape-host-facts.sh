@@ -12,6 +12,12 @@
 
 echo "WORKER_HOSTNAME=$(hostname 2>/dev/null || echo unknown)"
 echo "WORKER_GUEST_KERNEL_RUNNING=$(uname -r 2>/dev/null || echo unknown)"
+if [[ -f "${CLUSTERMAX_AUDIT_ROOT:-}/etc/os-release" ]]; then
+    . "${CLUSTERMAX_AUDIT_ROOT:-}/etc/os-release"
+    printf 'WORKER_OS_ID=%s\nWORKER_OS_VERSION_ID=%s\n' "${ID:-unknown}" "${VERSION_ID:-unknown}"
+else
+    printf 'WORKER_OS_ID=unknown\nWORKER_OS_VERSION_ID=unknown\n'
+fi
 
 # Keep this classification identical to the one in host-check.sh. A missing
 # systemd-detect-virt is not a bare-metal reading, and the cpuinfo hypervisor
@@ -46,7 +52,14 @@ detect_pwnescape_virtualization
 collect_pwnescape_facts() {
     local root="${CLUSTERMAX_AUDIT_ROOT:-}"
     local livepatch=unknown tun=unknown virtio=unknown userns=unknown
-    local entry enabled
+    local entry enabled running package=unknown signature=unknown
+    running=$(uname -r 2>/dev/null) || running=unknown
+    signature=$(cat "${root}/proc/version_signature" 2>/dev/null) || signature=unknown
+    if command -v dpkg-query >/dev/null 2>&1; then
+        package=$(dpkg-query -W \
+            -f='${db:Status-Abbrev}|${source:Package}|${source:Version}' \
+            "linux-image-${running}" 2>/dev/null) || package=unknown
+    fi
     if [[ -d "${root}/sys/kernel/livepatch" && -r "${root}/sys/kernel/livepatch" \
           && -x "${root}/sys/kernel/livepatch" ]]; then
         livepatch=none
@@ -76,6 +89,8 @@ collect_pwnescape_facts() {
     userns=$(cat "${root}/proc/sys/user/max_user_namespaces" 2>/dev/null) || userns=unknown
     [[ "$userns" =~ ^[0-9]+$ ]] || userns=unknown
     printf 'WORKER_PWNESCAPE_LIVEPATCH=%s\n' "$livepatch"
+    printf 'WORKER_PWNESCAPE_SIGNATURE=%s\n' "$signature"
+    printf 'WORKER_PWNESCAPE_PACKAGE=%s\n' "$package"
     printf 'WORKER_PWNESCAPE_TUN_PRESENT=%s\n' "$tun"
     printf 'WORKER_PWNESCAPE_VIRTIO_NET=%s\n' "$virtio"
     printf 'WORKER_PWNESCAPE_USERNS_MAX=%s\n' "$userns"

@@ -122,7 +122,7 @@ _PASS_ASSESSMENTS = {
         "The running distribution kernel meets the Bad Epoll fixed package minimum."
     ),
     "security.pwnescape.status": (
-        "Every audited worker and control-plane host meets the upstream PwnEscape running-kernel minimum."
+        "Every audited worker and control-plane host meets the upstream or vendor PwnEscape patch requirements."
     ),
     "containers.nvidiaContainerToolkit": (
         "The worker has NVIDIA Container Toolkit support."
@@ -326,7 +326,9 @@ _REPRODUCTION_COMMANDS = {
     "security.fragnesia.status": "on the audited worker: `uname -r`",
     "security.ubuntuNobleKernelMinimum.status": "on the audited worker: `uname -r`",
     "security.pwnescape.status": (
-        "on every worker and control-plane host: `uname -r`; inspect "
+        "on every worker and control-plane host: `uname -r`; "
+        "`cat /etc/os-release /proc/version_signature`; "
+        "`dpkg-query -W \"linux-image-$(uname -r)\"`; inspect "
         "`/sys/kernel/livepatch`; request provider patch evidence for each host "
         "that the audit could not read or that runs inside a guest"
     ),

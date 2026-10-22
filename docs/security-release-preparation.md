@@ -25,6 +25,10 @@ or publish a distribution.
 
 ## PwnEscape evidence limits
 
+The current grader also supports Ubuntu package evidence and the CNA's mainline
+fix. See [PwnEscape kernel evidence](pwnescape.md) for the current behavior.
+The paragraphs below describe the original release preparation.
+
 The [kernel CNA record](https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2026/99xxx/CVE-2026-99999.json)
 provides these upstream fixed releases: 5.10.272, 5.15.223, 6.1.190, 6.6.159,
 6.12.113, 6.18.57, and 7.2.11. The check compares exact upstream release

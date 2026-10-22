@@ -972,6 +972,18 @@
       "kind": "distroPackages",
       "release": "jammy",
       "packages": {
+        "linuxPwnescape": {
+          "cve": "CVE-2026-99999",
+          "fixed": "",
+          "package": "linux-hwe-6.8",
+          "priority": "medium",
+          "source": {
+            "feed": "ubuntu-security-api",
+            "reviewedAt": "2026-10-23",
+            "url": "https://ubuntu.com/security/CVE-2026-99999"
+          },
+          "status": "needed"
+        },
         "linuxBadEpoll": {
           "cve": "CVE-2026-46242",
           "fixed": "6.8.0-138.138~22.04.1",
@@ -989,6 +1001,24 @@
       "advisory": "https://ubuntu.com/security/notices",
       "kind": "distroPackages",
       "packages": {
+        "linuxPwnescape": {
+          "cve": "CVE-2026-99999",
+          "fixAvailability": {
+            "status": "unconfirmed",
+            "feed": "ubuntu-security-api",
+            "version": "6.8.0-149.149i1",
+            "url": "https://ubuntu.com/security/CVE-2026-99999"
+          },
+          "fixed": "6.8.0-149.149i1",
+          "package": "linux",
+          "priority": "medium",
+          "source": {
+            "feed": "ubuntu-security-api",
+            "reviewedAt": "2026-10-23",
+            "url": "https://ubuntu.com/security/CVE-2026-99999"
+          },
+          "status": "pending"
+        },
         "linuxFragnesiaNvidia617": {
           "cve": "CVE-2026-46300",
           "relatedCves": [
@@ -1197,6 +1227,24 @@
       "advisory": "https://ubuntu.com/security/notices",
       "kind": "distroPackages",
       "packages": {
+        "linuxPwnescape": {
+          "cve": "CVE-2026-99999",
+          "fixAvailability": {
+            "status": "unconfirmed",
+            "feed": "ubuntu-security-api",
+            "version": "7.0.0-43.43i1",
+            "url": "https://ubuntu.com/security/CVE-2026-99999"
+          },
+          "fixed": "7.0.0-43.43i1",
+          "package": "linux",
+          "priority": "medium",
+          "source": {
+            "feed": "ubuntu-security-api",
+            "reviewedAt": "2026-10-23",
+            "url": "https://ubuntu.com/security/CVE-2026-99999"
+          },
+          "status": "pending"
+        },
         "linuxBadEpoll": {
           "cve": "CVE-2026-46242",
           "fixAvailability": {

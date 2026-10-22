@@ -914,7 +914,7 @@ RULES: tuple[Rule, ...] = (
     # --- Containers -------------------------------------------------------
     Rule(
         "security.pwnescape.status",
-        "Running upstream kernel is below the PwnEscape minimum version",
+        "Running kernel does not meet the upstream or vendor PwnEscape patch requirements",
         VERSION,
         _status_is("fail"),
         cves=("CVE-2026-99999",),
