@@ -236,3 +236,316 @@ def test_full_report_preserves_pwnescape_scope(guest, expected):
     assert check.status == expected
     assert "CVE-2026-99999" in check.observed
     assert "6.12.113" in check.observed
+
+
+# --- Fleet coverage: every worker and control-plane host -------------------
+
+SECURITY_SCRIPT = WORKLOAD / "cluster-audit-slurm-security.sh"
+FLEET_HELPERS = ("add_pwnescape_host_record", "apply_pwnescape_fleet")
+
+
+def fact_text(version="6.12.113", host="node"):
+    return "\n".join(
+        f"{key}={value}"
+        for key, value in {"WORKER_HOSTNAME": host, **facts(version)}.items()
+    )
+
+
+def host(node, role="worker", version="6.12.113", checked=True):
+    return {
+        "node": node,
+        "role": role,
+        "checked": checked,
+        "facts": fact_text(version, node) if checked else "",
+        "error": None if checked else "unreachable",
+    }
+
+
+CONTROL_FOUND = {"discovered": True, "detail": "found"}
+
+
+def test_host_fact_script_shares_the_host_check_collector():
+    assert bashtest.extract_function(
+        WORKLOAD / "pwnescape-host-facts.sh", "collect_pwnescape_facts"
+    ) == bashtest.extract_function(WORKLOAD / "host-check.sh", "collect_pwnescape_facts")
+
+
+@pytest.mark.parametrize(
+    "stub,cpuinfo,virt_type,guest",
+    [
+        ("echo kvm; exit 0", "", "kvm", "true"),
+        ("echo none; exit 1", "", "none", "false"),
+        # A failed reading is not bare metal; only the hypervisor flag can decide.
+        ("exit 2", "flags : fpu hypervisor\n", "unknown", "true"),
+        ("exit 2", "flags : fpu\n", "unknown", "unknown"),
+    ],
+)
+def test_host_fact_script_classifies_virtualization(tmp_path, stub, cpuinfo, virt_type, guest):
+    (tmp_path / "proc").mkdir()
+    (tmp_path / "proc/cpuinfo").write_text(cpuinfo)
+    run = bashtest.run_bash(
+        f'bash "{WORKLOAD}/pwnescape-host-facts.sh"',
+        stubs={"systemd-detect-virt": stub},
+        env={"CLUSTERMAX_AUDIT_ROOT": str(tmp_path)},
+    )
+    assert run.returncode == 0, run.stderr
+    collected = dict(line.split("=", 1) for line in run.stdout.splitlines())
+    assert collected["WORKER_GUEST_KERNEL_RUNNING"] not in {"", "unknown"}
+    assert collected["WORKER_VIRT_TYPE"] == virt_type
+    assert collected["WORKER_VIRT_GUEST"] == guest
+
+
+def test_fleet_passes_only_when_every_worker_and_control_plane_host_passes():
+    value = pwnescape.grade_fleet(
+        [host("gpu-1"), host("gpu-2"), host("cp-1", "control-plane")], CONTROL_FOUND
+    )
+    assert value["status"] == "pass"
+    assert value["coverageComplete"] is True
+    assert value["nodesChecked"] == value["nodesTotal"] == 3
+    assert value["controlPlane"]["hosts"] == ["cp-1"]
+
+
+@pytest.mark.parametrize("role", ["worker", "control-plane", "login"])
+def test_one_unpatched_host_fails_the_fleet(role):
+    value = pwnescape.grade_fleet(
+        [host("gpu-1"), host("cp-1", "control-plane"), host("bad", role, "6.12.112")],
+        CONTROL_FOUND,
+    )
+    assert value["status"] == "fail"
+    assert value["failingNodes"] == ["bad"]
+    assert value["runningKernel"] == "6.12.112"
+    assert "bad" in value["reason"]
+
+
+def test_failure_outranks_an_incomplete_fleet():
+    value = pwnescape.grade_fleet(
+        [host("gpu-1", version="6.12.112"), host("gpu-2", checked=False)], {"discovered": False}
+    )
+    assert value["status"] == "fail"
+    assert value["unassessedNodes"] == ["gpu-2"]
+
+
+@pytest.mark.parametrize(
+    "hosts,control",
+    [
+        ([host("gpu-1"), host("gpu-2", checked=False), host("cp-1", "control-plane")], CONTROL_FOUND),
+        ([host("gpu-1"), host("cp-1", "control-plane", checked=False)], CONTROL_FOUND),
+        ([host("gpu-1")], {"discovered": False, "detail": "Managed control plane."}),
+        ([host("gpu-1")], CONTROL_FOUND),
+        ([], CONTROL_FOUND),
+    ],
+)
+def test_unread_hosts_and_hidden_control_planes_block_a_pass(hosts, control):
+    value = pwnescape.grade_fleet(hosts, control)
+    assert value["status"] == "coverage-incomplete"
+    assert value["coverageComplete"] is False
+    assert "evidence" in value["reason"]
+
+
+def test_partial_fact_block_is_unassessed_not_graded():
+    partial = {**host("gpu-1"), "facts": "WORKER_HOSTNAME=gpu-1\n"}
+    value = pwnescape.grade_fleet([partial, host("cp-1", "control-plane")], CONTROL_FOUND)
+    assert value["status"] == "coverage-incomplete"
+    assert value["unassessedNodes"] == ["gpu-1"]
+
+
+def test_distribution_kernels_across_a_complete_fleet_need_vendor_evidence():
+    value = pwnescape.grade_fleet(
+        [host("gpu-1", version="6.8.0-106-generic"), host("cp-1", "control-plane")], CONTROL_FOUND
+    )
+    assert value["status"] == "unknown"
+    assert value["runningKernels"] == ["6.12.113", "6.8.0-106-generic"]
+    assert "gpu-1" in value["reason"]
+
+
+def test_fleet_cli_reads_the_collector_document():
+    document = {"hosts": [host("gpu-1", version="6.12.112")], "controlPlane": CONTROL_FOUND}
+    output = subprocess.check_output(
+        [sys.executable, str(WORKLOAD / "pwnescape.py"), "--fleet"],
+        input=json.dumps(document), text=True,
+    )
+    assert json.loads(output)["status"] == "fail"
+
+
+K8S_NODES = {
+    "items": [
+        {"metadata": {"name": "cp-1", "labels": {"node-role.kubernetes.io/control-plane": ""}}},
+        {"metadata": {"name": "gpu-1", "labels": {}}},
+        {"metadata": {"name": "gpu-2", "labels": {}}},
+        {"metadata": {"name": "broken", "labels": {}}},
+    ]
+}
+
+
+def run_k8s_fleet(nodes, bad_kernel_node=""):
+    workers = [
+        item for item in nodes["items"]
+        if "node-role.kubernetes.io/control-plane" not in item["metadata"]["labels"]
+    ]
+    functions = "\n".join(
+        bashtest.extract_function(SECURITY_SCRIPT, name)
+        for name in (*FLEET_HELPERS, "k8s_pwnescape_record_for_current_pod",
+                     "k8s_node_role", "k8s_bmc_unchecked_record", "collect_k8s_host_fleet")
+    )
+    script = (
+        'print_info() { :; }\ncleanup_k8s_security_pod() { :; }\n'
+        'create_k8s_security_pod() { K8S_SECURITY_NODE="$1"; [[ "$1" != broken ]]; }\n'
+        'k8s_bmc_record_for_current_pod() { printf \'{"node":"%s","checked":true,"exposed":false}\' "$1"; }\n'
+        'run_k8s_security_script() {\n  cat >/dev/null\n'
+        '  kernel=6.12.113; [[ "$K8S_SECURITY_NODE" == "$BAD_NODE" ]] && kernel=6.12.112\n'
+        '  printf "WORKER_HOSTNAME=%s\\nWORKER_GUEST_KERNEL_RUNNING=%s\\nWORKER_VIRT_GUEST=false\\n'
+        'WORKER_VIRT_TYPE=none\\nWORKER_PWNESCAPE_LIVEPATCH=none\\n" "$K8S_SECURITY_NODE" "$kernel"\n}\n'
+        + functions
+        + 'K8S_SECURITY_NODE=gpu-1\nPWNESCAPE_HOST_RECORDS=""\n'
+        'SECURITY_ADVISORY_JSON=\'{"pwnescape": {"status": "pass", "scope": "sampled-worker"}}\'\n'
+        'collect_k8s_host_fleet\napply_pwnescape_fleet\n'
+        'printf "%s\\n" "$K8S_BMC_IPMI_JSON" "$SECURITY_ADVISORY_JSON" | jq -cs .\n'
+    )
+    run = bashtest.run_bash(script, env={
+        "WORKLOAD_DIR": str(WORKLOAD),
+        "K8S_SECURITY_NODES_JSON": json.dumps(nodes),
+        "K8S_SECURITY_WORKER_NODES_JSON": json.dumps(workers or nodes["items"]),
+        "BAD_NODE": bad_kernel_node,
+    })
+    assert run.returncode == 0, run.stderr
+    bmc, advisory = json.loads(run.stdout)
+    return bmc, advisory["pwnescape"]
+
+
+def test_k8s_reads_every_node_including_the_control_plane():
+    bmc, value = run_k8s_fleet(K8S_NODES)
+    roles = {entry["node"]: (entry["role"], entry["checked"]) for entry in value["hosts"]}
+    assert roles == {
+        "gpu-1": ("worker", True),
+        "cp-1": ("control-plane", True),
+        "gpu-2": ("worker", True),
+        "broken": ("worker", False),
+    }
+    assert value["scope"] == "fleet"
+    assert value["status"] == "coverage-incomplete"
+    assert value["unassessedNodes"] == ["broken"]
+    # The BMC probe keeps its worker-only scope.
+    assert [entry["node"] for entry in bmc["hosts"]] == ["gpu-1", "gpu-2", "broken"]
+
+
+def test_k8s_control_plane_kernel_failure_fails_the_check():
+    _, value = run_k8s_fleet(K8S_NODES, bad_kernel_node="cp-1")
+    assert value["status"] == "fail"
+    assert value["failingNodes"] == ["cp-1"]
+
+
+def test_k8s_managed_control_plane_never_passes():
+    nodes = {"items": [item for item in K8S_NODES["items"] if item["metadata"]["name"] in {"gpu-1", "gpu-2"}]}
+    _, value = run_k8s_fleet(nodes)
+    assert value["nodesChecked"] == 2
+    assert value["controlPlane"]["discovered"] is False
+    assert value["status"] == "coverage-incomplete"
+    assert "managed control plane" in value["reason"]
+
+
+def run_slurm_fleet(tmp_path, ssh_body="exit 255", bad_node=""):
+    facts_script = (
+        'kernel=6.12.113; [[ "$(hostname)" == "$BAD_NODE" ]] && kernel=6.12.112\n'
+        'printf "WORKER_HOSTNAME=%s\\nWORKER_GUEST_KERNEL_RUNNING=%s\\nWORKER_VIRT_GUEST=false\\n'
+        'WORKER_VIRT_TYPE=none\\nWORKER_PWNESCAPE_LIVEPATCH=none\\n" "$(hostname)" "$kernel"\n'
+    )
+    workload = tmp_path / "workload"
+    workload.mkdir()
+    (workload / "pwnescape-host-facts.sh").write_text(facts_script)
+    (workload / "pwnescape.py").symlink_to(WORKLOAD / "pwnescape.py")
+    remote = (
+        'cat >/dev/null\nkernel=6.12.113; [[ "$NODE" == "$BAD_NODE" ]] && kernel=6.12.112\n'
+        'printf "WORKER_HOSTNAME=%s\\nWORKER_GUEST_KERNEL_RUNNING=%s\\nWORKER_VIRT_GUEST=false\\n'
+        'WORKER_VIRT_TYPE=none\\nWORKER_PWNESCAPE_LIVEPATCH=none\\n" "$NODE" "$kernel"\n'
+    )
+    functions = "\n".join(
+        bashtest.extract_function(SECURITY_SCRIPT, name)
+        for name in (*FLEET_HELPERS, "slurm_control_hosts",
+                     "slurm_pwnescape_facts_on_node", "collect_slurm_pwnescape_fleet")
+    )
+    run = bashtest.run_bash(
+        'print_info() { :; }\nAUDIT_SRUN_FLAGS=()\n' + functions
+        + 'PWNESCAPE_HOST_RECORDS=""\n'
+        'SECURITY_ADVISORY_JSON=\'{"pwnescape": {"status": "pass", "scope": "sampled-worker"}}\'\n'
+        'collect_slurm_pwnescape_fleet\napply_pwnescape_fleet\n'
+        'jq -c .pwnescape <<< "$SECURITY_ADVISORY_JSON"\n',
+        stubs={
+            "hostname": "echo login-1",
+            "sinfo": "printf 'gpu-1|gpu*\\ngpu-2|gpu\\ngpu-1|debug\\n'",
+            "scontrol": (
+                "printf 'SlurmctldHost[0]        = ctl-1(10.0.0.1)\\n"
+                "AccountingStorageHost   = gpu-2\\nClusterName = test\\n'"
+            ),
+            "srun": 'while [[ $# -gt 0 && "$1" != -w ]]; do shift; done\nNODE="$2"\n' + remote,
+            "ssh": 'NODE=ctl-1\n' + ssh_body,
+        },
+        # One worker at a time keeps the stub call logs from interleaving.
+        env={
+            "WORKLOAD_DIR": str(workload), "BAD_NODE": bad_node, "SLURM_JOB_ID": "",
+            "CLUSTERMAX_AUDIT_PWNESCAPE_CONCURRENCY": "1",
+        },
+    )
+    assert run.returncode == 0, run.stderr
+    return run, json.loads(run.stdout)
+
+
+def test_slurm_reads_compute_login_and_controller_hosts(tmp_path):
+    run, value = run_slurm_fleet(tmp_path)
+    roles = sorted((entry["node"], entry["role"], entry["checked"]) for entry in value["hosts"])
+    assert roles == [
+        ("ctl-1", "control-plane", False),
+        ("gpu-1", "worker", True),
+        ("gpu-2", "control-plane", True),
+        ("gpu-2", "worker", True),
+        ("login-1", "login", True),
+    ]
+    assert value["status"] == "coverage-incomplete"
+    assert value["unassessedNodes"] == ["ctl-1"]
+    srun_calls = run.calls("srun")
+    assert sorted(call[call.index("-w") + 1] for call in srun_calls) == ["gpu-1", "gpu-2"]
+    assert all("--immediate=30" in call for call in srun_calls)
+    for call in srun_calls:
+        # The first listed partition wins, with the default marker removed.
+        assert call[call.index("-p") + 1] == "gpu"
+    assert "BatchMode=yes" in run.calls("ssh")[0]
+
+
+def test_slurm_fleet_passes_when_ssh_reaches_the_controller(tmp_path):
+    _, value = run_slurm_fleet(tmp_path, ssh_body=bashtest.exec_from("bash").replace(
+        'exec "$@"', 'cat >/dev/null; printf "WORKER_HOSTNAME=ctl-1\\nWORKER_GUEST_KERNEL_RUNNING=6.12.113\\n'
+        'WORKER_VIRT_GUEST=false\\nWORKER_VIRT_TYPE=none\\nWORKER_PWNESCAPE_LIVEPATCH=none\\n"'))
+    assert value["status"] == "pass"
+    assert value["controlPlane"]["coverageComplete"] is True
+
+
+def test_slurm_unpatched_compute_node_fails(tmp_path):
+    _, value = run_slurm_fleet(tmp_path, bad_node="gpu-1")
+    assert value["status"] == "fail"
+    assert value["failingNodes"] == ["gpu-1"]
+
+
+def test_fleet_report_names_failing_and_unread_hosts():
+    value = pwnescape.grade_fleet(
+        [host("gpu-1"), host("cp-1", "control-plane", "6.12.112"), host("gpu-2", checked=False)],
+        CONTROL_FOUND,
+    )
+    check = next(c for c in security.evaluate_security({"security": {"pwnescape": value}}) if c.id == "pwnescape")
+    assert check.status == security.CRITICAL
+    assert "hosts checked 2/3" in check.observed
+    assert "control plane checked 1/1" in check.observed
+    assert "failing cp-1" in check.observed
+    assert "unassessed gpu-2" in check.observed
+    checks = audit_report.evaluate({"audit_data": {"security": {"pwnescape": value}}}, ROOT / "cmax")
+    report = next(c for c in checks if c.key == "security.pwnescape.status")
+    assert report.status == audit_report.FAIL
+    assert "failing cp-1" in report.observed
+
+
+def test_coverage_incomplete_report_requests_provider_evidence():
+    value = {"status": "coverage-incomplete", "controlPlaneVisible": False}
+    checks = audit_report.evaluate({"audit_data": {"security": {"pwnescape": value}}}, ROOT / "cmax")
+    report = next(c for c in checks if c.key == "security.pwnescape.status")
+    assert report.status == audit_report.WARNING
+    assert "not a pass" in report.assessment
+    assert "control-plane" in report.recommendation
+    assert "Correct the reported configuration" not in report.recommendation

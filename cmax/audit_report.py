@@ -122,7 +122,7 @@ _PASS_ASSESSMENTS = {
         "The running distribution kernel meets the Bad Epoll fixed package minimum."
     ),
     "security.pwnescape.status": (
-        "The sampled physical host meets the upstream PwnEscape running-kernel minimum."
+        "Every audited worker and control-plane host meets the upstream PwnEscape running-kernel minimum."
     ),
     "containers.nvidiaContainerToolkit": (
         "The worker has NVIDIA Container Toolkit support."
@@ -326,8 +326,9 @@ _REPRODUCTION_COMMANDS = {
     "security.fragnesia.status": "on the audited worker: `uname -r`",
     "security.ubuntuNobleKernelMinimum.status": "on the audited worker: `uname -r`",
     "security.pwnescape.status": (
-        "on the audited worker: `uname -r`; inspect `/sys/kernel/livepatch`; "
-        "request provider patch evidence when the physical host is hidden"
+        "on every worker and control-plane host: `uname -r`; inspect "
+        "`/sys/kernel/livepatch`; request provider patch evidence for each host "
+        "that the audit could not read or that runs inside a guest"
     ),
     "security.badEpoll.status": (
         "on the audited worker: `uname -r`; `cat /proc/version_signature`; "
@@ -554,11 +555,16 @@ def _version_observation(audit: dict[str, Any], key: str, value: Any) -> Any:
     if key == "security.pwnescape.status":
         advisory = _nested(audit, "security.pwnescape")
         if isinstance(advisory, dict):
+            from cmax import security
             return (
                 f"observed version {advisory.get('runningKernel', 'unknown')}; "
                 f"minimum version {advisory.get('minimum', 'unknown')}; "
                 f"local status {advisory.get('localKernelStatus', 'unknown')}; "
-                f"CVE-2026-99999; {advisory.get('reason', '')}"
+                + (
+                    f"{security.pwnescape_fleet_coverage(advisory)}; "
+                    if advisory.get("scope") == "fleet" else ""
+                )
+                + f"CVE-2026-99999; {advisory.get('reason', '')}"
             )
     if key == "security.badEpoll.status":
         advisory = _nested(audit, "security.badEpoll")

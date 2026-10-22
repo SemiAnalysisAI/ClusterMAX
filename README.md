@@ -344,6 +344,17 @@ pod can reach the same local management interface. The check examines up to 32
 worker nodes by default. Set `CLUSTERMAX_AUDIT_K8S_BMC_NODE_LIMIT` to a larger
 positive integer when a larger fleet requires complete coverage.
 
+The focused security audit (`cmax audit security`) grades host-level minimums
+on every GPU host, not only the sampled worker: the GPU driver, NVIDIA
+Container Toolkit, runc, Docker, ConnectX firmware, DCGM, and the kernel
+advisories. Each check reports the worst host, names it, and lists every host's
+result. ConnectX devices are listed as `host/device`. A GPU host the audit
+cannot read leaves a passing check unknown. Kubernetes reuses the BMC host-root
+pod on each node; Slurm runs a short one-GPU step on each GPU node with
+`--immediate=30`, so a busy node is reported as unread instead of waiting. Up
+to 32 GPU hosts are read by default; set `CLUSTERMAX_AUDIT_SECURITY_HOST_LIMIT`
+for larger fleets.
+
 Kubernetes full, security, and isolation audits also inspect ClusterRoles and
 ClusterRoleBindings for `get` permission on `nodes/proxy`. The report identifies
 the subjects, roles, bindings, and node-name restrictions, including wildcard

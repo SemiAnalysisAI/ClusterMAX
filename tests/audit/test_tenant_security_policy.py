@@ -145,13 +145,13 @@ def test_nvlink_requires_topology_and_ownership(complete, exclusive, expected):
     ("allowed", "error-response", True, True),
 ])
 def test_bmc_error_response_is_scoped_no_usable_read(mc, chassis, checked, exposed):
-    function = (WORK / "cluster-audit-slurm-security.sh").read_text().split(
-        "k8s_bmc_record_for_current_pod() {", 1
-    )[1].split("\ncollect_k8s_bmc_fleet()", 1)[0]
+    function = bashtest.extract_function(
+        WORK / "cluster-audit-slurm-security.sh", "k8s_bmc_record_for_current_pod"
+    )
     script = (
         'run_k8s_security_script() { cat >/dev/null; '
         f'printf "DEVICE=true\\nPATH=/usr/bin/ipmitool\\nINSTALLED=true\\nMC={mc}\\nCHASSIS={chassis}\\n"; }}\n'
-        + "k8s_bmc_record_for_current_pod() {" + function
+        + function
         + '\nk8s_bmc_record_for_current_pod test-node\n'
     )
     result = bashtest.run_bash(script)
