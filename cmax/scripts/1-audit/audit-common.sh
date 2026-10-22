@@ -1622,6 +1622,9 @@ ${security_advisory_json}
       "topologyCoverageComplete": ${nvlink_topology_coverage_complete},
       "nvidiaGpuPresent": $(json_bool_or_unknown "${WORKER_SECURITY_NVIDIA_GPU_PRESENT:-unknown}"),
       "targetIsVm": $(json_bool_or_unknown "${WORKER_VIRT_GUEST:-unknown}"),
+      "allHostGpusVisible": $(json_bool_or_unknown "${WORKER_NVLINK_ALL_HOST_GPUS_VISIBLE:-unknown}"),
+      "hostGpuCount": "${WORKER_NVLINK_HOST_GPU_COUNT:-unknown}",
+      "visibleGpuCount": "${WORKER_NVLINK_VISIBLE_GPU_COUNT:-unknown}",
       "domainExclusive": $(json_bool_or_unknown "${CLUSTERMAX_NVLINK_DOMAIN_EXCLUSIVE_ATTESTED:-unknown}"),
       "domainExclusivitySource": "operator-attestation"
     },

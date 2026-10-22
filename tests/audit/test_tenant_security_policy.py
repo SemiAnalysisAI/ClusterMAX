@@ -160,3 +160,36 @@ def test_bmc_error_response_is_scoped_no_usable_read(mc, chassis, checked, expos
     assert record["checked"] is checked
     assert record["exposed"] is exposed
     assert record["errorResponseIsAccessDenial"] is False
+
+
+
+def _nvlink_with(**boundary):
+    audit = {"security": {
+        "nvlinkBoundary": {
+            "nvlinkExposed": False, "topologyChecked": True,
+            "topologyCoverageComplete": True, "nvidiaGpuPresent": True,
+            "targetIsVm": False, **boundary,
+        },
+        "virtualization": {"guest": False, "type": "none"},
+    }}
+    return security._nvlink_boundary(audit)
+
+
+def test_container_seeing_some_host_gpus_cannot_clear_nvlink():
+    status, observed, detail = _nvlink_with(
+        allHostGpusVisible=False, hostGpuCount="4", visibleGpuCount="1")
+    assert status == security.WARNING
+    assert "host GPUs visible=1 of 4" in observed
+    assert "other tenants" in detail
+
+
+@pytest.mark.parametrize("boundary", [
+    {"allHostGpusVisible": True, "hostGpuCount": "4", "visibleGpuCount": "4"},
+    {},
+])
+def test_whole_host_view_or_no_visibility_evidence_keeps_not_applicable(boundary):
+    assert _nvlink_with(**boundary)[0] == security.NOT_APPLICABLE
+
+
+def test_visible_nvlink_is_still_reported_with_partial_view():
+    assert _nvlink_with(nvlinkExposed=True, allHostGpusVisible=False)[0] == security.WARNING
