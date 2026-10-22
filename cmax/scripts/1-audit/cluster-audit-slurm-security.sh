@@ -666,7 +666,8 @@ collect_slurm_pwnescape_fleet() {
 slurm_security_script_on_node() {
     local node="$1" partition="$2" script="$3" limit="$4"
     if [[ -n "${SLURM_JOB_ID:-}" && "$SLURM_ALLOCATION_NODES" == *$'\n'"$node"$'\n'* ]]; then
-        srun "${AUDIT_SRUN_FLAGS[@]}" -N1 --ntasks=1 -w "$node" --gres=gpu:1 \
+        srun "${AUDIT_SRUN_FLAGS[@]}" -N1 --ntasks=1 -w "$node" \
+            --gres=gpu:"$(slurm_job_gpus_per_node "$node")" \
             --time="$limit" env CLUSTERMAX_AUDIT_SCOPE=security CLUSTERMAX_AUDIT_HARNESS=slurm \
             bash -s < "$WORKLOAD_DIR/$script" 2>/dev/null
     else
