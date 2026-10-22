@@ -2,8 +2,8 @@
 
 This stack adds the full audit scope identified for public release.
 The 0.3.0 release scope is #41 and every PR in the table below.
-Each user-facing PR adds its own entry to `docs/releases/0.3.0.md`.
-#70 changes only tests, so it has no release-note entry.
+Each user-facing PR adds its own entry to `docs/releases/0.3.0.md`; #70 also
+adds the entry for #74.
 It follows the existing [0.3.0 release PR #41](https://github.com/SemiAnalysisAI/ClusterMAX/pull/41).
 Each PR targets the preceding branch so its diff contains one feature.
 Review and merge dependencies in the order below, retargeting each PR after its
@@ -11,6 +11,7 @@ base lands. Do not merge the final branch wholesale to bypass the individual rev
 
 | PR | Scope |
 |---|---|
+| [#74](https://github.com/SemiAnalysisAI/ClusterMAX/pull/74) | Read-only Kubernetes audit RBAC fix (based on `master`, independent of the stack) |
 | [#42](https://github.com/SemiAnalysisAI/ClusterMAX/pull/42) | Streamed worker transport, vendor-scoped GPU discovery, CI for the stack |
 | [#43](https://github.com/SemiAnalysisAI/ClusterMAX/pull/43) | Tenant GPU pod defaults and admission |
 | [#44](https://github.com/SemiAnalysisAI/ClusterMAX/pull/44) | Kubernetes scheduling policy inventory |
@@ -23,22 +24,15 @@ base lands. Do not merge the final branch wholesale to bypass the individual rev
 | [#65](https://github.com/SemiAnalysisAI/ClusterMAX/pull/65) | PwnEscape coverage of every worker and control-plane host (based on #50) |
 | [#71](https://github.com/SemiAnalysisAI/ClusterMAX/pull/71) | Host-level security minimums graded on every GPU host (based on #65) |
 | [#69](https://github.com/SemiAnalysisAI/ClusterMAX/pull/69) | NVIDIA GA firmware ranges for every listed NIC and DPU family (based on #50) |
-| [#70](https://github.com/SemiAnalysisAI/ClusterMAX/pull/70) | Test consolidation only, not user facing (based on #69) |
+| [#70](https://github.com/SemiAnalysisAI/ClusterMAX/pull/70) | Test consolidation, shared Kubernetes node listing, comment cleanup (based on #69) |
+
+Merge order: #74, #41, #42 through #50, #65, #71, #69, #70.
 
 ## Validation
 
-The combined code at `3ada9a9255adbbf7999d202544706b1bf5964fd5` passed:
-
-- 1,926 Python tests and 868 subtests under Python 3.12.
-- Wheel and source-archive construction with the installed build backend.
-- Twine metadata checks for both artifacts using the pinned release toolchain.
-- A clean wheel install under Python 3.14, CLI version and help, and the full
-  and security check inventories.
-- Import checks for the installed observability and new host collectors.
-
-The packaged inventory contains 75 full-audit checks and 20 security checks.
-RDMA plane records remain structured evidence rather than an additional scored
-check. CI results and review findings remain on each PR.
+Every branch passes its full test suite and the public-data check at its
+current head, and so does the combined stack merged with #74. CI results and
+review findings remain on each PR.
 
 ## Release boundaries
 
