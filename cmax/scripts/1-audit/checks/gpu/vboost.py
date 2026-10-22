@@ -21,6 +21,9 @@ KUBECTL_TIMEOUT_S = 60
 MAX_OUTPUT_CHARS = 4000
 
 _VBOOST_UNSUPPORTED_GPU_RE = re.compile(r"\bg?b300\b", re.IGNORECASE)
+# nvidia-smi prints this when the process can see no GPU at all, for example a
+# Slurm step in an allocation that did not request GPUs. That is not a denial.
+_NO_GPU_VISIBLE_RE = re.compile(r"\bno devices (?:were )?found\b", re.IGNORECASE)
 
 # Namespaces the NVIDIA GPU Operator installs into, in the same order the k8s
 # collector and the nic-topology check scan them.
@@ -71,6 +74,14 @@ def display_command(command: list[str]) -> str:
 
 def is_vboost_unsupported_model(model: str) -> bool:
     return bool(_VBOOST_UNSUPPORTED_GPU_RE.search(model))
+
+
+def failure_status(proc: subprocess.CompletedProcess[str]) -> str:
+    """Classify a failed vboost command: no visible GPU, or a real denial."""
+    output = f"{proc.stdout or ''}\n{proc.stderr or ''}"
+    if _NO_GPU_VISIBLE_RE.search(output):
+        return "no_gpu_visible"
+    return "denied"
 
 
 def vboost_command(which: Which = shutil.which, euid: Callable[[], int] = os.geteuid) -> tuple[list[str] | None, str]:
@@ -144,7 +155,7 @@ def local_vboost_result(
     return {
         "host": hostname(),
         "allowed": allowed,
-        "status": "allowed" if allowed else "denied",
+        "status": "allowed" if allowed else failure_status(proc),
         "method": method,
         "command": display_command(command),
         "exit_code": proc.returncode,
@@ -159,23 +170,28 @@ def slurm_vboost_results(
     runner: Runner = subprocess.run,
     which: Which = shutil.which,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    if not env.get("SLURM_JOB_ID") or not which("srun"):
-        return [], None
+    if not env.get("SLURM_JOB_ID"):
+        return [], {
+            "status": "slurm_unavailable",
+            "message": "SLURM_JOB_ID is not set; no compute node was checked for vboost",
+        }
+    if not which("srun"):
+        return [], {
+            "status": "slurm_unavailable",
+            "message": "srun is not available; no compute node was checked for vboost",
+        }
 
     node_count = env.get("SLURM_NNODES") or "1"
-    command = [
-        "srun",
-        "--overlap",
-        "-N",
-        node_count,
-        "--ntasks-per-node=1",
-        "python3",
-        str(Path(__file__).resolve()),
-        "--worker",
-    ]
+    fanout = load_fanout()
+    command = fanout.slurm_python_command(
+        node_count=node_count,
+        worker_args=["--worker"],
+        gpus_per_node=fanout.slurm_gpus_per_node(env, runner),
+    )
     try:
         proc = runner(
             command,
+            input=Path(__file__).read_text(),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -197,6 +213,15 @@ def slurm_vboost_results(
             "exit_code": proc.returncode,
             "stdout": clipped(proc.stdout),
             "stderr": clipped(proc.stderr),
+        }
+    if not results:
+        return [], {
+            "status": "slurm_empty",
+            "command": display_command(command),
+            "exit_code": proc.returncode,
+            "stdout": clipped(proc.stdout),
+            "stderr": clipped(proc.stderr),
+            "message": "srun returned no worker vboost result",
         }
     return results, None
 
@@ -294,7 +319,7 @@ def k8s_vboost_node(namespace: str, node: str, *, runner: Runner) -> tuple[dict[
     return {
         "host": node,
         "allowed": allowed,
-        "status": "allowed" if allowed else "denied",
+        "status": "allowed" if allowed else failure_status(proc),
         "method": "k8s-driver-pod",
         "command": " ".join(command),
         "exit_code": proc.returncode,
@@ -351,7 +376,9 @@ def aggregate_status(nodes: list[dict[str, Any]]) -> str:
         # wrong-arch binary that raised OSError, or a timeout): the control was
         # never exercised, so this is missing data, not a provider denial.
         statuses = {str(node.get("status") or "") for node in nodes}
-        if statuses and statuses <= {"nvidia_smi_missing", "nvidia_smi_error", "timeout"}:
+        if statuses and statuses <= {
+            "nvidia_smi_missing", "nvidia_smi_error", "no_gpu_visible", "timeout",
+        }:
             return "unavailable"
         return "denied"
     return "partial"
@@ -388,21 +415,15 @@ def build_check_payload(
 
     if harness == "slurm":
         nodes, error = slurm_vboost_results(env=env, runner=runner, which=which)
-        if nodes:
-            mode = "slurm"
-        else:
-            if error:
-                errors.append(error)
-            nodes = [local_vboost_result(runner=runner, which=which)]
+        mode = "slurm"
+        if error:
+            errors.append(error)
     elif harness == "k8s":
         k8s_nodes, k8s_errors = k8s_vboost_results(env=env, runner=runner)
         for message in k8s_errors:
             errors.append({"status": "k8s", "message": message})
-        if k8s_nodes:
-            mode = "k8s"
-            nodes = k8s_nodes
-        else:
-            nodes = [local_vboost_result(runner=runner, which=which)]
+        mode = "k8s"
+        nodes = k8s_nodes
     else:
         nodes = [local_vboost_result(runner=runner, which=which)]
 

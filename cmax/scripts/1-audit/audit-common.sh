@@ -975,6 +975,99 @@ count_snodes_states() {
     ' <<< "$snodes_out"
 }
 
+scontrol_node_inventory() {
+    # Preserve partition membership from each one-line node record.
+    awk '
+        {
+            delete fields
+            for (i = 1; i <= NF; i++) {
+                equal = index($i, "=")
+                if (equal > 0) fields[substr($i, 1, equal - 1)] = substr($i, equal + 1)
+            }
+            if (fields["NodeName"] == "") next
+            gpu = 0
+            count = split(fields["Gres"], gres, ",")
+            for (i = 1; i <= count; i++) {
+                if (match(gres[i], /^gpu(:[A-Za-z0-9_.-]+)?:[0-9]+/)) {
+                    value = substr(gres[i], RSTART, RLENGTH)
+                    sub(/^.*:/, "", value)
+                    gpu += value
+                }
+            }
+            partition = fields["Partitions"]
+            if (partition == "(null)") partition = ""
+            printf "%s|%s|%d|%d|%d|%s\n", fields["NodeName"], fields["State"],
+                fields["CPUTot"], fields["RealMemory"], gpu, partition
+        }
+    ' <<< "${1:-}" | jq -Rn '[inputs | split("|") |
+        {name: .[0], state: .[1], cpus: (.[2] | tonumber),
+         memory: (.[3] | tonumber), gpus: (.[4] | tonumber), partition: .[5]}]'
+}
+
+snodes_inventory() {
+    # This table does not carry GRES counts. Keep unknown distinct from zero.
+    local hostlist state partition hosts host
+    awk 'NR > 1 && NF >= 6 {
+        partition = $1
+        sub(/\*$/, "", partition)
+        printf "%s|%s|%s\n", $6, $5, partition
+    }' <<< "${1:-}" | while IFS='|' read -r hostlist state partition; do
+        [[ "$hostlist" == "(null)" || "$hostlist" == "n/a" ]] && continue
+        hosts="$hostlist"
+        if [[ "$hostlist" == *"["* || "$hostlist" == *","* ]]; then
+            # Hostlist expansion is local to the Slurm client, even when
+            # controller inventory queries are unavailable.
+            hosts=$(scontrol show hostnames "$hostlist" 2>/dev/null) || hosts=""
+        fi
+        while IFS= read -r host; do
+            [[ -n "$host" ]] && printf '%s|%s|%s\n' "$host" "$state" "$partition"
+        done <<< "$hosts"
+    done | jq -Rn '[inputs | split("|") |
+        {name: .[0], state: .[1], partition: .[2], cpus: 0, memory: 0, gpus: null}]'
+}
+
+# Select two usable compute nodes for the worker-to-worker SSH probe. Prefer
+# GPU nodes when the inventory identifies at least two of them. Put the worker
+# that supplied the host check first when it is present in the candidate set.
+select_worker_ssh_nodes() {
+    local nodes_json="${1:-[]}"
+    local preferred_source="${2:-}"
+    # null means a standalone invocation; [] means allocation scope is unknown
+    # or empty, so no worker may be selected.
+    local allocated_nodes_json="${3:-null}"
+    local gpu_partition="${4:-}"
+    jq -r --arg preferred "$preferred_source" --argjson allocated "$allocated_nodes_json" \
+        --arg partition "$gpu_partition" '
+        def usable:
+            ((.state // "") | test("[*~#$!%@^]")) as $flagged
+            | ($flagged | not)
+            and (
+            ((.state // "") | ascii_upcase | split("+")) as $tokens
+            | ($tokens | any(. == "IDLE" or . == "MIXED" or . == "MIX" or . == "ALLOCATED" or . == "ALLOC"))
+            and (($tokens | any(
+                . == "DRAIN" or . == "DRAINED" or . == "DRAINING" or . == "DRNG"
+                or . == "NO_RESPOND" or . == "NOT_RESPONDING"
+                or . == "POWERED_DOWN" or . == "POWERING_DOWN" or . == "POWER_DOWN"
+            )) | not));
+        (if $allocated == null and $partition != "" and $partition != "none"
+         then [.[] | select(((.partition // "") | split(",") | index($partition)) != null)]
+         else . end)
+        | [.[] | select(usable)
+             | select($allocated == null or (.name as $name | $allocated | index($name) != null))] as $usable
+        | [$usable[] | select((.gpus // 0) > 0)] as $gpu
+        | (if ($gpu | length) >= 2 then $gpu else $usable end) as $pool
+        | (if $allocated == null
+           then [$pool[] | select(((.state // "") | ascii_upcase | split("+")[0]) == "IDLE")]
+           else $pool end) as $sources
+        | ($sources | map(.name) | unique) as $source_names
+        | (if ($source_names | index($preferred)) != null then $preferred
+           else $source_names[0] end) as $source
+        | if $source == null then empty
+          else $source, ([$pool[].name | select(. != $source)] | unique | .[0] // empty)
+          end
+    ' <<< "$nodes_json"
+}
+
 select_gpu_partition() {
     local sinfo_rows="${1:-}"
     awk -F'|' '
@@ -1030,6 +1123,125 @@ json_bool_or_unknown() {
     esac
 }
 
+# Query and user-interface ports of multi-tenant metrics backends, with the
+# product behind each one. A query answered on one of these ports can carry
+# another tenant's series, so the security audit checks them.
+CMAX_MONITORING_QUERY_PORTS="3000:grafana 8428:victoriametrics 8481:vmselect 9009:mimir 9090:prometheus 10902:thanos"
+# Per-node exporter ports. Platform evidence only: an exporter publishes its own
+# host's metrics, so it answers no tenancy question and is never checked.
+CMAX_MONITORING_EXPORTER_PORTS="9100:node-exporter 9400:dcgm-exporter"
+# Process comm names that identify a backend, for a containerized or tarball
+# install with no systemd unit and no socket visible to an unprivileged `ss`.
+CMAX_MONITORING_PROCESSES="prometheus:prometheus grafana:grafana grafana-server:grafana thanos:thanos victoria-metrics:victoriametrics vmselect:vmselect mimir:mimir cortex:cortex"
+
+# _cmax_list_add LIST ITEM - print LIST with ITEM appended when it is absent.
+_cmax_list_add() {
+    local list="${1:-}" item="${2:-}"
+    if [[ -z "$item" ]]; then printf '%s' "$list"; return 0; fi
+    case " $list " in
+        *" $item "*) printf '%s' "$list"; return 0 ;;
+    esac
+    printf '%s' "${list:+$list }$item"
+}
+
+# _cmax_json_array_body LIST - print a space-separated list as JSON array items.
+_cmax_json_array_body() {
+    local out="" item
+    for item in ${1:-}; do
+        out="${out:+$out, }\"$item\""
+    done
+    printf '%s' "$out"
+}
+
+# collect_monitoring_evidence LISTEN_ADDRESSES - record monitoring endpoints and
+# platform names in MONITORING_ENDPOINTS / MONITORING_PLATFORMS.
+#
+# A boolean ("prometheus": true) tells the reader a backend exists but gives the
+# security audit nothing to check. The address and the product name make the
+# observability-isolation check work with no operator configuration, and they
+# keep "Grafana is running but did not answer" distinguishable from
+# "no Grafana here". Input is one listen address per line, as `ss -tln` or
+# `netstat -tln` reports it in its Local Address:Port column.
+collect_monitoring_evidence() {
+    local listening="${1:-}"
+    local endpoint_list="" platform_list="" entry port product line token host name
+
+    # Each line may be a bare `addr:port` (the column the collectors extract) or
+    # a complete `ss` / `netstat` row, so every token on the line is considered.
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        for token in $line; do
+            for entry in $CMAX_MONITORING_QUERY_PORTS; do
+                port="${entry%%:*}"
+                product="${entry##*:}"
+                [[ "$token" == *":$port" ]] || continue
+                host="${token%:*}"
+                case "$host" in
+                    ""|"*"|"0.0.0.0"|"::"|"[::]") host="127.0.0.1" ;;
+                esac
+                endpoint_list="$(_cmax_list_add "$endpoint_list" "${host}:${port}")"
+                platform_list="$(_cmax_list_add "$platform_list" "$product")"
+            done
+            for entry in $CMAX_MONITORING_EXPORTER_PORTS; do
+                port="${entry%%:*}"
+                if [[ "$token" == *":$port" ]]; then
+                    platform_list="$(_cmax_list_add "$platform_list" "${entry##*:}")"
+                fi
+            done
+        done
+    done <<< "$listening"
+
+    # `pgrep -x` anchors the whole process name, so a bare name misses the build
+    # suffix that the real binaries carry: VictoriaMetrics ships
+    # victoria-metrics-prod and vmselect-prod. The optional group accepts a build
+    # tag or a version and nothing else, which matches the Python rule in
+    # cmax/obs_discovery.py and still rejects prometheus-node-exporter.
+    #
+    # `pgrep -x` matches the kernel comm, which is capped at 15 characters, so a
+    # longer name arrives truncated and the pattern above can never see it:
+    # victoria-metrics-prod reads as victoria-metric. For a name of 15 or more
+    # characters the truncation is therefore tried as well.
+    for entry in $CMAX_MONITORING_PROCESSES; do
+        name="${entry%%:*}"
+        if pgrep -x "${name}([-_.]?(prod|[0-9][0-9._-]*))?" >/dev/null 2>&1; then
+            platform_list="$(_cmax_list_add "$platform_list" "${entry##*:}")"
+        elif (( ${#name} >= 15 )) && pgrep -x "${name:0:15}" >/dev/null 2>&1; then
+            platform_list="$(_cmax_list_add "$platform_list" "${entry##*:}")"
+        fi
+    done
+
+    MONITORING_ENDPOINTS="$(_cmax_json_array_body "$endpoint_list")"
+    MONITORING_PLATFORMS="$(_cmax_json_array_body "$platform_list")"
+    if [[ -n "$endpoint_list" ]]; then
+        print_detail "monitoring query endpoints: ${endpoint_list}"
+    fi
+    if [[ -n "$platform_list" ]]; then
+        print_detail "monitoring platforms: ${platform_list}"
+    fi
+    return 0
+}
+
+# Worker loopback listeners are not reachable from the controller. Wildcard
+# listeners use the checked worker address, never the controller loopback.
+worker_monitoring_addresses() {
+    local listening="${1:-}" worker="${2:-}" address host port plain_host
+    while IFS= read -r address; do
+        host="${address%:*}"
+        port="${address##*:}"
+        plain_host="${host#[}"
+        plain_host="${plain_host%]}"
+        [[ "$port" =~ ^[0-9]+$ && "$plain_host" =~ ^[[:alnum:]._:%*-]+$ ]] || continue
+        case "$host" in
+            127.*|::1|\[::1\]) continue ;;
+            "*"|"0.0.0.0"|"::"|"[::]")
+                [[ -n "$worker" && "$worker" != "unknown" ]] || continue
+                host="$worker"
+                ;;
+        esac
+        printf '%s:%s\n' "$host" "$port"
+    done <<< "${listening//|/$'\n'}"
+}
+
 gpu_error_scan_script() {
     cat <<'EOF'
 journal_err=$(mktemp) || journal_err=/dev/null
@@ -1064,6 +1276,8 @@ aggregate_gpu_error_history() {
 # Identical across slurm/standalone except the cluster type, so the per-harness
 # collector sets AUDIT_TYPE before calling. (k8s has its own JSON shape.)
 build_audit_json() {
+    local prometheus_json dcgm_exporter_json node_exporter_json grafana_json
+    local ib_sm_key_json ssh_to_compute_json grafana_head_json grafana_worker_json
     local januscape_exposed_json
     local nvlink_topology_coverage_complete=false
     local security_advisory_json
@@ -1073,6 +1287,14 @@ build_audit_json() {
             && "${WORKER_NVLINK_TOPOLOGY_CHECKED:-false}" == "true" ]]; then
         nvlink_topology_coverage_complete=true
     fi
+    prometheus_json=$(json_bool_or_unknown "${PROMETHEUS_DETECTED:-}")
+    dcgm_exporter_json=$(json_bool_or_unknown "${DCGM_EXPORTER_DETECTED:-}")
+    node_exporter_json=$(json_bool_or_unknown "${NODE_EXPORTER_DETECTED:-}")
+    grafana_json=$(json_bool_or_unknown "${GRAFANA_DETECTED:-}")
+    ib_sm_key_json=$(json_bool_or_unknown "${IB_SM_KEY_CONFIGURED:-}")
+    ssh_to_compute_json=$(json_bool_or_unknown "${SSH_TO_COMPUTE:-}")
+    grafana_head_json=$(json_bool_or_unknown "${GRAFANA_HEAD_NODE_DETECTED:-}")
+    grafana_worker_json=$(json_bool_or_unknown "${GRAFANA_WORKER_NODE_DETECTED:-}")
     [[ -n "$security_version_audit_json" ]] || security_version_audit_json="{}"
     security_advisory_json=$(build_security_advisory_json \
         --host-facts "${WORKER_CHECK_OUTPUT:-}" \
@@ -1110,7 +1332,8 @@ build_audit_json() {
     "region": "${GEO_REGION}",
     "country": "${GEO_COUNTRY}",
     "org": "${GEO_ORG}",
-    "coordinates": "${GEO_LOC}"
+    "coordinates": "${GEO_LOC}",
+    "checkScope": "${GEO_CHECK_SCOPE:-unknown}"
   },
   "slurm": {
     "version": "${SLURM_VERSION_NUM}",
@@ -1119,6 +1342,7 @@ build_audit_json() {
     "services": {
       "slurmctld": ${SLURMCTLD_RUNNING},
       "slurmd": ${SLURMD_RUNNING},
+      "slurmdCheckScope": "${SLURMD_CHECK_SCOPE:-unknown}",
       "slurmdbd": ${SLURMDBD_RUNNING}
     },
     "accounting": {
@@ -1248,7 +1472,9 @@ build_audit_json() {
     "cudaVersion": "${NVCC_VERSION}",
     "cuda": {
       "nvccPath": "${NVCC_PATH:-none}",
-      "cudaHome": "${CUDA_HOME_VAL:-none}"
+      "cudaHome": "${CUDA_HOME_VAL:-none}",
+      "cudaHomeSource": "${CUDA_HOME_SOURCE:-unknown}",
+      "cudaHomeExists": ${CUDA_HOME_EXISTS:-false}
     },
     "nccl": {
       "installed": ${NCCL_INSTALLED},
@@ -1360,7 +1586,17 @@ build_audit_json() {
     "utilities": ${NETWORK_UTILITIES_JSON}
   },
   "security": {
-    "ibSmKeyConfigured": ${IB_SM_KEY_CONFIGURED},
+    "ibSmKeyConfigured": ${ib_sm_key_json},
+    "ibSmKeyStatus": "${IB_SM_KEY_STATUS:-unknown}",
+    "ibSmKeyCheckScope": "${IB_SM_KEY_CHECK_SCOPE:-unknown}",
+    "ibControlPlane": {
+      "saqueryStatus": "${WORKER_SAQUERY_STATUS:-not-checked}",
+      "saqueryAccess": "${WORKER_SAQUERY_ACCESS:-unverified}",
+      "saNodeRecords": ${WORKER_SAQUERY_NODE_RECORDS:-0},
+      "sminfoStatus": "${WORKER_SMINFO_STATUS:-not-checked}",
+      "smLid": "${WORKER_SM_LID:-unknown}",
+      "opensmOnCheckedWorker": $(json_bool_or_unknown "${WORKER_OPENSM_RUNNING:-unknown}")
+    },
     "ibPkeyCount": ${IB_PKEY_COUNT},
     "sharpAmKeyConfigured": ${SHARP_AM_KEY_CONFIGURED},
     "ufmSecuredBareMetalCloud": ${UFM_SECURED_PROFILE_JSON},
@@ -1416,13 +1652,19 @@ ${security_advisory_json}
     },
     "nhcInstalled": ${NHC_INSTALLED},
     "nhcPath": "${NHC_PATH:-none}",
+    "nhcCheckScope": "${NHC_CHECK_SCOPE:-unknown}",
     "prologRuntimeSec": "${PROLOG_RUNTIME_SEC}",
     "prologFast": "${PROLOG_FAST}",
     "monitoringStack": {
-      "prometheus": ${PROMETHEUS_DETECTED},
-      "dcgmExporter": ${DCGM_EXPORTER_DETECTED},
-      "nodeExporter": ${NODE_EXPORTER_DETECTED},
-      "grafana": ${GRAFANA_DETECTED}
+      "prometheus": ${prometheus_json},
+      "dcgmExporter": ${dcgm_exporter_json},
+      "nodeExporter": ${node_exporter_json},
+      "grafana": ${grafana_json},
+      "grafanaHeadNode": ${grafana_head_json},
+      "grafanaWorkerNode": ${grafana_worker_json},
+      "exporterCheckScope": "${MONITORING_EXPORTER_CHECK_SCOPE:-unknown}",
+      "endpoints": [${MONITORING_ENDPOINTS:-}],
+      "platforms": [${MONITORING_PLATFORMS:-}]
     },
     "autoRemediation": {
       "configured": ${AUTO_REMEDIATION_CONFIGURED},
@@ -1434,8 +1676,11 @@ ${security_advisory_json}
   "access": {
     "sudoAvailable": ${SUDO_AVAILABLE},
     "passwordlessSsh": "${PASSWORDLESS_SSH}",
-    "sshToComputeNodes": ${SSH_TO_COMPUTE},
+    "sshToComputeNodes": ${ssh_to_compute_json},
     "firstComputeNode": "${FIRST_COMPUTE_NODE}",
+    "sshSourceNode": "${SSH_SOURCE_NODE:-none}",
+    "sshTargetNode": "${SSH_TARGET_NODE:-none}",
+    "sshCheckScope": "${SSH_CHECK_SCOPE:-unverified}",
     "slurmCommandsOk": ${SLURM_CMDS_OK},
     "essentialTools": ${ESSENTIAL_TOOLS_JSON},
     "userManagement": {
