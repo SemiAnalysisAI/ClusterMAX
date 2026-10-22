@@ -695,12 +695,44 @@ def _collect_netdevs_local() -> list:
     return netdevs
 
 
+def host_gpu_visibility(topo: str, pci_root: str = "/sys/bus/pci/devices") -> dict[str, Any]:
+    """Compare the GPUs in the topology with every NVIDIA GPU on the host.
+
+    nvidia-smi inside a container lists only its allocated GPUs, but sysfs PCI
+    is not namespaced and still lists every GPU on the physical host. A GPU
+    this target cannot see may hold a physical NVLink to one of its own GPUs.
+    """
+    header = next((line for line in topo.splitlines() if re.search(r"\bGPU0\b", line)), "")
+    visible = len(set(re.findall(r"\bGPU([0-9]+)\b", header)))
+    host = 0
+    try:
+        for entry in os.listdir(pci_root):
+            base = os.path.join(pci_root, entry)
+            try:
+                with open(os.path.join(base, "vendor")) as fh:
+                    vendor = fh.read().strip()
+                with open(os.path.join(base, "class")) as fh:
+                    pci_class = fh.read().strip()
+            except OSError:
+                continue
+            if vendor == "0x10de" and pci_class.startswith(("0x0300", "0x0302")):
+                host += 1
+    except OSError:
+        return {}
+    if not visible or not host:
+        return {}
+    return {"hostGpuCount": host, "visibleGpuCount": visible,
+            "allHostGpusVisible": visible >= host}
+
+
 def gather(*, runner: Runner = subprocess.run) -> dict:
     topo, topo_error = collect_topo(runner=runner)
     nics = classify_nics(topo, _collect_hcas_local(), _collect_netdevs_local())
     host = os.environ.get("NODE_NAME") or socket.gethostname()
     record: dict[str, Any] = {"host": host, "nics": nics, "topo_collected": topo_error is None}
     record["nvlinkExposed"] = bool(re.search(r"\bNV[0-9]+\b", topo)) if topo_error is None else None
+    if topo_error is None:
+        record.update(host_gpu_visibility(topo))
     if topo_error is not None:
         record["topo_error"] = topo_error
     evidence = collect_plane_evidence(nics, runner=runner)
@@ -1329,6 +1361,8 @@ def build_check_payload(
         "hosts": {
             str(r["host"]): {"checked": r.get("topo_collected") is True,
                              "exposed": r.get("nvlinkExposed"),
+                             **({key: r[key] for key in ("allHostGpusVisible", "hostGpuCount",
+                                                         "visibleGpuCount") if key in r}),
                              **({"applicable": False} if r.get("topo_applicable") is False else {})}
             for r in records if r.get("host")
         },

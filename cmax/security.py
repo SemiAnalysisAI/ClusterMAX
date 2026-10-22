@@ -1054,6 +1054,17 @@ def _nvlink_boundary(audit: dict[str, Any]) -> tuple[str, str, str]:
             "whole-host VM clears a node-local SXM/NVSwitch domain; rack-scale "
             "NVLink requires a tenant-exclusive NVLink partition.",
         )
+    all_visible = boundary.get("allHostGpusVisible")
+    if not_exposed and (all_visible is False or str(all_visible).lower() == "false"):
+        return WARNING, observed + (
+            f"; host GPUs visible={_display(boundary.get('visibleGpuCount'))} of "
+            f"{_display(boundary.get('hostGpuCount'))}"
+        ), (
+            "This target sees only some of the NVIDIA GPUs on its physical host, "
+            "as a container on a shared host does. GPUs assigned to other tenants "
+            "are not visible here, so a physical NVLink to them cannot be ruled "
+            "out. The provider must attest the complete physical domain."
+        )
     if not_exposed and checked and complete and guest is False:
         return (
             NOT_APPLICABLE,
