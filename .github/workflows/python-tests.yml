@@ -45,6 +45,9 @@ jobs:
             pyproject.toml
             .github/requirements/minimum-versions.txt
 
+      - name: Install pinned pip
+        run: python -m pip install "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+
       - name: Select tests
         id: select
         env:
@@ -95,6 +98,7 @@ jobs:
           python -m pip wheel --no-deps --wheel-dir /tmp/clustermax-wheel .
           python -c 'import glob, zipfile; wheel = glob.glob("/tmp/clustermax-wheel/clustermax-*.whl")[0]; names = zipfile.ZipFile(wheel).namelist(); assert not any("__pycache__" in name or name.endswith((".pyc", ".pyo")) for name in names)'
           python -m venv /tmp/clustermax-wheel-venv
+          /tmp/clustermax-wheel-venv/bin/python -m pip install "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
           /tmp/clustermax-wheel-venv/bin/pip install /tmp/clustermax-wheel/clustermax-*.whl
           cd /tmp
           /tmp/clustermax-wheel-venv/bin/cmax audit security --show
