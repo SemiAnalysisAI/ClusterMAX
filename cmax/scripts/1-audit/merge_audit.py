@@ -578,6 +578,11 @@ def build_values(
             boundary["topologyHosts"] = topology["hosts"]
             boundary["topologyChecked"] = any(r.get("checked") is True for r in readings)
             boundary["topologyCoverageComplete"] = topology.get("coverageComplete") is True
+            if any(r.get("allHostGpusVisible") is False for r in readings):
+                partial = next(r for r in readings if r.get("allHostGpusVisible") is False)
+                boundary["allHostGpusVisible"] = False
+                boundary["hostGpuCount"] = partial.get("hostGpuCount", "unknown")
+                boundary["visibleGpuCount"] = partial.get("visibleGpuCount", "unknown")
             boundary["nvlinkExposed"] = (
                 True if any(r.get("exposed") is True for r in readings)
                 else False if boundary["topologyCoverageComplete"]
