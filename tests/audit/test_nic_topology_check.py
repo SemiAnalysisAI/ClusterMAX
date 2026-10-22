@@ -861,3 +861,35 @@ def test_pods_for_a_different_gpu_vendor_cannot_satisfy_the_check(vendor, pod):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _fake_pci(root, devices):
+    for name, (vendor, pci_class) in devices.items():
+        d = root / name
+        d.mkdir()
+        (d / "vendor").write_text(vendor + "\n")
+        (d / "class").write_text(pci_class + "\n")
+
+
+TOPO_ONE_GPU = "\tGPU0\tCPU Affinity\tNUMA Affinity\nGPU0\t X \t0-47\t0\n"
+
+
+def test_host_gpu_visibility_flags_a_container_that_sees_one_of_four(tmp_path):
+    # Four GPUs on the host (one 3D controller), their audio functions, and an
+    # NVSwitch bridge that is not a GPU.
+    _fake_pci(tmp_path, {
+        "0000:aa:00.0": ("0x10de", "0x030000"), "0000:aa:00.1": ("0x10de", "0x040300"),
+        "0000:ab:00.0": ("0x10de", "0x030000"), "0000:ac:00.0": ("0x10de", "0x030200"),
+        "0000:ad:00.0": ("0x10de", "0x030000"), "0000:ae:00.0": ("0x10de", "0x068000"),
+        "0000:af:00.0": ("0x15b3", "0x020700"),
+    })
+    assert nic.host_gpu_visibility(TOPO_ONE_GPU, str(tmp_path)) == {
+        "hostGpuCount": 4, "visibleGpuCount": 1, "allHostGpusVisible": False,
+    }
+
+
+def test_host_gpu_visibility_whole_host_and_unreadable_sysfs(tmp_path):
+    _fake_pci(tmp_path, {"0000:aa:00.0": ("0x10de", "0x030200")})
+    assert nic.host_gpu_visibility(TOPO_ONE_GPU, str(tmp_path))["allHostGpusVisible"] is True
+    assert nic.host_gpu_visibility(TOPO_ONE_GPU, str(tmp_path / "missing")) == {}
+    assert nic.host_gpu_visibility("", str(tmp_path)) == {}
