@@ -1286,18 +1286,11 @@ def k8s_records(
     env: dict[str, str] = os.environ,
     runner: Runner = subprocess.run,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    try:
-        nodes_proc = kubectl(["get", "nodes", "-o", "json"], runner=runner, timeout=45)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return [], [f"kubectl get nodes failed: {exc}"]
-    if nodes_proc.returncode != 0:
-        return [], [f"kubectl get nodes failed: {nodes_proc.stderr.strip()}"]
-    try:
-        nodes_json = json.loads(nodes_proc.stdout)
-    except json.JSONDecodeError as exc:
-        return [], [f"kubectl get nodes returned invalid JSON: {exc}"]
-
-    nodes = load_fanout().k8s_gpu_nodes(nodes_json)
+    fanout = load_fanout()
+    nodes_json, error = fanout.k8s_nodes_json(lambda args: kubectl(args, runner=runner, timeout=45))
+    if nodes_json is None:
+        return [], [error]
+    nodes = fanout.k8s_gpu_nodes(nodes_json)
     if not nodes:
         return [], ["no Kubernetes nodes advertise nvidia.com/gpu or amd.com/gpu capacity"]
 
@@ -1305,12 +1298,8 @@ def k8s_records(
     if not namespaces:
         return [], ["no supported GPU Operator namespace found; cannot reach a system pod for NIC classification"]
 
-    try:
-        max_nodes = int(str(env.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS")))
-    except (TypeError, ValueError):
-        max_nodes = len(nodes)
-
-    return load_fanout().fan_out_k8s(_nic_per_node(namespaces, runner=runner), nodes=nodes, max_nodes=max_nodes)
+    max_nodes = fanout.k8s_max_host_checks(env, len(nodes))
+    return fanout.fan_out_k8s(_nic_per_node(namespaces, runner=runner), nodes=nodes, max_nodes=max_nodes)
 
 
 def build_check_payload(

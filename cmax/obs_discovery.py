@@ -1,11 +1,8 @@
 """Discover the observability backends a tenant can reach, without configuration.
 
-`cmax audit security` used to assess observability tenant isolation only when the
-operator set `CLUSTERMAX_OBS_TARGETS` by hand, so the check reported
-"not assessed" on clusters whose audit had just printed
-"Grafana: detected (port 3000)". This module closes that gap: it finds candidate
-metrics/dashboard backends from evidence that is already on the machine, and it
-names the platform behind each one.
+Finds candidate metrics/dashboard backends for `cmax.obs_check` from evidence
+already on the machine, so `CLUSTERMAX_OBS_TARGETS` is optional, and names the
+platform behind each one.
 
 Three vantages, in descending order of confidence:
 

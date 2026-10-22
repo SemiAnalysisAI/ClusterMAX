@@ -1,22 +1,18 @@
 #!/usr/bin/env python3
-"""Unit tests for the tenant pod defaults check (pure helpers only).
-
-The kubectl plumbing follows the hbm_memory_exposure check verbatim and is
-not exercised here. These tests cover the fact parsing, the capability
-decoding, and the check evaluation, which carry the grading decisions:
-
-- The restricted-runtime fixture (8 MiB memlock,
-  64 MiB /dev/shm, no CAP_IPC_LOCK, no /dev/infiniband, no /dev/gdrdrv)
-  must each produce their warning or absent verdict.
-- No check may ever emit `fail`; the whole check grades at most `warning`.
-"""
+"""Tenant pod parsing, admission, manifests, and report integration."""
 
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
+
+import pytest
+
+from cmax import audit_report, runtime_paths
 
 SCRIPT_DIR = (
     Path(__file__).resolve().parents[2]
@@ -37,10 +33,8 @@ def load_check_module():
 
 
 check = load_check_module()
+REPORT_RUNTIME_ROOT = runtime_paths.package_runtime_root()
 
-# The restricted containerd fixture uses 8192 KiB memlock,
-# 64 MiB CRI sandbox /dev/shm, the default Docker/containerd capability mask
-# (no IPC_LOCK, no SYS_ADMIN, no SYS_RESOURCE), and no RDMA / GDRCopy devices.
 STOCK_DEFAULTS_STDOUT = """\
 TENANT_MEMLOCK_SOFT_KB=8192
 TENANT_MEMLOCK_HARD_KB=8192
@@ -102,53 +96,46 @@ class ParseFactsTests(unittest.TestCase):
 
 
 class DecodeCapsTests(unittest.TestCase):
-    def test_stock_docker_mask_has_no_rdma_caps(self) -> None:
-        caps = check.decode_caps("00000000a80425fb")
-        self.assertEqual(caps, {"ipc_lock": False, "sys_admin": False, "sys_resource": False})
-
-    def test_full_root_mask_has_all(self) -> None:
-        caps = check.decode_caps("000001ffffffffff")
-        self.assertEqual(caps, {"ipc_lock": True, "sys_admin": True, "sys_resource": True})
-
-    def test_ipc_lock_bit_alone(self) -> None:
-        caps = check.decode_caps(hex(1 << check.CAP_IPC_LOCK))
-        self.assertEqual(caps, {"ipc_lock": True, "sys_admin": False, "sys_resource": False})
-
-    def test_unparseable_mask_is_none(self) -> None:
-        caps = check.decode_caps("unknown")
-        self.assertEqual(caps, {"ipc_lock": None, "sys_admin": None, "sys_resource": None})
+    def test_capability_masks(self) -> None:
+        for mask, expected in (
+            ("00000000a80425fb", (False, False, False)),
+            ("000001ffffffffff", (True, True, True)),
+            ("0x4000", (True, False, False)),
+            ("unknown", (None, None, None)),
+        ):
+            with self.subTest(mask=mask):
+                self.assertEqual(
+                    check.decode_caps(mask),
+                    dict(zip(("ipc_lock", "sys_admin", "sys_resource"), expected)),
+                )
 
 
 class NodeScanTests(unittest.TestCase):
-    def test_rdma_resources_from_any_node(self) -> None:
-        nodes = {
-            "items": [
-                {"status": {"allocatable": {"nvidia.com/gpu": "8"}}},
-                {"status": {"allocatable": {"rdma/hca_shared_devices_a": "63", "nvidia.com/rdma_ib": "2"}}},
-            ]
-        }
-        self.assertEqual(
-            check.cluster_rdma_resources(nodes),
-            ["nvidia.com/rdma_ib", "rdma/hca_shared_devices_a"],
+    def test_rdma_resource_discovery(self) -> None:
+        cases = (
+            ("any-node", [
+                {"nvidia.com/gpu": "8"},
+                {"rdma/hca_shared_devices_a": "63", "nvidia.com/rdma_ib": "2"},
+            ], ["nvidia.com/rdma_ib", "rdma/hca_shared_devices_a"]),
+            ("non-rdma-names", [
+                {"vpc.amazonaws.com/efa": "4", "nvidia.com/gpu": "8"},
+                {"nvidia.com/mlnxics": "8"},
+                {"nvidia.com/hostdev": "8"},
+                {"nvidia.com/switchdev": "8"},
+            ], ["nvidia.com/hostdev", "nvidia.com/mlnxics",
+                "nvidia.com/switchdev", "vpc.amazonaws.com/efa"]),
+            ("unrelated", [{"nvidia.com/gpu": "8", "cpu": "128",
+                           "hugepages-2Mi": "4Gi", "nvidia.com/mig-1g.10gb": "7"}], []),
+            ("zero", [{"rdma/rdma_nic": "0"}], []),
         )
-
-    def test_non_rdma_named_fabric_resources_match(self) -> None:
-        """EFA, SR-IOV IB, SR-IOV host device, and OVS offload carry no rdma substring."""
-        nodes = {
-            "items": [
-                {"status": {"allocatable": {"vpc.amazonaws.com/efa": "4", "nvidia.com/gpu": "8"}}},
-                {"status": {"allocatable": {"nvidia.com/mlnxics": "8"}}},
-                {"status": {"allocatable": {"nvidia.com/hostdev": "8"}}},
-                {"status": {"allocatable": {"nvidia.com/switchdev": "8"}}},
-            ]
-        }
-        self.assertEqual(
-            check.cluster_rdma_resources(nodes),
-            ["nvidia.com/hostdev", "nvidia.com/mlnxics", "nvidia.com/switchdev", "vpc.amazonaws.com/efa"],
-        )
+        for name, resources, expected in cases:
+            with self.subTest(case=name):
+                nodes = {"items": [
+                    {"status": {"allocatable": values}} for values in resources
+                ]}
+                self.assertEqual(check.cluster_rdma_resources(nodes), expected)
 
     def test_dra_class_name_filter_matches_public_resource_tokens(self) -> None:
-        """Construct resource keys independently of any deployment."""
         self.assertEqual(
             check.filter_dra_rdma_class_names(
                 ["mrdma.google.com", "dranet.net", "gpu.dra.net", "gpu.nvidia.com", ""]
@@ -156,60 +143,26 @@ class NodeScanTests(unittest.TestCase):
             ["dranet.net", "gpu.dra.net", "mrdma.google.com"],
         )
 
-    def test_gpu_and_other_resources_do_not_match(self) -> None:
-        nodes = {
-            "items": [
-                {"status": {"allocatable": {"nvidia.com/gpu": "8", "cpu": "128", "hugepages-2Mi": "4Gi", "nvidia.com/mig-1g.10gb": "7"}}}
-            ]
-        }
-        self.assertEqual(check.cluster_rdma_resources(nodes), [])
-
-    def test_zero_quantity_rdma_resource_is_ignored(self) -> None:
-        nodes = {"items": [{"status": {"allocatable": {"rdma/rdma_nic": "0"}}}]}
-        self.assertEqual(check.cluster_rdma_resources(nodes), [])
-
     def test_gpu_resource_key(self) -> None:
-        nodes = {"items": [{"status": {"allocatable": {"nvidia.com/gpu": "8"}}}]}
-        self.assertEqual(check.gpu_resource_key(nodes), "nvidia.com/gpu")
-
-    def test_gpu_resource_key_dra_cluster(self) -> None:
-        nodes = {"items": [{"status": {"allocatable": {"cpu": "128"}}}]}
-        self.assertEqual(check.gpu_resource_key(nodes), "")
+        for resources, expected in (
+            ({"nvidia.com/gpu": "8"}, "nvidia.com/gpu"),
+            ({"cpu": "128"}, ""),
+        ):
+            with self.subTest(resources=resources):
+                nodes = {"items": [{"status": {"allocatable": resources}}]}
+                self.assertEqual(check.gpu_resource_key(nodes), expected)
 
 
 class EvaluateChecksTests(unittest.TestCase):
-    def test_stock_defaults_warn_on_memlock_and_shm(self) -> None:
-        checks = evaluate(stock_facts())
-        self.assertEqual(checks["memlock"]["status"], "warning")
-        self.assertIn("8 MiB", checks["memlock"]["detail"])
-        self.assertEqual(checks["shm"]["status"], "warning")
-        self.assertIn("64 MiB", checks["shm"]["detail"])
-
-    def test_stock_defaults_report_absent_devices(self) -> None:
-        checks = evaluate(stock_facts())
-        self.assertEqual(checks["rdmaDevices"]["status"], "absent")
-        self.assertEqual(checks["gdrcopyDevice"]["status"], "absent")
-
-    def test_no_check_ever_fails(self) -> None:
-        for facts in (None, stock_facts()):
-            checks = evaluate(facts)
-            self.assertNotIn("fail", {check["status"] for check in checks.values()})
-
-    def test_unlimited_memlock_passes(self) -> None:
-        facts = stock_facts()
-        facts["memlockHardKb"] = "unlimited"
-        facts["memlockUnlimited"] = True
-        self.assertEqual(evaluate(facts)["memlock"]["status"], "pass")
-
-    def test_ipc_lock_capability_passes_memlock(self) -> None:
-        facts = stock_facts()
-        facts["capIpcLock"] = True
-        self.assertEqual(evaluate(facts)["memlock"]["status"], "pass")
-
-    def test_finite_memlock_above_minimum_passes(self) -> None:
-        facts = stock_facts()
-        facts["memlockHardKb"] = str(128 * 1024 * 1024)  # 128 GiB in KiB
-        self.assertEqual(evaluate(facts)["memlock"]["status"], "pass")
+    def test_memlock_remedies_pass(self) -> None:
+        for remedy in (
+            {"memlockHardKb": "unlimited", "memlockUnlimited": True},
+            {"capIpcLock": True},
+            {"memlockHardKb": str(128 * 1024 * 1024)},
+        ):
+            with self.subTest(remedy=remedy):
+                facts = {**stock_facts(), **remedy}
+                self.assertEqual(evaluate(facts)["memlock"]["status"], "pass")
 
     def test_large_shm_passes(self) -> None:
         facts = stock_facts()
@@ -236,7 +189,6 @@ class EvaluateChecksTests(unittest.TestCase):
         self.assertEqual(checks["rdmaDevices"]["status"], "unknown")
 
     def test_dra_only_rdma_exposure_is_unknown_not_absent(self) -> None:
-        """GKE DRANET style: no extended resource, an mrdma DRA device class."""
         checks = check.evaluate_checks(
             stock_facts(),
             dict(EMPTY_TUNED),
@@ -274,50 +226,28 @@ class EvaluateChecksTests(unittest.TestCase):
         self.assertEqual(checks["tunedPodAdmission"]["status"], "unknown")
         self.assertIn("privileged pod-security profile", checks["tunedPodAdmission"]["detail"])
 
-    def test_admission_denial_warns(self) -> None:
-        tuned = dict(EMPTY_TUNED)
-        tuned.update(attempted=True, admitted=False, reason="IPC_LOCK forbidden by policy")
-        checks = evaluate(stock_facts(), tuned)
-        self.assertEqual(checks["tunedPodAdmission"]["status"], "warning")
-        self.assertIn("IPC_LOCK forbidden by policy", checks["tunedPodAdmission"]["detail"])
-
-    def test_unschedulable_tuned_pod_is_unknown_not_warning(self) -> None:
-        tuned = dict(EMPTY_TUNED)
-        tuned.update(attempted=True, admitted=True, ready=False, reason="0/2 nodes available")
-        checks = evaluate(stock_facts(), tuned)
-        self.assertEqual(checks["tunedPodAdmission"]["status"], "unknown")
-
-    def test_effective_tuned_pod_passes(self) -> None:
-        tuned_facts = stock_facts()
-        tuned_facts["capIpcLock"] = True
-        tuned_facts["shmMb"] = 8192
-        tuned = {
-            "attempted": True,
-            "admitted": True,
-            "ready": True,
-            "reason": "",
-            "node": "n1",
-            "rdmaResourceRequested": "",
-            "facts": tuned_facts,
-        }
-        checks = evaluate(stock_facts(), tuned)
-        self.assertEqual(checks["tunedPodAdmission"]["status"], "pass")
-
-    def test_ineffective_tuned_pod_warns(self) -> None:
-        tuned = {
-            "attempted": True,
-            "admitted": True,
-            "ready": True,
-            "reason": "",
-            "node": "n1",
-            "rdmaResourceRequested": "",
-            "facts": stock_facts(),
-        }
-        checks = evaluate(stock_facts(), tuned)
-        self.assertEqual(checks["tunedPodAdmission"]["status"], "warning")
+    def test_tuned_pod_admission_states(self) -> None:
+        for name, state, fact_updates, status, detail in (
+            ("denied", {"attempted": True, "reason": "IPC_LOCK forbidden by policy"},
+             None, "warning", "IPC_LOCK forbidden by policy"),
+            ("unschedulable", {"attempted": True, "admitted": True,
+                              "reason": "0/2 nodes available"}, None, "unknown", None),
+            ("effective", {"attempted": True, "admitted": True, "ready": True,
+                           "node": "n1"}, {"capIpcLock": True, "shmMb": 8192}, "pass", None),
+            ("ineffective", {"attempted": True, "admitted": True, "ready": True,
+                             "node": "n1"}, {}, "warning", None),
+        ):
+            with self.subTest(case=name):
+                facts = None if fact_updates is None else {**stock_facts(), **fact_updates}
+                tuned = {**EMPTY_TUNED, **state, "facts": facts}
+                result = evaluate(stock_facts(), tuned)["tunedPodAdmission"]
+                self.assertEqual(result["status"], status)
+                if detail is not None:
+                    self.assertIn(detail, result["detail"])
 
     def test_missing_facts_grade_unknown(self) -> None:
         checks = evaluate(None)
+        self.assertNotIn("fail", {entry["status"] for entry in checks.values()})
         for name in ("memlock", "shm", "rdmaDevices", "gdrcopyDevice"):
             self.assertEqual(checks[name]["status"], "unknown")
 
@@ -325,6 +255,13 @@ class EvaluateChecksTests(unittest.TestCase):
 class AggregateTests(unittest.TestCase):
     def test_stock_defaults_aggregate_to_warning_with_no_failures(self) -> None:
         checks = evaluate(stock_facts())
+        self.assertEqual(checks["memlock"]["status"], "warning")
+        self.assertIn("8 MiB", checks["memlock"]["detail"])
+        self.assertEqual(checks["shm"]["status"], "warning")
+        self.assertIn("64 MiB", checks["shm"]["detail"])
+        self.assertEqual(checks["rdmaDevices"]["status"], "absent")
+        self.assertEqual(checks["gdrcopyDevice"]["status"], "absent")
+        self.assertNotIn("fail", {entry["status"] for entry in checks.values()})
         result = check.aggregate(
             checks,
             default_pod={"admitted": True, "ready": True, "reason": "", "node": "n1", "facts": stock_facts()},
@@ -363,15 +300,21 @@ class AggregateTests(unittest.TestCase):
 
 
 class PodManifestTests(unittest.TestCase):
-    def test_default_pod_is_unprivileged_with_no_security_context(self) -> None:
-        manifest = check.pod_manifest(
-            "default", "cmax-tenant-default-x", "img", gpu_key="nvidia.com/gpu", tuned=False, rdma_resource="", tuned_shm="8Gi"
-        )
-        container = manifest["spec"]["containers"][0]
-        self.assertNotIn("securityContext", container)
-        self.assertNotIn("volumes", manifest["spec"])
-        self.assertEqual(container["resources"]["limits"], {"nvidia.com/gpu": "1"})
-        self.assertFalse(manifest["spec"].get("hostNetwork", False))
+    def test_default_pod_has_no_privileged_context_or_host_network(self) -> None:
+        for gpu_key in ("nvidia.com/gpu", ""):
+            with self.subTest(gpu_key=gpu_key):
+                manifest = check.pod_manifest(
+                    "default", "cmax-tenant-default-x", "img",
+                    gpu_key=gpu_key, tuned=False, rdma_resource="", tuned_shm="8Gi",
+                )
+                container = manifest["spec"]["containers"][0]
+                self.assertNotIn("securityContext", container)
+                self.assertNotIn("volumes", manifest["spec"])
+                self.assertFalse(manifest["spec"].get("hostNetwork", False))
+                if gpu_key:
+                    self.assertEqual(container["resources"]["limits"], {gpu_key: "1"})
+                else:
+                    self.assertNotIn("resources", container)
 
     def test_tuned_pod_adds_only_the_documented_remedies(self) -> None:
         manifest = check.pod_manifest(
@@ -387,13 +330,6 @@ class PodManifestTests(unittest.TestCase):
             container["resources"]["limits"],
             {"nvidia.com/gpu": "1", "rdma/rdma_nic": "1"},
         )
-        self.assertNotIn("privileged", str(manifest))
-
-    def test_dra_cluster_pod_requests_no_gpu(self) -> None:
-        manifest = check.pod_manifest(
-            "default", "cmax-tenant-default-x", "img", gpu_key="", tuned=False, rdma_resource="", tuned_shm="8Gi"
-        )
-        self.assertNotIn("resources", manifest["spec"]["containers"][0])
 
 
 class HarnessGateTests(unittest.TestCase):
@@ -403,15 +339,100 @@ class HarnessGateTests(unittest.TestCase):
         self.assertEqual(result["failures"], [])
 
     def test_check_disable_switch_grades_unknown(self) -> None:
-        import os
-
-        os.environ["CLUSTERMAX_AUDIT_TENANT_POD_CHECK"] = "0"
-        try:
+        with mock.patch.dict(os.environ, {"CLUSTERMAX_AUDIT_TENANT_POD_CHECK": "0"}):
             result = check.run_default_check("k8s")["tenant_pod_defaults"]
-        finally:
-            del os.environ["CLUSTERMAX_AUDIT_TENANT_POD_CHECK"]
         self.assertEqual(result["status"], "unknown")
+
+
+def test_tenant_check_is_executable_and_excluded_from_security():
+    spec = importlib.util.spec_from_file_location("tenant_run_checks", SCRIPT_DIR / "run_checks.py")
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    path = SCRIPT_DIR / "checks/system/tenant_pod_defaults.py"
+    assert path in runner.iter_checks(SCRIPT_DIR / "checks", "k8s", "orchestration")
+    assert path not in runner.iter_checks(SCRIPT_DIR / "checks", "k8s", "security")
+    assert path not in runner.iter_checks(SCRIPT_DIR / "checks", "slurm")
+
+
+def test_tenant_warning_preserves_detail_and_recommendation():
+    values = {"audit_data": {"tenant_pod_defaults": {
+        "status": "warning", "checks": {"memlock": {
+            "status": "warning", "detail": "The pod has an 8 MiB limit."
+        }}
+    }}}
+    checks = audit_report.evaluate(values, REPORT_RUNTIME_ROOT, harness="k8s")
+    result = next(c for c in checks if c.key == "tenant_pod_defaults.checks.memlock.status")
+    assert result.status == audit_report.WARNING
+    assert result.assessment == "The pod has an 8 MiB limit."
+    assert result.recommendation
+
+
+@pytest.mark.parametrize("ports", [None, "unknown", 0, "2", 2])
+def test_absent_rdma_devices_do_not_crash_report(ports):
+    values = {"audit_data": {
+        "networking": {"hostRdma": {"activePorts": ports}},
+        "tenant_pod_defaults": {"checks": {"rdmaDevices": {"status": "absent"}}},
+    }}
+    checks = audit_report.evaluate(values, REPORT_RUNTIME_ROOT, harness="k8s")
+    check = next(c for c in checks if c.key == "tenant_pod_defaults.checks.rdmaDevices.status")
+    assert check.status == (audit_report.WARNING if ports in (2, "2") else audit_report.SKIPPED)
+    if ports == 0:
+        assert "no active RDMA" in check.assessment
+    elif ports in (None, "unknown"):
+        assert "unverified" in check.assessment.lower()
+
+
+@pytest.mark.parametrize("loaded", [False, "false", None])
+def test_gdrcopy_skip_uses_collected_host_path(loaded):
+    values = {"audit_data": {
+        "gpus": {"gdrcopy": {"gdrdrvLoaded": loaded}},
+        "tenant_pod_defaults": {"checks": {"gdrcopyDevice": {"status": "absent"}}},
+    }}
+    checks = audit_report.evaluate(values, REPORT_RUNTIME_ROOT, harness="k8s")
+    check = next(c for c in checks if c.key == "tenant_pod_defaults.checks.gdrcopyDevice.status")
+    assert check.status == audit_report.SKIPPED
+    if loaded is None:
+        assert "unverified" in check.assessment.lower()
+    else:
+        assert "gdrdrv is not loaded" in check.assessment
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_unreadable_namespace_policy_never_renders_as_pass():
+    detail = "the namespace pod-security policy could not be read"
+    values = {"audit_data": {"tenant_pod_defaults": {
+        "status": "unknown", "message": detail, "namespaceEnforcesPrivileged": None,
+        "checks": {"tunedPodAdmission": {"status": "unknown", "detail": detail}},
+    }}}
+    checks = audit_report.evaluate(values, REPORT_RUNTIME_ROOT, harness="k8s")
+    rows = [row for row in checks if row.key in {
+        "tenant_pod_defaults.status", "tenant_pod_defaults.checks.tunedPodAdmission.status",
+    }]
+    assert len(rows) == 2
+    assert all(row.status != audit_report.PASS for row in rows)
+    assert any("policy could not be read" in row.assessment for row in rows)
+
+
+def test_aggregate_warning_never_renders_as_pass():
+    values = {"audit_data": {"tenant_pod_defaults": {
+        "status": "warning",
+        "message": "shm: /dev/shm is 64 MiB; multi-GPU shared-memory transports need at least 1024 MiB",
+        "checks": {"shm": {"status": "warning", "detail": "/dev/shm is 64 MiB"}},
+    }}}
+    checks = audit_report.evaluate(values, REPORT_RUNTIME_ROOT, harness="k8s")
+    row = next(c for c in checks if c.key == "tenant_pod_defaults.status")
+    assert row.status == audit_report.WARNING
+    assert "64 MiB" in row.assessment
+    assert row.recommendation
+
+
+def test_aggregate_pass_still_renders_as_pass():
+    values = {"audit_data": {"tenant_pod_defaults": {
+        "status": "pass", "checks": {"shm": {"status": "pass", "detail": "8192 MiB"}},
+    }}}
+    checks = audit_report.evaluate(values, REPORT_RUNTIME_ROOT, harness="k8s")
+    row = next(c for c in checks if c.key == "tenant_pod_defaults.status")
+    assert row.status == audit_report.PASS

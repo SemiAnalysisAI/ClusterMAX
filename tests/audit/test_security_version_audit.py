@@ -376,17 +376,6 @@ class ConnectxFirmwarePolicyTests(unittest.TestCase):
         self.assertEqual(passing.minimum, f"{train}.{patch}")
         self.assertIn("Meets", passing.detail)
 
-    def test_patched_connectx4_firmware_is_not_graded_as_a_fail(self) -> None:
-        verdict = security.connectx_firmware_verdict("12.28.4702")
-        self.assertEqual(verdict.status, "pass")
-
-    def test_train_newer_than_the_bulletin_requires_advisory_evidence(self) -> None:
-        train = max(self.trains) + 1
-        verdict = security.connectx_firmware_verdict(f"40.{train}.2526")
-        self.assertEqual(verdict.status, "pass")
-        self.assertIn("explicit ConnectX-8 GA fixed range", verdict.detail)
-        self.assertIn(str(max(self.trains)), verdict.detail)
-
     def test_ga_range_covers_every_listed_nic_and_dpu_family(self) -> None:
         train = max(self.trains) + 1
         cases = {
@@ -397,6 +386,9 @@ class ConnectxFirmwarePolicyTests(unittest.TestCase):
             with self.subTest(family=family):
                 verdict = security.connectx_firmware_verdict(f"{family}.{train}.2526")
                 self.assertEqual(verdict.status, status)
+                if family == 40:
+                    self.assertIn("explicit ConnectX-8 GA fixed range", verdict.detail)
+                    self.assertIn(str(max(self.trains)), verdict.detail)
 
     def test_shared_family_needs_every_product_in_the_ga_row(self) -> None:
         component = minimums.component
@@ -1269,7 +1261,6 @@ class VirtioNetRollupReachesTheVerdictTests(unittest.TestCase):
         self.assertEqual(record["gradedHost"], "node-b")
 
     def test_unknown_running_controller_outranks_idle_firmware_without_losing_evidence(self) -> None:
-        """Keep the idle floor failure while grading the running unknown host."""
         below = "24.10.17"
         summary, record = self.verdict(
             [

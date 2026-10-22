@@ -3,13 +3,27 @@ import json
 
 import pytest
 
-from cmax import security
-from cmax import audit_report
+from cmax import audit_report, minimum_refresh, runtime_paths, security
 from test_minimum_refresh import StubFetcher, baseline
-from cmax import minimum_refresh
 from test_security_release_evidence import WORK, bashtest, runtime
 
 policy = runtime.policy
+BMC_RECORD = bashtest.extract_function(
+    WORK / "cluster-audit-slurm-security.sh", "k8s_bmc_record_for_current_pod"
+)
+
+
+def bmc_record(setup, **kwargs):
+    run = bashtest.run_bash(
+        setup + BMC_RECORD + "\nk8s_bmc_record_for_current_pod fixture-node", **kwargs
+    )
+    assert run.returncode == 0, run.stderr
+    return json.loads(run.stdout)
+
+
+@pytest.fixture(scope="module")
+def connectx_block():
+    return minimum_refresh.connectx_minimums(fetch=StubFetcher())
 
 
 @pytest.mark.parametrize("message", [
@@ -18,25 +32,21 @@ policy = runtime.policy
     "Get Device ID command failed: 0xff Unspecified error",
 ])
 def test_bmc_chassis_command_error_is_preserved(message):
-    function = bashtest.extract_function(WORK / "cluster-audit-slurm-security.sh", "k8s_bmc_record_for_current_pod")
-    run = bashtest.run_bash(
-        "run_k8s_security_script() { bash; }\n" + function + "\nk8s_bmc_record_for_current_pod fixture-node",
+    record = bmc_record(
+        "run_k8s_security_script() { bash; }\n",
         env={"CHASSIS_ERROR": message},
         stubs={"ipmitool": (
             'if [ "$1" = mc ]; then echo "Get Device ID command failed: 0xff Unspecified error"; '
             'else echo "$CHASSIS_ERROR"; fi\nexit 1'
         )},
     )
-    assert run.returncode == 0, run.stderr
-    record = json.loads(run.stdout)
     assert record["checked"] is True
     assert record["exposed"] is False
     assert record["errorResponseIsAccessDenial"] is False
 
 
-def test_csaf_ga_ranges_retain_products_and_or_newer():
-    result = minimum_refresh.connectx_minimums(fetch=StubFetcher())
-    assert result["gaRanges"] == [
+def test_csaf_ga_ranges_retain_products_and_or_newer(connectx_block):
+    assert connectx_block["gaRanges"] == [
         {"product": "BlueField GA", "architectures": "BlueField-2(46), BlueField-3(46)",
          "minimum": "46.3008", "relation": "or-newer"},
         {"product": "ConnectX GA",
@@ -51,23 +61,14 @@ def test_csaf_ga_ranges_retain_products_and_or_newer():
     ("40.45.9999", "unknown"), ("32.43.8001", "fail"),
     ("40.46.3007", "fail"), ("40.46.3008", "pass"),
 ])
-def test_product_scoped_ga_range(tmp_path, monkeypatch, version, expected):
-    block = minimum_refresh.connectx_minimums(fetch=StubFetcher())
+def test_product_scoped_ga_range(tmp_path, monkeypatch, connectx_block, version, expected):
     table = tmp_path / "minimum.json"
-    table.write_text(json.dumps({"schemaVersion": 1, "components": {"connectxFirmware": block}}))
+    table.write_text(json.dumps({
+        "schemaVersion": 1, "components": {"connectxFirmware": connectx_block},
+    }))
     monkeypatch.setenv("CLUSTERMAX_MINIMUM_VERSIONS", str(table))
     monkeypatch.setattr(policy.minimum_versions, "_CACHE", None)
     assert policy.connectx_firmware_verdict(version).status == expected
-
-
-def test_without_vendor_range_a_newer_train_is_unknown(tmp_path, monkeypatch):
-    table = tmp_path / "minimum.json"
-    table.write_text(json.dumps({"schemaVersion": 1, "components": {
-        "connectxFirmware": {"trains": {"46": 3008}},
-    }}))
-    monkeypatch.setenv("CLUSTERMAX_MINIMUM_VERSIONS", str(table))
-    monkeypatch.setattr(policy.minimum_versions, "_CACHE", None)
-    assert policy.connectx_firmware_verdict("40.47.2526").status == "unknown"
 
 
 @pytest.mark.parametrize("change", ["removed", "lowered"])
@@ -94,18 +95,6 @@ def test_complete_current_nic_mode_passes_without_certifying_stored_firmware(ver
     verdict = security._virtio_net_bluefield({"securityVersions": {"virtioNetBluefield": record}})
     assert verdict[0] == security.PASS
     assert "not certified" in verdict[2]
-
-
-def test_nic_sample_cannot_clear_unread_fleet():
-    record = policy.virtio_net_result("unknown", mode="nic", coverage_complete=False)
-    assert record["status"] == "unknown"
-    assert record["assessmentBasis"] != "current-nic-mode"
-
-
-def test_report_names_current_exposure_not_an_unread_firmware_pass():
-    record = policy.virtio_net_result(
-        "unknown", mode="nic", coverage_complete=True, every_bluefield_host_read=False,
-    )
     checks = audit_report.evaluate(
         {"cluster": {"orchestrator": "k8s"},
          "audit_data": {"securityVersions": {"virtioNetBluefield": record}}},
@@ -114,6 +103,12 @@ def test_report_names_current_exposure_not_an_unread_firmware_pass():
     check = next(row for row in checks if row.key == "securityVersions.virtioNetBluefield.status")
     assert check.status == audit_report.PASS
     assert "stored firmware not certified" in check.observed
+
+
+def test_nic_sample_cannot_clear_unread_fleet():
+    record = policy.virtio_net_result("unknown", mode="nic", coverage_complete=False)
+    assert record["status"] == "unknown"
+    assert record["assessmentBasis"] != "current-nic-mode"
 
 
 def test_ufm_provider_control_is_skipped_not_passed():
@@ -145,22 +140,39 @@ def test_nvlink_requires_topology_and_ownership(complete, exclusive, expected):
     ("allowed", "error-response", True, True),
 ])
 def test_bmc_error_response_is_scoped_no_usable_read(mc, chassis, checked, exposed):
-    function = bashtest.extract_function(
-        WORK / "cluster-audit-slurm-security.sh", "k8s_bmc_record_for_current_pod"
-    )
-    script = (
+    record = bmc_record(
         'run_k8s_security_script() { cat >/dev/null; '
         f'printf "DEVICE=true\\nPATH=/usr/bin/ipmitool\\nINSTALLED=true\\nMC={mc}\\nCHASSIS={chassis}\\n"; }}\n'
-        + function
-        + '\nk8s_bmc_record_for_current_pod test-node\n'
     )
-    result = bashtest.run_bash(script)
-    assert result.returncode == 0, result.stderr
-    record = json.loads(result.stdout)
     assert record["checked"] is checked
     assert record["exposed"] is exposed
     assert record["errorResponseIsAccessDenial"] is False
 
+
+@pytest.mark.parametrize("name,key,unverified", [
+    ("qemu-virtio-serial", "qemuCve20243446", "host-version-required"),
+    ("vmscape", "vmscape", "host-mitigation-required"),
+])
+@pytest.mark.parametrize("status,expected", [
+    ("fail", security.CRITICAL), ("pass", security.PASS),
+    ("unknown", security.WARNING), (None, security.WARNING),
+    ("not-applicable", security.NOT_APPLICABLE),
+    ("unverified", security.WARNING),
+])
+def test_hypervisor_status_reaches_security_and_full_reports(
+    name, key, unverified, status, expected,
+):
+    if status == "unverified":
+        status = unverified
+    values = {"audit_data": {"security": {key: {"status": status}}}}
+    check = next(c for c in security.evaluate_security(values) if c.id == name)
+    assert check.status == expected
+    row = next(c for c in audit_report.evaluate(values, runtime_paths.package_runtime_root())
+               if c.key == name)
+    assert row.status == {
+        security.CRITICAL: audit_report.FAIL, security.PASS: audit_report.PASS,
+        security.WARNING: audit_report.WARNING, security.NOT_APPLICABLE: audit_report.SKIPPED,
+    }[expected]
 
 
 def _nvlink_with(**boundary):

@@ -713,26 +713,18 @@ def _hbm_per_node(namespace: str, image: str, *, worker_source: str | None = Non
 
 
 def run_k8s_check(*, worker_source: str | None = None) -> tuple[list[dict[str, Any]], list[str]]:
-    try:
-        nodes_proc = kubectl(["get", "nodes", "-o", "json"], timeout=45)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return [], [f"kubectl get nodes failed: {exc}"]
-    if nodes_proc.returncode != 0:
-        return [], [f"kubectl get nodes failed: {nodes_proc.stderr.strip()}"]
-
-    try:
-        nodes_json = json.loads(nodes_proc.stdout)
-    except json.JSONDecodeError as exc:
-        return [], [f"kubectl get nodes returned invalid JSON: {exc}"]
-
-    nodes = load_fanout().k8s_gpu_nodes(nodes_json)
+    fanout = load_fanout()
+    nodes_json, error = fanout.k8s_nodes_json(lambda args: kubectl(args, timeout=45))
+    if nodes_json is None:
+        return [], [error]
+    nodes = fanout.k8s_gpu_nodes(nodes_json)
     if not nodes:
         return [], [NO_K8S_GPU_NODES]
 
     namespace = os.environ.get("CLUSTERMAX_AUDIT_K8S_NAMESPACE", "default")
     image = os.environ.get("CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE", DEFAULT_K8S_HOST_CHECK_IMAGE)
-    max_nodes = as_int(os.environ.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS"), default=len(nodes))
-    return load_fanout().fan_out_k8s(_hbm_per_node(namespace, image, worker_source=worker_source), nodes=nodes, max_nodes=max_nodes)
+    max_nodes = fanout.k8s_max_host_checks(os.environ, len(nodes))
+    return fanout.fan_out_k8s(_hbm_per_node(namespace, image, worker_source=worker_source), nodes=nodes, max_nodes=max_nodes)
 
 
 def run_default_check(harness: str) -> dict[str, Any]:

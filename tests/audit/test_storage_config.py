@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Synthetic parser and transport cases for cross-node storage checks."""
 
 from __future__ import annotations
@@ -40,33 +39,27 @@ class StorageConfigTests(unittest.TestCase):
         finding, = [f for f in findings if f.key == "storage_config.status"]
         self.assertIn(expected, finding.detected)
 
-    def test_all_reports_do_not_hide_nonzero_srun_exit(self) -> None:
-        def runner(command, **kwargs):
-            return subprocess.CompletedProcess(
-                command, 2, "\n".join([report("synthetic-a"), report("synthetic-b")]),
-                "synthetic allocation failed",
-            )
+    def test_nonzero_srun_exit_is_visible_with_or_without_reports(self) -> None:
+        for count, code, error, status in [
+            (2, 2, "synthetic allocation failed", "warning"),
+            (0, 1, "synthetic allocation denied", "unknown"),
+        ]:
+            with self.subTest(reports=count):
+                def runner(command, **kwargs):
+                    reports = "\n".join(report(f"synthetic-{i}") for i in range(count))
+                    return subprocess.CompletedProcess(command, code, reports, error)
 
-        result = storage.build_check_payload(
-            harness="slurm", env={"SLURM_JOB_ID": "1", "SLURM_NNODES": "2"}, runner=runner,
-        )["storage_config"]
-        self.assertEqual(result["status"], "warning")
-        self.assertEqual(result["nodes_checked"], 2)
-        self.assertEqual(result["failures"], [])
-        self.assertIn("srun exited 2", result["errors"][0])
-        self.assertIn("synthetic allocation failed", result["message"])
-        self.assert_error_is_visible_in_finding(result, "synthetic allocation failed")
-
-    def test_no_reports_preserve_srun_failure_in_unknown_verdict(self) -> None:
-        def runner(command, **kwargs):
-            return subprocess.CompletedProcess(command, 1, "", "synthetic allocation denied")
-
-        result = storage.build_check_payload(
-            harness="slurm", env={"SLURM_JOB_ID": "1"}, runner=runner,
-        )["storage_config"]
-        self.assertEqual(result["status"], "unknown")
-        self.assertIn("synthetic allocation denied", result["message"])
-        self.assert_error_is_visible_in_finding(result, "synthetic allocation denied")
+                result = storage.build_check_payload(
+                    harness="slurm", env={"SLURM_JOB_ID": "1", "SLURM_NNODES": "2"},
+                    runner=runner,
+                )["storage_config"]
+                self.assertEqual(result["status"], status)
+                self.assertIn(error, result["message"])
+                self.assert_error_is_visible_in_finding(result, error)
+                if count:
+                    self.assertEqual(result["nodes_checked"], count)
+                    self.assertEqual(result["failures"], [])
+                    self.assertIn(f"srun exited {code}", result["errors"][0])
 
     def test_srun_exceptions_surface_in_the_unknown_message(self) -> None:
         for error in (OSError("synthetic transport unavailable"), subprocess.TimeoutExpired("srun", 1)):
@@ -147,6 +140,7 @@ class StorageConfigTests(unittest.TestCase):
         self.assertEqual(row["source"], "server:/a-very-long-lustre-path")
         self.assertEqual(row["fstype"], "lustre")
         self.assertEqual(row["target"], "/shared workspace")
+
     def test_partial_df_does_not_prove_missing_mounts(self) -> None:
         first = json.loads(report("gpu-a"))
         second = json.loads(report("gpu-b", scratch=""))
@@ -155,6 +149,7 @@ class StorageConfigTests(unittest.TestCase):
         self.assertEqual(result["status"], "warning")
         self.assertEqual(result["failures"], [])
         self.assertIn("Stale file handle", result["message"])
+
     def test_slurm_fan_out_compares_every_node(self) -> None:
         def runner(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
             self.assertEqual(command[0], "srun")
@@ -189,6 +184,7 @@ class StorageConfigTests(unittest.TestCase):
         ] + [{"metadata": {"name": "cpu0", "labels": {}}, "status": {"capacity": {}}}]}
         created: list[str] = []
         deleted: list[str] = []
+        pod_nodes: dict[str, str] = {}
 
         def runner(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
             verb = command[1]
@@ -197,13 +193,14 @@ class StorageConfigTests(unittest.TestCase):
             if verb == "apply":
                 manifest = json.loads(kwargs["input"])
                 created.append(manifest["spec"]["nodeName"])
+                pod_nodes[manifest["metadata"]["name"]] = manifest["spec"]["nodeName"]
                 self.assertTrue(manifest["spec"]["hostPID"])
                 return subprocess.CompletedProcess(command, 0, "", "")
             if verb == "wait":
                 return subprocess.CompletedProcess(command, 0, "", "")
             if verb == "exec":
                 self.assertEqual(command[command.index("--") + 1:], ["nsenter", "-t", "1", "-m", "--", "df", "-hT"])
-                node = created[-1]
+                node = pod_nodes[command[4]]
                 text = DF.format(home_pct=40, scratch="" if node == "g1" else "mgs@tcp:/fs lustre 1P 100T 900T 10% /scratch")
                 # Per-pod CSI and container mounts are unique to each node.
                 text += f"\n/dev/sdb ext4 100G 1G 99G 1% /var/lib/kubelet/pods/{node}/volumes/pvc"
@@ -216,7 +213,7 @@ class StorageConfigTests(unittest.TestCase):
 
         payload = storage.build_check_payload(harness="k8s", env={}, runner=runner)["storage_config"]
 
-        self.assertEqual(sorted(created), ["g0", "g1"])  # Concurrent GPU-node fan-out.
+        self.assertEqual(sorted(created), ["g0", "g1"])
         self.assertEqual(len(deleted), 2)
         self.assertEqual(payload["mode"], "k8s")
         self.assertEqual(payload["nodes_expected"], 2)

@@ -1120,7 +1120,6 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         }
 
     observed = observed_controllers(records)
-    states = {str(record.get("state") or STATE_INCOMPLETE) for record in records}
     modes = {str(record.get("mode") or "unknown") for record in records}
     versions = [str(record["version"]) for record in records if record.get("version")]
     bluefield_hosts = sum(1 for record in records if record.get("bluefield3Present"))
@@ -1679,29 +1678,18 @@ def k8s_records(
     env: dict[str, str] = os.environ,
     runner: Runner = subprocess.run,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    try:
-        nodes_proc = kubectl(["get", "nodes", "-o", "json"], runner=runner, timeout=45)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return [], [f"kubectl get nodes failed: {exc}"]
-    if nodes_proc.returncode != 0:
-        return [], [f"kubectl get nodes failed: {nodes_proc.stderr.strip()}"]
-    try:
-        nodes_json = json.loads(nodes_proc.stdout)
-    except json.JSONDecodeError as exc:
-        return [], [f"kubectl get nodes returned invalid JSON: {exc}"]
-
-    nodes = load_fanout().k8s_gpu_nodes(nodes_json, gpu_vendor="nvidia")
+    fanout = load_fanout()
+    nodes_json, error = fanout.k8s_nodes_json(lambda args: kubectl(args, runner=runner, timeout=45))
+    if nodes_json is None:
+        return [], [error]
+    nodes = fanout.k8s_gpu_nodes(nodes_json, gpu_vendor="nvidia")
     if not nodes:
         return [], ["no Kubernetes nodes advertise nvidia.com/gpu capacity"]
     namespace = k8s_namespace(env=env, runner=runner)
     if not namespace:
         return [], ["no NVIDIA GPU Operator namespace found; cannot reach a driver pod for the virtio-net check"]
-    try:
-        max_nodes = int(str(env.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS")))
-    except (TypeError, ValueError):
-        max_nodes = len(nodes)
     per_node = lambda node: run_k8s_node_check(namespace, node["name"], runner=runner)  # noqa: E731
-    return load_fanout().fan_out_k8s(per_node, nodes=nodes, max_nodes=max_nodes)
+    return fanout.fan_out_k8s(per_node, nodes=nodes, max_nodes=fanout.k8s_max_host_checks(env, len(nodes)))
 
 
 def build_check_payload(

@@ -85,30 +85,27 @@ class DetectFindingsTests(unittest.TestCase):
 
         self.assertEqual(audit_findings.detect_findings(values), [])
 
-    def test_every_tenant_pod_rule_is_kubernetes_only(self) -> None:
-        rules = [
-            rule for rule in audit_findings.RULES
-            if rule.key.startswith("tenant_pod_defaults.")
-        ]
-        self.assertEqual(len(rules), 7)
-        for rule in rules:
-            with self.subTest(key=rule.key):
-                self.assertEqual(rule.harnesses, frozenset({"k8s"}))
-
     def test_tenant_pod_findings_obey_the_harness_boundary(self) -> None:
-        # Independent synthetic statuses exercise every formerly unscoped rule.
-        audit = {"tenant_pod_defaults": {
-            "status": "unknown",
-            "checks": {
-                "memlock": {"status": "warning"},
-                "shm": {"status": "warning"},
-                "tunedPodAdmission": {"status": "warning"},
+        audit = {
+            "networking": {"hostRdma": {"activePorts": 1}},
+            "gpus": {"gdrcopy": {"gdrdrvLoaded": True}},
+            "tenant_pod_defaults": {
+                "status": "unknown",
+                "checks": {
+                    "memlock": {"status": "warning"},
+                    "shm": {"status": "warning"},
+                    "rdmaDevices": {"status": "absent"},
+                    "gdrcopyDevice": {"status": "absent"},
+                    "tunedPodAdmission": {"status": "warning"},
+                },
             },
-        }}
+        }
         expected = {
             "tenant_pod_defaults.status",
             "tenant_pod_defaults.checks.memlock.status",
             "tenant_pod_defaults.checks.shm.status",
+            "tenant_pod_defaults.checks.rdmaDevices.status",
+            "tenant_pod_defaults.checks.gdrcopyDevice.status",
             "tenant_pod_defaults.checks.tunedPodAdmission.status",
         }
         for harness in ("k8s", "slurm", "standalone"):

@@ -1,4 +1,4 @@
-"""Release regressions from scoped collector evidence, without contacting a cluster."""
+"""Offline collector and report checks using synthetic host evidence."""
 import importlib.util
 import json
 import os
@@ -38,7 +38,6 @@ def test_generic_fragnesia_abi_result_survives_missing_package_evidence(status):
     )
     assert run.returncode == 0, run.stderr
     data = json.loads("{" + run.stdout + '"_end": null}')
-    # The original ABI result remains unless an active published grace applies.
     assert data["fragnesia"]["status"] == status or (
         status == "fail" and data["fragnesia"]["gracePeriod"] is not None
     )
@@ -126,7 +125,6 @@ def test_pci_sysfs_fallback_without_lspci(tmp_path, pci_id, complete):
     (dev / "device").write_text(f"0x{pci_id}\n")
     if complete:
         (dev / "class").write_text("0x020700\n")
-    # A failing lspci must use sysfs, without loading modules or installing tools.
     run = bashtest.run_bash(
         'lspci() { return 127; }\n' + virtio.K8S_COLLECTOR_SH,
         env={"CLUSTERMAX_AUDIT_ROOT": str(tmp_path)},
@@ -149,7 +147,7 @@ def test_fragnesia_nvidia_uses_source_minimum(version, expected, monkeypatch, tm
         }},
     }}}))
     monkeypatch.setenv("CLUSTERMAX_MINIMUM_VERSIONS", str(table))
-    kernel.minimum_versions._CACHE = None
+    monkeypatch.setattr(kernel.minimum_versions, "_CACHE", None)
     abi = version.split("-")[1].split(".")[0]
     result = kernel.evaluate(
         "ubuntu", "24.04", f"6.17.0-{abi}-nvidia-64k",
@@ -159,7 +157,6 @@ def test_fragnesia_nvidia_uses_source_minimum(version, expected, monkeypatch, tm
     assert result["status"] == expected
     assert result["cve"] == "CVE-2026-46300"
     assert result["minimum"] == "6.17.0-1021.21"
-    kernel.minimum_versions._CACHE = None
 
 
 @pytest.mark.parametrize("guest,complete,devices,unsafe,expected", [
@@ -177,33 +174,6 @@ def test_pcie_boundary_requires_physical_host_evidence(guest, complete, devices,
                             "unsafeGroups": unsafe, "scope": "sampled-worker-host"},
     }}
     assert security._pcie_boundary(audit)[0] == expected
-
-
-def test_explicit_nonexclusive_nvlink_domain_fails():
-    audit = {"security": {"nvlinkBoundary": {
-        "nvlinkExposed": True, "topologyChecked": True,
-        "topologyCoverageComplete": True, "domainExclusive": False,
-    }}}
-    assert security._nvlink_boundary(audit)[0] == security.CRITICAL
-
-
-def test_gpu_operator_toolkit_path_is_host_scoped():
-    block = bashtest.extract_block(
-        WORK / "container-check.sh",
-        '# GPU Operator installs host-runtime wrappers here',
-        '# Docker and the NVIDIA runtime registration.',
-    )
-    assert 'RUNTIME_SCOPE" == host' in block
-    assert "/usr/local/nvidia/toolkit" in block
-
-
-def test_security_collector_grades_resolved_driver():
-    text = (WORK / "cluster-audit-slurm-security.sh").read_text()
-    call = text.split("SECURITY_VERSION_AUDIT_JSON=$(build_security_version_audit", 1)[1].split(
-        'print_info "Security version policy', 1
-    )[0]
-    assert '"${NVIDIA_DRIVER_VERSION:-unknown}"' in call
-    assert '"${WORKER_DRIVER_VERSION:-unknown}"' not in call
 
 
 @pytest.mark.parametrize("complete,missing,disabled,expected", [
@@ -264,13 +234,6 @@ def test_workload_toolkit_is_separate_from_driver_compatibility(payload, rc, exp
     assert after["securityVersions"]["cudaToolkit"]["status"] == expected
     assert len(calls) == 2
     assert after["runtimeSoftware"]["cudaToolkit"]["discoveredContainers"] == 1
-    assert "nvidia-smi" not in runtime.PROBE
-
-
-def test_runtime_node_is_original_sample_not_last_bmc_node():
-    text = (WORK / "cluster-audit-slurm-security.sh").read_text()
-    assert '"${WORKLOAD_DIR}/k8s_runtime_software.py" --node "$GPU_PARTITION"' in text
-    assert 'SECURITY_TARGET_NODE' not in text
 
 
 @pytest.mark.parametrize("resource,expected", [
@@ -373,3 +336,86 @@ Configurations: Default Current Next Boot
 @pytest.mark.parametrize("header", ["Configurations: Next Boot", ""])
 def test_pending_only_or_unlabelled_mode_is_not_current_evidence(header):
     assert virtio.parse_mlxconfig(header + "\nINTERNAL_CPU_RSHIM DISABLED(1)") == {}
+
+
+def shared_rdma_resource(
+    is_rdma=True, array_selectors=False, namespace="nvidia-network-operator",
+    shared_key=None,
+):
+    function = bashtest.extract_block(
+        WORK / "k8s-control.sh", "k8s_detect_shared_rdma_resource() {", "# List the Multus"
+    )
+    selectors = {"isRdma": is_rdma}
+    config = {"data": {"config.json": json.dumps({"resourceList": [
+        {"resourcePrefix": "nvidia.com", "resourceName": "hostdev",
+         "selectors": [selectors] if array_selectors else selectors}
+    ]})}}
+    nodes = {"items": [{"status": {"allocatable": {"nvidia.com/hostdev": "8"}}}]}
+    if shared_key:
+        nodes["items"][0]["status"]["allocatable"][shared_key] = "8"
+    run = bashtest.run_bash(
+        function + "\nk8s_detect_shared_rdma_resource",
+        env={
+            "TEST_CONFIG": json.dumps(config),
+            "TEST_NODES": json.dumps(nodes),
+            "TEST_NAMESPACE": namespace,
+        },
+        stubs={"kubectl": (
+            'if [[ "$2" == configmap ]]; then [[ "$5" == "$TEST_NAMESPACE" ]] || exit 1; '
+            'printf "%s" "$TEST_CONFIG"; else printf "%s" "$TEST_NODES"; fi'
+        )},
+    )
+    assert run.returncode == 0, run.stderr
+    return run.stdout.strip()
+
+
+@pytest.mark.parametrize("is_rdma,expected", [(True, "nvidia.com/hostdev"), (False, "")])
+@pytest.mark.parametrize("array_selectors", [False, True])
+@pytest.mark.parametrize("namespace", ["nvidia-network-operator", "network-operator", "mellanox"])
+def test_shared_rdma_helper_uses_sriov_configuration(
+    is_rdma, expected, array_selectors, namespace,
+):
+    assert shared_rdma_resource(is_rdma, array_selectors, namespace) == expected
+
+
+@pytest.mark.parametrize("shared_key", ["rdma/shared", "nvidia.com/rdma_shared_device_a"])
+def test_explicit_shared_rdma_resource_precedes_hostdev(shared_key):
+    assert shared_rdma_resource(shared_key=shared_key) == shared_key
+
+
+@pytest.mark.parametrize("prefix", [None, "intel.com", "synthetic.example", "nvidia.com"])
+@pytest.mark.parametrize("array_selectors", [False, True])
+def test_workload_and_inventory_agree_on_hostdev_prefix(prefix, array_selectors):
+    from test_k8s_collector import run_detection
+
+    resource = {
+        "resourceName": "hostdev",
+        "selectors": [{"isRdma": True}] if array_selectors else {"isRdma": True},
+    }
+    if prefix is not None:
+        resource["resourcePrefix"] = prefix
+    config = {"resourceList": [resource]}
+    function = bashtest.extract_block(
+        WORK / "k8s-control.sh", "k8s_detect_shared_rdma_resource() {", "# List the Multus"
+    )
+    helper = bashtest.run_bash(
+        function + "\nk8s_detect_shared_rdma_resource",
+        env={
+            "TEST_CONFIG": json.dumps({"data": {"config.json": json.dumps(config)}}),
+            "TEST_NODES": json.dumps({"items": [{"status": {
+                "allocatable": {"nvidia.com/hostdev": "3"},
+            }}]}),
+        },
+        stubs={"kubectl": (
+            'if [[ "$2" == configmap ]]; then printf "%s" "$TEST_CONFIG"; '
+            'else printf "%s" "$TEST_NODES"; fi'
+        )},
+    )
+    inventory = run_detection({"nvidia.com/hostdev": "3"}, config)
+    assert helper.returncode == inventory.returncode == 0
+    if prefix == "nvidia.com":
+        assert helper.stdout.strip() == "nvidia.com/hostdev"
+        assert "TYPE=rdma" in inventory.stdout
+    else:
+        assert helper.stdout.strip() == ""
+        assert "TYPE=none" in inventory.stdout

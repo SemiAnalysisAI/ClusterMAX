@@ -333,18 +333,10 @@ def k8s_vboost_results(
     env: dict[str, str] = os.environ,
     runner: Runner = subprocess.run,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    try:
-        nodes_proc = kubectl(["get", "nodes", "-o", "json"], runner=runner, timeout=45)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return [], [f"kubectl get nodes failed: {exc}"]
-    if nodes_proc.returncode != 0:
-        return [], [f"kubectl get nodes failed: {nodes_proc.stderr.strip()}"]
-    try:
-        nodes_json = json.loads(nodes_proc.stdout)
-    except json.JSONDecodeError as exc:
-        return [], [f"kubectl get nodes returned invalid JSON: {exc}"]
-
     fanout = load_fanout()
+    nodes_json, error = fanout.k8s_nodes_json(lambda args: kubectl(args, runner=runner, timeout=45))
+    if nodes_json is None:
+        return [], [error]
     nodes = fanout.k8s_gpu_nodes(nodes_json, gpu_vendor="nvidia")
     if not nodes:
         return [], ["no Kubernetes nodes advertise nvidia.com/gpu capacity"]
@@ -353,10 +345,7 @@ def k8s_vboost_results(
     if not namespace:
         return [], ["no NVIDIA GPU Operator namespace found; cannot reach a driver pod to test vboost"]
 
-    try:
-        max_nodes = int(str(env.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS")))
-    except (TypeError, ValueError):
-        max_nodes = len(nodes)
+    max_nodes = fanout.k8s_max_host_checks(env, len(nodes))
 
     return fanout.fan_out_k8s(
         lambda node: k8s_vboost_node(namespace, node["name"], runner=runner),

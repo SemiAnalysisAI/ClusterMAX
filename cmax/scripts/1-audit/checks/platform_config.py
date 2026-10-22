@@ -1966,17 +1966,11 @@ def run_k8s_host_check(
 
 
 def k8s_gpu_node_list() -> tuple[list[dict[str, Any]], list[str]]:
-    try:
-        nodes_proc = kubectl(["get", "nodes", "-o", "json"], timeout=45)
-    except (OSError, subprocess.SubprocessError) as exc:
-        return [], [f"kubectl get nodes failed: {exc}"]
-    if nodes_proc.returncode != 0:
-        return [], [f"kubectl get nodes failed: {nodes_proc.stderr.strip()}"]
-    try:
-        nodes_json = json.loads(nodes_proc.stdout)
-    except json.JSONDecodeError as exc:
-        return [], [f"kubectl get nodes returned invalid JSON: {exc}"]
-    nodes = load_fanout().k8s_gpu_nodes(nodes_json)
+    fanout = load_fanout()
+    nodes_json, error = fanout.k8s_nodes_json(lambda args: kubectl(args, timeout=45))
+    if nodes_json is None:
+        return [], [error]
+    nodes = fanout.k8s_gpu_nodes(nodes_json)
     if not nodes:
         return [], ["no Kubernetes nodes advertise nvidia.com/gpu capacity"]
     return nodes, []
@@ -1990,7 +1984,7 @@ def run_k8s_check(
 ) -> tuple[list[dict[str, Any]], list[str]]:
     namespace = os.environ.get("CLUSTERMAX_AUDIT_K8S_NAMESPACE", "default")
     image = os.environ.get("CLUSTERMAX_AUDIT_K8S_HOST_CHECK_IMAGE", DEFAULT_K8S_HOST_CHECK_IMAGE)
-    max_nodes = as_int(os.environ.get("CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS"), default=len(nodes))
+    max_nodes = load_fanout().k8s_max_host_checks(os.environ, len(nodes))
     return load_fanout().fan_out_k8s(
         lambda node: run_k8s_host_check(
             namespace,

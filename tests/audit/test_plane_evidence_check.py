@@ -1,28 +1,20 @@
-#!/usr/bin/env python3
-"""Synthetic tests for the Tier A/B plane-evidence NIC topology check.
-
-Covers the parsers (mlxconfig / mlxlink / lldp / ibnetdiscover / port attrs),
-the tri-state evidence assembly, the bounded local collector, and the k8s
-@@PLANE@@ block parser. For the public audit contract,
-every derived value must be ok / not-determined-with-reason, never a crash.
-All parser inputs below are hand-built test data, not collected tool output.
-"""
+"""Plane parsers, tool failures, and cross-host fabric evidence."""
 
 from __future__ import annotations
 
-import sys
 import importlib.util
+import json
 import subprocess
 import unittest
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 SCRIPT_DIR = (
     Path(__file__).resolve().parents[2]
     / "cmax" / "scripts" / "1-audit"
 )
-from typing import Any
-
-
 CHECK_PATH = SCRIPT_DIR / "checks" / "fabric" / "nic-topology-check.py"
 
 
@@ -73,30 +65,37 @@ SW     2 2 0x00000000000000b1 4x XDR - SW     3 1 0x00000000000000b2 ( 'syntheti
 
 
 class PortAttrsTests(unittest.TestCase):
-    def test_parses_rate_width_speed(self) -> None:
-        self.assertEqual(
-            nic.parse_port_attrs("800 Gb/sec (4X XDR)"),
-            {"rate_gbps": 800, "width": "4X", "speed": "XDR"},
-        )
-
-    def test_parses_rate_without_parenthetical(self) -> None:
-        self.assertEqual(nic.parse_port_attrs("100 Gb/sec"), {"rate_gbps": 100})
-
-    def test_unparseable_keeps_raw(self) -> None:
-        self.assertEqual(nic.parse_port_attrs("garbage"), {"raw": "garbage"})
-        self.assertEqual(nic.parse_port_attrs(""), {"raw": ""})
+    def test_port_attributes(self) -> None:
+        for raw, expected in [
+            ("800 Gb/sec (4X XDR)", {"rate_gbps": 800, "width": "4X", "speed": "XDR"}),
+            ("100 Gb/sec", {"rate_gbps": 100}),
+            ("garbage", {"raw": "garbage"}),
+            ("", {"raw": ""}),
+        ]:
+            with self.subTest(raw=raw):
+                self.assertEqual(nic.parse_port_attrs(raw), expected)
 
 
 class ParserTests(unittest.TestCase):
-    def test_hostname_prefix_does_not_match_another_worker(self) -> None:
-        text = IBNETDISCOVER_P.replace("synthetic-worker-a", "synthetic-worker-a0")
-        self.assertEqual(nic.parse_ibnetdiscover(text, "", "synthetic-worker-a")["matched"], [])
+    def test_ibnetdiscover_matches_guid_or_exact_hostname(self) -> None:
+        for guid, host, text, matched in [
+            ("0000:0000:0000:00a1", "other-host", IBNETDISCOVER_P, 2),
+            ("", "synthetic-worker-a", IBNETDISCOVER_P, 2),
+            ("", "synthetic-worker-a",
+             IBNETDISCOVER_P.replace("synthetic-worker-a", "synthetic-worker-a0"), 0),
+        ]:
+            with self.subTest(guid=guid, host=host, matched=matched):
+                summary = nic.parse_ibnetdiscover(text, guid, host)
+                self.assertEqual(len(summary["matched"]), matched)
+                if matched:
+                    self.assertEqual(summary["switch_count"], 2)
 
     def test_guid_match_takes_precedence_over_hostname_matches(self) -> None:
         other = IBNETDISCOVER_P.replace("0x00000000000000a1", "0x00000000000000c1")
         summary = nic.parse_ibnetdiscover(IBNETDISCOVER_P + other, "0000:0000:0000:00a1", "synthetic-worker-a")
         self.assertTrue(summary["matched"])
         self.assertTrue(all("0x00000000000000c1" not in line for line in summary["matched"]))
+
     def test_mlxconfig_keeps_plane_and_sriov_keys_only(self) -> None:
         fields = nic.parse_mlxconfig(MLXCONFIG_OK)
         self.assertEqual(fields["LINK_TYPE_P1"], "IB(1)")
@@ -118,51 +117,29 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(fields["Port ID TLV"], "Ifname: Ethernet1/1/1")
         self.assertNotIn("Chassis ID TLV", fields)
 
-    def test_ibnetdiscover_counts_switches_and_matches_guid(self) -> None:
-        summary = nic.parse_ibnetdiscover(IBNETDISCOVER_P, "0000:0000:0000:00a1", "other-host")
-        self.assertEqual(summary["switch_count"], 2)
-        self.assertEqual(len(summary["matched"]), 2)
-
-    def test_ibnetdiscover_falls_back_to_hostname(self) -> None:
-        summary = nic.parse_ibnetdiscover(IBNETDISCOVER_P, "", "synthetic-worker-a")
-        self.assertEqual(len(summary["matched"]), 2)
-
-
 class RunEvidenceToolTests(unittest.TestCase):
-    def test_missing_tool(self) -> None:
-        def runner(command: Any, **_: Any):
-            raise FileNotFoundError(command[0])
+    def test_tool_outcomes(self) -> None:
+        for tool, outcome, expected in [
+            ("mlxconfig", FileNotFoundError("mlxconfig"), ("", "tool not installed")),
+            ("mlxlink", subprocess.TimeoutExpired("mlxlink", 10), ("", "timeout")),
+            ("ibnetdiscover", completed([], returncode=2, stderr="ibwarn: discover failed\n"),
+             ("", "exit 2: ibwarn: discover failed")),
+            ("mlxconfig", completed([], stdout=MLXCONFIG_OK), (MLXCONFIG_OK, None)),
+            ("mlxconfig", completed([], returncode=1,
+             stderr="-E- Failed to open device: /dev/mst/mt4131_pciconf0\n"), None),
+        ]:
+            with self.subTest(tool=tool, outcome=outcome):
+                def runner(command: Any, **_: Any):
+                    if isinstance(outcome, Exception):
+                        raise outcome
+                    return outcome
 
-        self.assertEqual(nic.run_evidence_tool(["mlxconfig"], runner=runner), ("", "tool not installed"))
-
-    def test_timeout(self) -> None:
-        def runner(command: Any, **_: Any):
-            raise subprocess.TimeoutExpired(cmd=command, timeout=10)
-
-        self.assertEqual(nic.run_evidence_tool(["mlxlink"], runner=runner), ("", "timeout"))
-
-    def test_permission_denial_is_classified(self) -> None:
-        def runner(command: Any, **_: Any):
-            return completed(command, returncode=1, stderr="-E- Failed to open device: /dev/mst/mt4131_pciconf0\n")
-
-        _, reason = nic.run_evidence_tool(["mlxconfig"], runner=runner)
-        assert reason is not None
-        self.assertTrue(reason.startswith("insufficient privilege"))
-
-    def test_generic_failure_keeps_exit_and_first_line(self) -> None:
-        def runner(command: Any, **_: Any):
-            return completed(command, returncode=2, stderr="ibwarn: discover failed\n")
-
-        self.assertEqual(
-            nic.run_evidence_tool(["ibnetdiscover"], runner=runner),
-            ("", "exit 2: ibwarn: discover failed"),
-        )
-
-    def test_success_returns_stdout(self) -> None:
-        def runner(command: Any, **_: Any):
-            return completed(command, stdout=MLXCONFIG_OK)
-
-        self.assertEqual(nic.run_evidence_tool(["mlxconfig"], runner=runner), (MLXCONFIG_OK, None))
+                result = nic.run_evidence_tool([tool], runner=runner)
+                if expected is None:
+                    self.assertIsNotNone(result[1])
+                    self.assertTrue(result[1].startswith("insufficient privilege"))
+                else:
+                    self.assertEqual(result, expected)
 
 
 class EvidenceAssemblyTests(unittest.TestCase):
@@ -222,22 +199,6 @@ class CollectPlaneEvidenceTests(unittest.TestCase):
         {"name": "mlx5_an0", "role": "frontend", "layer": "Ethernet"},
         {"name": "mlx5_st0", "role": "storage", "layer": "InfiniBand"},
     ]
-
-    def test_only_fabric_hcas_checked_and_absent_tools_recorded(self) -> None:
-        calls: list[list[str]] = []
-
-        def runner(command: Any, **_: Any):
-            calls.append(command)
-            raise FileNotFoundError(command[0])
-
-        out = nic.collect_plane_evidence(self.NICS, runner=runner, sysfs_root="/nonexistent")
-
-        self.assertEqual([e["ibdev"] for e in out], ["mlx5_ib0", "mlx5_ib1"])
-        for record in out:
-            self.assertEqual(record["mlxconfig"], {"status": "not determined", "reason": "tool not installed"})
-            self.assertEqual(record["presentation"]["status"], "not determined")
-        checked = {c[0] for c in calls}
-        self.assertEqual(checked, {"mlxconfig", "mlxlink", "ibnetdiscover"})
 
     def test_budget_exhaustion_marks_remaining_hcas(self) -> None:
         clock = iter([0.0, 1.0, 100.0])
@@ -370,11 +331,9 @@ class K8sPlaneBlockTests(unittest.TestCase):
         self.assertIsNone(reason)
         self.assertIn("SPLIT_MODE", raw)
         self.assertEqual(raws["mlx5_ib0"]["mlxlink"], ("", "tool not installed"))
-        # umad denial goes through the same _failure_reason classifier as local runs.
         self.assertTrue(raws["mlx5_ib0"]["ibnetdiscover"][1].startswith("insufficient privilege"))
         self.assertEqual(raws["mlx5_ib1"]["mlxconfig"], ("", "skipped (no timeout binary in pod)"))
         self.assertEqual(raws["mlx5_rail0"]["lldp"], ("", "no netdev exposed for this HCA"))
-        # timeout(1) kill status 124 maps to the stable "timeout" reason.
         self.assertEqual(raws["mlx5_ib2"]["mlxlink"], ("", "timeout"))
 
     def test_rate_raws_from_hca_lines(self) -> None:
@@ -435,5 +394,123 @@ class PayloadTests(unittest.TestCase):
         self.assertEqual(evidence[0]["presentation"]["status"], "not determined")
 
 
-if __name__ == "__main__":
-    unittest.main()
+def synthetic_evidence():
+    return nic.evidence_from_raw(
+        "synthetic_ib", "InfiniBand", "200 Gb/sec",
+        {"mlxconfig": ("SPLIT_MODE SPLIT_2X(1)\n", None)},
+    )
+
+def synthetic_records(*, include_failed_evidence=True):
+    records = [{
+        "host": f"synthetic-{index}", "topo_collected": True, "nvlinkExposed": False,
+        "nics": [{
+            "name": "synthetic_ib", "role": "fabric" if index < 2 else "storage",
+            "state": "ACTIVE" if index < 2 else "DOWN",
+            "rate_gbps": 200 if index < 2 else 0, "layer": "InfiniBand",
+        }],
+        "plane_evidence": [synthetic_evidence()],
+    } for index in range(3)]
+    if not include_failed_evidence:
+        records[-1].pop("plane_evidence")
+    return records
+
+@pytest.mark.parametrize("include_failed_evidence", [True, False])
+def test_recovered_fabric_port_has_measured_or_explicitly_missing_evidence(
+    monkeypatch, include_failed_evidence,
+):
+    records = synthetic_records(include_failed_evidence=include_failed_evidence)
+    monkeypatch.setattr(nic, "slurm_records", lambda **kwargs: (records, []))
+    payload = nic.build_check_payload(harness="slurm", env={})
+    port, = payload["nic_topology"]["synthetic-2"]
+    assert port["role"] == "fabric"
+    evidence, = payload["nic_plane_evidence"]["synthetic-2"]
+    assert evidence["ibdev"] == "synthetic_ib"
+    if include_failed_evidence:
+        assert evidence == synthetic_evidence()
+        assert evidence["presentation"]["status"] == "ok"
+    else:
+        assert evidence["presentation"]["status"] == "not determined"
+        assert "not collected before fabric role aggregation" in evidence["presentation"]["reason"]
+        assert evidence["neighbor"]["status"] == "not determined"
+
+def test_unpromoted_storage_candidate_is_not_published_as_fabric_evidence():
+    records = synthetic_records()
+    # One healthy peer does not meet the two-peer recovery threshold.
+    records.pop(1)
+    topology = nic.aggregate(records)
+    assert topology["synthetic-2"][0]["role"] == "storage"
+    assert "synthetic-2" not in nic.plane_evidence_by_host(records, topology)
+
+def test_local_collector_retains_down_ib_candidates_but_not_active_storage():
+    nics = CollectPlaneEvidenceTests.NICS + [
+        {"name": "synthetic_down", "role": "storage", "layer": "InfiniBand", "state": "DOWN"},
+    ]
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append(command)
+        raise FileNotFoundError(command[0])
+
+    evidence = nic.collect_plane_evidence(nics, runner=runner, sysfs_root="/nonexistent")
+    assert [entry["ibdev"] for entry in evidence] == ["mlx5_ib0", "mlx5_ib1", "synthetic_down"]
+    assert all("mlx5_st0" not in command for command in calls)
+    assert {command[0] for command in calls} == {"mlxconfig", "mlxlink", "ibnetdiscover"}
+    for record in evidence:
+        assert record["mlxconfig"] == {"status": "not determined", "reason": "tool not installed"}
+        assert record["presentation"]["status"] == "not determined"
+
+def test_local_worker_collects_down_port_evidence_before_peer_recovery(monkeypatch):
+    monkeypatch.setenv("NODE_NAME", "synthetic-down")
+    monkeypatch.setattr(nic, "collect_topo", lambda **kwargs: ("", "synthetic topology unavailable"))
+    monkeypatch.setattr(nic, "_collect_hcas_local", lambda: [
+        ("synthetic_ib", 0.0, "InfiniBand", "DOWN"),
+    ])
+    monkeypatch.setattr(nic, "_collect_netdevs_local", lambda: [])
+    monkeypatch.setattr(nic, "_read_sysfs", lambda path: "")
+
+    def runner(command, **kwargs):
+        if command[0] == "mlxconfig":
+            return subprocess.CompletedProcess(command, 0, "SPLIT_MODE SPLIT_2X(1)\n", "")
+        raise FileNotFoundError(command[0])
+
+    record = nic.gather(runner=runner)
+    assert record["nics"][0]["role"] != "fabric"
+    assert record["plane_evidence"][0]["presentation"]["status"] == "ok"
+
+def test_kubernetes_keeps_down_port_tool_output_through_peer_recovery():
+    def runner(command, **kwargs):
+        args = command[1:]
+        if args[:2] == ["get", "nodes"]:
+            return subprocess.CompletedProcess(command, 0, json.dumps({"items": [{
+                "metadata": {"name": f"synthetic-{index}"},
+                "status": {"capacity": {"nvidia.com/gpu": "1"}},
+            } for index in range(3)]}), "")
+        if args[:2] == ["get", "pods"]:
+            node = args[args.index("--field-selector") + 1].split("=", 1)[1]
+            return subprocess.CompletedProcess(command, 0, json.dumps({"items": [{
+                "metadata": {"name": f"nvidia-driver-{node}"},
+                "status": {"phase": "Running"},
+            }]}), "")
+        if args[0] == "exec":
+            failed = args[3].endswith("-2")
+            topo = "" if failed else (
+                "\tGPU0\tNIC0\nGPU0\tX\tPIX\nNIC0\tPIX\tX\nNIC Legend:\nNIC0: synthetic_ib"
+            )
+            text = (
+                f"@@TOPO_BEGIN@@\n{topo}\n@@TOPO_END@@\n"
+                f"@@HCA@@\tsynthetic_ib\t{'0' if failed else '200'} Gb/sec\tInfiniBand\t"
+                f"{'1: DOWN' if failed else '4: ACTIVE'}\n"
+                "@@PLANE@@ synthetic_ib mlxconfig BEGIN\nSPLIT_MODE SPLIT_2X(1)\n"
+                "@@PLANE@@ synthetic_ib mlxconfig END 0\n"
+            )
+            return subprocess.CompletedProcess(command, 0, text, "")
+        raise AssertionError(args)
+
+    payload = nic.build_check_payload(
+        harness="k8s", env={"CLUSTERMAX_GPU_OPERATOR_NAMESPACE": "synthetic-operator"},
+        runner=runner,
+    )
+    assert payload["nic_topology"]["synthetic-2"][0]["role"] == "fabric"
+    failed, = payload["nic_plane_evidence"]["synthetic-2"]
+    assert failed["presentation"]["status"] == "ok"
+    assert failed["mlxconfig"]["fields"]["SPLIT_MODE"] == "SPLIT_2X(1)"

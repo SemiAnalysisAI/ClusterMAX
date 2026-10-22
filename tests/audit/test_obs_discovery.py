@@ -28,6 +28,8 @@ class SocketDiscoveryTests(unittest.TestCase):
             "::ffff:127.0.0.1:9090": "http://[::ffff:127.0.0.1]:9090",
             "fe80::1%eth0:9090": "http://[fe80::1%25eth0]:9090",
             "[::1]:9090": "http://[::1]:9090",
+            ":::9090": "http://127.0.0.1:9090",
+            "[::]:9090": "http://127.0.0.1:9090",
         }
         for address, expected in cases.items():
             with self.subTest(address=address):
@@ -35,29 +37,19 @@ class SocketDiscoveryTests(unittest.TestCase):
                     f"tcp6 0 0 {address} :::* LISTEN"
                 )
                 self.assertEqual([e.url for e in endpoints], [expected])
-    def test_query_ports_become_targets_and_wildcards_become_localhost(self) -> None:
+    def test_socket_discovery_separates_query_targets_from_exporter_platforms(self) -> None:
         endpoints = obs_discovery.endpoints_from_sockets(SS_OUTPUT)
-        urls = [endpoint.url for endpoint in endpoints]
-        self.assertIn("http://127.0.0.1:9090", urls)
-        self.assertIn("http://127.0.0.1:3000", urls)
         self.assertEqual(
-            {endpoint.platform for endpoint in endpoints}, {"prometheus", "grafana"}
+            [endpoint.url for endpoint in endpoints],
+            ["http://127.0.0.1:9090", "http://127.0.0.1:3000"],
         )
-
-    def test_exporter_and_unrelated_ports_are_never_checked(self) -> None:
-        # An exporter serves its own host's metrics, so checking it cannot answer
-        # a tenancy question; port 22 is not a monitoring backend at all.
-        urls = [e.url for e in obs_discovery.endpoints_from_sockets(SS_OUTPUT)]
-        for port in (":9400", ":9100", ":22"):
-            self.assertFalse([url for url in urls if url.endswith(port)], port)
-
-    def test_exporter_ports_still_report_the_platform(self) -> None:
+        self.assertEqual({endpoint.platform for endpoint in endpoints}, {"prometheus", "grafana"})
         platforms = obs_discovery.platforms_from_sockets(SS_OUTPUT)
         self.assertIn("dcgm-exporter", platforms)
         self.assertIn("node-exporter", platforms)
 
+
     def test_bare_address_lines_parse(self) -> None:
-        # The audit collectors record the pre-extracted address column.
         endpoints = obs_discovery.endpoints_from_sockets("0.0.0.0:8428\n[::1]:10902\n")
         self.assertEqual(
             [e.url for e in endpoints],
@@ -65,9 +57,6 @@ class SocketDiscoveryTests(unittest.TestCase):
         )
 
     def test_the_netstat_ipv6_wildcard_form_is_parsed(self) -> None:
-        # `ss` prints `[::]:9090`, but `netstat -tln` prints `:::9090`. A host
-        # without `ss` falls back to netstat, so an IPv6-only backend was
-        # invisible to the socket vantage there.
         netstat = (
             "Active Internet connections (only servers)\n"
             "Proto Recv-Q Send-Q Local Address           Foreign Address         State\n"
@@ -79,11 +68,6 @@ class SocketDiscoveryTests(unittest.TestCase):
             ["http://127.0.0.1:9090", "http://127.0.0.1:3000"],
         )
 
-    def test_both_ipv6_wildcard_spellings_agree(self) -> None:
-        self.assertEqual(
-            obs_discovery.parse_listening(":::9090"),
-            obs_discovery.parse_listening("[::]:9090"),
-        )
 
     def test_peer_column_wildcard_is_not_a_port(self) -> None:
         pairs = obs_discovery.parse_listening("LISTEN 0 128 10.0.0.5:9090 0.0.0.0:*")
@@ -99,15 +83,10 @@ class ProcessDiscoveryTests(unittest.TestCase):
         )
 
     def test_process_only_backend_gets_a_default_port_target(self) -> None:
-        # A containerized Grafana has no systemd unit and may hide its socket
-        # from an unprivileged `ss`; the comm name is the only signal left.
         endpoints = obs_discovery.endpoints_from_processes("grafana\n")
         self.assertEqual([e.url for e in endpoints], ["http://127.0.0.1:3000"])
 
     def test_truncated_exporter_name_is_not_read_as_a_server(self) -> None:
-        # `ps -eo comm=` truncates to 15 characters, so
-        # `prometheus-node-exporter` arrives as `prometheus-node`. Reading that
-        # as Prometheus invents a query target on an exporter-only node.
         self.assertEqual(obs_discovery.platforms_from_processes("prometheus-node\n"), [])
         self.assertEqual(obs_discovery.endpoints_from_processes("prometheus-node\n"), [])
         for comm in ("grafana-agent", "prometheus-adapter", "vmagent"):
@@ -124,10 +103,6 @@ class ProcessDiscoveryTests(unittest.TestCase):
         )
 
     def test_truncated_comm_of_a_long_binary_name_is_matched(self) -> None:
-        # `ps -eo comm=` reports the kernel comm, capped at 15 characters, so
-        # victoria-metrics-prod arrives as victoria-metric. That is the only form
-        # a real host produces, and the 16-character key cannot match it directly.
-        self.assertEqual(len("victoria-metric"), obs_discovery.COMM_MAX_LEN)
         self.assertEqual(
             obs_discovery.platforms_from_processes("victoria-metric\n"),
             ["victoriametrics"],
@@ -136,13 +111,6 @@ class ProcessDiscoveryTests(unittest.TestCase):
             [e.url for e in obs_discovery.endpoints_from_processes("victoria-metric\n")],
             ["http://127.0.0.1:8428"],
         )
-
-    def test_a_15_character_comm_does_not_absorb_a_short_key(self) -> None:
-        # `prometheus-node` is exactly 15 characters, so it reaches the truncation
-        # branch. Only a key of 15 or more characters may be a truncation, so the
-        # 10-character `prometheus` key must not claim it.
-        self.assertEqual(len("prometheus-node"), obs_discovery.COMM_MAX_LEN)
-        self.assertEqual(obs_discovery.platforms_from_processes("prometheus-node\n"), [])
 
 
 class AuditEvidenceTests(unittest.TestCase):
@@ -167,9 +135,6 @@ class AuditEvidenceTests(unittest.TestCase):
         self.assertIn("dcgm-exporter", platforms)
 
     def test_legacy_booleans_alone_still_produce_a_target(self) -> None:
-        # Audits committed before the collectors recorded addresses carry only
-        # booleans. A detected Prometheus must still be checked on its default
-        # port instead of reporting "not assessed".
         values = {
             "audit_data": {
                 "healthChecks": {"monitoringStack": {"prometheus": True, "grafana": True}}
@@ -191,7 +156,6 @@ class AuditEvidenceTests(unittest.TestCase):
 
 class KubernetesDiscoveryTests(unittest.TestCase):
     def test_synthetic_helm_release_prefix_does_not_consume_the_target_budget(self) -> None:
-        # Invent a full chart layout without copying any deployment inventory.
         prefix = "synthetic-prometheus-stack-"
         scrape_components = [
             "kubelet", "coredns", "kube-dns", "kube-state-metrics",
@@ -214,39 +178,54 @@ class KubernetesDiscoveryTests(unittest.TestCase):
             (f"http://{prefix}prometheus.synthetic.svc.cluster.local:9090", "prometheus"),
         ])
 
-    def test_release_tokens_cannot_claim_unrelated_service_components(self) -> None:
-        for name in (
-            "synthetic-prometheus-stack-kubelet",
-            "synthetic-prometheus-stack-coredns",
-            "synthetic-prometheus-stack-kube-state-metrics",
-            "synthetic-grafana-stack-database",
-            "synthetic-mimir-stack-memcached",
-            "synthetic-vmselect-stack-kubelet",
-            "synthetic-victoria-metrics-cluster-vmstorage",
-            "synthetic-thanos-store",
-            "synthetic-thanos-receive",
-        ):
-            with self.subTest(name=name):
-                self.assertIsNone(obs_discovery._service_platform(name))
+    def test_service_component_names_identify_only_query_backends(self) -> None:
+        cases = [
+            ('synthetic-prometheus-stack-kubelet', None),
+            ('synthetic-prometheus-stack-coredns', None),
+            ('synthetic-prometheus-stack-kube-state-metrics', None),
+            ('synthetic-grafana-stack-database', None),
+            ('synthetic-mimir-stack-memcached', None),
+            ('synthetic-vmselect-stack-kubelet', None),
+            ('synthetic-victoria-metrics-cluster-vmstorage', None),
+            ('synthetic-thanos-store', None),
+            ('synthetic-thanos-receive', None),
+            ('kube-prom-prometheus-node-exporter', None),
+            ('nvidia-dcgm-exporter', None),
+            ('grafana-agent', None),
+            ('prometheus-adapter', None),
+            ('kube-prom-prometheus-operator', None),
+            ('kube-prom-alertmanager', None),
+            ('prometheus-pushgateway', None),
+            ('vminsert-cluster', None),
+            ('vmagent-cluster', None),
+            ('kube-prometheus-stack-grafana', 'grafana'),
+            ('synthetic-vmselect-stack-grafana', 'grafana'),
+            ('kube-prometheus-stack-prometheus', 'prometheus'),
+            ('synthetic-prometheus-operated', 'prometheus'),
+            ('synthetic-prometheus-server', 'prometheus'),
+            ('synthetic-prometheus-k8s', 'prometheus'),
+            ('synthetic-thanos-query', 'thanos'),
+            ('synthetic-thanos-query-frontend', 'thanos'),
+            ('synthetic-vmselect', 'vmselect'),
+            ('synthetic-vmsingle', 'victoriametrics'),
+            ('synthetic-victoria-metrics-single-server', 'victoriametrics'),
+            ('synthetic-mimir-query-frontend', 'mimir'),
+            ('synthetic-cortex-querier', 'cortex'),
+            ('prometheus-operated', 'prometheus'),
+            ('prometheus-server', 'prometheus'),
+            ('vmselect-cluster', 'vmselect'),
+            ('mimir-query-frontend', 'mimir'),
+            ('kube-prom-grafana', 'grafana'),
+        ]
+        for name, platform in cases:
+            with self.subTest(service=name):
+                payload = {"items": [{
+                    "metadata": {"name": name, "namespace": "monitoring"},
+                    "spec": {"ports": [{"port": 9090}]},
+                }]}
+                endpoints = obs_discovery.parse_kubernetes_services(payload)
+                self.assertEqual([endpoint.platform for endpoint in endpoints], [] if platform is None else [platform])
 
-    def test_query_component_suffixes_identify_the_product(self) -> None:
-        for name, platform in (
-            ("kube-prometheus-stack-grafana", "grafana"),
-            ("synthetic-vmselect-stack-grafana", "grafana"),
-            ("kube-prometheus-stack-prometheus", "prometheus"),
-            ("synthetic-prometheus-operated", "prometheus"),
-            ("synthetic-prometheus-server", "prometheus"),
-            ("synthetic-prometheus-k8s", "prometheus"),
-            ("synthetic-thanos-query", "thanos"),
-            ("synthetic-thanos-query-frontend", "thanos"),
-            ("synthetic-vmselect", "vmselect"),
-            ("synthetic-vmsingle", "victoriametrics"),
-            ("synthetic-victoria-metrics-single-server", "victoriametrics"),
-            ("synthetic-mimir-query-frontend", "mimir"),
-            ("synthetic-cortex-querier", "cortex"),
-        ):
-            with self.subTest(name=name):
-                self.assertEqual(obs_discovery._service_platform(name), platform)
 
     def test_https_metadata_survives_nonstandard_service_port(self) -> None:
         for port in (
@@ -284,51 +263,6 @@ class KubernetesDiscoveryTests(unittest.TestCase):
                 ("http://thanos-query.obs.svc.cluster.local:10902", "thanos"),
             ],
         )
-
-    def test_exporter_and_sidecar_services_are_not_query_targets(self) -> None:
-        # These Service names all contain an include token but serve no query
-        # API, so checking them spends the budget and names the wrong product.
-        for name in (
-            "kube-prom-prometheus-node-exporter",
-            "nvidia-dcgm-exporter",
-            "grafana-agent",
-            "prometheus-adapter",
-            "kube-prom-prometheus-operator",
-            "kube-prom-alertmanager",
-            "prometheus-pushgateway",
-            "vminsert-cluster",
-            "vmagent-cluster",
-        ):
-            payload = {
-                "items": [
-                    {
-                        "metadata": {"name": name, "namespace": "monitoring"},
-                        "spec": {"ports": [{"port": 9090}]},
-                    }
-                ]
-            }
-            self.assertEqual(obs_discovery.parse_kubernetes_services(payload), [], name)
-
-    def test_real_backend_services_still_match(self) -> None:
-        # prometheus-operated is the Service the Prometheus Operator creates for
-        # the real server, so the "-operator" exclusion must not catch it.
-        for name, platform in (
-            ("prometheus-operated", "prometheus"),
-            ("prometheus-server", "prometheus"),
-            ("vmselect-cluster", "vmselect"),
-            ("mimir-query-frontend", "mimir"),
-            ("kube-prom-grafana", "grafana"),
-        ):
-            payload = {
-                "items": [
-                    {
-                        "metadata": {"name": name, "namespace": "monitoring"},
-                        "spec": {"ports": [{"port": 9090}]},
-                    }
-                ]
-            }
-            endpoints = obs_discovery.parse_kubernetes_services(payload)
-            self.assertEqual([e.platform for e in endpoints], [platform], name)
 
 
 class DiscoverOrderingTests(unittest.TestCase):
@@ -384,8 +318,6 @@ class DiscoverOrderingTests(unittest.TestCase):
         self.assertEqual(len(result.urls()), 3)
 
     def test_a_vantage_whose_targets_all_fall_past_the_cap_is_not_reported(self) -> None:
-        # The source label describes what was checked. Claiming a vantage that
-        # contributed no checked target misdescribes the result.
         values = {
             "audit_data": {
                 "healthChecks": {
@@ -406,7 +338,6 @@ class DiscoverOrderingTests(unittest.TestCase):
         )
         self.assertEqual(result.source_label(), "audit")
         self.assertEqual(len(result.urls()), 2)
-        # The platform is still recorded, because discovery did see it.
         self.assertIn("grafana", result.platforms)
 
 
