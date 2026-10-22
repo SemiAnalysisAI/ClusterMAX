@@ -86,17 +86,147 @@ def grade(facts: dict[str, str]) -> dict:
     }
 
 
-def main() -> None:
-    facts = {}
-    for line in sys.stdin:
-        key, separator, value = line.rstrip("\n").partition("=")
+def parse_facts(text: str) -> dict[str, str]:
+    """Read WORKER_ facts and mark a conflicting repeat as unknown."""
+    facts: dict[str, str] = {}
+    for line in text.splitlines():
+        key, separator, value = line.partition("=")
         if separator and key.startswith("WORKER_"):
             # Multiple conflicting samples must not establish a fixed host.
             if key in facts and facts[key] != value:
                 facts[key] = "unknown"
             else:
                 facts[key] = value
-    print(json.dumps(grade(facts), sort_keys=True))
+    return facts
+
+
+def _names(entries: list[dict], limit: int = 10) -> str:
+    names = [str(entry["node"]) for entry in entries]
+    shown = ", ".join(names[:limit])
+    return shown + (f" and {len(names) - limit} more" if len(names) > limit else "")
+
+
+def _host_entry(host: dict) -> dict:
+    entry = {"node": str(host.get("node") or "unknown"), "role": str(host.get("role") or "worker")}
+    facts = parse_facts(str(host.get("facts") or ""))
+    if not host.get("checked") or "WORKER_GUEST_KERNEL_RUNNING" not in facts:
+        entry.update(
+            checked=False,
+            status="unassessed",
+            error=str(host.get("error") or "The host returned no PwnEscape facts."),
+        )
+        return entry
+    value = grade(facts)
+    entry.update(
+        checked=True,
+        status=value["status"],
+        runningKernel=value["runningKernel"],
+        minimum=value["minimum"],
+        localKernelStatus=value["localKernelStatus"],
+        virtualization=value["virtualization"],
+        livepatch=value["livepatch"],
+        reason=value["reason"],
+    )
+    return entry
+
+
+def grade_fleet(hosts: list[dict], control_plane: dict) -> dict:
+    """Grade every audited host, so that one unpatched host fails the check.
+
+    A host that the audit could not reach, or a control plane that the audit
+    could not find, blocks a pass. The provider must then supply the running
+    kernel and patch evidence for those hosts.
+    """
+    entries = [_host_entry(host) for host in hosts]
+    checked = [entry for entry in entries if entry["checked"]]
+    unassessed = [entry for entry in entries if not entry["checked"]]
+    failing = [entry for entry in checked if entry["status"] == "fail"]
+    control_entries = [entry for entry in entries if entry["role"] == "control-plane"]
+    control_discovered = bool(control_plane.get("discovered")) and bool(control_entries)
+    control_complete = control_discovered and all(entry["checked"] for entry in control_entries)
+    coverage_complete = bool(entries) and not unassessed and control_complete
+
+    statuses = {entry["status"] for entry in checked}
+    if failing:
+        status = "fail"
+    elif not coverage_complete:
+        status = "coverage-incomplete"
+    elif statuses == {"pass"}:
+        status = "pass"
+    elif "host-version-required" in statuses:
+        status = "host-version-required"
+    else:
+        status = "unknown"
+
+    worst = (failing or [entry for entry in checked if entry["status"] != "pass"] or checked or [{}])[0]
+    reasons = []
+    if failing:
+        reasons.append(
+            f"{len(failing)} host(s) run a kernel below the PwnEscape minimum: {_names(failing)}."
+        )
+    elif worst.get("status", "pass") != "pass":
+        reasons.append(f"{worst['node']}: {worst['reason']}")
+    if unassessed:
+        reasons.append(
+            f"The audit could not read {len(unassessed)} host(s): {_names(unassessed)}. "
+            "Request the running-kernel build and CVE-specific patch evidence for each one."
+        )
+    if not control_discovered:
+        reasons.append(
+            str(control_plane.get("detail") or "The audit could not find the control-plane hosts.")
+            + " Request the running-kernel build and CVE-specific patch evidence for every control-plane host."
+        )
+    if not reasons:
+        reasons.append("Every audited worker and control-plane host meets the PwnEscape minimum.")
+
+    roles: dict[str, dict[str, int]] = {}
+    for entry in entries:
+        counts = roles.setdefault(entry["role"], {"total": 0, "checked": 0, "failing": 0})
+        counts["total"] += 1
+        counts["checked"] += int(entry["checked"])
+        counts["failing"] += int(entry["status"] == "fail")
+    return {
+        "cve": CVE,
+        "advisory": ADVISORY,
+        "cnaRecord": CNA_RECORD,
+        "minimumsReviewedAt": "2026-10-17",
+        "fixCommit": FIX_COMMIT,
+        "status": status,
+        "reason": " ".join(reasons),
+        "scope": "fleet",
+        "runningKernel": worst.get("runningKernel", "unknown"),
+        "runningKernels": sorted({entry["runningKernel"] for entry in checked}),
+        "localKernelStatus": worst.get("localKernelStatus", "unknown"),
+        "minimum": worst.get("minimum", "unknown"),
+        "virtualization": worst.get("virtualization", "unknown"),
+        "livepatch": worst.get("livepatch", "unknown"),
+        "nodesTotal": len(entries),
+        "nodesChecked": len(checked),
+        "coverageComplete": coverage_complete,
+        "failingNodes": [entry["node"] for entry in failing],
+        "unassessedNodes": [entry["node"] for entry in unassessed],
+        "roles": roles,
+        "controlPlane": {
+            "discovered": control_discovered,
+            "coverageComplete": control_complete,
+            "hosts": [entry["node"] for entry in control_entries],
+            "detail": str(control_plane.get("detail") or ""),
+        },
+        "hosts": entries,
+        "exploitTested": False,
+    }
+
+
+def main() -> None:
+    if sys.argv[1:] == ["--fleet"]:
+        # stdin is {"hosts": [...], "controlPlane": {...}} from the security collector.
+        document = json.load(sys.stdin)
+        print(json.dumps(
+            grade_fleet(document.get("hosts") or [], document.get("controlPlane") or {}),
+            sort_keys=True,
+        ))
+        return
+    print(json.dumps(grade(parse_facts(sys.stdin.read())), sort_keys=True))
 
 
 if __name__ == "__main__":

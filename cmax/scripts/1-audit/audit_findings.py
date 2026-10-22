@@ -1990,6 +1990,16 @@ def _finding_guidance(
             "Ask the provider for the physical host's running kernel and "
             "CVE-specific patch evidence."
         )
+    elif str(value).strip().lower() == "coverage-incomplete":
+        detected = (
+            "The audit could not read every host or could not find the "
+            "control plane, so the fleet result is incomplete. This is not a pass."
+        )
+        recommendation = (
+            "Request running-kernel and CVE-specific patch evidence for each "
+            "host that the audit could not read, including managed "
+            "control-plane hosts."
+        )
     else:
         detected = str(value).replace("_", " ").capitalize()
         if "reboot required" in rule.title.lower():

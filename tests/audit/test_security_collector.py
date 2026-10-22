@@ -316,7 +316,24 @@ WORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.6
             },
         )
         exec_calls = [call for call in run.calls("kubectl") if call[0] == "exec"]
-        self.assertEqual(len(exec_calls), 4)
+        # Host check, container check, two BMC probes within the limit, and
+        # one PwnEscape read on each of the four nodes.
+        self.assertEqual(len(exec_calls), 8)
+        pwnescape = payload["security"]["pwnescape"]
+        self.assertEqual(pwnescape["scope"], "fleet")
+        self.assertEqual(
+            {(host["node"], host["role"], host["checked"]) for host in pwnescape["hosts"]},
+            {
+                ("gpu-node-01", "worker", True),
+                ("worker-node-02", "worker", True),
+                ("worker-node-03", "worker", True),
+                ("control-plane-01", "control-plane", True),
+            },
+        )
+        self.assertTrue(pwnescape["controlPlane"]["coverageComplete"])
+        self.assertTrue(pwnescape["coverageComplete"])
+        # The host evidence reports a KVM guest, so the hidden host still needs evidence.
+        self.assertEqual(pwnescape["status"], "host-version-required")
         for call in exec_calls:
             self.assertIn("CLUSTERMAX_CONTAINER_RUNTIME_SCOPE=host", call)
             self.assertTrue(
