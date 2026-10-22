@@ -221,6 +221,14 @@ class SlurmDispatchTests(unittest.TestCase):
         env = {"SLURM_JOB_ID": "42", "SLURM_NNODES": "2"}
 
         def runner(command: list[str], **_: Any) -> subprocess.CompletedProcess:
+            if command[:3] == ["scontrol", "show", "job"]:
+                # Both nodes hold 8 GPUs, so the step must request them:
+                # a step without --gres sees no GPU in nvidia-smi topo -m.
+                return completed(command, stdout=(
+                    "   JOB_GRES=gpu:h100:16\n"
+                    "     Nodes=gpu-[a-b] CPU_IDs=0-127 Mem=1024 GRES=gpu:h100:8(IDX:0-7)\n"
+                ))
+            self.assertIn("--gres=gpu:8", command)
             self.assertIn("srun", command)
             self.assertIn("--collect-host", command)
             stdout = "\n".join(
