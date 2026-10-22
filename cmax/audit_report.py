@@ -32,6 +32,7 @@ _SECURITY_EXTENSION_IDS = frozenset(
         "pcie-passthrough",
         "nvlink-boundary",
         "kubernetes-nodes-proxy",
+        "observability-isolation",
     }
 )
 _SECURITY_EXTENSION_HARNESSES = {

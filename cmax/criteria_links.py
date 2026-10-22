@@ -70,6 +70,7 @@ _MONITORING_SACCT = (
 # requirement is an exact match.
 _CHECK_ANCHORS = {
     "securityVersions.amdDriver.status": _SECURITY_PATCHING,
+    "observability-isolation": "security-observability-isolation",
     "thp_madvise.status": "lifecycle",
     "static_hugepages.status": "lifecycle",
     "hugepage_allocation.status": "lifecycle",

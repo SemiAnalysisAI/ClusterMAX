@@ -45,6 +45,7 @@ AUDIT_CATEGORIES = (
                 "bmc-ipmi",
                 "kubernetes-nodes-proxy",
                 "nvlink-boundary",
+                "observability-isolation",
                 "pcie-passthrough",
                 "ufm-profile",
                 "securityVersions.virtioNetBluefield.exposure",
