@@ -2300,6 +2300,8 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
             "components.ubuntuNoble.packages.linuxBadEpollNvidia617",
             "components.ubuntuNoble.packages.linuxFragnesiaNvidia617",
             "components.ubuntuJammy.packages.linuxBadEpoll",
+            "components.ubuntuResolute.packages.linuxBadEpoll",
+            "components.ubuntuResolute.packages.linuxFragnesia",
         )
         try:
             candidate = json.loads(path.read_text())

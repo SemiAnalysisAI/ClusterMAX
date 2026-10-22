@@ -820,8 +820,11 @@ def slurm_records(
         return [], ["SLURM_JOB_ID is not set; no compute node was checked for NIC topology"]
 
     node_count = env.get("SLURM_NNODES") or "1"
-    command = load_fanout().slurm_python_command(
-        node_count=node_count, worker_args=["--collect-host"]
+    fanout = load_fanout()
+    command = fanout.slurm_python_command(
+        node_count=node_count,
+        worker_args=["--collect-host"],
+        gpus_per_node=fanout.slurm_gpus_per_node(env, runner),
     )
     try:
         proc = runner(

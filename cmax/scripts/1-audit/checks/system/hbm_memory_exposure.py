@@ -572,9 +572,12 @@ def run_slurm_check(harness: str, *, worker_source: str | None = None) -> tuple[
         return [], ["SLURM_JOB_ID is not set; no compute node was checked for HBM exposure"]
 
     node_count = os.environ.get("SLURM_NNODES") or "1"
-    command = load_fanout().slurm_python_command(
+    fanout = load_fanout()
+    command = fanout.slurm_python_command(
         node_count=node_count,
         worker_args=["--collect-host", "--harness", harness],
+        # nvidia-smi supplies the GPU memory sizes, so the step needs the GPUs.
+        gpus_per_node=fanout.slurm_gpus_per_node(os.environ),
     )
     try:
         proc = run_command(command, timeout=120, input_text=worker_source if worker_source is not None else Path(__file__).read_text())
