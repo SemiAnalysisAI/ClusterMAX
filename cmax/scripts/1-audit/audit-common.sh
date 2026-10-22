@@ -1780,3 +1780,38 @@ EOF
 kv_lines_to_json() {
     jq -Rn '[inputs | capture("^(?<key>[^=]+)=(?<value>.*)$")?] | from_entries'
 }
+
+# slurm_job_gpus_per_node [NODE] - print how many GPUs a job step should request.
+# A step sees only the GPUs it requests, so a check that requests one GPU on a
+# node the job holds whole cannot see NVLink between the others. Inside an
+# allocation this prints the job's GPUs on NODE, or the smallest per-node count
+# without NODE. Outside an allocation, or when the count is unknown, it prints 1.
+slurm_job_gpus_per_node() {
+    local node="${1:-}" line nodes count min=""
+    if [[ -z "${SLURM_JOB_ID:-}" ]]; then
+        echo 1
+        return 0
+    fi
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*Nodes=([^[:space:]]+) ]] || continue
+        nodes="${BASH_REMATCH[1]}"
+        count=$(grep -oE 'GRES=[^[:space:]]+' <<< "$line" | awk '{
+            n = split(substr($0, 6), parts, ",")
+            for (i = 1; i <= n; i++) {
+                if (parts[i] !~ /^gpu(:[A-Za-z0-9_.-]+)?:[0-9]+/) continue
+                sub(/\(.*/, "", parts[i]); k = split(parts[i], f, ":"); total += f[k]
+            }
+        } END { print total + 0 }')
+        [[ "$count" =~ ^[0-9]+$ ]] || count=0
+        if [[ -n "$node" ]]; then
+            if scontrol show hostnames "$nodes" 2>/dev/null | grep -qxF "$node"; then
+                (( count > 0 )) && echo "$count" || echo 1
+                return 0
+            fi
+            continue
+        fi
+        (( count > 0 )) || { echo 1; return 0; }
+        [[ -z "$min" ]] || (( count < min )) && min="$count"
+    done < <(scontrol show job -d "$SLURM_JOB_ID" 2>/dev/null)
+    echo "${min:-1}"
+}
