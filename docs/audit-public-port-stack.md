@@ -21,6 +21,7 @@ base lands. Do not merge the final branch wholesale to bypass the individual rev
 | [#49](https://github.com/SemiAnalysisAI/ClusterMAX/pull/49) | Bounded observability discovery and isolation checks |
 | [#50](https://github.com/SemiAnalysisAI/ClusterMAX/pull/50) | QEMU and VMSCAPE report parity |
 | [#65](https://github.com/SemiAnalysisAI/ClusterMAX/pull/65) | PwnEscape coverage of every worker and control-plane host (based on #50) |
+| [#71](https://github.com/SemiAnalysisAI/ClusterMAX/pull/71) | Host-level security minimums graded on every GPU host (based on #65) |
 | [#69](https://github.com/SemiAnalysisAI/ClusterMAX/pull/69) | NVIDIA GA firmware ranges for every listed NIC and DPU family (based on #50) |
 | [#70](https://github.com/SemiAnalysisAI/ClusterMAX/pull/70) | Test consolidation only, not user facing (based on #69) |
 
