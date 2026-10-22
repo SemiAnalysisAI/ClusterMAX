@@ -1593,3 +1593,43 @@ class DcgmRuleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnverifiedGuidanceTest(unittest.TestCase):
+    """Recommendations for unverified results read as plain sentences."""
+
+    def test_every_unknown_rule_names_its_subject_cleanly(self):
+        for rule in audit_findings.RULES:
+            if not rule.failing("unknown"):
+                continue
+            _, recommendation, _, _ = audit_findings._finding_guidance({}, rule, "unknown")
+            with self.subTest(rule=rule.key, title=rule.title):
+                self.assertNotIn("; state", recommendation)
+                self.assertNotIn("unverified", recommendation.lower())
+                self.assertNotIn("could not be verified", recommendation.lower())
+                self.assertNotIn(" is present but ", recommendation)
+                self.assertNotRegex(recommendation, r"the [a-z]+[A-Z]\w* ")
+
+    def test_bad_epoll_unknown_recommendation(self):
+        rule = next(
+            r for r in audit_findings.RULES
+            if r.key == "security.badEpoll.status" and r.failing("unknown")
+        )
+        _, recommendation, _, _ = audit_findings._finding_guidance({}, rule, "unknown")
+        self.assertEqual(
+            recommendation,
+            "Ask the provider to attest the Bad Epoll patch status with host evidence.",
+        )
+
+    def test_hidden_host_status_is_not_called_a_configuration_error(self):
+        rule = next(
+            r for r in audit_findings.RULES
+            if r.key == "security.pwnescape.status" and r.failing("host-version-required")
+        )
+        detected, recommendation, _, _ = audit_findings._finding_guidance(
+            {}, rule, "host-version-required"
+        )
+        self.assertIn("physical host", detected)
+        self.assertNotIn("Host-version-required", detected)
+        self.assertIn("patch evidence", recommendation)
+        self.assertNotIn("Correct the reported configuration", recommendation)
