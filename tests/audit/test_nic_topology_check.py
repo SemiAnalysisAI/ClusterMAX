@@ -614,8 +614,11 @@ def test_slurm_ships_source_without_requiring_the_controller_path():
     calls = []
 
     def runner(command, **kwargs):
+        if command[:3] == ["scontrol", "show", "job"]:
+            return completed(command, stdout="     Nodes=gpu-a GRES=gpu:8(IDX:0-7)\n")
         calls.append(command)
         assert "--input=all" in command
+        assert "--gres=gpu:8" in command
         assert str(Path(nic.__file__).resolve()) not in command
         assert kwargs["input"] == CHECK_PATH.read_text()
         return completed(command, stdout='{"host":"gpu-a","nics":[]}\n')
