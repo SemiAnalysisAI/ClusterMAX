@@ -262,8 +262,13 @@ build_security_advisory_json() {
         if [[ "$fragnesia_status" == fail ]]; then
             local frag_entry=linuxFragnesia
             [[ "$bad_epoll_running" == 6.17.0-*-nvidia* ]] && frag_entry=linuxFragnesiaNvidia617
-            if [[ "$bad_epoll_release" == 24.04 ]] && \
-                frag_grace=$(minimum_version_grace ubuntuNoble "$frag_entry"); then
+            local frag_component=""
+            case "$bad_epoll_release" in
+                24.04) frag_component=ubuntuNoble ;;
+                26.04) frag_component=ubuntuResolute ;;
+            esac
+            if [[ -n "$frag_component" ]] && \
+                frag_grace=$(minimum_version_grace "$frag_component" "$frag_entry"); then
                 fragnesia_status=pass
             else
                 frag_grace=null

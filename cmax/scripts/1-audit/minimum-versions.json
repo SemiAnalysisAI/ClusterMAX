@@ -1192,6 +1192,66 @@
         "title": "Security Bulletin: NVIDIA Networking Bluefield, ConnectX - July 2026",
         "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5815/5815.json"
       }
+    },
+    "ubuntuResolute": {
+      "advisory": "https://ubuntu.com/security/notices",
+      "kind": "distroPackages",
+      "packages": {
+        "linuxBadEpoll": {
+          "cve": "CVE-2026-46242",
+          "fixAvailability": {
+            "available": "2026-07-20T15:24:18.747835",
+            "bulletinReleased": "2026-07-20T15:24:18.747835",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8566-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8566-1.json",
+            "version": "7.0.0-28.28"
+          },
+          "fixed": "7.0.0-28.28",
+          "package": "linux",
+          "priority": "high",
+          "released": "2026-07-20T15:24:18.747835",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8566-1",
+            "url": "https://ubuntu.com/security/notices/USN-8566-1.json"
+          },
+          "status": "released"
+        },
+        "linuxFragnesia": {
+          "abi": 22,
+          "cve": "CVE-2026-46300",
+          "fixAvailability": {
+            "available": "2026-06-02T13:52:18.176491",
+            "bulletinReleased": "2026-06-02T13:52:18.176491",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8370-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8370-1.json",
+            "version": "7.0.0-22.22"
+          },
+          "fixed": "7.0.0-22.22",
+          "package": "linux",
+          "priority": "high",
+          "relatedCves": [
+            "CVE-2026-43284",
+            "CVE-2026-43500"
+          ],
+          "released": "2026-06-02T13:52:18.176491",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8370-1",
+            "url": "https://ubuntu.com/security/notices/USN-8370-1.json"
+          },
+          "status": "released"
+        }
+      },
+      "release": "resolute",
+      "source": {
+        "feed": "ubuntu-security-notices",
+        "url": "https://ubuntu.com/security/notices.json"
+      }
     }
   },
   "generated": "2026-10-21T07:34:42Z",
