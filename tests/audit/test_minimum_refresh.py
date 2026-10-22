@@ -539,6 +539,21 @@ class ExtractorTest(unittest.TestCase):
         self.assertEqual(
             jammy["packages"]["linuxBadEpoll"]["fixed"], "6.8.0-138.138~22.04.1"
         )
+        resolute = fr.ubuntu_minimums(
+            codename="resolute", specs=fr.UBUNTU_RESOLUTE_PACKAGES,
+            package_policy=(), fetch=self.stub,
+        )
+        self.assertEqual(resolute["release"], "resolute")
+        bad_epoll = resolute["packages"]["linuxBadEpoll"]
+        self.assertEqual(bad_epoll["fixed"], "7.0.0-28.28")
+        self.assertEqual(bad_epoll["package"], "linux")
+        self.assertEqual(bad_epoll["source"]["id"], "USN-8566-1")
+        fragnesia = resolute["packages"]["linuxFragnesia"]
+        self.assertEqual(fragnesia["fixed"], "7.0.0-22.22")
+        self.assertEqual(fragnesia["abi"], 22)
+        self.assertEqual(fragnesia["relatedCves"], ["CVE-2026-43284", "CVE-2026-43500"])
+        # The Noble and Jammy fixes for the same CVEs are untouched.
+        self.assertEqual(noble["packages"]["linuxFragnesia"]["fixed"], "6.8.0-124.124")
 
     def test_ubuntu_noble_packages(self) -> None:
         osv_url = fr.ubuntu_osv_urls("CVE-2024-3446")[0]

@@ -229,3 +229,64 @@ class SlurmPythonCommandTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(json.loads(run.stdout), {"worker_args": ["--collect-host"]})
         self.assertIn("--input=all", run.calls("srun")[0])
+
+
+class SlurmGpusPerNodeTests(unittest.TestCase):
+    @staticmethod
+    def runner_for(stdout: str, returncode: int = 0):
+        calls: list[list[str]] = []
+
+        def runner(command: list[str], **_: Any):
+            import subprocess
+
+            calls.append(command)
+            return subprocess.CompletedProcess(command, returncode, stdout=stdout, stderr="")
+
+        return runner, calls
+
+    def test_requests_the_gpus_an_exclusive_allocation_holds(self) -> None:
+        # salloc --exclusive holds every GPU, but a step without --gres sees none.
+        runner, calls = self.runner_for(
+            "   AllocTRES=cpu=128,mem=1980G,node=1,billing=128,gres/gpu=8\n"
+            "   JOB_GRES=gpu:h100:8\n"
+            "     Nodes=gpu-a CPU_IDs=0-127 Mem=2027520 GRES=gpu:h100:8(IDX:0-7)\n"
+        )
+        count = fanout.slurm_gpus_per_node({"SLURM_JOB_ID": "7"}, runner)
+        self.assertEqual(count, 8)
+        self.assertEqual(calls, [["scontrol", "show", "job", "-d", "7"]])
+        command = fanout.slurm_python_command(
+            node_count="1", worker_args=["--worker"], gpus_per_node=count,
+        )
+        self.assertEqual(command[:7], [
+            "srun", "--overlap", "--input=all", "-N", "1",
+            "--ntasks-per-node=1", "--gres=gpu:8",
+        ])
+
+    def test_uses_the_smallest_per_node_count_and_untyped_gres(self) -> None:
+        runner, _ = self.runner_for(
+            "     Nodes=gpu-a CPU_IDs=0-63 Mem=1 GRES=gpu:8(IDX:0-7)\n"
+            "     Nodes=gpu-b CPU_IDs=0-63 Mem=1 GRES=gpu:a:2(IDX:0-1),gpu:b:2(IDX:2-3)\n"
+        )
+        self.assertEqual(fanout.slurm_gpus_per_node({"SLURM_JOB_ID": "7"}, runner), 4)
+
+    def test_no_request_when_gpu_count_is_not_known(self) -> None:
+        cases = (
+            ({}, "     Nodes=gpu-a GRES=gpu:8(IDX:0-7)\n", 0),            # no job
+            ({"SLURM_JOB_ID": "7"}, "", 1),                             # scontrol denied
+            ({"SLURM_JOB_ID": "7"}, "     Nodes=cpu-a CPU_IDs=0-63 Mem=1\n", 0),
+            ({"SLURM_JOB_ID": "7"},
+             "     Nodes=gpu-a GRES=gpu:8(IDX:0-7)\n     Nodes=cpu-a CPU_IDs=0-3 Mem=1\n", 0),
+        )
+        for env, stdout, rc in cases:
+            runner, _ = self.runner_for(stdout, rc)
+            self.assertIsNone(fanout.slurm_gpus_per_node(env, runner), stdout)
+        self.assertNotIn(
+            "--gres=gpu:0",
+            " ".join(fanout.slurm_python_command(node_count="1", worker_args=[], gpus_per_node=None)),
+        )
+
+    def test_missing_scontrol_is_not_fatal(self) -> None:
+        def runner(command: list[str], **_: Any):
+            raise FileNotFoundError("scontrol")
+
+        self.assertIsNone(fanout.slurm_gpus_per_node({"SLURM_JOB_ID": "7"}, runner))
