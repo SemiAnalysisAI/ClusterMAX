@@ -3443,6 +3443,9 @@ HP_VMSCAPE_STATUS=$(host_check_kv "WORKER_VMSCAPE_STATUS")
 HP_NVIDIA_MAY_2026=$(host_check_kv "WORKER_NVIDIA_MAY_2026_PATCHED")
 HP_NVLINK_EXPOSED=$(host_check_kv "WORKER_NVLINK_EXPOSED")
 HP_NVLINK_TOPOLOGY_CHECKED=$(host_check_kv "WORKER_NVLINK_TOPOLOGY_CHECKED")
+HP_NVLINK_ALL_HOST_GPUS_VISIBLE=$(host_check_kv "WORKER_NVLINK_ALL_HOST_GPUS_VISIBLE")
+HP_NVLINK_HOST_GPU_COUNT=$(host_check_kv "WORKER_NVLINK_HOST_GPU_COUNT")
+HP_NVLINK_VISIBLE_GPU_COUNT=$(host_check_kv "WORKER_NVLINK_VISIBLE_GPU_COUNT")
 HP_SECURITY_NVIDIA_GPU_PRESENT=$(host_check_kv "WORKER_SECURITY_NVIDIA_GPU_PRESENT")
 HP_NVLINK_TOPOLOGY_COVERAGE_COMPLETE=false
 if [[ "$NVIDIA_GPU_NODE_COUNT" -eq 1 ]]; then
@@ -3801,6 +3804,9 @@ ${SECURITY_ADVISORY_JSON}
       "topologyCoverageComplete": ${HP_NVLINK_TOPOLOGY_COVERAGE_COMPLETE},
       "nvidiaGpuPresent": $(json_bool_or_unknown "${HP_SECURITY_NVIDIA_GPU_PRESENT:-unknown}"),
       "targetIsVm": $(json_bool_or_unknown "${HP_VIRT_GUEST:-unknown}"),
+      "allHostGpusVisible": $(json_bool_or_unknown "${HP_NVLINK_ALL_HOST_GPUS_VISIBLE:-unknown}"),
+      "hostGpuCount": "${HP_NVLINK_HOST_GPU_COUNT:-unknown}",
+      "visibleGpuCount": "${HP_NVLINK_VISIBLE_GPU_COUNT:-unknown}",
       "domainExclusive": $(json_bool_or_unknown "${CLUSTERMAX_NVLINK_DOMAIN_EXCLUSIVE_ATTESTED:-unknown}")
     },
     "pciePassthrough": {

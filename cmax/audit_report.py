@@ -33,6 +33,8 @@ _SECURITY_EXTENSION_IDS = frozenset(
         "nvlink-boundary",
         "kubernetes-nodes-proxy",
         "observability-isolation",
+        "qemu-virtio-serial",
+        "vmscape",
     }
 )
 _SECURITY_EXTENSION_HARNESSES = {

@@ -361,7 +361,7 @@ print_section "Collect security host evidence"
 if [[ "$SECURITY_HARNESS" == "slurm" ]]; then
     WORKER_CHECK_OUTPUT=$(srun "${AUDIT_SRUN_FLAGS[@]}" \
         "${GPU_SRUN_SCOPE_ARGS[@]}" \
-        -N1 --ntasks=1 --gres=gpu:1 --time=5:00 \
+        -N1 --ntasks=1 --gres=gpu:"$(slurm_job_gpus_per_node)" --time=5:00 \
         env CLUSTERMAX_AUDIT_SCOPE=security CLUSTERMAX_AUDIT_HARNESS=slurm \
         bash -s < "$WORKLOAD_DIR/host-check.sh" 2>/dev/null || true)
 elif [[ "$SECURITY_HARNESS" == "standalone" ]]; then
@@ -596,6 +596,9 @@ JSON_OUTPUT=$(jq -n \
     --argjson ufm "$UFM_SECURED_PROFILE_JSON" \
     --arg virtualization_type "${WORKER_VIRT_TYPE:-unknown}" \
     --argjson virtualization_guest "$(json_bool_or_unknown "${WORKER_VIRT_GUEST:-unknown}")" \
+    --argjson nvlink_all_visible "$(json_bool_or_unknown "${WORKER_NVLINK_ALL_HOST_GPUS_VISIBLE:-unknown}")" \
+    --arg nvlink_host_gpus "${WORKER_NVLINK_HOST_GPU_COUNT:-unknown}" \
+    --arg nvlink_visible_gpus "${WORKER_NVLINK_VISIBLE_GPU_COUNT:-unknown}" \
     --arg qemu_machine "${WORKER_QEMU_MACHINE:-unknown}" \
     --argjson virtio_serial "$(json_bool "${WORKER_VIRTIO_SERIAL:-false}")" \
     --arg running_kernel "${WORKER_GUEST_KERNEL_RUNNING:-unknown}" \
@@ -663,6 +666,9 @@ JSON_OUTPUT=$(jq -n \
                 topologyCoverageComplete: $nvlink_coverage_complete,
                 nvidiaGpuPresent: $nvidia_present,
                 targetIsVm: $virtualization_guest,
+                allHostGpusVisible: $nvlink_all_visible,
+                hostGpuCount: $nvlink_host_gpus,
+                visibleGpuCount: $nvlink_visible_gpus,
                 domainExclusive: $nvlink_domain_exclusive,
                 domainExclusivitySource: "operator-attestation"
             },

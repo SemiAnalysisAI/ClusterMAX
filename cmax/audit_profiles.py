@@ -46,6 +46,8 @@ AUDIT_CATEGORIES = (
                 "kubernetes-nodes-proxy",
                 "nvlink-boundary",
                 "observability-isolation",
+                "qemu-virtio-serial",
+                "vmscape",
                 "pcie-passthrough",
                 "ufm-profile",
                 "securityVersions.virtioNetBluefield.exposure",

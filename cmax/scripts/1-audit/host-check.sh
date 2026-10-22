@@ -807,8 +807,10 @@ if command -v nvidia-smi >/dev/null 2>&1; then
             WORKER_NVIDIA_MAY_2026_PATCHED=true   # branch newer than the newest in the May 2026 bulletin
         fi
     fi
+    # A step that sees no GPU still prints the NIC matrix, which proves nothing
+    # about NVLink, so the topology counts as checked only with a GPU row.
     if nvlink_topology=$(nvidia-smi topo -m 2>/dev/null) \
-            && [[ -n "$nvlink_topology" ]]; then
+            && grep -qE '^[^[:alnum:]]*GPU[0-9]+[[:space:]]' <<< "$nvlink_topology"; then
         WORKER_NVLINK_TOPOLOGY_CHECKED=true
         WORKER_NVLINK_EXPOSED=false
         if grep -qE '(^|[[:space:]])NV[0-9]+([[:space:]]|$)' <<< "$nvlink_topology"; then
@@ -819,6 +821,32 @@ fi
 echo "WORKER_NVIDIA_MAY_2026_PATCHED=${WORKER_NVIDIA_MAY_2026_PATCHED}"
 echo "WORKER_NVLINK_EXPOSED=${WORKER_NVLINK_EXPOSED}"
 echo "WORKER_NVLINK_TOPOLOGY_CHECKED=${WORKER_NVLINK_TOPOLOGY_CHECKED}"
+# A container sees only its allocated GPUs in nvidia-smi, but sysfs PCI is not
+# namespaced, so it still lists every NVIDIA GPU on the physical host. When the
+# host has GPUs this target cannot see, a physical NVLink to another tenant's
+# GPU cannot be ruled out from here. A VM's sysfs lists only its own GPUs.
+WORKER_NVLINK_HOST_GPU_COUNT=unknown
+WORKER_NVLINK_VISIBLE_GPU_COUNT=unknown
+WORKER_NVLINK_ALL_HOST_GPUS_VISIBLE=unknown
+if [[ "$WORKER_NVLINK_TOPOLOGY_CHECKED" == true && -d /sys/bus/pci/devices ]]; then
+    host_gpus=0
+    for pci_dev in /sys/bus/pci/devices/*; do
+        [[ "$(cat "$pci_dev/vendor" 2>/dev/null)" == 0x10de ]] || continue
+        case "$(cat "$pci_dev/class" 2>/dev/null)" in
+            0x0300*|0x0302*) host_gpus=$((host_gpus + 1)) ;;
+        esac
+    done
+    visible_gpus=$(nvidia-smi --query-gpu=pci.bus_id --format=csv,noheader 2>/dev/null | grep -c . || true)
+    if [[ "$visible_gpus" =~ ^[0-9]+$ ]] && (( host_gpus > 0 && visible_gpus > 0 )); then
+        WORKER_NVLINK_HOST_GPU_COUNT=$host_gpus
+        WORKER_NVLINK_VISIBLE_GPU_COUNT=$visible_gpus
+        WORKER_NVLINK_ALL_HOST_GPUS_VISIBLE=true
+        (( visible_gpus < host_gpus )) && WORKER_NVLINK_ALL_HOST_GPUS_VISIBLE=false
+    fi
+fi
+echo "WORKER_NVLINK_HOST_GPU_COUNT=${WORKER_NVLINK_HOST_GPU_COUNT}"
+echo "WORKER_NVLINK_VISIBLE_GPU_COUNT=${WORKER_NVLINK_VISIBLE_GPU_COUNT}"
+echo "WORKER_NVLINK_ALL_HOST_GPUS_VISIBLE=${WORKER_NVLINK_ALL_HOST_GPUS_VISIBLE}"
 
 if ! security_checks_only; then
 # --- GPUDirect RDMA ---
