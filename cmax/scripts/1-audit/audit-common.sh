@@ -587,7 +587,10 @@ build_security_version_audit() {
     fi
     args+=(--dcgm "$dcgm" --dcgm-exporter "$dcgm_exporter")
 
-    if [[ "$harness" == "standalone" ]]; then
+    # "per-host" grades one host of a fleet for security_fleet.py, which keeps
+    # the cluster-wide VIRTIO-Net rollup from the sampled run, so the
+    # fabric-wide virtio-net check is not repeated for every host.
+    if [[ "$harness" == "standalone" || "$harness" == "per-host" ]]; then
         VIRTIO_NET_VERSION="not-installed"
         VIRTIO_NET_LINE=""
         VIRTIO_NET_MODE="absent"

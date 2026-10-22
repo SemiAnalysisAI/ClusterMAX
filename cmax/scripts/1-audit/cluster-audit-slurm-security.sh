@@ -95,6 +95,14 @@ K8S_BMC_IPMI_JSON='{}'
 # record for pwnescape.py --fleet.
 PWNESCAPE_HOST_RECORDS=""
 PWNESCAPE_CONTROL_PLANE_JSON='{"discovered": false, "detail": "The audit did not look for control-plane hosts."}'
+# Host-level minimums (driver, runtime, firmware, kernel) on the sampled worker
+# say nothing about the other GPU hosts, so the collector reads every GPU host
+# and security_fleet.py reports the worst one. Each line holds one host record.
+SECURITY_HOST_RECORDS=""
+SECURITY_GPU_HOSTS_TOTAL=0
+K8S_SECURITY_GPU_NODES=$'\n'
+SECURITY_HOST_LIMIT="${CLUSTERMAX_AUDIT_SECURITY_HOST_LIMIT:-32}"
+[[ "$SECURITY_HOST_LIMIT" =~ ^[1-9][0-9]*$ ]] || SECURITY_HOST_LIMIT=32
 
 # Append one host record. An empty or partial fact block leaves the host
 # unassessed, and the fleet grader then blocks a pass.
@@ -127,6 +135,101 @@ apply_pwnescape_fleet() {
     fi
 }
 
+# Grade one host's host-check and container-check output. The subshell keeps
+# the sampled worker's WORKER_* values intact. Output that lacks the host-check
+# marker leaves the host unassessed, and the fleet grader then blocks a pass.
+security_host_record() {
+    local node="$1" host_out="$2" container_out="$3" error="$4" label_driver="${5:-unknown}"
+    if [[ -z "$host_out" ]] || ! grep -q '^WORKER_HOSTNAME=' <<< "$host_out"; then
+        jq -cn --arg node "$node" --arg error "$error" \
+            '{node: $node, checked: false, error: $error}'
+        return 0
+    fi
+    (
+        local key value vendor driver nct=unknown runc=unknown docker=unknown
+        local versions advisories janus
+        for key in "${!WORKER_@}"; do unset "$key"; done
+        while IFS='=' read -r key value; do
+            [[ "$key" =~ ^WORKER_[A-Za-z0-9_]+$ ]] || continue
+            printf -v "$key" '%s' "$value"
+        done < <(grep '^WORKER_' <<< "$host_out")
+        if grep -q '^WORKER_CONTAINER_HOSTNAME=' <<< "$container_out"; then
+            nct=$(sed -n 's/^WORKER_CONTAINER_SECURITY_NCT_VERSION=//p' <<< "$container_out" | head -1)
+            runc=$(sed -n 's/^WORKER_CONTAINER_SECURITY_RUNC_VERSION=//p' <<< "$container_out" | head -1)
+            docker=$(sed -n 's/^WORKER_CONTAINER_SECURITY_DOCKER_VERSION=//p' <<< "$container_out" | head -1)
+        fi
+        vendor=nvidia
+        if amd_gpu_check_present "${WORKER_AMD_GPU_COUNT:-0}" "${WORKER_AMD_GPU_MODEL:-}"; then
+            vendor=amd
+        fi
+        driver="${WORKER_DRIVER_VERSION:-unknown}"
+        [[ "$driver" == "unknown" || -z "$driver" ]] && driver="$label_driver"
+        versions=$(build_security_version_audit "$host_out" "$driver" \
+            "${nct:-unknown}" "${runc:-unknown}" "${docker:-unknown}" "$vendor" \
+            "${WORKER_NVCC_VERSION:-unknown}" per-host)
+        janus=$(json_bool_or_unknown "${WORKER_JANUSCAPE_EXPOSED:-}")
+        advisories=$(printf '{%s "_end": null}' \
+            "$(build_security_advisory_json \
+                --host-facts "$host_out" \
+                --bad-epoll-os "${WORKER_OS_ID:-unknown}" \
+                --bad-epoll-release "${WORKER_OS_VERSION_ID:-unknown}" \
+                --bad-epoll-running "${WORKER_GUEST_KERNEL_RUNNING:-unknown}" \
+                --bad-epoll-signature "${WORKER_BAD_EPOLL_SIGNATURE:-unknown}" \
+                --bad-epoll-package "${WORKER_BAD_EPOLL_PACKAGE:-unknown}" \
+                --bad-epoll-livepatch "${WORKER_BAD_EPOLL_LIVEPATCH:-unknown}" \
+                --fragnesia-status "${WORKER_FRAGNESIA_STATUS:-unknown}" \
+                --fragnesia-compared-abi "${WORKER_FRAGNESIA_ABI_FLOOR:-unknown}" \
+                --ubuntu-kernel-status "${WORKER_UBUNTU_KERNEL_MINIMUM_STATUS:-unknown}" \
+                --ubuntu-kernel-abi "${WORKER_UBUNTU_KERNEL_ABI:-unknown}" \
+                --ubuntu-kernel-floor "${WORKER_UBUNTU_KERNEL_ABI_FLOOR:-unknown}" \
+                --januscape-cpu-exposed "${WORKER_NESTED_CPU_EXPOSED:-false}" \
+                --januscape-kvm-exposed "${WORKER_KVM_DEVICE:-false}" \
+                --januscape-module "${WORKER_NESTED_MODULE:-none}" \
+                --januscape-nested-enabled "${WORKER_NESTED_ENABLED:-unknown}" \
+                --januscape-exposed "$janus" \
+                --januscape-status "${WORKER_JANUSCAPE_STATUS:-unknown}" \
+                --qemu-status "${WORKER_QEMU_CVE_2024_3446_STATUS:-unknown}" \
+                --vmscape-status "${WORKER_VMSCAPE_STATUS:-unknown}")" \
+            | jq -c 'del(._end)' 2>/dev/null) || advisories='{}'
+        jq -cn --arg node "$node" --argjson versions "${versions:-{\}}" \
+            --argjson advisories "${advisories:-{\}}" \
+            '{node: $node, checked: true, securityVersions: $versions, security: $advisories}' \
+            2>/dev/null \
+            || jq -cn --arg node "$node" \
+                '{node: $node, checked: false, error: "The host evidence could not be graded."}'
+    )
+}
+
+add_security_host_record() {
+    SECURITY_HOST_RECORDS+="$(security_host_record "$@")"$'\n'
+}
+
+# Replace each host-level check with its fleet verdict. A grader failure must
+# not leave the sampled verdicts in place as a fleet pass.
+apply_security_host_fleet() {
+    local merged
+    [[ -n "$SECURITY_HOST_RECORDS" ]] || return 0
+    if merged=$(printf '%s' "$SECURITY_HOST_RECORDS" \
+            | jq -s --argjson versions "$SECURITY_VERSION_AUDIT_JSON" \
+                --argjson security "$SECURITY_ADVISORY_JSON" \
+                --argjson total "$(json_int "$SECURITY_GPU_HOSTS_TOTAL")" \
+                '{sampled: {securityVersions: $versions, security: $security},
+                  hostsTotal: $total, hosts: .}' \
+            | python3 "$WORKLOAD_DIR/security_fleet.py" 2>/dev/null) \
+            && [[ -n "$merged" ]]; then
+        SECURITY_VERSION_AUDIT_JSON=$(jq -c '.securityVersions' <<< "$merged")
+        SECURITY_ADVISORY_JSON=$(jq -c '.security' <<< "$merged")
+    else
+        local reason="The fleet grader failed, so this check covers only the sampled worker and is unverified for the other GPU hosts."
+        SECURITY_VERSION_AUDIT_JSON=$(jq -c --arg reason "$reason" '
+            reduce ("nvidiaDriver","amdDriver","nvidiaContainerToolkit","runc","docker","connectxFirmware","dcgm") as $k
+              (.; if (.[$k] | type) == "object" and ((.[$k].status // "") | IN("fail") | not)
+                  then .[$k].status = "unknown" | .[$k].detail = $reason else . end)' \
+            <<< "$SECURITY_VERSION_AUDIT_JSON")
+    fi
+    print_info "Host-level security checks: read $(grep -c '"checked":true' <<< "$SECURITY_HOST_RECORDS" || true) of ${SECURITY_GPU_HOSTS_TOTAL} GPU host(s)"
+}
+
 cleanup_k8s_security_pod() {
     if [[ -n "$K8S_SECURITY_CHECK_POD" ]]; then
         kubectl delete pod "$K8S_SECURITY_CHECK_POD" \
@@ -157,6 +260,9 @@ prepare_k8s_security_pod() {
         K8S_SECURITY_GPU_COUNT="$amd_total"
         K8S_SECURITY_GPU_VENDOR="amd"
     fi
+    K8S_SECURITY_GPU_NODES=$'\n'"$(jq -r --arg key "$resource_key" \
+        '.[] | select((.status.capacity[$key] // "0" | tonumber) > 0) | .metadata.name' \
+        <<< "$K8S_SECURITY_WORKER_NODES_JSON")"$'\n'
     K8S_SECURITY_GPU_NODE_COUNT=$(jq -r --arg key "$resource_key" \
         '[.[] | select((.status.capacity[$key] // "0" | tonumber) > 0)] | length' \
         <<< "$K8S_SECURITY_WORKER_NODES_JSON")
@@ -337,6 +443,29 @@ k8s_node_role() {
           then "control-plane" else "worker" end' <<< "$K8S_SECURITY_NODES_JSON"
 }
 
+k8s_label_driver() {
+    jq -r --arg node "$1" '.items[] | select(.metadata.name == $node) | .metadata.labels as $l
+        | ($l["amd.com/gpu.driver-version"]
+           // (if ($l["nvidia.com/cuda.driver.major"] // "") != ""
+               then (($l["nvidia.com/cuda.driver.major"] // "") + "."
+                     + ($l["nvidia.com/cuda.driver.minor"] // "0") + "."
+                     + ($l["nvidia.com/cuda.driver.rev"] // "0"))
+               else "unknown" end))' <<< "$K8S_SECURITY_NODES_JSON" 2>/dev/null || echo unknown
+}
+
+# Read one more GPU host through the current host-root pod: the same host and
+# container checks the sampled worker ran.
+k8s_security_host_record_for_current_pod() {
+    local node="$1" host_out container_out=""
+    host_out=$(run_k8s_security_script < "$WORKLOAD_DIR/host-check.sh" 2>/dev/null || true)
+    if [[ -f "$WORKLOAD_DIR/container-check.sh" ]]; then
+        container_out=$(run_k8s_security_script \
+            < "$WORKLOAD_DIR/container-check.sh" 2>/dev/null || true)
+    fi
+    add_security_host_record "$node" "$host_out" "$container_out" \
+        "The host-root pod returned no host evidence." "$(k8s_label_driver "$node")"
+}
+
 k8s_bmc_unchecked_record() {
     jq -n --arg node "$1" --arg error "$2" '{
       node: $node, checked: false, devicePresent: "unknown",
@@ -351,7 +480,7 @@ k8s_bmc_unchecked_record() {
 # boundary. A visit to a worker node also runs the BMC probe within its limit.
 collect_k8s_host_fleet() {
     local first_node="$K8S_SECURITY_NODE" node role limit records="" checked_count=1
-    local bmc_nodes control_count pod_ready
+    local bmc_nodes control_count pod_ready is_gpu gpu_read=0
     limit="${CLUSTERMAX_AUDIT_K8S_BMC_NODE_LIMIT:-32}"
     [[ "$limit" =~ ^[1-9][0-9]*$ ]] || limit=32
     bmc_nodes=$'\n'"$(jq -r '.[].metadata.name' <<< "$K8S_SECURITY_WORKER_NODES_JSON")"$'\n'
@@ -371,15 +500,35 @@ collect_k8s_host_fleet() {
 
     records="$(k8s_bmc_record_for_current_pod "$first_node")"
     k8s_pwnescape_record_for_current_pod "$first_node" "$(k8s_node_role "$first_node")"
+    SECURITY_GPU_HOSTS_TOTAL=$(grep -c . <<< "$K8S_SECURITY_GPU_NODES" || true)
+    if [[ "$K8S_SECURITY_GPU_NODES" == *$'\n'"$first_node"$'\n'* ]]; then
+        add_security_host_record "$first_node" "$WORKER_CHECK_OUTPUT" \
+            "${CONTAINER_CHECK_OUTPUT:-}" "The sampled worker returned no host evidence." \
+            "$K8S_SECURITY_DRIVER_VERSION"
+        gpu_read=1
+    fi
     while IFS= read -r node; do
         [[ -n "$node" && "$node" != "$first_node" ]] || continue
         role=$(k8s_node_role "$node")
+        is_gpu=false
+        [[ "$K8S_SECURITY_GPU_NODES" == *$'\n'"$node"$'\n'* ]] && is_gpu=true
         pod_ready=true
         if create_k8s_security_pod "$node"; then
             k8s_pwnescape_record_for_current_pod "$node" "$role"
+            if [[ "$is_gpu" == true ]]; then
+                if (( gpu_read >= SECURITY_HOST_LIMIT )); then
+                    add_security_host_record "$node" "" "" \
+                        "Skipped because the GPU host limit is ${SECURITY_HOST_LIMIT} (CLUSTERMAX_AUDIT_SECURITY_HOST_LIMIT)."
+                else
+                    k8s_security_host_record_for_current_pod "$node"
+                    gpu_read=$((gpu_read + 1))
+                fi
+            fi
         else
             pod_ready=false
             add_pwnescape_host_record "$node" "$role" "" \
+                "The privileged host-root pod could not be created."
+            [[ "$is_gpu" == true ]] && add_security_host_record "$node" "" "" \
                 "The privileged host-root pod could not be created."
         fi
         [[ "$bmc_nodes" == *$'\n'"$node"$'\n'* ]] || continue
@@ -508,6 +657,79 @@ collect_slurm_pwnescape_fleet() {
     done <<< "$control_hosts"
     rm -rf "$tmp"
     print_info "PwnEscape: read $(grep -c '"checked":true' <<< "$PWNESCAPE_HOST_RECORDS" || true) host(s)"
+}
+
+# Run one focused check script on one Slurm GPU node, the way the PwnEscape
+# fleet reads its nodes: an overlapping step inside the current allocation,
+# otherwise a short allocation that --immediate keeps from waiting on a busy
+# node.
+slurm_security_script_on_node() {
+    local node="$1" partition="$2" script="$3" limit="$4"
+    if [[ -n "${SLURM_JOB_ID:-}" && "$SLURM_ALLOCATION_NODES" == *$'\n'"$node"$'\n'* ]]; then
+        srun "${AUDIT_SRUN_FLAGS[@]}" -N1 --ntasks=1 -w "$node" \
+            --gres=gpu:"$(slurm_job_gpus_per_node "$node")" \
+            --time="$limit" env CLUSTERMAX_AUDIT_SCOPE=security CLUSTERMAX_AUDIT_HARNESS=slurm \
+            bash -s < "$WORKLOAD_DIR/$script" 2>/dev/null
+    else
+        env -u SLURM_JOB_ID -u SLURM_JOBID srun -p "$partition" -N1 --ntasks=1 \
+            -w "$node" --gres=gpu:1 --time="$limit" --immediate=30 \
+            env CLUSTERMAX_AUDIT_SCOPE=security CLUSTERMAX_AUDIT_HARNESS=slurm \
+            bash -s < "$WORKLOAD_DIR/$script" 2>/dev/null
+    fi
+}
+
+# Read every GPU node with the sampled worker's host and container checks.
+collect_slurm_security_host_fleet() {
+    local rows node partition tmp batch_size=0 concurrency sampled n_read=0
+    concurrency="${CLUSTERMAX_AUDIT_SECURITY_CONCURRENCY:-8}"
+    [[ "$concurrency" =~ ^[1-9][0-9]*$ ]] || concurrency=8
+    SLURM_ALLOCATION_NODES=$'\n'
+    if [[ -n "${SLURM_JOB_NODELIST:-}" ]]; then
+        SLURM_ALLOCATION_NODES+="$(scontrol show hostnames "$SLURM_JOB_NODELIST" 2>/dev/null)"$'\n'
+    fi
+    # One row per GPU node, in the node's first listed GPU partition.
+    rows=$(sinfo -N -h -o '%N|%P|%G' 2>/dev/null | tr -d '*' \
+        | awk -F'|' 'tolower($3) ~ /gpu/ && !seen[$1]++ {print $1 "|" $2}' || true)
+    SECURITY_GPU_HOSTS_TOTAL=$(grep -c . <<< "$rows" || true)
+    sampled="${WORKER_HOSTNAME:-}"
+    tmp=$(mktemp -d)
+    while IFS='|' read -r node partition; do
+        [[ -n "$node" && "$node" != "$sampled" ]] || continue
+        n_read=$((n_read + 1))
+        (( n_read < SECURITY_HOST_LIMIT )) || continue
+        {
+            slurm_security_script_on_node "$node" "$partition" host-check.sh 5:00 > "$tmp/$node.host" || true
+            if [[ -s "$tmp/$node.host" && -f "$WORKLOAD_DIR/container-check.sh" ]]; then
+                slurm_security_script_on_node "$node" "$partition" container-check.sh 2:00 \
+                    > "$tmp/$node.container" || true
+            fi
+        } &
+        batch_size=$((batch_size + 1))
+        if (( batch_size >= concurrency )); then
+            wait
+            batch_size=0
+        fi
+    done <<< "$rows"
+    wait
+    n_read=0
+    while IFS='|' read -r node partition; do
+        [[ -n "$node" ]] || continue
+        if [[ "$node" == "$sampled" ]]; then
+            add_security_host_record "$node" "$WORKER_CHECK_OUTPUT" \
+                "${CONTAINER_CHECK_OUTPUT:-}" "The sampled worker returned no host evidence."
+            continue
+        fi
+        n_read=$((n_read + 1))
+        if (( n_read >= SECURITY_HOST_LIMIT )); then
+            add_security_host_record "$node" "" "" \
+                "Skipped because the GPU host limit is ${SECURITY_HOST_LIMIT} (CLUSTERMAX_AUDIT_SECURITY_HOST_LIMIT)."
+            continue
+        fi
+        add_security_host_record "$node" "$(cat "$tmp/$node.host" 2>/dev/null)" \
+            "$(cat "$tmp/$node.container" 2>/dev/null)" \
+            "srun could not start on this node; it may be busy, down, or outside the tenant's partitions."
+    done <<< "$rows"
+    rm -rf "$tmp"
 }
 
 print_header "1. SECURITY WORKER"
@@ -718,6 +940,7 @@ else
 fi
 if [[ "$SECURITY_HARNESS" == "slurm" ]]; then
     collect_slurm_pwnescape_fleet
+    collect_slurm_security_host_fleet
 fi
 
 JANUSCAPE_EXPOSED_JSON=$(json_bool_or_unknown "${WORKER_JANUSCAPE_EXPOSED:-}")
@@ -746,6 +969,7 @@ SECURITY_ADVISORY_JSON=$(printf '{%s "_end": null}' \
     | jq 'del(._end)')
 # A standalone target is one host, so its sampled verdict is already complete.
 if [[ "$SECURITY_HARNESS" != "standalone" ]]; then
+    apply_security_host_fleet
     apply_pwnescape_fleet
 fi
 
