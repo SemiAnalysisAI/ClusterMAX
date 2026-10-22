@@ -384,3 +384,29 @@ def test_slurm_busy_gpu_node_blocks_a_pass(tmp_path):
     driver = versions["nvidiaDriver"]
     assert driver["status"] == "unknown"
     assert driver["fleet"]["unassessedHosts"] == ["gpu-2"]
+
+
+def test_slurm_node_check_in_an_allocation_requests_the_job_gpus(tmp_path):
+    # The step sees only the GPUs it requests, so a one-GPU step on a node the
+    # job holds whole cannot see NVLink between the others.
+    (tmp_path / "host-check.sh").write_text("HOST_CHECK\n")
+    functions = "\n".join(
+        bashtest.extract_function(path, name)
+        for path, name in (
+            (WORKLOAD / "audit-common.sh", "slurm_job_gpus_per_node"),
+            (SECURITY_SCRIPT, "slurm_security_script_on_node"),
+        )
+    )
+    run = bashtest.run_bash(
+        'AUDIT_SRUN_FLAGS=(--jobid=7 --overlap)\nSLURM_ALLOCATION_NODES=$\'\\ngpu-a\\n\'\n'
+        + functions + "\nslurm_security_script_on_node gpu-a gpu host-check.sh 5:00\n",
+        stubs={
+            "scontrol": 'if [[ "$1" == show && "$2" == hostnames ]]; then echo "$3"; exit 0; fi\n'
+                        "echo '     Nodes=gpu-a CPU_IDs=0-127 Mem=1 GRES=gpu:h100:8(IDX:0-7)'",
+            "srun": "cat >/dev/null",
+        },
+        env={"WORKLOAD_DIR": str(tmp_path), "SLURM_JOB_ID": "7"},
+    )
+    assert run.returncode == 0, run.stderr
+    [call] = run.calls("srun")
+    assert "--gres=gpu:8" in call and "--jobid=7" in call
