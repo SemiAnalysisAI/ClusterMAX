@@ -6,11 +6,14 @@ import json
 import re
 import sys
 
+import minimum_versions
+
 
 CVE = "CVE-2026-99999"
 ADVISORY = "https://nvd.nist.gov/vuln/detail/CVE-2026-99999"
 CNA_RECORD = "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2026/99xxx/CVE-2026-99999.json"
 FIX_COMMIT = "6785011f8b16abf40b1e9d8b2e332232b3e68822"
+MINIMUMS_REVIEWED_AT = "2026-10-23"
 # These are upstream releases, not distribution package versions. The kernel
 # CNA record lists each stable branch separately. Never compare across trains.
 FIXED_RELEASES = {
@@ -23,6 +26,79 @@ FIXED_RELEASES = {
     "7.2": "7.2.11",
 }
 
+# Only these Ubuntu GA/HWE image and source-package pairs can be matched to
+# the CVE-specific Ubuntu tracker entry. Other flavors need their own mapping.
+UBUNTU_KERNELS = {
+    ("24.04", "6.8.0", "generic"): ("ubuntuNoble", "linux", {"linux", "linux-signed"}, ""),
+    ("26.04", "7.0.0", "generic"): ("ubuntuResolute", "linux", {"linux", "linux-signed"}, ""),
+    ("22.04", "6.8.0", "generic"): (
+        "ubuntuJammy", "linux-hwe-6.8",
+        {"linux-hwe-6.8", "linux-signed-hwe-6.8"}, "~22.04.",
+    ),
+}
+
+
+def _ubuntu_grade(facts: dict[str, str], running: str) -> tuple[str, str, str, str]:
+    """Use a verified running Ubuntu image and its CVE-specific vendor state."""
+    unknown = ("unknown", "unknown", "unknown", "unknown")
+    match = re.fullmatch(r"(6\.8\.0|7\.0\.0)-([1-9][0-9]*)-(generic)", running)
+    if facts.get("WORKER_OS_ID") != "ubuntu" or match is None:
+        return unknown
+    family, abi, flavor = match.groups()
+    mapping = UBUNTU_KERNELS.get((facts.get("WORKER_OS_VERSION_ID"), family, flavor))
+    if mapping is None:
+        return unknown
+    component, source, accepted, suffix = mapping
+    package = facts.get("WORKER_PWNESCAPE_PACKAGE", "").split("|")
+    signature = facts.get("WORKER_PWNESCAPE_SIGNATURE", "").split()
+    if len(package) != 3:
+        return unknown
+    state, source_name, version = package
+    pattern = re.escape(family) + r"-([1-9][0-9]*)\.([1-9][0-9]*)"
+    if suffix:
+        pattern += re.escape(suffix) + r"([1-9][0-9]*)"
+    installed = re.fullmatch(pattern, version)
+    if (
+        re.fullmatch(r"[uihrp]i", state.strip()) is None
+        or source_name not in accepted
+        or installed is None
+        or installed.group(1) != abi
+        or len(signature) != 3
+        or signature[0] != "Ubuntu"
+        or signature[1] != f"{version}-{flavor}"
+    ):
+        return unknown
+    try:
+        entry = minimum_versions.get(f"components.{component}.packages.linuxPwnescape")
+    except (minimum_versions.MinimumDataError, OSError, ValueError):
+        return unknown
+    if not isinstance(entry, dict) or entry.get("cve") != CVE or entry.get("package") != source:
+        return unknown
+    vendor_status = entry.get("status")
+    minimum = entry.get("fixed")
+    if vendor_status == "released":
+        fixed = re.fullmatch(pattern, minimum) if isinstance(minimum, str) else None
+        if fixed is None:
+            return unknown
+        # A confirmed Ubuntu release can be compared within its own exact
+        # source-package train; never compare a generic ABI with another flavor.
+        patched = tuple(map(int, installed.groups())) >= tuple(map(int, fixed.groups()))
+        status = "pass" if patched else "fail"
+        return (
+            status, minimum, vendor_status,
+            f"The running Ubuntu {source} image {version} "
+            f"{'meets' if patched else 'is below'} the released {CVE} fix {minimum}.",
+        )
+    if vendor_status in ("needed", "pending"):
+        # "pending" descriptions are builds in progress, not fixed floors.
+        return (
+            "fail", "unknown", vendor_status,
+            f"Ubuntu marks {source} on this release as vulnerable to {CVE}; "
+            "no fixed package has been released. Request CVE-specific evidence "
+            "if the provider has applied a private backport.",
+        )
+    return unknown
+
 
 def grade(facts: dict[str, str]) -> dict:
     """Keep the observed worker kernel separate from a hidden outer host."""
@@ -32,6 +108,7 @@ def grade(facts: dict[str, str]) -> dict:
     livepatch = facts.get("WORKER_PWNESCAPE_LIVEPATCH", "unknown")
     local_status = "unknown"
     minimum = "unknown"
+    vendor_status = "unknown"
     reason = (
         "The distribution or custom kernel needs vendor evidence for this CVE. "
         "Upstream versions do not establish distribution backport status."
@@ -39,9 +116,9 @@ def grade(facts: dict[str, str]) -> dict:
     match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", running)
     if match:
         branch = ".".join(match.groups()[:2])
+        observed = tuple(map(int, match.groups()))
         minimum = FIXED_RELEASES.get(branch, "unknown")
         if minimum != "unknown":
-            observed = tuple(map(int, match.groups()))
             fixed = tuple(map(int, minimum.split(".")))
             local_status = "pass" if observed >= fixed else "fail"
             reason = (
@@ -49,6 +126,23 @@ def grade(facts: dict[str, str]) -> dict:
                 f"{'meets' if local_status == 'pass' else 'is below'} "
                 f"the {minimum} minimum for its branch."
             )
+        elif observed >= (7, 3, 0):
+            local_status = "pass"
+            minimum = "7.3.0"
+            reason = "The observed upstream release includes the mainline PwnEscape fix in 7.3."
+        elif observed >= (2, 6, 27):
+            # The CNA's default status is affected. This is not a comparison
+            # with another stable branch's fix, and applies only to an exact
+            # upstream release, never to an Ubuntu signature's third field.
+            local_status = "fail"
+            reason = (
+                f"The upstream CNA record marks {running} as affected. "
+                "No fixed stable release is listed for this branch."
+            )
+    else:
+        local_status, minimum, vendor_status, ubuntu_reason = _ubuntu_grade(facts, running)
+        if local_status != "unknown":
+            reason = ubuntu_reason
     if livepatch not in {"none", "not-supported"} and local_status != "unknown":
         local_status = "unknown"
         reason = (
@@ -69,7 +163,7 @@ def grade(facts: dict[str, str]) -> dict:
         "cve": CVE,
         "advisory": ADVISORY,
         "cnaRecord": CNA_RECORD,
-        "minimumsReviewedAt": "2026-10-17",
+        "minimumsReviewedAt": MINIMUMS_REVIEWED_AT,
         "fixCommit": FIX_COMMIT,
         "status": status,
         "reason": reason,
@@ -77,6 +171,16 @@ def grade(facts: dict[str, str]) -> dict:
         "runningKernel": running,
         "localKernelStatus": local_status,
         "minimum": minimum,
+        "vendorStatus": vendor_status,
+        "osId": facts.get("WORKER_OS_ID", "unknown"),
+        "release": facts.get("WORKER_OS_VERSION_ID", "unknown"),
+        "signature": facts.get("WORKER_PWNESCAPE_SIGNATURE", "unknown"),
+        "packageEvidence": facts.get("WORKER_PWNESCAPE_PACKAGE", "unknown"),
+        "sourcePackage": (
+            facts.get("WORKER_PWNESCAPE_PACKAGE", "").split("|")[1]
+            if local_status != "unknown" and vendor_status != "unknown"
+            else "unknown"
+        ),
         "virtualization": technology,
         "livepatch": livepatch,
         "tunDevicePresent": facts.get("WORKER_PWNESCAPE_TUN_PRESENT", "unknown"),
@@ -122,6 +226,12 @@ def _host_entry(host: dict) -> dict:
         status=value["status"],
         runningKernel=value["runningKernel"],
         minimum=value["minimum"],
+        vendorStatus=value["vendorStatus"],
+        sourcePackage=value["sourcePackage"],
+        osId=value["osId"],
+        release=value["release"],
+        signature=value["signature"],
+        packageEvidence=value["packageEvidence"],
         localKernelStatus=value["localKernelStatus"],
         virtualization=value["virtualization"],
         livepatch=value["livepatch"],
@@ -162,8 +272,9 @@ def grade_fleet(hosts: list[dict], control_plane: dict) -> dict:
     reasons = []
     if failing:
         reasons.append(
-            f"{len(failing)} host(s) run a kernel below the PwnEscape minimum: {_names(failing)}."
+            f"{len(failing)} host(s) do not meet the PwnEscape patch requirements: {_names(failing)}."
         )
+        reasons.append(f"{worst['node']}: {worst['reason']}")
     elif worst.get("status", "pass") != "pass":
         reasons.append(f"{worst['node']}: {worst['reason']}")
     if unassessed:
@@ -189,7 +300,7 @@ def grade_fleet(hosts: list[dict], control_plane: dict) -> dict:
         "cve": CVE,
         "advisory": ADVISORY,
         "cnaRecord": CNA_RECORD,
-        "minimumsReviewedAt": "2026-10-17",
+        "minimumsReviewedAt": MINIMUMS_REVIEWED_AT,
         "fixCommit": FIX_COMMIT,
         "status": status,
         "reason": " ".join(reasons),
@@ -198,6 +309,8 @@ def grade_fleet(hosts: list[dict], control_plane: dict) -> dict:
         "runningKernels": sorted({entry["runningKernel"] for entry in checked}),
         "localKernelStatus": worst.get("localKernelStatus", "unknown"),
         "minimum": worst.get("minimum", "unknown"),
+        "vendorStatus": worst.get("vendorStatus", "unknown"),
+        "sourcePackage": worst.get("sourcePackage", "unknown"),
         "virtualization": worst.get("virtualization", "unknown"),
         "livepatch": worst.get("livepatch", "unknown"),
         "nodesTotal": len(entries),

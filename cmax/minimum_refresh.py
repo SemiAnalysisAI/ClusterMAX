@@ -213,6 +213,7 @@ DCGM_EXPORTER_RELEASE_REPO = "NVIDIA/dcgm-exporter"
 
 UBUNTU_RELEASE = "noble"
 UBUNTU_PACKAGES: tuple[dict[str, Any], ...] = (
+    {"key": "linuxPwnescape", "cve": "CVE-2026-99999", "package": "linux"},
     {"key": "linuxBadEpoll", "cve": "CVE-2026-46242", "package": "linux"},
     {"key": "linuxBadEpollNvidia617", "cve": "CVE-2026-46242",
      "package": "linux-nvidia-6.17"},
@@ -233,6 +234,7 @@ UBUNTU_PACKAGES: tuple[dict[str, Any], ...] = (
 
 # Ubuntu 26.04 (resolute) GA kernel fixes the audit grades by source package.
 UBUNTU_RESOLUTE_PACKAGES: tuple[dict[str, Any], ...] = (
+    {"key": "linuxPwnescape", "cve": "CVE-2026-99999", "package": "linux"},
     {"key": "linuxBadEpoll", "cve": "CVE-2026-46242", "package": "linux"},
     {
         "key": "linuxFragnesia",
@@ -2732,8 +2734,12 @@ def build_minimums(
             "ubuntuNoble": ubuntu_minimums(fetch=fetch),
             "ubuntuJammy": ubuntu_minimums(
                 codename="jammy",
-                specs=({"key": "linuxBadEpoll", "cve": "CVE-2026-46242",
-                        "package": "linux-hwe-6.8"},),
+                specs=(
+                    {"key": "linuxBadEpoll", "cve": "CVE-2026-46242",
+                     "package": "linux-hwe-6.8"},
+                    {"key": "linuxPwnescape", "cve": "CVE-2026-99999",
+                     "package": "linux-hwe-6.8"},
+                ),
                 package_policy=(),
                 fetch=fetch,
             ),
@@ -2820,7 +2826,8 @@ def _minimum_downgrades(name: str, label: str, new_map: dict, old_map: dict) -> 
 def verify(doc: dict, existing: dict | None = None) -> None:
     """Fail closed on any component that lost its data.
 
-    Every component must carry a non-empty minimum. On top of that, an Ubuntu
+    Every component must carry a non-empty minimum, except for the named
+    PwnEscape check's verified "needed" vendor state. On top of that, an Ubuntu
     package or a VIRTIO-Net release line that the existing table records as
     fixed must still report a fixed version, so a feed change cannot quietly
     drop one entry.
@@ -2945,9 +2952,22 @@ def verify(doc: dict, existing: dict | None = None) -> None:
         # not compare two Debian versions for order.
         old_packages = old_block.get("packages") or {}
         for key, entry in payload.items():
+            old_entry = old_packages.get(key) or {}
+            # This named check also reports a vendor-confirmed vulnerable
+            # package before a fix exists. Preserve that evidence, but never
+            # allow a released fix to regress to an unfixed/unknown state.
+            pwnescape = key == "linuxPwnescape" and entry.get("cve") == "CVE-2026-99999"
+            if pwnescape:
+                state = entry.get("status")
+                if state not in {"needed", "pending", "released"}:
+                    problems.append(f"{name}.{key}: PwnEscape vendor status is unverified")
+                if old_entry.get("status") == "released" and state != "released":
+                    problems.append(f"{name}.{key}: released PwnEscape fix disappeared")
+                if state == "needed" and not old_entry.get("fixed"):
+                    continue
             if entry.get("fixed"):
                 continue
-            was_fixed = (old_packages.get(key) or {}).get("fixed")
+            was_fixed = old_entry.get("fixed")
             detail = f" (was {was_fixed})" if was_fixed else ""
             problems.append(
                 f"{name}.{key}: no fixed version for {entry.get('cve')} "

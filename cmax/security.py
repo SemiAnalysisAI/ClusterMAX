@@ -622,6 +622,8 @@ def _pwnescape(audit: dict[str, Any]) -> tuple[str, str, str]:
     )
     if value.get("scope") == "fleet":
         observed += "; " + pwnescape_fleet_coverage(value)
+    if value.get("vendorStatus", "unknown") != "unknown":
+        observed += f"; vendor={value['vendorStatus']}; package={value.get('sourcePackage', 'unknown')}"
     return status, observed, str(value.get("reason") or "Host patch evidence is required.")
 
 

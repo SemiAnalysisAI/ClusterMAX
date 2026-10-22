@@ -18,6 +18,7 @@ import bashtest
 
 
 WORKLOAD = ROOT / "cmax/scripts/1-audit"
+sys.path.insert(0, str(WORKLOAD))
 SPEC = importlib.util.spec_from_file_location("pwnescape", WORKLOAD / "pwnescape.py")
 pwnescape = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(pwnescape)
@@ -31,6 +32,199 @@ def facts(version="6.12.113", guest="false", technology="none", **extra):
         "WORKER_PWNESCAPE_LIVEPATCH": "none",
         **extra,
     }
+
+
+def ubuntu_facts(release="24.04", abi=139, upload=None, signed=False):
+    family = "7.0.0" if release == "26.04" else "6.8.0"
+    version = f"{family}-{abi}.{upload or abi}"
+    source = "linux-hwe-6.8" if release == "22.04" else "linux"
+    if release == "22.04":
+        version += "~22.04.1"
+    if signed:
+        source = source.replace("linux", "linux-signed", 1)
+    return facts(
+        f"{family}-{abi}-generic",
+        WORKER_OS_ID="ubuntu",
+        WORKER_OS_VERSION_ID=release,
+        WORKER_PWNESCAPE_SIGNATURE=f"Ubuntu {version}-generic 6.8.12",
+        WORKER_PWNESCAPE_PACKAGE=f"ii |{source}|{version}",
+    )
+
+
+@pytest.fixture(autouse=True)
+def ubuntu_minimums(tmp_path, monkeypatch):
+    # Frozen vendor states, independent of daily refreshes. Released fixes in
+    # boundary tests below are synthetic, not a claim of fix availability.
+    data = {"schemaVersion": 1, "components": {
+        component: {"packages": {"linuxPwnescape": {
+            "cve": pwnescape.CVE, "package": package, "status": state, "fixed": fixed,
+        }}}
+        for component, package, state, fixed in (
+            ("ubuntuNoble", "linux", "pending", "6.8.0-149.149i1"),
+            ("ubuntuResolute", "linux", "pending", "7.0.0-43.43i1"),
+            ("ubuntuJammy", "linux-hwe-6.8", "needed", ""),
+        )
+    }}
+    path = tmp_path / "minimums.json"
+    path.write_text(json.dumps(data))
+    monkeypatch.setenv("CLUSTERMAX_MINIMUM_VERSIONS", str(path))
+    monkeypatch.setattr(pwnescape.minimum_versions, "_CACHE", None)
+    yield path, data
+    pwnescape.minimum_versions._CACHE = None
+
+
+@pytest.mark.parametrize("release,abi", [("24.04", 139), ("26.04", 14), ("22.04", 138)])
+@pytest.mark.parametrize("signed", [False, True])
+def test_verified_ubuntu_running_image_uses_vendor_affected_status(release, abi, signed):
+    result = pwnescape.grade(ubuntu_facts(release, abi, signed=signed))
+    assert result["status"] == result["localKernelStatus"] == "fail"
+    assert result["vendorStatus"] == ("needed" if release == "22.04" else "pending")
+    assert result["minimum"] == "unknown"
+    assert "no fixed package has been released" in result["reason"]
+    assert result["exploitTested"] is False
+
+
+@pytest.mark.parametrize("release,abi", [("24.04", 149), ("26.04", 43)])
+def test_pending_build_is_not_a_released_minimum(release, abi):
+    value = pwnescape.grade(ubuntu_facts(release, abi))
+    assert value["status"] == "fail"
+    assert value["minimum"] == "unknown"
+
+
+@pytest.mark.parametrize("release,component,fixed,abi", [
+    ("24.04", "ubuntuNoble", "6.8.0-150.151", 150),
+    ("26.04", "ubuntuResolute", "7.0.0-44.45", 44),
+    ("22.04", "ubuntuJammy", "6.8.0-150.151~22.04.1", 150),
+])
+@pytest.mark.parametrize("delta,upload_delta,expected", [(-1, 0, "fail"), (0, -1, "fail"), (0, 0, "pass"), (1, 1, "pass")])
+def test_released_vendor_fix_boundaries(ubuntu_minimums, release, component, fixed, abi, delta, upload_delta, expected):
+    path, data = ubuntu_minimums
+    data["components"][component]["packages"]["linuxPwnescape"].update(status="released", fixed=fixed)
+    path.write_text(json.dumps(data))
+    fixed_upload = 45 if release == "26.04" else 151
+    value = pwnescape.grade(ubuntu_facts(release, abi + delta, fixed_upload + upload_delta))
+    assert value["status"] == expected
+    assert value["minimum"] == fixed
+
+
+@pytest.mark.parametrize("change", [
+    {"WORKER_OS_ID": "debian"},
+    {"WORKER_OS_VERSION_ID": "26.04"},
+    {"WORKER_GUEST_KERNEL_RUNNING": "6.8.0-139-aws"},
+    {"WORKER_PWNESCAPE_SIGNATURE": "unknown"},
+    {"WORKER_PWNESCAPE_SIGNATURE": "Ubuntu 6.8.0-138.138-generic 6.8.12"},
+    {"WORKER_PWNESCAPE_SIGNATURE": "Ubuntu 6.8.0-139.139-generic"},
+    {"WORKER_PWNESCAPE_PACKAGE": "unknown"},
+    {"WORKER_PWNESCAPE_PACKAGE": "rc |linux|6.8.0-139.139"},
+    {"WORKER_PWNESCAPE_PACKAGE": "hiR|linux|6.8.0-139.139"},
+    {"WORKER_PWNESCAPE_PACKAGE": "ii |linux-aws|6.8.0-139.139"},
+    {"WORKER_PWNESCAPE_PACKAGE": "ii |linux|6.8.0-140.140"},
+    {"WORKER_PWNESCAPE_PACKAGE": "ii |linux|6.8.0-139.139+custom"},
+])
+def test_ubuntu_identity_mismatches_remain_unknown(change):
+    assert pwnescape.grade(ubuntu_facts() | change)["status"] == "unknown"
+
+
+@pytest.mark.parametrize("state", ["hi ", "ri ", "pi ", "ui "])
+def test_installed_selection_is_not_installation_state(state):
+    value = ubuntu_facts()
+    value["WORKER_PWNESCAPE_PACKAGE"] = value["WORKER_PWNESCAPE_PACKAGE"].replace("ii ", state)
+    assert pwnescape.grade(value)["status"] == "fail"
+
+
+@pytest.mark.parametrize("change", [
+    {"cve": "CVE-2026-46242"}, {"package": "linux-aws"},
+    {"status": "needs-triage"}, {"status": "ignored"}, {"status": "DNE"},
+    {"status": ["released"]}, {"status": None},
+    {"status": "released", "fixed": ""},
+    {"status": "released", "fixed": "7.0.0-44.44"},
+    {"status": "released", "fixed": "6.8.0-149.149i1"},
+])
+def test_unknown_or_invalid_vendor_records_cannot_grade(ubuntu_minimums, change):
+    path, data = ubuntu_minimums
+    data["components"]["ubuntuNoble"]["packages"]["linuxPwnescape"].update(change)
+    path.write_text(json.dumps(data))
+    assert pwnescape.grade(ubuntu_facts())["status"] == "unknown"
+
+
+def test_missing_and_unreadable_vendor_data_remain_unknown(ubuntu_minimums):
+    path, data = ubuntu_minimums
+    del data["components"]["ubuntuNoble"]["packages"]["linuxPwnescape"]
+    path.write_text(json.dumps(data))
+    assert pwnescape.grade(ubuntu_facts())["status"] == "unknown"
+    pwnescape.minimum_versions._CACHE = None
+    path.write_text("not JSON")
+    assert pwnescape.grade(ubuntu_facts())["status"] == "unknown"
+
+
+@pytest.mark.parametrize("livepatch", ["active", "unknown", "active-or-unreadable"])
+def test_ubuntu_livepatch_cannot_prove_fixed_or_vulnerable(livepatch):
+    value = pwnescape.grade(ubuntu_facts() | {"WORKER_PWNESCAPE_LIVEPATCH": livepatch})
+    assert value["status"] == "unknown"
+    assert "CVE-specific evidence" in value["reason"]
+
+
+def test_ubuntu_guest_reports_local_failure_without_certifying_outer_host():
+    value = pwnescape.grade(ubuntu_facts() | {"WORKER_VIRT_GUEST": "true", "WORKER_VIRT_TYPE": "kvm"})
+    assert value["status"] == "host-version-required"
+    assert value["localKernelStatus"] == "fail"
+
+
+@pytest.mark.parametrize("version,expected", [
+    ("6.8.12", "fail"), ("7.0.14", "fail"), ("6.17.13", "fail"),
+    ("7.3.0", "pass"), ("7.3.1", "pass"), ("7.4.0", "pass"),
+    ("2.6.26", "unknown"),
+])
+def test_cna_default_affected_and_mainline_fix(version, expected):
+    assert pwnescape.grade(facts(version))["status"] == expected
+
+
+def test_ubuntu_signature_base_version_is_not_upstream_patch_evidence():
+    value = ubuntu_facts()
+    value["WORKER_PWNESCAPE_SIGNATURE"] = "Ubuntu 6.8.0-139.139-generic 6.12.113"
+    assert pwnescape.grade(value)["status"] == "fail"
+
+
+def test_ubuntu_collector_to_grader_to_report(tmp_path):
+    (tmp_path / "etc").mkdir()
+    (tmp_path / "etc/os-release").write_text('ID=ubuntu\nVERSION_ID="24.04"\n')
+    (tmp_path / "proc").mkdir()
+    (tmp_path / "proc/version_signature").write_text("Ubuntu 6.8.0-139.139-generic 6.8.12\n")
+    (tmp_path / "sys/kernel").mkdir(parents=True)
+    run = bashtest.run_bash(
+        f'bash "{WORKLOAD}/pwnescape-host-facts.sh"',
+        stubs={
+            "uname": "echo 6.8.0-139-generic",
+            "systemd-detect-virt": "echo none; exit 1",
+            "dpkg-query": "printf 'ii |linux-signed|6.8.0-139.139'",
+        },
+        env={"CLUSTERMAX_AUDIT_ROOT": str(tmp_path)},
+    )
+    assert run.returncode == 0, run.stderr
+    assert run.calls("dpkg-query")[0][-1] == "linux-image-6.8.0-139-generic"
+    output = subprocess.check_output(
+        [sys.executable, str(WORKLOAD / "pwnescape.py")], input=run.stdout, text=True,
+    )
+    value = json.loads(output)
+    assert value["status"] == "fail"
+    check = next(c for c in security.evaluate_security({"security": {"pwnescape": value}}) if c.id == "pwnescape")
+    assert check.status == security.CRITICAL
+    assert "vendor=pending" in check.observed
+
+
+def test_vendor_failure_and_evidence_survive_fleet_aggregation():
+    raw = "\n".join(f"{k}={v}" for k, v in ubuntu_facts().items())
+    value = pwnescape.grade_fleet(
+        [host("cp-1", "control-plane"), {"node": "gpu-ubuntu", "checked": True, "facts": raw}],
+        CONTROL_FOUND,
+    )
+    assert value["status"] == "fail"
+    assert value["failingNodes"] == ["gpu-ubuntu"]
+    assert value["vendorStatus"] == "pending"
+    entry = next(e for e in value["hosts"] if e["node"] == "gpu-ubuntu")
+    assert entry["osId"] == "ubuntu"
+    assert entry["packageEvidence"] == ubuntu_facts()["WORKER_PWNESCAPE_PACKAGE"]
+    assert "no fixed package has been released" in value["reason"]
 
 
 @pytest.mark.parametrize("minimum", pwnescape.FIXED_RELEASES.values())
@@ -47,7 +241,7 @@ def test_each_upstream_branch_boundary(minimum):
     "version",
     [
         "6.12.113-custom", "6.12.114+", "6.8.0-106-generic",
-        "6.12.113-aws", "5.14.0-503.el9.x86_64", "7.3-rc7", "7.4.0",
+        "6.12.113-aws", "5.14.0-503.el9.x86_64", "7.3-rc7",
         "6.12", "unknown", "", "6.12.113; touch /tmp/do-not-create",
     ],
 )
@@ -446,6 +640,7 @@ def run_slurm_fleet(tmp_path, ssh_body="exit 255", bad_node=""):
     workload.mkdir()
     (workload / "pwnescape-host-facts.sh").write_text(facts_script)
     (workload / "pwnescape.py").symlink_to(WORKLOAD / "pwnescape.py")
+    (workload / "minimum_versions.py").symlink_to(WORKLOAD / "minimum_versions.py")
     remote = (
         'cat >/dev/null\nkernel=6.12.113; [[ "$NODE" == "$BAD_NODE" ]] && kernel=6.12.112\n'
         'printf "WORKER_HOSTNAME=%s\\nWORKER_GUEST_KERNEL_RUNNING=%s\\nWORKER_VIRT_GUEST=false\\n'

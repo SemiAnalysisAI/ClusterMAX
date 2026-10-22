@@ -555,6 +555,41 @@ class ExtractorTest(unittest.TestCase):
         # The Noble and Jammy fixes for the same CVEs are untouched.
         self.assertEqual(noble["packages"]["linuxFragnesia"]["fixed"], "6.8.0-124.124")
 
+    def test_pwnescape_refresh_preserves_pending_and_needed_vendor_states(self) -> None:
+        data = fr.build_minimums(generated=GENERATED, existing={}, fetch=self.stub)
+        for component, source, state, fixed in (
+            ("ubuntuNoble", "linux", "pending", "6.8.0-149.149i1"),
+            ("ubuntuResolute", "linux", "pending", "7.0.0-43.43i1"),
+            ("ubuntuJammy", "linux-hwe-6.8", "needed", ""),
+        ):
+            entry = data["components"][component]["packages"]["linuxPwnescape"]
+            self.assertEqual(entry["cve"], "CVE-2026-99999")
+            self.assertEqual(entry["package"], source)
+            self.assertEqual(entry["status"], state)
+            self.assertEqual(entry["fixed"], fixed)
+            if fixed:
+                self.assertEqual(entry["fixAvailability"]["status"], "unconfirmed")
+
+    def test_pwnescape_refresh_picks_up_a_released_fix(self) -> None:
+        # Synthetic release event: this does not assert real fix availability.
+        record = self.stub.json_by_url[fr.ubuntu_osv_urls("CVE-2026-99999")[0]]
+        record["affected"][0]["ranges"][0]["events"].append({"fixed": "6.8.0-150.150"})
+        entry = fr.ubuntu_entry("CVE-2026-99999", "linux", "noble", fetch=self.stub)
+        self.assertEqual(entry["status"], "released")
+        self.assertEqual(entry["fixed"], "6.8.0-150.150")
+
+    def test_pwnescape_refresh_rejects_unknown_states_and_loss_of_a_released_fix(self) -> None:
+        old = baseline()
+        for state in ("needs-triage", "ignored", "not-found"):
+            data = baseline()
+            data["components"]["ubuntuJammy"]["packages"]["linuxPwnescape"]["status"] = state
+            with self.subTest(state=state), self.assertRaises(fr.MinimumRefreshError):
+                fr.verify(data, old)
+        old_entry = old["components"]["ubuntuNoble"]["packages"]["linuxPwnescape"]
+        old_entry.update(status="released", fixed="6.8.0-150.150")
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "released PwnEscape fix disappeared"):
+            fr.verify(baseline(), old)
+
     def test_ubuntu_noble_packages(self) -> None:
         osv_url = fr.ubuntu_osv_urls("CVE-2024-3446")[0]
         self.stub.json_by_url[osv_url]["related"] = [
@@ -588,6 +623,7 @@ class ExtractorTest(unittest.TestCase):
         )
         api_calls = [url for url in self.stub.calls if url.startswith(fr.UBUNTU_CVE_URL)]
         self.assertCountEqual(api_calls, [
+            f"{fr.UBUNTU_CVE_URL}CVE-2026-99999.json",
             f"{fr.UBUNTU_CVE_URL}CVE-2026-46242.json",
             f"{fr.UBUNTU_CVE_URL}CVE-2026-46242.json",
             f"{fr.UBUNTU_CVE_URL}CVE-2026-46300.json",
