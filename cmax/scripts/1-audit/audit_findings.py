@@ -609,6 +609,12 @@ _TENANT_POD_RECOMMENDATIONS = {
 
 
 RULES: tuple[Rule, ...] = (
+    Rule("thp_madvise.status", "THP madvise policy needs review", CONFIG,
+         lambda value: str(value).lower() in {"warning", "fail", "error", "unknown"}),
+    Rule("static_hugepages.status", "Static HugeTLB capacity needs review", CONFIG,
+         lambda value: str(value).lower() in {"warning", "fail", "error", "unknown"}),
+    Rule("hugepage_allocation.status", "Huge-page allocation trial needs review", CONFIG,
+         lambda value: str(value).lower() in {"warning", "fail", "error", "unknown", "incomplete"}),
     Rule(
         "securityVersions.amdDriver.status",
         "AMD host driver below security minimum",
@@ -1548,6 +1554,9 @@ def classify_suppression(key: str, audit: dict[str, Any]) -> tuple[str, str]:
 CHECK_CRITERIA: dict[str, str | None] = {
     # CLI-only until the criteria catalog has an AMD host-driver criterion.
     "securityVersions.amdDriver.status": None,
+    "thp_madvise.status": None,
+    "static_hugepages.status": None,
+    "hugepage_allocation.status": None,
     "storage_config.status": None,
     "k8s_scheduling.status": None,
     "tenant_pod_defaults.status": None,
@@ -1759,6 +1768,13 @@ def _rule_subject(rule: Rule) -> str:
 def _finding_guidance(
     audit: dict[str, Any], rule: Rule, value: Any
 ) -> tuple[str, str, tuple[str, ...], tuple[str, ...]]:
+    if rule.key in {"thp_madvise.status", "static_hugepages.status", "hugepage_allocation.status"}:
+        payload = nested_get(audit, rule.key.rsplit(".", 1)[0], default={})
+        return (
+            str(payload.get("message") or value),
+            "Review the per-node huge-page policy and pool evidence. Run allocation trials only on an explicitly approved idle host.",
+            (), (),
+        )
     if rule.key == "storage_config.status":
         payload = nested_get(audit, "storage_config", default={})
         return (

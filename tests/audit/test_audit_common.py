@@ -237,6 +237,7 @@ class AuditCommonTests(unittest.TestCase):
             selected["hardware"],
             {
                 "gpu/vboost.py",
+                "system/hugepages.py",
                 "system/arm-smmu-virtualization-check.py",
                 "system/hbm_memory_exposure.py",
                 "system/vm-iommu-check.py",
