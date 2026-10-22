@@ -387,6 +387,31 @@ class ConnectxFirmwarePolicyTests(unittest.TestCase):
         self.assertIn("explicit ConnectX-8 GA fixed range", verdict.detail)
         self.assertIn(str(max(self.trains)), verdict.detail)
 
+    def test_ga_range_covers_every_listed_nic_and_dpu_family(self) -> None:
+        train = max(self.trains) + 1
+        cases = {
+            22: "pass", 24: "pass", 26: "pass", 28: "pass", 32: "pass", 40: "pass",
+            20: "unknown",
+        }
+        for family, status in cases.items():
+            with self.subTest(family=family):
+                verdict = security.connectx_firmware_verdict(f"{family}.{train}.2526")
+                self.assertEqual(verdict.status, status)
+
+    def test_shared_family_needs_every_product_in_the_ga_row(self) -> None:
+        component = minimums.component
+        block = dict(component("connectxFirmware"))
+        block["gaRanges"] = [{
+            "product": "ConnectX GA", "architectures": "ConnectX-6 DX",
+            "minimum": "46.3008", "relation": "or-newer",
+        }]
+        with mock.patch.object(
+            minimums, "component",
+            side_effect=lambda name: block if name == "connectxFirmware" else component(name),
+        ):
+            verdict = security.connectx_firmware_verdict(f"22.{max(self.trains) + 1}.2526")
+        self.assertEqual(verdict.status, "unknown")
+
     def test_unlisted_train_without_explicit_ga_range_stays_unknown(self) -> None:
         component = minimums.component
         block = dict(component("connectxFirmware"))
