@@ -621,6 +621,13 @@ RULES: tuple[Rule, ...] = (
         CONFIG,
         _status_is("unknown"),
     ),
+    Rule(
+        "k8s_scheduling.status",
+        "Kubernetes scheduling policy needs review",
+        CONFIG,
+        _status_is("warning"),
+        harnesses=frozenset({"k8s"}),
+    ),
     # --- Advisory-backed host security versions -------------------------
     Rule(
         "securityVersions.nvidiaDriver.status",
@@ -1523,6 +1530,7 @@ def classify_suppression(key: str, audit: dict[str, Any]) -> tuple[str, str]:
 CHECK_CRITERIA: dict[str, str | None] = {
     # CLI-only until the criteria catalog has an AMD host-driver criterion.
     "securityVersions.amdDriver.status": None,
+    "k8s_scheduling.status": None,
     "tenant_pod_defaults.status": None,
     "tenant_pod_defaults.checks.memlock.status": None,
     "tenant_pod_defaults.checks.shm.status": None,
@@ -1732,6 +1740,15 @@ def _rule_subject(rule: Rule) -> str:
 def _finding_guidance(
     audit: dict[str, Any], rule: Rule, value: Any
 ) -> tuple[str, str, tuple[str, ...], tuple[str, ...]]:
+    if rule.key == "k8s_scheduling.status":
+        payload = nested_get(audit, "k8s_scheduling", default={})
+        messages = [str(row.get("message", "")) for row in payload.get("findings", [])
+                    if isinstance(row, dict)]
+        return (
+            "; ".join(messages) or str(payload.get("message") or value),
+            "Check the recorded policy against the intended workload. A placement restriction does not establish a provider defect.",
+            (), (),
+        )
     if rule.key.startswith("tenant_pod_defaults."):
         detected, recommendation = _tenant_pod_guidance(audit, rule, value)
         return detected, recommendation, (), ()
