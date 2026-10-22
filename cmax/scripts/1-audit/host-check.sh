@@ -807,8 +807,10 @@ if command -v nvidia-smi >/dev/null 2>&1; then
             WORKER_NVIDIA_MAY_2026_PATCHED=true   # branch newer than the newest in the May 2026 bulletin
         fi
     fi
+    # A step that sees no GPU still prints the NIC matrix, which proves nothing
+    # about NVLink, so the topology counts as checked only with a GPU row.
     if nvlink_topology=$(nvidia-smi topo -m 2>/dev/null) \
-            && [[ -n "$nvlink_topology" ]]; then
+            && grep -qE '^[^[:alnum:]]*GPU[0-9]+[[:space:]]' <<< "$nvlink_topology"; then
         WORKER_NVLINK_TOPOLOGY_CHECKED=true
         WORKER_NVLINK_EXPOSED=false
         if grep -qE '(^|[[:space:]])NV[0-9]+([[:space:]]|$)' <<< "$nvlink_topology"; then
