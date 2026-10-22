@@ -470,11 +470,12 @@ if [[ -n "$GPU_PARTITION" ]]; then
     # same way (cluster-audit-k8s.sh: `bash -s < host-check.sh`).
     #
     # Requesting GPU GRES is mandatory: without it, mixed partitions can place
-    # this hardware check on a CPU-only node.
+    # this hardware check on a CPU-only node. Inside an allocation it requests
+    # the job's GPUs, so NVLink between them is visible.
     WORKER_CHECK_OUTPUT=$(srun "${AUDIT_SRUN_FLAGS[@]}" \
         "${GPU_SRUN_SCOPE_ARGS[@]}" \
         -N1 --ntasks=1 \
-        --gres=gpu:1 \
+        --gres=gpu:"$(slurm_job_gpus_per_node)" \
         --time=5:00 \
         bash -s < "$WORKLOAD_DIR/host-check.sh" 2>/dev/null || echo "SRUN_FAILED")
     if [[ -z "$WORKER_CHECK_OUTPUT" || ! "$WORKER_CHECK_OUTPUT" =~ WORKER_HOSTNAME ]]; then
@@ -720,8 +721,8 @@ if [[ "$WORKER_CHECK_OK" == "true" ]]; then
     SECURITY_DRIVER_VERSION="$WORKER_DRIVER_VERSION"
     CUDA_VERSION="$WORKER_CUDA_VERSION"
     GPU_MEMORY="$WORKER_GPU_MEMORY"
-    # The check may expose all devices if it ran without a GPU allocation.
-    # Otherwise its single visible GPU is constrained by --gres=gpu:1.
+    # The check may expose all devices if it ran without a GPU allocation;
+    # otherwise it sees only the GPUs its step requested.
     if [[ "$TOTAL_GPUS" -eq 0 && -n "$WORKER_GPU_COUNT" && "$WORKER_GPU_COUNT" -gt 1 ]]; then
         ESTIMATED_GPU_NODES="$TOTAL_NODES"
         [[ "$GPU_NODE_COUNT" -gt 0 ]] && ESTIMATED_GPU_NODES="$GPU_NODE_COUNT"
