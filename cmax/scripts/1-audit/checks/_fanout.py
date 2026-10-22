@@ -24,9 +24,11 @@ validated I/O paths are untouched.
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional
 
 # (node) -> (record | None, error | None). ``node`` is whatever k8s_gpu_nodes
 # produced; the caller's closure decides how to reach and check it.
@@ -145,16 +147,68 @@ def fan_out_k8s(
     return records, errors
 
 
+# Per-node GRES in ``scontrol show job -d``: "GRES=gpu:h100:8(IDX:0-7)" or
+# "GRES=gpu:8(IDX:0-7)". Other GRES entries on the same line are ignored.
+_NODE_GPU_GRES_RE = re.compile(r"(?:^|[=,])gpu(?::[A-Za-z0-9_.-]+)?:([0-9]+)(?:\(|,|$)")
+
+
+def slurm_gpus_per_node(
+    env: Mapping[str, str] = os.environ,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> int | None:
+    """Return the GPUs every node of the current job holds, or None.
+
+    A job step only sees GPUs it requests. A step launched without ``--gres``
+    inside an allocation that holds every GPU, for example ``salloc
+    --exclusive``, sees no GPU at all, so nvidia-smi reports "No devices were
+    found". Checks that read GPUs must request the job's GPUs. With different
+    counts per node, the smallest one is used, so the step can start on every
+    node.
+    """
+    job_id = str(env.get("SLURM_JOB_ID") or "").strip()
+    if not job_id:
+        return None
+    try:
+        proc = runner(
+            ["scontrol", "show", "job", "-d", job_id],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0 or not isinstance(proc.stdout, str):
+        return None
+    counts: list[int] = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("Nodes="):
+            continue
+        gres = re.search(r"\bGRES=(\S+)", line)
+        if not gres:
+            return None  # a node without GPU GRES: requesting GPUs would fail
+        total = sum(int(m.group(1)) for m in _NODE_GPU_GRES_RE.finditer(gres.group(1)))
+        if total <= 0:
+            return None
+        counts.append(total)
+    return min(counts) if counts else None
+
+
 def slurm_python_command(
     *,
     node_count: str,
     worker_args: list[str],
+    gpus_per_node: int | None = None,
 ) -> list[str]:
     """Build an srun command that does not require a shared checkout.
 
     Slurm broadcasts standard input to each task. The caller supplies the
     source through standard input, so no controller path reaches a compute node.
+    Checks that read GPUs pass ``gpus_per_node`` (see slurm_gpus_per_node) so
+    the step can see them.
     """
+    gres = [f"--gres=gpu:{gpus_per_node}"] if gpus_per_node and gpus_per_node > 0 else []
     return [
         "srun",
         "--overlap",
@@ -162,6 +216,7 @@ def slurm_python_command(
         "-N",
         node_count,
         "--ntasks-per-node=1",
+        *gres,
         "python3",
         "-",
         *worker_args,
