@@ -70,6 +70,7 @@ _MONITORING_SACCT = (
 # requirement is an exact match.
 _CHECK_ANCHORS = {
     "securityVersions.amdDriver.status": _SECURITY_PATCHING,
+    "storage_config.status": "storage",
     "k8s_scheduling.status": "orchestration",
     "tenant_pod_defaults.status": "orchestration",
     "tenant_pod_defaults.checks.memlock.status": "lifecycle",

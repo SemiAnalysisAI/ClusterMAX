@@ -1329,6 +1329,24 @@ RULES: tuple[Rule, ...] = (
         _status_is("warning"),
         harnesses=frozenset({"k8s"}),
     ),
+    Rule(
+        "storage_config.status",
+        "Mounted filesystems differ across worker nodes",
+        CONFIG,
+        _status_is("fail"),
+    ),
+    Rule(
+        "storage_config.status",
+        "Storage configuration advisory across worker nodes; verify hands-on",
+        CONFIG,
+        _status_is("warning"),
+    ),
+    Rule(
+        "storage_config.status",
+        "Storage configuration could not be checked on any worker node",
+        CONFIG,
+        _status_is("unknown"),
+    ),
 )
 
 
@@ -1530,6 +1548,7 @@ def classify_suppression(key: str, audit: dict[str, Any]) -> tuple[str, str]:
 CHECK_CRITERIA: dict[str, str | None] = {
     # CLI-only until the criteria catalog has an AMD host-driver criterion.
     "securityVersions.amdDriver.status": None,
+    "storage_config.status": None,
     "k8s_scheduling.status": None,
     "tenant_pod_defaults.status": None,
     "tenant_pod_defaults.checks.memlock.status": None,
@@ -1740,6 +1759,13 @@ def _rule_subject(rule: Rule) -> str:
 def _finding_guidance(
     audit: dict[str, Any], rule: Rule, value: Any
 ) -> tuple[str, str, tuple[str, ...], tuple[str, ...]]:
+    if rule.key == "storage_config.status":
+        payload = nested_get(audit, "storage_config", default={})
+        return (
+            str(payload.get("message") or value),
+            "Inspect the recorded per-node filesystems, missing mounts, capacity, and collection errors before changing storage.",
+            (), (),
+        )
     if rule.key == "k8s_scheduling.status":
         payload = nested_get(audit, "k8s_scheduling", default={})
         messages = [str(row.get("message", "")) for row in payload.get("findings", [])

@@ -65,6 +65,7 @@ _PASS_ASSESSMENTS = {
     "securityVersions.amdDriver.status": (
         "The loaded AMD driver on the inspected host meets the published security minimum."
     ),
+    "storage_config.status": "The collected node storage inventory is consistent.",
     "k8s_scheduling.status": "The scheduling inventory has no recorded findings.",
     "tenant_pod_defaults.status": "The tenant pod check completed.",
     "tenant_pod_defaults.checks.memlock.status": "The tenant pod has sufficient locked memory.",
