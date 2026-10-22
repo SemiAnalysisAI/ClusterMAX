@@ -36,6 +36,17 @@ def table():
         "cve": "CVE-2026-46242", "package": "linux-nvidia-6.17",
         "fixed": "6.17.0-1031.31", "status": "released",
     }
+    doc["components"]["ubuntuResolute"] = {"packages": {
+        "linuxBadEpoll": {
+            "cve": "CVE-2026-46242", "package": "linux",
+            "fixed": "7.0.0-28.28", "status": "released",
+        },
+        "linuxFragnesia": {
+            "cve": "CVE-2026-46300", "package": "linux",
+            "relatedCves": ["CVE-2026-43284", "CVE-2026-43500"],
+            "fixed": "7.0.0-22.22", "status": "released",
+        },
+    }}
     return doc
 
 
@@ -72,6 +83,46 @@ def test_noble_boundaries(abi, expected):
 @pytest.mark.parametrize("abi,expected", [(137, "fail"), (138, "pass"), (139, "pass")])
 def test_jammy_hwe_uses_its_own_minimum(abi, expected):
     assert bad_epoll.evaluate(**facts(abi, "22.04"))["status"] == expected
+
+
+def resolute_facts(abi=28, upload=None, flavor="generic"):
+    version = f"7.0.0-{abi}.{upload or abi}"
+    return dict(
+        os_id="ubuntu", release="26.04", running=f"7.0.0-{abi}-{flavor}",
+        signature=f"Ubuntu {version}-{flavor} 7.0.14",
+        package=f"ii |linux-signed|{version}", livepatch="none",
+    )
+
+
+@pytest.mark.parametrize("abi,upload,expected", [
+    (22, None, "fail"), (27, None, "fail"), (28, 27, "fail"),
+    (28, None, "pass"), (38, None, "pass"),
+])
+def test_resolute_bad_epoll_boundaries(abi, upload, expected):
+    result = bad_epoll.evaluate(**resolute_facts(abi, upload))
+    assert result["status"] == expected
+    assert result["minimum"] == "7.0.0-28.28"
+    assert result["sourcePackage"] == "linux"
+
+
+@pytest.mark.parametrize("abi,expected", [(21, "fail"), (22, "pass"), (38, "pass")])
+def test_resolute_fragnesia_boundaries(abi, expected):
+    result = bad_epoll.evaluate(**resolute_facts(abi), advisory="fragnesia")
+    assert result["status"] == expected
+    assert result["minimum"] == "7.0.0-22.22"
+    assert result["relatedCves"] == ["CVE-2026-43284", "CVE-2026-43500"]
+
+
+@pytest.mark.parametrize("change", [
+    {"release": "24.04"},                       # a 7.0 kernel is not a Noble GA kernel
+    {"running": "7.0.0-38-nvidia"},             # no Resolute NVIDIA mapping
+    {"package": "ii |linux-signed-hwe-7.0|7.0.0-38.38"},
+    {"package": "ii |linux-signed|7.0.0-37.37"},  # not the running image
+    {"signature": "Ubuntu 7.0.0-38.38-generic"},
+    {"livepatch": "active"},
+])
+def test_resolute_needs_exact_running_package_evidence(change):
+    assert bad_epoll.evaluate(**{**resolute_facts(38), **change})["status"] == "unknown"
 
 
 def nvidia_facts(abi=1031, upload=31, flavor="nvidia-64k", signed=True):

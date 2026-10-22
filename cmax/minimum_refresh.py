@@ -107,6 +107,7 @@ UBUNTU_OSV_RAW_URL = (
 UBUNTU_OSV_ECOSYSTEMS = {
     "noble": "Ubuntu:24.04:LTS",
     "jammy": "Ubuntu:22.04:LTS",
+    "resolute": "Ubuntu:26.04:LTS",
 }
 UBUNTU_NOTICE_URL = "https://ubuntu.com/security/notices/"
 UBUNTU_NOTICES_URL = "https://ubuntu.com/security/notices.json"
@@ -228,6 +229,18 @@ UBUNTU_PACKAGES: tuple[dict[str, Any], ...] = (
         "abi": True,
     },
     {"key": "linuxJanuscape", "cve": "CVE-2026-53359", "package": "linux"},
+)
+
+# Ubuntu 26.04 (resolute) GA kernel fixes the audit grades by source package.
+UBUNTU_RESOLUTE_PACKAGES: tuple[dict[str, Any], ...] = (
+    {"key": "linuxBadEpoll", "cve": "CVE-2026-46242", "package": "linux"},
+    {
+        "key": "linuxFragnesia",
+        "cve": "CVE-2026-46300",
+        "package": "linux",
+        "relatedCves": ["CVE-2026-43284", "CVE-2026-43500"],
+        "abi": True,
+    },
 )
 
 # Docker Engine majors whose release-note pages feed the Docker minimum. Docker
@@ -2721,6 +2734,12 @@ def build_minimums(
                 codename="jammy",
                 specs=({"key": "linuxBadEpoll", "cve": "CVE-2026-46242",
                         "package": "linux-hwe-6.8"},),
+                package_policy=(),
+                fetch=fetch,
+            ),
+            "ubuntuResolute": ubuntu_minimums(
+                codename="resolute",
+                specs=UBUNTU_RESOLUTE_PACKAGES,
                 package_policy=(),
                 fetch=fetch,
             ),
