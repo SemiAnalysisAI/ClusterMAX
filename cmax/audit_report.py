@@ -65,6 +65,12 @@ _PASS_ASSESSMENTS = {
     "securityVersions.amdDriver.status": (
         "The loaded AMD driver on the inspected host meets the published security minimum."
     ),
+    "tenant_pod_defaults.status": "The tenant pod check completed.",
+    "tenant_pod_defaults.checks.memlock.status": "The tenant pod has sufficient locked memory.",
+    "tenant_pod_defaults.checks.shm.status": "The tenant pod has sufficient shared memory.",
+    "tenant_pod_defaults.checks.rdmaDevices.status": "The tenant pod can access RDMA devices.",
+    "tenant_pod_defaults.checks.gdrcopyDevice.status": "The tenant pod can access the GDRCopy device.",
+    "tenant_pod_defaults.checks.tunedPodAdmission.status": "The tenant pod remedies were admitted and took effect.",
     "securityVersions.nvidiaDriver.status": (
         "The NVIDIA driver meets the published security minimum."
     ),

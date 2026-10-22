@@ -70,6 +70,12 @@ _MONITORING_SACCT = (
 # requirement is an exact match.
 _CHECK_ANCHORS = {
     "securityVersions.amdDriver.status": _SECURITY_PATCHING,
+    "tenant_pod_defaults.status": "orchestration",
+    "tenant_pod_defaults.checks.memlock.status": "lifecycle",
+    "tenant_pod_defaults.checks.shm.status": "lifecycle",
+    "tenant_pod_defaults.checks.rdmaDevices.status": _LIFECYCLE_GPU_DIRECT,
+    "tenant_pod_defaults.checks.gdrcopyDevice.status": _LIFECYCLE_GPU_DIRECT,
+    "tenant_pod_defaults.checks.tunedPodAdmission.status": "orchestration",
     "securityVersions.nvidiaDriver.status": _SECURITY_PATCHING,
     "securityVersions.nvidiaContainerToolkit.status": _SECURITY_CONTAINER_TOOLKIT,
     "securityVersions.cudaToolkit.status": _SECURITY_PATCHING,

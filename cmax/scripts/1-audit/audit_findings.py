@@ -513,6 +513,101 @@ def _bluefield_absence_proven(audit: dict[str, Any]) -> bool:
 
 # Declarative rule set. To add a check, append a Rule. Keys are dotted paths into
 # the audit_data blob (see runs/<slug>/<ts>/audit/audit.values.json).
+
+def _host_rdma_active(audit: dict[str, Any]) -> bool:
+    """True when the privileged host check saw an active RDMA fabric.
+
+    ``networking.hostRdma`` comes from the Kubernetes host check, so this guard
+    is false on other harnesses and on runs where the host check never ran.
+    The tenant-pod device rules use it: reporting a missing /dev/infiniband to
+    a provider whose nodes hold no RDMA hardware would be noise.
+    """
+    try:
+        return int(nested_get(audit, "networking", "hostRdma", "activePorts") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _host_gdrdrv_loaded(audit: dict[str, Any]) -> bool:
+    """True when the host check saw the gdrdrv kernel module loaded."""
+    return _is_true(nested_get(audit, "gpus", "gdrcopy", "gdrdrvLoaded"))
+
+
+def _tenant_pod_guidance(
+    audit: dict[str, Any], rule: Rule, value: Any
+) -> tuple[str, str]:
+    """Detected / recommendation for the tenant pod defaults rules.
+
+    The check stores its evidence in ``tenant_pod_defaults.checks.<name>.detail``,
+    which is exactly the sentence the operator needs to see, so it is carried
+    into the finding verbatim.
+    """
+    if rule.key == "networking.rdmaType":
+        ports = nested_get(audit, "networking", "hostRdma", "activePorts")
+        detected = (
+            f"host RDMA fabric with {ports} active port(s); "
+            "no rdma extended resource is advertised"
+        )
+        recommendation = (
+            "Ask the provider to advertise the RDMA fabric as a Kubernetes "
+            "extended resource through an RDMA device plugin or the NVIDIA "
+            "Network Operator."
+        )
+        return detected, recommendation
+    if rule.key == "tenant_pod_defaults.status":
+        message = nested_get(audit, "tenant_pod_defaults", "message")
+        if _status_is("warning")(value):
+            detected = (
+                "One or more tenant pod defaults need changes"
+                if _missing_string(message) else str(message)
+            )
+            return detected, (
+                "Review the per-check tenant pod findings and ask the provider "
+                "to change the runtime or admission defaults they name."
+            )
+        detected = "Check did not run" if _missing_string(message) else str(message)
+        recommendation = (
+            "Run the audit with access that can schedule one unprivileged GPU "
+            "pod, or ask the provider to attest the tenant pod defaults."
+        )
+        return detected, recommendation
+    parts = rule.key.split(".")
+    check = parts[2] if len(parts) >= 4 else ""
+    detail = nested_get(audit, "tenant_pod_defaults", "checks", check, "detail")
+    detected = (
+        str(value).replace("_", " ").capitalize()
+        if _missing_string(detail)
+        else str(detail)
+    )
+    recommendation = _TENANT_POD_RECOMMENDATIONS.get(
+        check, "Correct the reported configuration, and run the audit again."
+    )
+    return detected, recommendation
+
+_TENANT_POD_RECOMMENDATIONS = {
+    "memlock": (
+        "Ask the provider to set LimitMEMLOCK=infinity on the container "
+        "runtime service, or to grant CAP_IPC_LOCK to GPU pods by default."
+    ),
+    "shm": (
+        "Ask the provider to raise the runtime default shm size; the pod-spec "
+        "remedy is a memory-backed emptyDir on /dev/shm."
+    ),
+    "rdmaDevices": (
+        "Ask the provider to deploy an RDMA device plugin or the NVIDIA "
+        "Network Operator, so pods can request the fabric devices."
+    ),
+    "gdrcopyDevice": (
+        "Ask the provider to expose /dev/gdrdrv to pods through the GPU "
+        "Operator or a device plugin."
+    ),
+    "tunedPodAdmission": (
+        "Ask the provider to allow CAP_IPC_LOCK and a memory-backed /dev/shm "
+        "in tenant pod specs."
+    ),
+}
+
+
 RULES: tuple[Rule, ...] = (
     Rule(
         "securityVersions.amdDriver.status",
@@ -1176,6 +1271,57 @@ RULES: tuple[Rule, ...] = (
         _is_false,
         harnesses=frozenset({"slurm"}),
     ),
+    Rule(
+        "tenant_pod_defaults.status",
+        "Tenant default-pod check could not run; unprivileged workload defaults are unverified (not evidence of absence)",
+        CONFIG,
+        _status_is("unknown"),
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
+        "tenant_pod_defaults.status",
+        "Tenant default pods need configuration changes",
+        CONFIG,
+        _status_is("warning"),
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
+        "tenant_pod_defaults.checks.memlock.status",
+        "Default tenant pod locked-memory limit is too low for RDMA memory registration (UCX, NCCL, NVSHMEM, CUDA-aware MPI)",
+        CONFIG,
+        _status_is("warning"),
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
+        "tenant_pod_defaults.checks.shm.status",
+        "Default tenant pod /dev/shm is too small for multi-GPU shared-memory transports",
+        CONFIG,
+        _status_is("warning"),
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
+        "tenant_pod_defaults.checks.rdmaDevices.status",
+        "Unprivileged tenant pods cannot reach the active host RDMA fabric (no /dev/infiniband and no rdma extended resource)",
+        CONFIG,
+        _status_is("absent"),
+        guard=_host_rdma_active,
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
+        "tenant_pod_defaults.checks.gdrcopyDevice.status",
+        "GDRCopy device /dev/gdrdrv is not injected into unprivileged tenant pods",
+        CONFIG,
+        _status_is("absent"),
+        guard=_host_gdrdrv_loaded,
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
+        "tenant_pod_defaults.checks.tunedPodAdmission.status",
+        "Tenant pod-spec remedy (CAP_IPC_LOCK with a memory-backed /dev/shm) is blocked or ineffective",
+        CONFIG,
+        _status_is("warning"),
+        harnesses=frozenset({"k8s"}),
+    ),
 )
 
 
@@ -1224,6 +1370,20 @@ _NO_BLUEFIELD = GuardReason(
 # a new guard lands with its classification; keys without an entry (or whose
 # clauses all miss) fall back to the unverified skip.
 GUARD_SUPPRESSIONS: dict[str, tuple[GuardReason, ...]] = {
+    "tenant_pod_defaults.checks.rdmaDevices.status": (
+        GuardReason(
+            lambda audit: str(nested_get(audit, "networking", "hostRdma", "activePorts")).strip() == "0",
+            NOT_APPLICABLE_KIND,
+            "The completed host inventory found no active RDMA ports.",
+        ),
+    ),
+    "tenant_pod_defaults.checks.gdrcopyDevice.status": (
+        GuardReason(
+            lambda audit: str(nested_get(audit, "gpus", "gdrcopy", "gdrdrvLoaded")).lower() == "false",
+            NOT_APPLICABLE_KIND,
+            "The host inventory confirms that gdrdrv is not loaded.",
+        ),
+    ),
     "securityVersions.nvidiaDriver.status": (_AMD_HARDWARE,),
     "securityVersions.nvidiaContainerToolkit.status": (_AMD_HARDWARE,),
     "securityVersions.cudaToolkit.status": (_AMD_HARDWARE,),
@@ -1363,6 +1523,12 @@ def classify_suppression(key: str, audit: dict[str, Any]) -> tuple[str, str]:
 CHECK_CRITERIA: dict[str, str | None] = {
     # CLI-only until the criteria catalog has an AMD host-driver criterion.
     "securityVersions.amdDriver.status": None,
+    "tenant_pod_defaults.status": None,
+    "tenant_pod_defaults.checks.memlock.status": None,
+    "tenant_pod_defaults.checks.shm.status": None,
+    "tenant_pod_defaults.checks.rdmaDevices.status": None,
+    "tenant_pod_defaults.checks.gdrcopyDevice.status": None,
+    "tenant_pod_defaults.checks.tunedPodAdmission.status": None,
     "securityVersions.nvidiaDriver.status": "security-nvidia-driver",
     "securityVersions.nvidiaContainerToolkit.status": "security-nvidia-container-toolkit",
     "securityVersions.cudaToolkit.status": "cuda-toolkit-security",
@@ -1566,6 +1732,9 @@ def _rule_subject(rule: Rule) -> str:
 def _finding_guidance(
     audit: dict[str, Any], rule: Rule, value: Any
 ) -> tuple[str, str, tuple[str, ...], tuple[str, ...]]:
+    if rule.key.startswith("tenant_pod_defaults."):
+        detected, recommendation = _tenant_pod_guidance(audit, rule, value)
+        return detected, recommendation, (), ()
     component, observed, minimum = _version_context(audit, rule.key)
     component_name = _COMPONENT_NAMES.get(component, component)
     if (
