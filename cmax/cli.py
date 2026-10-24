@@ -261,11 +261,14 @@ def build_parser() -> argparse.ArgumentParser:
         dest="fetch_minimums",
         help=(
             "Do not read the published minimum version table from "
-            "https://www.clustermax.ai/minimum-versions.json before the audit "
+            "https://semianalysisai.github.io/ClusterMAX/minimum-versions.json "
+            "before the audit "
             "runs. By default the security audit fetches that table on "
             "startup, stores it in a user cache directory, and grades against "
             "it; a fetch failure prints a warning and the audit continues "
-            "against the installed table. This flag skips the fetch, which "
+            "against the last fetched table or the installed table, with a "
+            "second warning when that table was last refreshed more than 7 "
+            "days ago. This flag skips the fetch, which "
             "keeps a committed audit result reproducible from the installed "
             "table on a host with no outbound network access."
         ),
