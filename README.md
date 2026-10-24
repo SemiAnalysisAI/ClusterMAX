@@ -52,7 +52,7 @@ The [ClusterMAX website](https://clustermax.semianalysis.com/) explains the rati
 
 ## Run a security audit
 
-The current [minimum-version table](https://www.clustermax.ai/minimum-versions) lists the software and firmware versions used for grading, with vendor advisories behind each value. Its [machine-readable form](https://www.clustermax.ai/minimum-versions.json) is the table `cmax audit security` fetches on startup (skip with `--no-fetch-minimums`).
+The current [minimum-version table](https://www.clustermax.ai/minimum-versions) lists the software and firmware versions used for grading, with vendor advisories behind each value. Its [machine-readable form](https://semianalysisai.github.io/ClusterMAX/minimum-versions.json) is the table `cmax audit security` fetches on startup (skip with `--no-fetch-minimums`). The `minimum-versions-publish` workflow deploys that one file to the GitHub Pages site of this repository. Its `refreshed` stamp moves every day after a successful refresh, and its `changed` stamp moves only when a minimum value changes. The command line keeps the last fetched table in `~/.cache/clustermax/`, so an offline run grades against that copy instead of the older table inside the package. When the fetch fails and the table in use was last refreshed more than 7 days ago, the audit gives a warning.
 
 The read-only Bad Epoll check, `security.badEpoll.status`, checks the running
 kernel against [CVE-2026-46242](https://ubuntu.com/security/CVE-2026-46242).

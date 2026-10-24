@@ -39,7 +39,6 @@ IGNORED = (
     ".github/workflows/codeql*.yml",
     ".github/workflows/python-nightly.yml",
     ".github/requirements/release.*",
-    ".github/workflows/minimum-versions-publish.yml",
 )
 
 # Changes here select the full suite.
@@ -59,8 +58,10 @@ FULL_SUITE = (
 # Non-source files that tests read by name.
 EXTRA_SOURCES = (
     ".github/workflows/minimum-versions-refresh.yml",
+    ".github/workflows/minimum-versions-publish.yml",
     ".github/scripts/nightly_version.py",
     ".github/scripts/stable_release.py",
+    ".github/scripts/minimum_pages.py",
     "tools/check_public_data.py",
     ".github/scripts/select_tests.py",
 )
