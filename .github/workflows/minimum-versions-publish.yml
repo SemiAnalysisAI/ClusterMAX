@@ -25,7 +25,7 @@ name: minimum-versions-publish
 #   - `cmax audit security` fetches that public address on startup. A pip
 #     installation carries a read-only table inside the installed package, so
 #     the public copy is the one way it gets current minimums.
-#   - The website (SemiAnalysisAI/clustermax-web-oss) reads the same address
+#   - The website (SemiAnalysisAI/ClusterMAX-web) reads the same address
 #     and renders it at https://www.clustermax.ai/minimum-versions.
 #   - The table in this repository stays the single source of truth. This job
 #     copies it. It never edits a minimum and it never runs the generator.
