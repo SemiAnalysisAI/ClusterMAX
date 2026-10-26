@@ -112,6 +112,10 @@ _PASS_ASSESSMENTS = {
     "security.guestKernel.newerInstalled": (
         "The audit did not find a newer installed kernel that is waiting for a reboot."
     ),
+    "security.guestKernel.ubuntuCveStatus": (
+        "Ubuntu tracks a released fix for each graded kernel CVE and the running "
+        "kernel meets it."
+    ),
     "security.ubuntuNobleKernelMinimum.status": (
         "The running Ubuntu Noble kernel meets the aggregate published security minimum."
     ),

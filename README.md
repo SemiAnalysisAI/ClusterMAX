@@ -89,6 +89,15 @@ against the source-package minimum. A newer downloaded table cannot silently rem
 the kernel mappings shipped with this client. If it lacks those mappings,
 the client reports the mismatch and retains its installed table.
 
+On Ubuntu 22.04 and 24.04, the `generic` and `generic-64k` kernels built from
+the GA `linux` source package (5.15 and 6.8) are also graded per CVE against
+the Ubuntu tracker for
+[CVE-2026-64531](https://ubuntu.com/security/CVE-2026-64531) and
+[CVE-2026-64378](https://ubuntu.com/security/CVE-2026-64378). A `needed` or
+`pending` tracker state fails because Ubuntu has not released a fix. A
+`released` state compares the running ABI with the published fixed ABI after
+the standard bulletin grace period. Other kernel trains are not applicable.
+
 An absent host Docker installation or an absent CUDA Toolkit in the inspected
 scope remains not applicable. This differs from an unreadable tool or failed
 probe, which remains unknown. A complete bare-metal PCI scan with no VFIO

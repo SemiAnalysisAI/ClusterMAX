@@ -232,6 +232,28 @@ UBUNTU_PACKAGES: tuple[dict[str, Any], ...] = (
     {"key": "linuxJanuscape", "cve": "CVE-2026-53359", "package": "linux"},
 )
 
+# Container-relevant GA kernel CVEs that the audit grades per CVE on Ubuntu
+# 22.04 (5.15) and 24.04 (6.8). Ubuntu can track either CVE as `needed` or
+# `pending` before it releases a fix. That state is a vulnerability finding, so
+# `allowUnfixed` lets the entry publish without a fixed version.
+UBUNTU_KERNEL_CVE_PACKAGES: tuple[dict[str, Any], ...] = (
+    {
+        "key": "linuxOpenvswitchNestedActions",
+        "cve": "CVE-2026-64531",
+        "package": "linux",
+        "abi": True,
+        "allowUnfixed": True,
+    },
+    {
+        "key": "linuxCgroupWriteback",
+        "cve": "CVE-2026-64378",
+        "package": "linux",
+        "abi": True,
+        "allowUnfixed": True,
+    },
+)
+UBUNTU_PACKAGES += UBUNTU_KERNEL_CVE_PACKAGES
+
 # Ubuntu 26.04 (resolute) GA kernel fixes the audit grades by source package.
 UBUNTU_RESOLUTE_PACKAGES: tuple[dict[str, Any], ...] = (
     {"key": "linuxPwnescape", "cve": "CVE-2026-99999", "package": "linux"},
@@ -1901,6 +1923,8 @@ def ubuntu_minimums(
             abi = kernel_abi(entry.get("fixed"))
             if abi is not None:
                 entry["abi"] = abi
+        if spec.get("allowUnfixed"):
+            entry["allowUnfixed"] = True
         return spec["key"], entry
 
     # Independent package lookups must not add every slow Ubuntu response to
@@ -2739,6 +2763,7 @@ def build_minimums(
                      "package": "linux-hwe-6.8"},
                     {"key": "linuxPwnescape", "cve": "CVE-2026-99999",
                      "package": "linux-hwe-6.8"},
+                    *UBUNTU_KERNEL_CVE_PACKAGES,
                 ),
                 package_policy=(),
                 fetch=fetch,
@@ -2964,6 +2989,25 @@ def verify(doc: dict, existing: dict | None = None) -> None:
                 if old_entry.get("status") == "released" and state != "released":
                     problems.append(f"{name}.{key}: released PwnEscape fix disappeared")
                 if state == "needed" and not old_entry.get("fixed"):
+                    continue
+            # A per-CVE kernel entry graded from the tracker state. `needed`
+            # and `pending` are valid findings without a fixed version, but a
+            # released fix must never regress.
+            if entry.get("allowUnfixed") is True and not pwnescape:
+                state = entry.get("status")
+                if old_entry.get("fixed") and not entry.get("fixed"):
+                    problems.append(
+                        f"{name}.{key}: released fix {old_entry.get('fixed')} for "
+                        f"{entry.get('cve')} disappeared"
+                    )
+                    continue
+                if state in {"needed", "pending"} and not entry.get("fixed"):
+                    continue
+                if state not in {"needed", "pending", "released"}:
+                    problems.append(
+                        f"{name}.{key}: Ubuntu tracker status for {entry.get('cve')} "
+                        f"is unverified ({state!r})"
+                    )
                     continue
             if entry.get("fixed"):
                 continue

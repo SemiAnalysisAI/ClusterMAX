@@ -84,6 +84,26 @@ def _references(*items: tuple[str, str]) -> tuple[SecurityReference, ...]:
     return tuple(SecurityReference(label, url) for label, url in items)
 
 
+_GUEST_KERNEL_UBUNTU_TITLE = "Active kernel version and Ubuntu CVE status"
+_GUEST_KERNEL_UBUNTU_IMPORTANCE = (
+    "Installed kernel fixes provide no protection until the fixed kernel is running, "
+    "and the newest installed kernel can remain vulnerable."
+)
+_GUEST_KERNEL_UBUNTU_REMEDIATION = (
+    "Install a supported Ubuntu kernel fix, reboot into it, and confirm the running "
+    "release after startup."
+)
+_GUEST_KERNEL_UBUNTU_REFERENCES = _references(
+    (
+        "Ubuntu security updates",
+        "https://documentation.ubuntu.com/security/security-updates/",
+    ),
+    ("Ubuntu kernel update guidance", "https://ubuntu.com/security/notices"),
+    ("CVE-2026-64531", "https://ubuntu.com/security/CVE-2026-64531"),
+    ("CVE-2026-64378", "https://ubuntu.com/security/CVE-2026-64378"),
+)
+
+
 def _command_ok(command: list[str], *, timeout: float = 5.0) -> bool:
     try:
         return (
@@ -354,6 +374,18 @@ def _display(value: Any) -> str:
 
 
 def _grace_details(value: Any) -> tuple[bool, str]:
+    if isinstance(value, list):
+        # Per-CVE grace records, such as security.guestKernel.ubuntuCveGracePeriods.
+        policies = [
+            item.get("policy")
+            for item in value
+            if isinstance(item, dict) and isinstance(item.get("policy"), dict)
+        ]
+        active = [policy for policy in policies if policy.get("active") is True]
+        if not active:
+            return False, ""
+        notes = [str(policy.get("message") or "").strip() for policy in active]
+        return True, " ".join(dict.fromkeys(note for note in notes if note))
     if not isinstance(value, dict):
         return False, ""
     grace = value.get("gracePeriod")
@@ -560,6 +592,23 @@ def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
         f"observed version {running}; minimum version not applicable; "
         f"newest installed version {newest}"
     )
+    ubuntu_cve_status = str(kernel.get("ubuntuCveStatus") or "").lower()
+    vulnerable_cves = kernel.get("ubuntuVulnerableCves")
+    if isinstance(vulnerable_cves, list) and vulnerable_cves:
+        observed += "; vulnerable to " + ", ".join(str(cve) for cve in vulnerable_cves)
+    grace_periods = kernel.get("ubuntuCveGracePeriods")
+    if isinstance(grace_periods, list) and grace_periods:
+        grace_cves = [
+            str(item.get("cve")) for item in grace_periods if isinstance(item, dict)
+        ]
+        if grace_cves:
+            observed += "; policy grace active for " + ", ".join(grace_cves)
+    if ubuntu_cve_status == "fail":
+        return (
+            CRITICAL,
+            observed,
+            "Ubuntu identifies the running kernel as vulnerable to a tracked container-relevant CVE.",
+        )
     newer = kernel.get("newerInstalled")
     if newer is True or str(newer).lower() == "true":
         return (
@@ -579,6 +628,18 @@ def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
             "The installed kernel inventory was unavailable, so a pending security reboot cannot be ruled out.",
         )
     if newer is False or str(newer).lower() == "false":
+        if ubuntu_cve_status == "unknown":
+            return (
+                WARNING,
+                observed,
+                "The Ubuntu CVE status or fixed kernel minimum could not be verified.",
+            )
+        if isinstance(grace_periods, list) and grace_periods:
+            return (
+                PASS,
+                observed,
+                "The running kernel is within the active Ubuntu bulletin grace period.",
+            )
         return PASS, observed, "The audit did not find a newer installed kernel that is waiting for a reboot."
     return (
         WARNING,
@@ -2061,10 +2122,22 @@ def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
         "connectx-firmware": "securityVersions.connectxFirmware",
         "virtio-net-bluefield": "securityVersions.virtioNetBluefield",
         "fragnesia": "security.fragnesia",
+        "guest-kernel": "security.guestKernel.ubuntuCveGracePeriods",
     }
     for spec in CHECK_SPECS:
         status, observed, assessment = spec.evaluate(audit)
+        title = spec.title
+        importance = spec.importance
         remediation, references = _minimum_bound_details(spec)
+        if spec.id == "guest-kernel":
+            ubuntu_cve_status = str(
+                _get(audit, "security.guestKernel.ubuntuCveStatus") or ""
+            ).lower()
+            if ubuntu_cve_status in {"fail", "pass", "unknown"}:
+                title = _GUEST_KERNEL_UBUNTU_TITLE
+                importance = _GUEST_KERNEL_UBUNTU_IMPORTANCE
+                remediation = _GUEST_KERNEL_UBUNTU_REMEDIATION
+                references = _GUEST_KERNEL_UBUNTU_REFERENCES
         minimum_url = minimum_links.security_check_url(spec.id)
         if minimum_url:
             references = (
@@ -2095,10 +2168,10 @@ def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
         checks.append(
             SecurityCheck(
                 spec.id,
-                spec.title,
+                title,
                 status,
                 observed,
-                spec.importance,
+                importance,
                 assessment,
                 remediation,
                 documentation,

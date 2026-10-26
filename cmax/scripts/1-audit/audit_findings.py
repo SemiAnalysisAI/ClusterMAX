@@ -891,6 +891,12 @@ RULES: tuple[Rule, ...] = (
         _status_is("unknown"),
     ),
     Rule(
+        "security.guestKernel.ubuntuCveStatus",
+        "Running Ubuntu kernel is vulnerable under the distribution CVE tracker",
+        VERSION,
+        _status_is("fail"),
+    ),
+    Rule(
         "security.fragnesia.status",
         "Running kernel is exposed to Fragnesia and Dirty Frag",
         VERSION,
@@ -1584,6 +1590,7 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "securityVersions.dpuHostIsolation.status": "security-dpu-host-isolation",
     "security.januscape.status": "security-januscape",
     "security.guestKernel.newerInstalled": "guest-kernel-current",
+    "security.guestKernel.ubuntuCveStatus": "guest-kernel-current",
     "security.ubuntuNobleKernelMinimum.status": "ubuntu-kernel-minimum-version",
     "security.fragnesia.status": "ubuntu-kernel-fragnesia-dirty-frag",
     # CLI-only until the website catalog publishes a dedicated Bad Epoll row.
@@ -2088,6 +2095,21 @@ def detect_findings(values: dict[str, Any], *, source: str = "") -> list[Finding
         detected, recommendation, cves, advisories = _finding_guidance(
             audit, finding_rule, guidance_value
         )
+        if rule.key == "security.guestKernel.ubuntuCveStatus":
+            # The finding names only the CVEs this kernel is vulnerable to.
+            vulnerable_cves = nested_get(
+                audit, "security", "guestKernel", "ubuntuVulnerableCves"
+            )
+            cves = (
+                tuple(
+                    cve
+                    for cve in vulnerable_cves
+                    if isinstance(cve, str)
+                    and re.fullmatch(r"CVE-\d{4}-\d+", cve)
+                )
+                if isinstance(vulnerable_cves, list)
+                else ()
+            )
         findings.append(
             Finding(
                 title=finding_rule.title,

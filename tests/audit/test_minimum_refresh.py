@@ -590,6 +590,43 @@ class ExtractorTest(unittest.TestCase):
         with self.assertRaisesRegex(fr.MinimumRefreshError, "released PwnEscape fix disappeared"):
             fr.verify(baseline(), old)
 
+    def test_ga_kernel_cves_are_published_for_jammy_and_noble(self) -> None:
+        data = fr.build_minimums(generated=GENERATED, existing={}, fetch=self.stub)
+        for component, fixed, abi in (
+            ("ubuntuNoble", "6.8.0-138.138", 138),
+            ("ubuntuJammy", "5.15.0-190.200", 190),
+        ):
+            packages = data["components"][component]["packages"]
+            ovs = packages["linuxOpenvswitchNestedActions"]
+            self.assertEqual(ovs["cve"], "CVE-2026-64531")
+            self.assertEqual(ovs["package"], "linux")
+            self.assertEqual(ovs["status"], "released")
+            self.assertEqual(ovs["fixed"], fixed)
+            self.assertEqual(ovs["abi"], abi)
+            self.assertIs(ovs["allowUnfixed"], True)
+            cgroup = packages["linuxCgroupWriteback"]
+            self.assertEqual(cgroup["cve"], "CVE-2026-64378")
+            self.assertEqual(cgroup["status"], "needed")
+            self.assertFalse(cgroup.get("fixed"))
+            self.assertIs(cgroup["allowUnfixed"], True)
+        fr.verify(data, data)
+
+    def test_ga_kernel_cve_refresh_rejects_unknown_states_and_loss_of_a_fix(self) -> None:
+        old = baseline()
+        for state in ("needs-triage", "ignored", "not-found"):
+            data = baseline()
+            entry = data["components"]["ubuntuJammy"]["packages"]["linuxCgroupWriteback"]
+            entry["status"] = state
+            with self.subTest(state=state), self.assertRaisesRegex(
+                fr.MinimumRefreshError, "linuxCgroupWriteback"
+            ):
+                fr.verify(data, old)
+        data = baseline()
+        entry = data["components"]["ubuntuNoble"]["packages"]["linuxOpenvswitchNestedActions"]
+        entry.update(status="needed", fixed="")
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "released fix 6.8.0-138.138"):
+            fr.verify(data, old)
+
     def test_ubuntu_noble_packages(self) -> None:
         osv_url = fr.ubuntu_osv_urls("CVE-2024-3446")[0]
         self.stub.json_by_url[osv_url]["related"] = [
@@ -628,6 +665,7 @@ class ExtractorTest(unittest.TestCase):
             f"{fr.UBUNTU_CVE_URL}CVE-2026-46242.json",
             f"{fr.UBUNTU_CVE_URL}CVE-2026-46300.json",
             f"{fr.UBUNTU_CVE_URL}CVE-2026-53359.json",
+            f"{fr.UBUNTU_CVE_URL}CVE-2026-64378.json",
         ])
 
     def test_ubuntu_notice_discovery_fails_closed_on_incomplete_pagination(self) -> None:

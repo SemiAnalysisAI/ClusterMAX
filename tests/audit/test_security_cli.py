@@ -570,6 +570,97 @@ class SecurityReportTests(unittest.TestCase):
                 if excluded is not None:
                     self.assertNotIn(excluded, check.observed)
 
+    def test_ubuntu_tracker_vulnerability_fails_the_active_kernel_check(self) -> None:
+        values = security_values()
+        guest_kernel = values["audit_data"]["security"]["guestKernel"]
+        guest_kernel.update(
+            running="5.15.0-185-generic",
+            newestInstalled="5.15.0-185-generic",
+            newerInstalled=False,
+            ubuntuCveStatus="fail",
+            ubuntuVulnerableCves=["CVE-2026-64531", "CVE-2026-64378"],
+        )
+        check = next(
+            check
+            for check in security.evaluate_security(values)
+            if check.id == "guest-kernel"
+        )
+        self.assertEqual(check.status, security.CRITICAL)
+        self.assertIn("CVE-2026-64531, CVE-2026-64378", check.observed)
+        self.assertIn("Ubuntu CVE status", check.title)
+        self.assertIn("supported Ubuntu kernel fix", check.remediation)
+        self.assertIn(
+            "CVE-2026-64531", {reference.label for reference in check.references}
+        )
+
+    def test_unknown_ubuntu_tracker_status_never_passes(self) -> None:
+        values = security_values()
+        values["audit_data"]["security"]["guestKernel"].update(
+            running="6.8.0-138-generic",
+            newestInstalled="6.8.0-138-generic",
+            newerInstalled=False,
+            ubuntuCveStatus="unknown",
+            ubuntuVulnerableCves=[],
+        )
+        check = next(
+            check
+            for check in security.evaluate_security(values)
+            if check.id == "guest-kernel"
+        )
+        self.assertEqual(check.status, security.WARNING)
+        self.assertIn("Ubuntu CVE status", check.assessment)
+
+    def test_non_ubuntu_kernel_keeps_the_generic_guest_kernel_check(self) -> None:
+        values = security_values()
+        values["audit_data"]["security"]["guestKernel"].update(
+            running="5.14.0-570.12.1.el9_6.x86_64",
+            newestInstalled="5.14.0-570.18.1.el9_6.x86_64",
+            newerInstalled=True,
+            ubuntuCveStatus="not-applicable",
+            ubuntuVulnerableCves=[],
+        )
+        check = next(
+            check
+            for check in security.evaluate_security(values)
+            if check.id == "guest-kernel"
+        )
+        self.assertEqual(check.status, security.CRITICAL)
+        self.assertEqual(check.title, "Active kernel version")
+        self.assertNotIn(
+            "CVE-2026-64531", {reference.label for reference in check.references}
+        )
+
+    def test_guest_kernel_grace_pass_stays_visible_in_the_default_report(self) -> None:
+        values = security_values()
+        values["audit_data"]["security"]["guestKernel"].update(
+            running="6.8.0-137-generic",
+            newestInstalled="6.8.0-137-generic",
+            newerInstalled=False,
+            ubuntuCveStatus="pass",
+            ubuntuVulnerableCves=[],
+            ubuntuCveGracePeriods=[
+                {
+                    "cve": "CVE-2026-64531",
+                    "policy": {
+                        "active": True,
+                        "message": "(passes as fix became available within past 3 days)",
+                    },
+                }
+            ],
+        )
+        checks = security.evaluate_security(values)
+        check = next(check for check in checks if check.id == "guest-kernel")
+        report = security.format_report(
+            checks,
+            security.SecurityTarget("standalone", "vm"),
+            Path("/tmp/report"),
+        )
+        self.assertEqual(check.status, security.PASS)
+        self.assertIs(check.grace_period, True)
+        self.assertIn("active Ubuntu bulletin grace period", check.assessment)
+        self.assertIn("fix became available within past 3 days", check.grace_note)
+        self.assertIn("[guest-kernel]", report)
+
     def test_unknown_guest_kernel_inventory_never_passes(self) -> None:
         for missing_field in ("running", "newestInstalled"):
             with self.subTest(missing_field=missing_field):

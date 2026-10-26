@@ -195,6 +195,20 @@ def minimum_table(
                 "kind": "distroPackages",
                 "release": "noble",
                 "packages": {
+                    "linuxOpenvswitchNestedActions": {
+                        "abi": 138,
+                        "allowUnfixed": True,
+                        "cve": "CVE-2026-64531",
+                        "fixed": "6.8.0-138.138",
+                        "package": "linux",
+                        "status": "released",
+                    },
+                    "linuxCgroupWriteback": {
+                        "allowUnfixed": True,
+                        "cve": "CVE-2026-64378",
+                        "package": "linux",
+                        "status": "needed",
+                    },
                     "linux": {
                         "abi": linux_abi,
                         "fixed": linux_fixed,
@@ -221,9 +235,113 @@ def minimum_table(
                         "status": "released",
                     },
                 },
-            }
+            },
+            "ubuntuJammy": {
+                "kind": "distroPackages",
+                "release": "jammy",
+                "packages": {
+                    "linuxOpenvswitchNestedActions": {
+                        "abi": 190,
+                        "allowUnfixed": True,
+                        "cve": "CVE-2026-64531",
+                        "package": "linux",
+                        "status": "pending",
+                    },
+                    "linuxCgroupWriteback": {
+                        "allowUnfixed": True,
+                        "cve": "CVE-2026-64378",
+                        "package": "linux",
+                        "status": "needed",
+                    },
+                },
+            },
         },
     }
+
+
+class UbuntuKernelCveTests(TempDirMixin):
+    """grade_ubuntu_kernel_cves grades the two tracked GA-kernel CVEs."""
+
+    def grade(self, table: dict, release: str, kernel: str) -> tuple[str, ...]:
+        path = self.write_minimum_table(table)
+        run = bashtest.run_bash(
+            f'source "{AUDIT_COMMON}"\n'
+            f'grade_ubuntu_kernel_cves ubuntu "{release}" "{kernel}"\n'
+            'printf "%s\\n%s\\n%s\\n" "$UBUNTU_KERNEL_CVE_STATUS" '
+            '"$UBUNTU_KERNEL_VULNERABLE_CVES_JSON" '
+            '"$UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON"\n',
+            env={"CLUSTERMAX_MINIMUM_VERSIONS": str(path)},
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return tuple(run.stdout.splitlines())
+
+    def test_jammy_kernel_fails_both_unreleased_cves(self) -> None:
+        status, cves, grace = self.grade(minimum_table(), "22.04", "5.15.0-185-generic")
+        self.assertEqual(status, "fail")
+        self.assertEqual(json.loads(cves), ["CVE-2026-64531", "CVE-2026-64378"])
+        self.assertEqual(json.loads(grace), [])
+
+    def test_noble_kernel_fails_only_the_unfixed_cve_at_the_released_abi(self) -> None:
+        status, cves, _ = self.grade(minimum_table(), "24.04", "6.8.0-138-generic")
+        self.assertEqual(status, "fail")
+        self.assertEqual(json.loads(cves), ["CVE-2026-64378"])
+
+    def test_noble_kernel_below_the_released_abi_fails_that_cve(self) -> None:
+        status, cves, _ = self.grade(minimum_table(), "24.04", "6.8.0-137-generic-64k")
+        self.assertEqual(status, "fail")
+        self.assertEqual(json.loads(cves), ["CVE-2026-64531", "CVE-2026-64378"])
+
+    def test_released_fixes_pass_at_the_generated_abi(self) -> None:
+        table = minimum_table()
+        packages = table["components"]["ubuntuJammy"]["packages"]
+        packages["linuxOpenvswitchNestedActions"].update(status="released", abi=190)
+        packages["linuxCgroupWriteback"].update(status="released", abi=190)
+        self.assertEqual(
+            self.grade(table, "22.04", "5.15.0-190-generic"), ("pass", "[]", "[]")
+        )
+
+    def test_released_fix_observes_the_active_bulletin_grace_period(self) -> None:
+        table = minimum_table()
+        packages = table["components"]["ubuntuJammy"]["packages"]
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        packages["linuxOpenvswitchNestedActions"].update(
+            status="released",
+            abi=190,
+            fixed="5.15.0-190.200",
+            released=now,
+            fixAvailability={
+                "status": "confirmed",
+                "available": now,
+                "bulletinReleased": now,
+            },
+        )
+        packages["linuxCgroupWriteback"].update(status="not-affected")
+
+        status, cves, grace = self.grade(table, "22.04", "5.15.0-185-generic")
+
+        self.assertEqual((status, cves), ("pass", "[]"))
+        self.assertEqual(json.loads(grace)[0]["cve"], "CVE-2026-64531")
+        self.assertIs(json.loads(grace)[0]["policy"]["active"], True)
+
+    def test_missing_tracker_rows_are_unknown(self) -> None:
+        table = minimum_table()
+        del table["components"]["ubuntuJammy"]
+        self.assertEqual(
+            self.grade(table, "22.04", "5.15.0-185-generic"), ("unknown", "[]", "[]")
+        )
+
+    def test_other_kernel_trains_and_flavors_are_not_applicable(self) -> None:
+        for release, kernel in (
+            ("22.04", "5.15.0-1084-aws"),
+            ("24.04", "6.8.0-1044-nvidia"),
+            ("22.04", "6.8.0-60-generic"),
+            ("20.04", "5.4.0-200-generic"),
+        ):
+            with self.subTest(kernel=kernel):
+                self.assertEqual(
+                    self.grade(minimum_table(), release, kernel),
+                    ("not-applicable", "[]", "[]"),
+                )
 
 
 class FragnesiaAbiMinimumTests(TempDirMixin):
