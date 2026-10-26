@@ -281,6 +281,110 @@
           ]
         }
       ]
+    },
+    "CVE-2026-64531": {
+      "id": "UBUNTU-CVE-2026-64531",
+      "upstream": [
+        "CVE-2026-64531"
+      ],
+      "related": [
+        "USN-8643-1",
+        "USN-8658-1"
+      ],
+      "published": "2026-08-11T15:16:00Z",
+      "severity": [
+        {
+          "type": "Ubuntu",
+          "score": "high"
+        }
+      ],
+      "affected": [
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:22.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "5.15.0-190.200"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:24.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "6.8.0-138.138"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "CVE-2026-64378": {
+      "id": "UBUNTU-CVE-2026-64378",
+      "upstream": [
+        "CVE-2026-64378"
+      ],
+      "published": "2026-08-11T15:16:00Z",
+      "severity": [
+        {
+          "type": "Ubuntu",
+          "score": "low"
+        }
+      ],
+      "affected": [
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:22.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:24.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   },
   "notices": {
@@ -401,6 +505,56 @@
                 },
                 {
                   "fixed": "6.8.0-124.124"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "USN-8643-1": {
+      "id": "USN-8643-1",
+      "published": "2026-08-18T18:08:07Z",
+      "affected": [
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:24.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "6.8.0-138.138"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "USN-8658-1": {
+      "id": "USN-8658-1",
+      "published": "2026-08-25T14:02:11Z",
+      "affected": [
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:22.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "5.15.0-190.200"
                 }
               ]
             }

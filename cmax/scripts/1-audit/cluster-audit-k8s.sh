@@ -3569,6 +3569,8 @@ SECURITY_ADVISORY_JSON=$(build_security_advisory_json \
     --januscape-status "${HP_JANUSCAPE_STATUS:-unknown}" \
     --qemu-status "${HP_QEMU_3446_STATUS:-unknown}" \
     --vmscape-status "${HP_VMSCAPE_STATUS:-unknown}")
+grade_ubuntu_kernel_cves "${HP_BAD_EPOLL_OS:-unknown}" "${HP_BAD_EPOLL_RELEASE:-unknown}" \
+    "${HP_GUEST_KERNEL_RUNNING:-unknown}"
 
 JSON_OUTPUT=$(cat <<EOF
 {
@@ -3798,7 +3800,10 @@ JSON_OUTPUT=$(cat <<EOF
       "running": "${HP_GUEST_KERNEL_RUNNING:-unknown}",
       "newestInstalled": "${HP_GUEST_KERNEL_NEWEST:-unknown}",
       "newerInstalled": ${HP_GUEST_KERNEL_NEWER:-false},
-      "rebootRequired": ${HP_GUEST_REBOOT_REQUIRED:-false}
+      "rebootRequired": ${HP_GUEST_REBOOT_REQUIRED:-false},
+      "ubuntuCveStatus": "${UBUNTU_KERNEL_CVE_STATUS:-unknown}",
+      "ubuntuVulnerableCves": ${UBUNTU_KERNEL_VULNERABLE_CVES_JSON:-[]},
+      "ubuntuCveGracePeriods": ${UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON:-[]}
     },
 ${SECURITY_ADVISORY_JSON}
     "nvidiaMay2026": {

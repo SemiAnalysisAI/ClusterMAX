@@ -234,6 +234,58 @@
           ]
         }
       ]
+    },
+    "CVE-2026-64531": {
+      "id": "CVE-2026-64531",
+      "priority": "high",
+      "notices": [
+        {
+          "id": "USN-8643-1",
+          "published": "2026-08-18T18:08:07.783247"
+        },
+        {
+          "id": "USN-8658-1",
+          "published": "2026-08-25T14:02:11.120334"
+        }
+      ],
+      "packages": [
+        {
+          "name": "linux",
+          "statuses": [
+            {
+              "release_codename": "jammy",
+              "status": "released",
+              "description": "5.15.0-190.200"
+            },
+            {
+              "release_codename": "noble",
+              "status": "released",
+              "description": "6.8.0-138.138"
+            }
+          ]
+        }
+      ]
+    },
+    "CVE-2026-64378": {
+      "id": "CVE-2026-64378",
+      "priority": "low",
+      "packages": [
+        {
+          "name": "linux",
+          "statuses": [
+            {
+              "release_codename": "jammy",
+              "status": "needed",
+              "description": ""
+            },
+            {
+              "release_codename": "noble",
+              "status": "needed",
+              "description": ""
+            }
+          ]
+        }
+      ]
     }
   },
   "notices": {

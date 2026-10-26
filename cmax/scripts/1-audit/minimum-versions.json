@@ -1076,6 +1076,38 @@
           },
           "status": "released"
         },
+        "linuxCgroupWriteback": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-64378",
+          "fixed": "",
+          "package": "linux",
+          "priority": "low",
+          "status": "needed"
+        },
+        "linuxOpenvswitchNestedActions": {
+          "abi": 190,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-64531",
+          "fixAvailability": {
+            "available": "2026-08-20T22:05:40.365417",
+            "bulletinReleased": "2026-08-20T22:05:40.365417",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8658-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8658-1.json",
+            "version": "5.15.0-190.200"
+          },
+          "fixed": "5.15.0-190.200",
+          "package": "linux",
+          "priority": "high",
+          "released": "2026-08-20T22:05:40.365417",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8658-1",
+            "url": "https://ubuntu.com/security/notices/USN-8658-1.json"
+          },
+          "status": "released"
+        },
         "linuxPwnescape": {
           "cve": "CVE-2026-99999",
           "fixed": "",
@@ -1165,6 +1197,30 @@
           },
           "status": "released"
         },
+        "linuxCgroupWriteback": {
+          "abi": 147,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-64378",
+          "fixAvailability": {
+            "available": "2026-10-13T14:54:50.078429",
+            "bulletinReleased": "2026-10-13T14:54:50.078429",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8917-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8917-1.json",
+            "version": "6.8.0-147.147"
+          },
+          "fixed": "6.8.0-147.147",
+          "package": "linux",
+          "priority": "low",
+          "released": "2026-10-13T14:54:50.078429",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8917-1",
+            "url": "https://ubuntu.com/security/notices/USN-8917-1.json"
+          },
+          "status": "released"
+        },
         "linuxFragnesia": {
           "abi": 124,
           "cve": "CVE-2026-46300",
@@ -1237,6 +1293,30 @@
             "feed": "ubuntu-security-notice",
             "id": "USN-8630-1",
             "url": "https://ubuntu.com/security/notices/USN-8630-1.json"
+          },
+          "status": "released"
+        },
+        "linuxOpenvswitchNestedActions": {
+          "abi": 138,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-64531",
+          "fixAvailability": {
+            "available": "2026-08-18T18:08:07.783247",
+            "bulletinReleased": "2026-08-18T18:08:07.783247",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8643-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8643-1.json",
+            "version": "6.8.0-138.138"
+          },
+          "fixed": "6.8.0-138.138",
+          "package": "linux",
+          "priority": "high",
+          "released": "2026-08-18T18:08:07.783247",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8643-1",
+            "url": "https://ubuntu.com/security/notices/USN-8643-1.json"
           },
           "status": "released"
         },

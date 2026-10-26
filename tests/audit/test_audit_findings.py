@@ -785,6 +785,46 @@ class DetectFindingsTests(unittest.TestCase):
             audit_findings.VERSION,
         )
 
+    def test_ubuntu_tracker_vulnerable_kernel_is_a_version_finding(self) -> None:
+        findings = audit_findings.detect_findings(
+            {
+                "audit_data": {
+                    "security": {
+                        "guestKernel": {
+                            "running": "5.15.0-185-generic",
+                            "newestInstalled": "5.15.0-185-generic",
+                            "newerInstalled": False,
+                            "ubuntuCveStatus": "fail",
+                            "ubuntuVulnerableCves": [
+                                "CVE-2026-64531",
+                                "CVE-2026-64378",
+                            ],
+                        }
+                    }
+                }
+            }
+        )
+        finding = by_key(findings)["security.guestKernel.ubuntuCveStatus"]
+        self.assertEqual(finding.severity, audit_findings.VERSION)
+        self.assertEqual(finding.cves, ("CVE-2026-64531", "CVE-2026-64378"))
+
+    def test_ubuntu_tracker_finding_lists_only_vulnerable_cves(self) -> None:
+        findings = audit_findings.detect_findings(
+            {
+                "audit_data": {
+                    "security": {
+                        "guestKernel": {
+                            "newerInstalled": False,
+                            "ubuntuCveStatus": "fail",
+                            "ubuntuVulnerableCves": ["CVE-2026-64378", "not-a-cve"],
+                        }
+                    }
+                }
+            }
+        )
+        finding = by_key(findings)["security.guestKernel.ubuntuCveStatus"]
+        self.assertEqual(finding.cves, ("CVE-2026-64378",))
+
     def test_fragnesia_exposed_kernel_is_a_version_finding(self) -> None:
         findings = audit_findings.detect_findings(
             {"audit_data": {"security": {"fragnesia": {"status": "fail"}}}}

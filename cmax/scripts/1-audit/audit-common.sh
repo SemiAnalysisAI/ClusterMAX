@@ -133,6 +133,75 @@ minimum_version_grace() {
     fi
 }
 
+# grade_ubuntu_kernel_cves - grade the running Ubuntu general-availability
+# kernel against the exact tracker state for the two container-relevant CVEs.
+# A tracker status of needed or pending is vulnerable because Ubuntu has not
+# released a supported fix. A released status compares the running ABI with the
+# generated fixed ABI. Other Ubuntu kernel trains use different source packages
+# and stay outside this check.
+grade_ubuntu_kernel_cves() {
+    local os_id="${1:-unknown}" release="${2:-unknown}" running="${3:-unknown}"
+    local component="" expected_prefix="" key="" cve="" tracker="" fixed_abi=""
+    local running_abi="" vulnerable="" grace="" grace_periods=""
+    local unknown_count=0 checked=0
+    UBUNTU_KERNEL_CVE_STATUS="not-applicable"
+    UBUNTU_KERNEL_VULNERABLE_CVES_JSON="[]"
+    UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON="[]"
+
+    [[ "$os_id" == ubuntu ]] || return 0
+    case "$release" in
+        22.04) component="ubuntuJammy"; expected_prefix="5.15.0-" ;;
+        24.04) component="ubuntuNoble"; expected_prefix="6.8.0-" ;;
+        *) return 0 ;;
+    esac
+    [[ "$running" == "${expected_prefix}"* ]] || return 0
+    case "$running" in
+        *-generic|*-generic-64k) ;;
+        *) return 0 ;;
+    esac
+    running_abi=$(printf '%s\n' "$running" | sed -nE 's/^[0-9]+\.[0-9]+\.0-([0-9]+).*/\1/p')
+
+    for key in linuxOpenvswitchNestedActions linuxCgroupWriteback; do
+        cve=$(minimum_version "components.${component}.packages.${key}.cve")
+        tracker=$(minimum_version "components.${component}.packages.${key}.status")
+        fixed_abi=$(minimum_version "components.${component}.packages.${key}.abi")
+        case "$(printf '%s' "$tracker" | tr '[:upper:]' '[:lower:]')" in
+            needed|pending)
+                vulnerable="${vulnerable:+${vulnerable},}${cve}"
+                checked=$((checked + 1))
+                ;;
+            released)
+                checked=$((checked + 1))
+                if [[ "$running_abi" =~ ^[0-9]+$ && "$fixed_abi" =~ ^[0-9]+$ ]]; then
+                    if (( running_abi < fixed_abi )); then
+                        if grace=$(minimum_version_grace "$component" "$key"); then
+                            grace_periods="${grace_periods:+${grace_periods},}{\"cve\":\"${cve}\",\"policy\":${grace}}"
+                        else
+                            vulnerable="${vulnerable:+${vulnerable},}${cve}"
+                        fi
+                    fi
+                else
+                    unknown_count=$((unknown_count + 1))
+                fi
+                ;;
+            not-affected|dne)
+                checked=$((checked + 1))
+                ;;
+            *) unknown_count=$((unknown_count + 1)) ;;
+        esac
+    done
+
+    UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON="[${grace_periods}]"
+    if [[ -n "$vulnerable" ]]; then
+        UBUNTU_KERNEL_CVE_STATUS="fail"
+        UBUNTU_KERNEL_VULNERABLE_CVES_JSON="[\"${vulnerable//,/\",\"}\"]"
+    elif (( unknown_count > 0 || checked == 0 )); then
+        UBUNTU_KERNEL_CVE_STATUS="unknown"
+    else
+        UBUNTU_KERNEL_CVE_STATUS="pass"
+    fi
+}
+
 # build_security_advisory_json - emit the Ubuntu Noble advisory members that
 # every collector reports: fragnesia, januscape, qemuCve20243446, and vmscape.
 #
@@ -1286,6 +1355,8 @@ build_audit_json() {
     local security_advisory_json
     local security_version_audit_json="${SECURITY_VERSION_AUDIT_JSON:-}"
     januscape_exposed_json=$(json_bool_or_unknown "${WORKER_JANUSCAPE_EXPOSED:-}")
+    grade_ubuntu_kernel_cves "${WORKER_OS_ID:-unknown}" \
+        "${WORKER_OS_VERSION_ID:-unknown}" "${WORKER_GUEST_KERNEL_RUNNING:-unknown}"
     if [[ "${AUDIT_TYPE:-}" == "standalone" \
             && "${WORKER_NVLINK_TOPOLOGY_CHECKED:-false}" == "true" ]]; then
         nvlink_topology_coverage_complete=true
@@ -1613,7 +1684,10 @@ build_audit_json() {
       "running": "${WORKER_GUEST_KERNEL_RUNNING:-unknown}",
       "newestInstalled": "${WORKER_GUEST_KERNEL_NEWEST_INSTALLED:-unknown}",
       "newerInstalled": ${WORKER_GUEST_KERNEL_NEWER_INSTALLED:-false},
-      "rebootRequired": ${WORKER_GUEST_REBOOT_REQUIRED:-false}
+      "rebootRequired": ${WORKER_GUEST_REBOOT_REQUIRED:-false},
+      "ubuntuCveStatus": "${UBUNTU_KERNEL_CVE_STATUS:-unknown}",
+      "ubuntuVulnerableCves": ${UBUNTU_KERNEL_VULNERABLE_CVES_JSON:-[]},
+      "ubuntuCveGracePeriods": ${UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON:-[]}
     },
 ${security_advisory_json}
     "nvidiaMay2026": {
