@@ -1,16 +1,21 @@
 version: 2
 updates:
+  # One pip entry for both manifests. pyproject.toml and
+  # .github/requirements/release.in both pin setuptools, and the release build
+  # needs the pins to agree. With group-by: dependency-name, Dependabot opens
+  # one pull request per dependency that updates every directory.
   - package-ecosystem: pip
-    directory: /
+    directories:
+      - /
+      - /.github/requirements
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
-
-  - package-ecosystem: pip
-    directory: /.github/requirements
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
+    groups:
+      pip-across-directories:
+        group-by: dependency-name
+        patterns:
+          - "*"
 
   - package-ecosystem: github-actions
     directory: /

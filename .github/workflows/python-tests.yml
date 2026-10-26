@@ -40,7 +40,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
           cache: pip
@@ -77,6 +77,16 @@ jobs:
             package=$(git diff --name-only "$BASE_SHA...HEAD" | grep -qE '^(cmax/|pyproject\.toml$|setup\.py$)' && echo true || echo false)
           fi
           echo "package=$package" >> "$GITHUB_OUTPUT"
+          # Lockfile and release build checks run for any change that can alter
+          # the release toolchain. Dependabot does not follow the `uv pip compile`
+          # header (for example, it drops setuptools), so these checks keep such
+          # a lockfile out of master.
+          if [ "$EVENT" != pull_request ]; then
+            requirements=true
+          else
+            requirements=$(git diff --name-only "$BASE_SHA...HEAD" | grep -qE '^(\.github/requirements/|pyproject\.toml$|setup\.py$|\.github/workflows/(python-nightly|python-tests)\.yml$)' && echo true || echo false)
+          fi
+          echo "requirements=$requirements" >> "$GITHUB_OUTPUT"
 
       - name: Install test runner
         if: steps.select.outputs.none != 'true' || steps.select.outputs.package == 'true'
@@ -84,6 +94,64 @@ jobs:
 
       - name: Check public data policy
         run: python tools/check_public_data.py
+
+      - name: Check that lockfiles match their uv pip compile output
+        if: steps.select.outputs.requirements == 'true'
+        run: |
+          python -m venv /tmp/clustermax-uv
+          /tmp/clustermax-uv/bin/python -m pip install --disable-pip-version-check "uv @ https://files.pythonhosted.org/packages/4b/a1/de02c0913726728eca56ee258875cbba9c7b0572c63f494fd9f55c7852e3/uv-0.13.4-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl#sha256=05e4332791b4d55b6dde8695b7fa6079b26991519f44760887c5dfbd5ca4fe53"
+          # The existing pins are kept as preferences, so this only fails when a
+          # lockfile does not match its .in file or was made by another tool.
+          for name in release minimum-versions; do
+            /tmp/clustermax-uv/bin/uv pip compile ".github/requirements/${name}.in" \
+              --output-file ".github/requirements/${name}.txt" \
+              --generate-hashes --python-version 3.12 \
+              --python-platform x86_64-manylinux2014 --only-binary :all: -q
+          done
+          if ! git diff --exit-code -- .github/requirements/; then
+            echo '::error::A lockfile in .github/requirements does not match uv pip compile output. Run the command in the file header and commit the result.'
+            exit 1
+          fi
+
+      - name: Check that setuptools pins agree
+        if: steps.select.outputs.requirements == 'true'
+        shell: python
+        run: |
+          import re, sys, tomllib
+          from pathlib import Path
+
+          def pin(lines, where):
+              found = [m.group(1) for line in lines if (m := re.fullmatch(r'\s*setuptools==([^\s\\;]+).*', line))]
+              if len(found) != 1:
+                  sys.exit(f'::error::{where} must pin setuptools exactly once, found {found}')
+              return found[0]
+
+          requires = tomllib.loads(Path('pyproject.toml').read_text())['build-system']['requires']
+          pins = {
+              'pyproject.toml build-system.requires': pin(requires, 'pyproject.toml'),
+              '.github/requirements/release.in': pin(Path('.github/requirements/release.in').read_text().splitlines(), 'release.in'),
+              '.github/requirements/release.txt': pin(Path('.github/requirements/release.txt').read_text().splitlines(), 'release.txt'),
+          }
+          for where, version in pins.items():
+              print(f'{where}: setuptools=={version}')
+          if len(set(pins.values())) != 1:
+              sys.exit('::error::setuptools pins disagree. Update pyproject.toml and .github/requirements together.')
+
+      - name: Build the release distributions from release.txt
+        if: steps.select.outputs.requirements == 'true'
+        run: |
+          # Same install and build steps as the python-nightly build job.
+          python -m venv /tmp/clustermax-release
+          /tmp/clustermax-release/bin/python -m pip install "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+          /tmp/clustermax-release/bin/python -m pip install \
+            --require-hashes \
+            --only-binary=:all: \
+            --disable-pip-version-check \
+            -r .github/requirements/release.txt
+          /tmp/clustermax-release/bin/python -m build --no-isolation --outdir /tmp/clustermax-release-dist
+          /tmp/clustermax-release/bin/python -m twine check /tmp/clustermax-release-dist/*
+          /tmp/clustermax-release/bin/check-wheel-contents /tmp/clustermax-release-dist/clustermax-*.whl
+          rm -rf build ./*.egg-info
 
       - name: Run Python tests
         if: steps.select.outputs.none != 'true'
