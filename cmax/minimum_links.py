@@ -6,7 +6,7 @@ from collections.abc import Iterable
 
 
 MINIMUM_VERSIONS_URL = "https://www.clustermax.ai/minimum-versions"
-MINIMUM_VERSIONS_JSON_URL = "https://www.clustermax.ai/minimum-versions.json"
+MINIMUM_VERSIONS_JSON_URL = "https://semianalysisai.github.io/ClusterMAX/minimum-versions.json"
 REFERENCE_LABEL = "ClusterMAX minimum versions"
 
 _COMPONENT_ANCHORS = frozenset(

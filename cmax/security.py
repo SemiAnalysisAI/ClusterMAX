@@ -2407,6 +2407,11 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
                     f"(generated {cached_generated}) from {cache_file}.",
                     flush=True,
                 )
+                stale = minimum_sync.stale_warning(
+                    minimum_sync.table_refreshed(cache_file)
+                )
+                if stale:
+                    print(stale, flush=True)
                 return True
         suffix = (
             f" (generated {installed_generated})" if installed_generated else ""
@@ -2416,6 +2421,14 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
             f"Grading against the installed table{suffix}.",
             flush=True,
         )
+        if result.generated is None:
+            # The fetch failed. A rejected older publication is a decision,
+            # not a failure, so it gives no staleness warning.
+            stale = minimum_sync.stale_warning(
+                minimum_sync.refreshed_stamp(installed_document)
+            )
+            if stale:
+                print(stale, flush=True)
         return False
     if not supports_release_checks(result.path):
         return False
