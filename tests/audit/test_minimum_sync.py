@@ -316,6 +316,90 @@ class SecurityIntegrationTests(MinimumSyncTestCase):
         self.assertIn("older than the installed table", output)
 
 
+class StalenessTests(MinimumSyncTestCase):
+    def _installed(self, data: dict) -> Path:
+        path = Path(self.tmp.name) / "installed" / "minimum-versions.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+        return path
+
+    def _sync(self, now: datetime, *answers: object) -> tuple[bool, str]:
+        output = io.StringIO()
+        real = minimum_sync.stale_warning
+
+        def at_now(refreshed, **kwargs):  # noqa: ANN001, ANN003
+            return real(refreshed, now=now, **kwargs)
+
+        with self.server(*answers), mock.patch.object(
+            minimum_sync, "stale_warning", at_now
+        ), contextlib.redirect_stdout(output):
+            changed = security.sync_minimum_table()
+        return changed, output.getvalue()
+
+    def test_refreshed_is_preferred_over_generated(self) -> None:
+        data = {**table(NOW - timedelta(days=30)), "refreshed": "2026-08-19T07:00:00Z"}
+        self.assertEqual(minimum_sync.refreshed_stamp(data), "2026-08-19T07:00:00Z")
+        self.assertEqual(
+            minimum_sync.refreshed_stamp(table(NOW)), "2026-08-20T07:32:09Z"
+        )
+
+    def test_the_warning_starts_after_seven_days(self) -> None:
+        stamp = "2026-08-20T07:32:09Z"
+        self.assertIsNone(minimum_sync.stale_warning(stamp, now=NOW + timedelta(days=7)))
+        warning = minimum_sync.stale_warning(stamp, now=NOW + timedelta(days=8))
+        self.assertIsNotNone(warning)
+        self.assertIn("8 days ago", warning)
+        self.assertIsNotNone(minimum_sync.stale_warning(None, now=NOW))
+
+    def test_a_failed_fetch_warns_for_a_stale_installed_table(self) -> None:
+        installed = self._installed(table(NOW - timedelta(days=9)))
+        with mock.patch.object(security, "minimum_table_path", return_value=installed):
+            _, output = self._sync(NOW, urllib.error.URLError("no outbound network"))
+        self.assertIn("Grading against the installed table", output)
+        self.assertIn("last refreshed 2026-08-11T07:32:09Z (9 days ago)", output)
+
+    def test_a_failed_fetch_does_not_warn_for_a_fresh_installed_table(self) -> None:
+        installed = self._installed(table(NOW - timedelta(days=2)))
+        with mock.patch.object(security, "minimum_table_path", return_value=installed):
+            _, output = self._sync(NOW, urllib.error.URLError("no outbound network"))
+        self.assertNotIn("last refreshed", output)
+
+    def test_the_cached_refreshed_stamp_decides_and_not_generated(self) -> None:
+        # The content is old, but the daily publish refreshed it yesterday.
+        published = {**table(NOW - timedelta(days=20)), "refreshed": "2026-08-19T07:30:00Z"}
+        with self.server(FakeResponse(body(published))):
+            minimum_sync.sync()
+        installed = self._installed(table(NOW - timedelta(days=30)))
+        with mock.patch.object(security, "minimum_table_path", return_value=installed):
+            changed, output = self._sync(NOW, urllib.error.URLError("no outbound network"))
+        self.assertTrue(changed)
+        self.assertIn("Grading against the last fetched table", output)
+        self.assertNotIn("last refreshed", output)
+        # Ten days later the same cache is stale.
+        os.environ[_MINIMUM_ENV] = ""
+        with mock.patch.object(security, "minimum_table_path", return_value=installed):
+            _, output = self._sync(
+                NOW + timedelta(days=10), urllib.error.URLError("no outbound network")
+            )
+        self.assertIn("last refreshed 2026-08-19T07:30:00Z", output)
+
+    def test_a_successful_fetch_does_not_warn(self) -> None:
+        installed = self._installed(table(NOW - timedelta(days=30)))
+        with mock.patch.object(security, "minimum_table_path", return_value=installed):
+            _, output = self._sync(
+                NOW + timedelta(days=30), FakeResponse(body(table(NOW)))
+            )
+        self.assertIn("minimum table in use:", output)
+        self.assertNotIn("last refreshed", output)
+
+    def test_a_rejected_older_publication_does_not_warn(self) -> None:
+        installed = self._installed(table(NOW - timedelta(days=10)))
+        with mock.patch.object(security, "minimum_table_path", return_value=installed):
+            _, output = self._sync(NOW, FakeResponse(body(table(NOW - timedelta(days=30)))))
+        self.assertIn("Keeping the installed table", output)
+        self.assertNotIn("last refreshed", output)
+
+
 class CommandLineTests(MinimumSyncTestCase):
     def test_the_opt_out_flag_skips_the_fetch(self) -> None:
         target = security.SecurityTarget("standalone", "vm", True)

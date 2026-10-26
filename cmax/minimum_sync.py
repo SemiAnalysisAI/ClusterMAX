@@ -3,11 +3,22 @@
 
 `cmax/scripts/1-audit/minimum-versions.json` is the source of truth for
 every minimum version the audit grades against. The daily
-`minimum-versions-refresh` workflow regenerates that file, and a publish job
-copies the merged file to the ClusterMAX website. The website serves the same
-bytes at one stable address:
+`minimum-versions-refresh` workflow regenerates that file, and the
+`minimum-versions-publish` workflow deploys the merged file to the GitHub Pages
+site of this repository. The Pages site serves that one file at one stable
+address:
 
-    https://www.clustermax.ai/minimum-versions.json
+    https://semianalysisai.github.io/ClusterMAX/minimum-versions.json
+
+The published copy adds two top-level stamps to the table:
+
+  * `refreshed` is when the daily refresh last read the upstream feeds
+    successfully. It moves every day, also when no minimum changed.
+  * `changed` is when a minimum value last changed.
+
+The command line compares `refreshed` against the current time to decide if
+the table it grades against is stale. A table without `refreshed`, for
+example the table that ships inside the package, uses `generated`.
 
 This module reads that address and stores the result in a user cache
 directory. A pip installation freezes the minimum table inside the wheel, and
@@ -38,11 +49,14 @@ Design rules:
     `cached_table()` hands that copy to the audit, so one launch with a
     working network keeps every later offline run on the newest table this
     host has seen.
+  * When the fetch fails and the table in use was last refreshed more than
+    `STALE_AFTER_DAYS` days ago, `stale_warning()` gives a warning. The audit
+    still runs.
 
 Command line::
 
     python3 -m cmax.minimum_sync
-    python3 -m cmax.minimum_sync --url https://www.clustermax.ai/minimum-versions.json
+    python3 -m cmax.minimum_sync --url https://semianalysisai.github.io/ClusterMAX/minimum-versions.json
 """
 
 from __future__ import annotations
@@ -55,11 +69,11 @@ import tempfile
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-DEFAULT_URL = "https://www.clustermax.ai/minimum-versions.json"
+DEFAULT_URL = "https://semianalysisai.github.io/ClusterMAX/minimum-versions.json"
 URL_ENV = "CLUSTERMAX_MINIMUMS_URL"
 USER_AGENT = "clustermax-minimum-sync/1.0"
 DEFAULT_TIMEOUT = 15
@@ -70,6 +84,10 @@ MAX_BYTES = 4 * 1024 * 1024
 SCHEMA_VERSION = 1
 CACHE_FILE = "minimum-versions.json"
 STATE_FILE = "minimum-versions.http.json"
+# A failed fetch with a table in use that was last refreshed more than this many
+# days ago gives a warning. The publish job moves `refreshed` every day, so 7
+# days is a week of missed refreshes or a week without network access.
+STALE_AFTER_DAYS = 7
 
 
 class MinimumSyncError(RuntimeError):
@@ -155,6 +173,60 @@ def parse_stamp(value: Any) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+def refreshed_stamp(table: Any) -> str | None:
+    """Return the stamp that tells when the table was last refreshed, or None.
+
+    The published copy carries `refreshed`, which moves every day. A table
+    without a usable `refreshed` value, for example the table inside the
+    package, was last refreshed when it was generated.
+    """
+    if not isinstance(table, dict):
+        return None
+    for key in ("refreshed", "generated"):
+        if parse_stamp(table.get(key)) is not None:
+            return str(table.get(key))
+    return None
+
+
+def table_refreshed(path: Path) -> str | None:
+    """Return `refreshed_stamp()` of the table file at `path`, or None."""
+    try:
+        return refreshed_stamp(json.loads(path.read_text()))
+    except (OSError, ValueError):
+        return None
+
+
+def stale_warning(
+    refreshed: str | None,
+    *,
+    now: datetime | None = None,
+    max_days: int = STALE_AFTER_DAYS,
+) -> str | None:
+    """Return a warning when the table in use is stale, or None.
+
+    The caller gives this warning only after a failed fetch. A table with no
+    usable stamp is stale.
+    """
+    stamp = parse_stamp(refreshed)
+    if stamp is None:
+        return (
+            "minimum fetch warning: the minimum table in use has no usable "
+            "refreshed or generated time, and the fetch of the published "
+            "table failed. Its minimums can be out of date."
+        )
+    current = now or datetime.now(timezone.utc)
+    age = current - stamp
+    if age <= timedelta(days=max_days):
+        return None
+    return (
+        f"minimum fetch warning: the minimum table in use was last refreshed "
+        f"{refreshed} ({age.days} days ago), which is more than {max_days} "
+        f"days, and the fetch of the published table failed. Its minimums can "
+        f"miss recent vendor advisories. Let this host reach "
+        f"{published_url()}, or update clustermax."
+    )
 
 
 def validate(payload: bytes) -> dict[str, Any]:
