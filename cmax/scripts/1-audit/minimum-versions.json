@@ -1326,9 +1326,9 @@
             "feed": "ubuntu-security-api",
             "status": "unconfirmed",
             "url": "https://ubuntu.com/security/cves/CVE-2026-99999",
-            "version": "6.8.0-149.149i1"
+            "version": "6.8.0-149.149"
           },
-          "fixed": "6.8.0-149.149i1",
+          "fixed": "6.8.0-149.149",
           "package": "linux",
           "priority": "medium",
           "status": "pending"
@@ -1448,9 +1448,9 @@
             "feed": "ubuntu-security-api",
             "status": "unconfirmed",
             "url": "https://ubuntu.com/security/cves/CVE-2026-99999",
-            "version": "7.0.0-43.43i1"
+            "version": "7.0.0-43.43"
           },
-          "fixed": "7.0.0-43.43i1",
+          "fixed": "7.0.0-43.43",
           "package": "linux",
           "priority": "medium",
           "status": "pending"
@@ -1530,7 +1530,7 @@
       }
     }
   },
-  "generated": "2026-10-26T09:50:44Z",
+  "generated": "2026-10-27T07:36:20Z",
   "gracePeriodDays": 3,
   "maxAgeDays": 10,
   "schemaVersion": 1
