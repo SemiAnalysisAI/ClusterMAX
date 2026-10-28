@@ -981,6 +981,7 @@ class SecurityCliTests(unittest.TestCase):
             command="cmax audit security",
             assume_yes=False,
             kubeconfig=None,
+            allow_cluster_node=False,
         )
         run.assert_called_once_with(
             repo="/runtime",

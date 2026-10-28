@@ -186,14 +186,19 @@ def _inside_vm() -> bool:
     return False
 
 
-def _local_target(*, explicit: bool) -> SecurityTarget:
+def local_environment() -> str:
+    """Return the detected kind of this host: container, vm, local, or bare-metal."""
     if _inside_container():
-        return SecurityTarget("standalone", "container", explicit)
+        return "container"
     if _inside_vm():
-        return SecurityTarget("standalone", "vm", explicit)
+        return "vm"
     if platform.system() == "Darwin":
-        return SecurityTarget("standalone", "local", explicit)
-    return SecurityTarget("standalone", "bare-metal", explicit)
+        return "local"
+    return "bare-metal"
+
+
+def _local_target(*, explicit: bool) -> SecurityTarget:
+    return SecurityTarget("standalone", local_environment(), explicit)
 
 
 def detect_target(explicit: str | None = None) -> SecurityTarget:
