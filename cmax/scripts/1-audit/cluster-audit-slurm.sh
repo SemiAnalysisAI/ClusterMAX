@@ -160,6 +160,12 @@ SLURM_USER=$(echo "$SLURM_CONFIG_FULL" | grep "^SlurmUser" | awk '{print $3}' ||
 print_section "Cluster Identity"
 print_info "Cluster Name: ${CLUSTER_NAME}"
 print_info "Control Machine: ${CONTROL_MACHINE}"
+if [[ -z "${SLURM_JOB_ID:-}" ]]; then
+    # Many worker checks fan out only inside an allocation. Without one they
+    # report unknown, so tell the user how to get full worker evidence.
+    print_warn "SLURM_JOB_ID is not set: worker fan-out checks will report unknown"
+    print_detail "Run the audit inside an allocation, for example: salloc -N2 --gres=gpu:1 cmax audit"
+fi
 print_info "SLURM User: ${SLURM_USER}"
 print_info "Hostname: $(hostname)"
 

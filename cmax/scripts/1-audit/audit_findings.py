@@ -1533,10 +1533,16 @@ GUARD_SUPPRESSIONS: dict[str, tuple[GuardReason, ...]] = {
     "gpu_controls.vboost.allowed": (
         _AMD_HARDWARE,
         GuardReason(
+            _vboost_unsupported_gpu,
+            NOT_APPLICABLE_KIND,
+            "B300 and GB300 GPUs do not implement the nvidia-smi vboost slider, "
+            "so allowed=false is a hardware limit, not a provider denial.",
+        ),
+        GuardReason(
             _vboost_not_applicable,
             NOT_APPLICABLE_KIND,
-            "The vBoost check found no NVIDIA GPU control to test, such as on "
-            "a Kubernetes cluster whose GPU nodes are all AMD.",
+            "The vBoost check found no NVIDIA GPU with a vboost slider to test, "
+            "for example a Kubernetes cluster whose GPU nodes are all AMD.",
         ),
         GuardReason(
             _vboost_check_unavailable,
@@ -1955,6 +1961,25 @@ def _finding_guidance(
         recommendation = (
             "Set the kubelet CPU Manager policy to static on GPU workers. Drain "
             "each worker before you restart its kubelet, then run the audit again."
+        )
+    elif rule.key == "security.guestKernel.ubuntuCveStatus":
+        kernel = nested_get(audit, "security", "guestKernel")
+        kernel = kernel if isinstance(kernel, dict) else {}
+        vulnerable = kernel.get("ubuntuVulnerableCves")
+        cve_text = (
+            ", ".join(str(cve) for cve in vulnerable)
+            if isinstance(vulnerable, list) and vulnerable
+            else "a tracked CVE"
+        )
+        detected = (
+            f"The running kernel {kernel.get('running', 'unknown')} is vulnerable "
+            f"to {cve_text} under the Ubuntu CVE tracker."
+        )
+        recommendation = (
+            "Install the fixed Ubuntu kernel package for this kernel and reboot "
+            "into it. If the tracker lists no fix for this kernel package (for "
+            "example, an end-of-life kernel), move to a supported kernel series "
+            "that has the fix."
         )
     elif rule.key == "networking.topologyConfigured":
         detected = "No topology-aware scheduling configuration was detected."

@@ -538,6 +538,28 @@ class UbuntuKernelCveTests(TempDirMixin):
             ("unknown", "[]", "[]"),
         )
 
+    def test_container_release_on_another_release_kernel(self) -> None:
+        # A 22.04 Slurm container on a 24.04 host reports VERSION_ID 22.04,
+        # but the host kernel comes from Noble. Jammy ships no 6.17 kernel,
+        # so the Noble row grades it.
+        table = self.all_kernels_table()
+        self.assertEqual(
+            self.grade(table, "22.04", "6.17.0-1021-nvidia-64k"),
+            ("fail", '["CVE-2026-46227"]', "[]"),
+        )
+        # 7.0 aws is listed for Noble and is not in the 26.04 fixture, so the
+        # one-release rule applies. With rows in two other releases, the
+        # kernel stays unknown instead of picking one.
+        self.assertEqual(
+            self.grade(table, "22.04", "7.0.0-1009-aws"), ("pass", "[]", "[]")
+        )
+        table["components"]["ubuntuResolute"]["packages"]["linuxSctpSendallAws"] = (
+            self.kernel_row("linux-aws", "7.0", "aws", "released", 1009)
+        )
+        self.assertEqual(
+            self.grade(table, "22.04", "7.0.0-1009-aws"), ("unknown", "[]", "[]")
+        )
+
     def test_two_rows_for_one_kernel_are_unknown(self) -> None:
         table = self.all_kernels_table()
         noble = table["components"]["ubuntuNoble"]["packages"]

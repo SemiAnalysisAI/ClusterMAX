@@ -20,6 +20,10 @@ release string `<x.y.z>-<abi>-<flavor>` selects at most one row per group.
 - No row in a group with only the GA row: that group checks only the GA
   kernel, so other kernels are outside it.
 - More than one row: unknown, because the table cannot name the package.
+- A kernel family with no row at all in the reported release, but with a
+  per-kernel row for its flavor in exactly one other release, is graded
+  against that other release. This covers a container image release that
+  differs from the host release.
 - `released`: compare the running ABI with the fixed ABI, with bulletin grace.
 - `needed`, `pending`, `deferred`, `ignored`: vulnerable. Ubuntu has not
   shipped a fix for that kernel, or will not ship one (end of life).
@@ -68,6 +72,39 @@ def _rows(packages: dict[str, Any], group: str, ga_family: str) -> list[tuple[st
     return rows
 
 
+def _family_rows(
+    packages: dict[str, Any], groups: tuple[str, ...], ga_family: str, family: str
+) -> list[tuple[str, dict, str, list[str]]]:
+    return [
+        row
+        for group in groups
+        for row in _rows(packages, group, ga_family)
+        if row[2] == family
+    ]
+
+
+def _release_for_kernel(
+    release: str, family: str, flavor: str
+) -> tuple[str, str, tuple[str, ...], dict[str, Any]] | None:
+    """Return the one other release whose tracker rows list this kernel."""
+    found = []
+    for other, (component, ga_family, groups) in RELEASES.items():
+        if other == release:
+            continue
+        try:
+            packages = minimum_versions.component(component).get("packages") or {}
+        except minimum_versions.MinimumDataError:
+            continue
+        # Only per-kernel rows come from the full tracker package list. A
+        # GA-only row does not prove which releases ship a kernel family.
+        if any(
+            "kernelGroup" in row[1] and flavor in row[3]
+            for row in _family_rows(packages, groups, ga_family, family)
+        ):
+            found.append((component, ga_family, groups, packages))
+    return found[0] if len(found) == 1 else None
+
+
 def grade(os_id: str, release: str, running: str) -> tuple[str, list[str], list[dict]]:
     if os_id != "ubuntu" or release not in RELEASES:
         return "not-applicable", [], []
@@ -85,6 +122,16 @@ def grade(os_id: str, release: str, running: str) -> tuple[str, list[str], list[
         packages = minimum_versions.component(component).get("packages") or {}
     except minimum_versions.MinimumDataError:
         return "unknown", [], []
+    if not is_ga and not _family_rows(packages, groups, ga_family, family):
+        # A container reports its own image release, not the release of the
+        # host that built the kernel (for example a 22.04 Slurm container on a
+        # 24.04 host with linux-nvidia-6.17). The reported release ships no
+        # kernel of this family, so use the one other release whose tracker
+        # rows list this kernel. If none or more than one does, keep the
+        # reported release.
+        other = _release_for_kernel(release, family, flavor)
+        if other is not None:
+            component, ga_family, groups, packages = other
 
     vulnerable: list[str] = []
     grace_periods: list[dict] = []
