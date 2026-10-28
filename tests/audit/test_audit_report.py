@@ -745,6 +745,43 @@ class AuditReportTests(unittest.TestCase):
         self.assertEqual(by_key["containers.nvidiaContainerToolkit"].status, "fail")
         self.assertEqual(by_key["hbm_memory_exposure.status"].status, "warning")
 
+    def test_vulnerable_ubuntu_kernel_fails_only_the_cve_row(self) -> None:
+        values = {
+            "audit_data": {
+                "security": {
+                    "guestKernel": {
+                        "newerInstalled": False,
+                        "rebootRequired": False,
+                        "running": "6.17.0-1021-nvidia-64k",
+                        "newestInstalled": "6.17.0-1021-nvidia-64k",
+                        "ubuntuCveStatus": "fail",
+                        "ubuntuVulnerableCves": ["CVE-2026-46227"],
+                        "ubuntuCveGracePeriods": [],
+                    },
+                },
+            }
+        }
+
+        by_key = {
+            check.key: check for check in audit_report.evaluate(values, RUNTIME_ROOT)
+        }
+
+        cve = by_key["security.guestKernel.ubuntuCveStatus"]
+        self.assertEqual(cve.status, "fail")
+        self.assertEqual(
+            cve.observed,
+            "fail; running kernel 6.17.0-1021-nvidia-64k; vulnerable to CVE-2026-46227",
+        )
+        self.assertEqual(
+            cve.assessment,
+            "The running kernel 6.17.0-1021-nvidia-64k is vulnerable to "
+            "CVE-2026-46227 under the Ubuntu CVE tracker.",
+        )
+        self.assertIn("supported kernel series", cve.recommendation)
+        reboot = by_key["security.guestKernel.newerInstalled"]
+        self.assertEqual(reboot.status, "pass")
+        self.assertNotIn("CVE-2026-46227", reboot.observed)
+
     def test_passing_assessments_explain_false_and_compound_values(self) -> None:
         values = {
             "audit_data": {
@@ -1234,6 +1271,38 @@ class AuditReportTests(unittest.TestCase):
             report,
         )
         self.assertIn("Reproduce: on the audited worker: uname -r", report)
+
+    def test_slurm_reproduction_commands_do_not_name_kubernetes(self) -> None:
+        for key in audit_report._SLURM_REPRODUCTION_COMMANDS:
+            command = audit_report._reproduction(key, "slurm")
+            self.assertNotIn("kubectl", command)
+            self.assertNotIn("pod", command)
+            self.assertNotEqual(command, audit_report._reproduction(key, "k8s"))
+        self.assertIn(
+            "scontrol show topology",
+            audit_report._reproduction("networking.topologyConfigured", "slurm"),
+        )
+        self.assertIn(
+            "srun --gres=gpu:1",
+            audit_report._reproduction("software.ncu.profilingEnabled", "slurm"),
+        )
+
+        values = {
+            "cluster": {"orchestrator": "slurm"},
+            "audit_data": {
+                "software": {
+                    "ncu": {
+                        "installed": True,
+                        "profilingEnabled": False,
+                        "hardwareCounterAccess": "denied",
+                    }
+                },
+            },
+        }
+        by_key = {
+            check.key: check for check in audit_report.evaluate(values, RUNTIME_ROOT)
+        }
+        self.assertIn("srun --gres=gpu:1", by_key["software.ncu.profilingEnabled"].reproduce)
 
     def test_nvhpc_failure_reports_release_compilers_components_and_reproduction(self) -> None:
         values = {

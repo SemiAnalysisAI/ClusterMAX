@@ -1023,11 +1023,22 @@ class StepTmpdirContractTests(unittest.TestCase):
 
 
 class ContainerWorkerCheckTests(unittest.TestCase):
-    def security_policy(self, check: str, *, runc: str = "1.3.3", docker: str = "29.4.3") -> dict:
+    def security_policy(
+        self,
+        check: str,
+        *,
+        driver: str | None = None,
+        runc: str = "1.3.3",
+        docker: str = "29.4.3",
+    ) -> dict:
+        # Read the driver from the minimum table so a refreshed NVIDIA
+        # bulletin does not leave this fixture below the new floor.
+        if driver is None:
+            driver = minimum_versions.get("components.nvidiaDriver.branches")["580"]
         run = bashtest.run_bash(
             f'source "{COMMON_PATH}"; WORKLOAD_DIR="{AUDIT_SCRIPTS}"; '
-            'build_security_version_audit "$CHECK" 580.159.03 1.19.1 "$RUNC" "$DOCKER"',
-            env={"CHECK": check, "RUNC": runc, "DOCKER": docker},
+            'build_security_version_audit "$CHECK" "$DRIVER" 1.19.1 "$RUNC" "$DOCKER"',
+            env={"CHECK": check, "DRIVER": driver, "RUNC": runc, "DOCKER": docker},
         )
         self.assertEqual(run.returncode, 0, run.stderr)
         return json.loads(run.stdout)

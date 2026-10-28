@@ -316,6 +316,30 @@ class K8sCanonicalRemapTests(unittest.TestCase):
         self.assertEqual(data["security"]["bmcIpmi"]["userAccess"], "allowed")
         self.assertEqual(data["security"]["bmcIpmi"]["sudoAccess"], "blocked")
         self.assertEqual(data["security"]["bmcIpmi"]["exposed"], True)
+        # The k8s probe runs only in the privileged audit pod. The fold must
+        # record that, so the grader does not read host-root reachability as
+        # tenant reachability.
+        self.assertEqual(data["security"]["bmcIpmi"]["measuredFrom"], "privileged-pod")
+
+    def test_bmc_fold_records_blocked_access_and_absent_ipmitool(self) -> None:
+        blocked = self._build(
+            merge_fixture(
+                hostCheck={
+                    "WORKER_IPMITOOL_PATH": "/usr/bin/ipmitool",
+                    "WORKER_IPMI_USER_ACCESS": "blocked",
+                    "WORKER_IPMI_SUDO_ACCESS": "blocked",
+                }
+            )
+        )["security"]["bmcIpmi"]
+        self.assertEqual(blocked["ipmitoolInstalled"], True)
+        self.assertEqual(blocked["exposed"], False)
+        self.assertEqual(blocked["measuredFrom"], "privileged-pod")
+
+        absent = self._build(
+            merge_fixture(hostCheck={"WORKER_IPMITOOL_PATH": "not-found"})
+        )["security"]["bmcIpmi"]
+        self.assertEqual(absent["ipmitoolInstalled"], False)
+        self.assertEqual(absent["ipmitoolPath"], "none")
 
     def test_binary_local_criteria_evidence_is_normalized(self) -> None:
         audit = merge_fixture(

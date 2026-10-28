@@ -195,6 +195,28 @@ def minimum_table(
                 "kind": "distroPackages",
                 "release": "noble",
                 "packages": {
+                    "linuxOpenvswitchNestedActions": {
+                        "abi": 138,
+                        "allowUnfixed": True,
+                        "cve": "CVE-2026-64531",
+                        "fixed": "6.8.0-138.138",
+                        "package": "linux",
+                        "status": "released",
+                    },
+                    "linuxCgroupWriteback": {
+                        "allowUnfixed": True,
+                        "cve": "CVE-2026-64378",
+                        "package": "linux",
+                        "status": "needed",
+                    },
+                    "linuxSctpSendall": {
+                        "abi": 136,
+                        "allowUnfixed": True,
+                        "cve": "CVE-2026-46227",
+                        "fixed": "6.8.0-136.136",
+                        "package": "linux",
+                        "status": "released",
+                    },
                     "linux": {
                         "abi": linux_abi,
                         "fixed": linux_fixed,
@@ -221,9 +243,376 @@ def minimum_table(
                         "status": "released",
                     },
                 },
-            }
+            },
+            "ubuntuJammy": {
+                "kind": "distroPackages",
+                "release": "jammy",
+                "packages": {
+                    "linuxOpenvswitchNestedActions": {
+                        "abi": 190,
+                        "allowUnfixed": True,
+                        "cve": "CVE-2026-64531",
+                        "package": "linux",
+                        "status": "pending",
+                    },
+                    "linuxCgroupWriteback": {
+                        "allowUnfixed": True,
+                        "cve": "CVE-2026-64378",
+                        "package": "linux",
+                        "status": "needed",
+                    },
+                    "linuxSctpSendall": {
+                        "abi": 186,
+                        "allowUnfixed": True,
+                        "cve": "CVE-2026-46227",
+                        "fixed": "5.15.0-186.196",
+                        "package": "linux",
+                        "status": "released",
+                    },
+                },
+            },
         },
     }
+
+
+class UbuntuKernelCveTests(TempDirMixin):
+    """grade_ubuntu_kernel_cves grades each GA-kernel CVE in the minimum table."""
+
+    def grade(self, table: dict, release: str, kernel: str) -> tuple[str, ...]:
+        path = self.write_minimum_table(table)
+        run = bashtest.run_bash(
+            f'source "{AUDIT_COMMON}"\n'
+            f'grade_ubuntu_kernel_cves ubuntu "{release}" "{kernel}"\n'
+            'printf "%s\\n%s\\n%s\\n" "$UBUNTU_KERNEL_CVE_STATUS" '
+            '"$UBUNTU_KERNEL_VULNERABLE_CVES_JSON" '
+            '"$UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON"\n',
+            env={"CLUSTERMAX_MINIMUM_VERSIONS": str(path)},
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return tuple(run.stdout.splitlines())
+
+    def test_jammy_kernel_fails_the_unreleased_and_the_below_minimum_cves(self) -> None:
+        status, cves, grace = self.grade(minimum_table(), "22.04", "5.15.0-185-generic")
+        self.assertEqual(status, "fail")
+        self.assertEqual(
+            json.loads(cves), ["CVE-2026-64531", "CVE-2026-64378", "CVE-2026-46227"]
+        )
+        self.assertEqual(json.loads(grace), [])
+
+    def test_noble_kernel_fails_only_the_unfixed_cve_at_the_released_abi(self) -> None:
+        status, cves, _ = self.grade(minimum_table(), "24.04", "6.8.0-138-generic")
+        self.assertEqual(status, "fail")
+        self.assertEqual(json.loads(cves), ["CVE-2026-64378"])
+
+    def test_noble_kernel_below_the_released_abi_fails_that_cve(self) -> None:
+        status, cves, _ = self.grade(minimum_table(), "24.04", "6.8.0-137-generic-64k")
+        self.assertEqual(status, "fail")
+        self.assertEqual(json.loads(cves), ["CVE-2026-64531", "CVE-2026-64378"])
+
+    def test_released_fixes_pass_at_the_generated_abi(self) -> None:
+        table = minimum_table()
+        packages = table["components"]["ubuntuJammy"]["packages"]
+        packages["linuxOpenvswitchNestedActions"].update(status="released", abi=190)
+        packages["linuxCgroupWriteback"].update(status="released", abi=190)
+        self.assertEqual(
+            self.grade(table, "22.04", "5.15.0-190-generic"), ("pass", "[]", "[]")
+        )
+
+    def test_released_fix_observes_the_active_bulletin_grace_period(self) -> None:
+        table = minimum_table()
+        packages = table["components"]["ubuntuJammy"]["packages"]
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        packages["linuxOpenvswitchNestedActions"].update(
+            status="released",
+            abi=190,
+            fixed="5.15.0-190.200",
+            released=now,
+            fixAvailability={
+                "status": "confirmed",
+                "available": now,
+                "bulletinReleased": now,
+            },
+        )
+        packages["linuxCgroupWriteback"].update(status="not-affected")
+        packages["linuxSctpSendall"].update(status="not-affected")
+
+        status, cves, grace = self.grade(table, "22.04", "5.15.0-185-generic")
+
+        self.assertEqual((status, cves), ("pass", "[]"))
+        self.assertEqual(json.loads(grace)[0]["cve"], "CVE-2026-64531")
+        self.assertIs(json.loads(grace)[0]["policy"]["active"], True)
+
+    def sctp_only_table(self) -> dict:
+        """Clear the other tracked CVEs so only SCTP_SENDALL decides the grade."""
+        table = minimum_table()
+        for component in ("ubuntuJammy", "ubuntuNoble"):
+            packages = table["components"][component]["packages"]
+            packages["linuxOpenvswitchNestedActions"].update(status="not-affected")
+            packages["linuxCgroupWriteback"].update(status="not-affected")
+        return table
+
+    def test_sctp_sendall_boundary_is_the_published_fixed_abi(self) -> None:
+        for release, kernel, expected in (
+            # The internal incident kernel: jammy 5.15.0-181 is below the fix.
+            ("22.04", "5.15.0-181-generic", "fail"),
+            ("22.04", "5.15.0-185-generic-64k", "fail"),
+            ("22.04", "5.15.0-186-generic", "pass"),
+            ("22.04", "5.15.0-187-generic-64k", "pass"),
+            ("24.04", "6.8.0-135-generic", "fail"),
+            ("24.04", "6.8.0-136-generic-64k", "pass"),
+            ("24.04", "6.8.0-137-generic", "pass"),
+        ):
+            with self.subTest(kernel=kernel):
+                status, cves, _ = self.grade(self.sctp_only_table(), release, kernel)
+                self.assertEqual(status, expected)
+                self.assertEqual(
+                    json.loads(cves),
+                    ["CVE-2026-46227"] if expected == "fail" else [],
+                )
+
+    def test_sctp_sendall_minimum_is_read_from_the_table(self) -> None:
+        # A later fixed ABI in the table moves the boundary. No floor is coded
+        # in the grader.
+        table = self.sctp_only_table()
+        table["components"]["ubuntuJammy"]["packages"]["linuxSctpSendall"]["abi"] = 190
+        status, cves, _ = self.grade(table, "22.04", "5.15.0-186-generic")
+        self.assertEqual((status, json.loads(cves)), ("fail", ["CVE-2026-46227"]))
+        # A tracker that withdraws the fix makes every kernel on the train fail.
+        table["components"]["ubuntuJammy"]["packages"]["linuxSctpSendall"].update(
+            status="needed", abi=None, fixed=""
+        )
+        status, cves, _ = self.grade(table, "22.04", "5.15.0-999-generic")
+        self.assertEqual((status, json.loads(cves)), ("fail", ["CVE-2026-46227"]))
+
+    def test_missing_sctp_sendall_row_is_unknown(self) -> None:
+        table = self.sctp_only_table()
+        del table["components"]["ubuntuNoble"]["packages"]["linuxSctpSendall"]
+        self.assertEqual(
+            self.grade(table, "24.04", "6.8.0-140-generic"), ("unknown", "[]", "[]")
+        )
+
+    def test_shipped_table_grades_sctp_sendall(self) -> None:
+        shipped = json.loads((WORKLOAD / "minimum-versions.json").read_text())
+        for component, release, below, fixed in (
+            ("ubuntuJammy", "22.04", "5.15.0-185-generic", "5.15.0-186-generic"),
+            ("ubuntuNoble", "24.04", "6.8.0-135-generic", "6.8.0-136-generic"),
+        ):
+            with self.subTest(component=component):
+                entry = shipped["components"][component]["packages"]["linuxSctpSendall"]
+                self.assertEqual(entry["cve"], "CVE-2026-46227")
+                self.assertEqual(entry["package"], "linux")
+                self.assertEqual(entry["status"], "released")
+                _, cves, _ = self.grade(shipped, release, below)
+                self.assertIn("CVE-2026-46227", json.loads(cves))
+                _, cves, _ = self.grade(shipped, release, fixed)
+                self.assertNotIn("CVE-2026-46227", json.loads(cves))
+
+    def test_missing_tracker_rows_are_unknown(self) -> None:
+        table = minimum_table()
+        del table["components"]["ubuntuJammy"]
+        self.assertEqual(
+            self.grade(table, "22.04", "5.15.0-185-generic"), ("unknown", "[]", "[]")
+        )
+
+    def kernel_row(self, package: str, family: str, flavor: str, status: str, abi=None) -> dict:
+        row = {
+            "allowUnfixed": True,
+            "cve": "CVE-2026-46227",
+            "fixed": "",
+            "kernelFamily": family,
+            "kernelFlavors": [flavor, f"{flavor}-64k"],
+            "kernelGroup": "linuxSctpSendall",
+            "package": package,
+            "status": status,
+        }
+        if abi is not None:
+            row.update(abi=abi, fixed=f"{family}.0-{abi}.{abi}")
+        return row
+
+    def all_kernels_table(self) -> dict:
+        """SCTP_SENDALL rows for non-GA kernels, shaped as the refresh writes them."""
+        table = self.sctp_only_table()
+        jammy = table["components"]["ubuntuJammy"]["packages"]
+        noble = table["components"]["ubuntuNoble"]["packages"]
+        jammy["linuxSctpSendallHwe6_8"] = self.kernel_row(
+            "linux-hwe-6.8", "6.8", "generic", "released", 136)
+        jammy["linuxSctpSendallAws"] = self.kernel_row(
+            "linux-aws", "5.15", "aws", "released", 1112)
+        jammy["linuxSctpSendallLowlatency"] = self.kernel_row(
+            "linux-lowlatency", "5.15", "lowlatency", "released", 184)
+        noble["linuxSctpSendallNvidia"] = self.kernel_row(
+            "linux-nvidia", "6.8", "nvidia", "released", 1059)
+        noble["linuxSctpSendallNvidia6_17"] = self.kernel_row(
+            "linux-nvidia-6.17", "6.17", "nvidia", "ignored")
+        noble["linuxSctpSendallHwe6_17"] = self.kernel_row(
+            "linux-hwe-6.17", "6.17", "generic", "needed")
+        noble["linuxSctpSendallAzureNvidia"] = self.kernel_row(
+            "linux-azure-nvidia", "6.8", "azure-nvidia", "pending")
+        noble["linuxSctpSendallAws7_0"] = self.kernel_row(
+            "linux-aws-7.0", "7.0", "aws", "not-affected")
+        noble["linuxSctpSendallFips"] = self.kernel_row(
+            "linux-fips", "6.8", "fips", "released", 136)
+        table["components"]["ubuntuResolute"] = {"packages": {
+            "linuxSctpSendall": self.kernel_row("linux", "7.0", "generic", "released", 28),
+        }}
+        return table
+
+    def test_non_ga_kernels_use_their_own_source_package_row(self) -> None:
+        for release, kernel, expected in (
+            # HWE 6.8 on jammy, fixed at 6.8.0-136.136~22.04.1.
+            ("22.04", "6.8.0-135-generic", "fail"),
+            ("22.04", "6.8.0-136-generic-64k", "pass"),
+            # linux-aws on jammy, fixed at 5.15.0-1112.119.
+            ("22.04", "5.15.0-1111-aws", "fail"),
+            ("22.04", "5.15.0-1112-aws", "pass"),
+            ("22.04", "5.15.0-183-lowlatency", "fail"),
+            ("22.04", "5.15.0-184-lowlatency-64k", "pass"),
+            ("24.04", "6.8.0-1058-nvidia-64k", "fail"),
+            ("24.04", "6.8.0-1059-nvidia", "pass"),
+            ("24.04", "6.8.0-135-fips", "fail"),
+            ("24.04", "6.8.0-136-fips", "pass"),
+            # End-of-life and unfixed kernels have no fix to reach.
+            ("24.04", "6.17.0-1031-nvidia", "fail"),
+            ("24.04", "6.17.0-35-generic", "fail"),
+            ("24.04", "6.8.0-1046-azure-nvidia", "fail"),
+            ("24.04", "7.0.0-1009-aws", "pass"),
+            ("26.04", "7.0.0-27-generic", "fail"),
+            ("26.04", "7.0.0-28-generic-64k", "pass"),
+        ):
+            with self.subTest(kernel=kernel):
+                status, cves, _ = self.grade(self.all_kernels_table(), release, kernel)
+                self.assertEqual(status, expected)
+                self.assertEqual(
+                    json.loads(cves),
+                    ["CVE-2026-46227"] if expected == "fail" else [],
+                )
+
+    def test_ga_kernel_ignores_the_other_kernel_rows(self) -> None:
+        table = self.all_kernels_table()
+        self.assertEqual(self.grade(table, "24.04", "6.8.0-136-generic"), ("pass", "[]", "[]"))
+        self.assertEqual(
+            self.grade(table, "22.04", "5.15.0-185-generic")[0:2],
+            ("fail", '["CVE-2026-46227"]'),
+        )
+
+    def test_kernel_without_a_row_is_unknown(self) -> None:
+        # The tracker lists every Ubuntu kernel package. A kernel with no row
+        # is a custom, mainline, or new build that the audit cannot check.
+        table = self.all_kernels_table()
+        for release, kernel in (
+            ("24.04", "6.8.0-1050-gcp"),
+            ("22.04", "5.15.0-1090-oracle"),
+            ("24.04", "6.10.3-061003-generic"),
+            ("24.04", "6.8.0-136-custom"),
+            ("26.04", "7.0.0-1009-aws"),
+            ("24.04", "6.8.0-136-generic+"),
+            ("24.04", "6.8.12"),
+        ):
+            with self.subTest(kernel=kernel):
+                self.assertEqual(
+                    self.grade(table, release, kernel), ("unknown", "[]", "[]")
+                )
+
+    def test_unknown_kernel_still_reports_a_known_failure(self) -> None:
+        # A missing row in one group must not hide a failure in another.
+        table = self.all_kernels_table()
+        table["components"]["ubuntuNoble"]["packages"]["linuxCgroupWriteback"] = {
+            "cve": "CVE-2026-64378", "package": "linux-nvidia-6.17",
+            "status": "needed", "fixed": "", "allowUnfixed": True,
+            "kernelGroup": "linuxCgroupWriteback", "kernelFamily": "6.17",
+            "kernelFlavors": ["nvidia", "nvidia-64k"],
+        }
+        status, cves, _ = self.grade(table, "24.04", "6.17.0-1031-nvidia")
+        self.assertEqual(status, "fail")
+        self.assertEqual(json.loads(cves), ["CVE-2026-64378", "CVE-2026-46227"])
+
+    def test_ga_only_groups_skip_other_kernels(self) -> None:
+        # Groups with only the GA row check only the GA kernel. Without
+        # per-kernel rows, a non-GA kernel is outside this check.
+        self.assertEqual(
+            self.grade(minimum_table(), "22.04", "5.15.0-1084-aws"),
+            ("not-applicable", "[]", "[]"),
+        )
+        self.assertEqual(
+            self.grade(minimum_table(), "24.04", "6.8.0-136-generic+"),
+            ("unknown", "[]", "[]"),
+        )
+
+    def test_container_release_on_another_release_kernel(self) -> None:
+        # A 22.04 Slurm container on a 24.04 host reports VERSION_ID 22.04,
+        # but the host kernel comes from Noble. Jammy ships no 6.17 kernel,
+        # so the Noble row grades it.
+        table = self.all_kernels_table()
+        self.assertEqual(
+            self.grade(table, "22.04", "6.17.0-1021-nvidia-64k"),
+            ("fail", '["CVE-2026-46227"]', "[]"),
+        )
+        # 7.0 aws is listed for Noble and is not in the 26.04 fixture, so the
+        # one-release rule applies. With rows in two other releases, the
+        # kernel stays unknown instead of picking one.
+        self.assertEqual(
+            self.grade(table, "22.04", "7.0.0-1009-aws"), ("pass", "[]", "[]")
+        )
+        table["components"]["ubuntuResolute"]["packages"]["linuxSctpSendallAws"] = (
+            self.kernel_row("linux-aws", "7.0", "aws", "released", 1009)
+        )
+        self.assertEqual(
+            self.grade(table, "22.04", "7.0.0-1009-aws"), ("unknown", "[]", "[]")
+        )
+
+    def test_two_rows_for_one_kernel_are_unknown(self) -> None:
+        table = self.all_kernels_table()
+        noble = table["components"]["ubuntuNoble"]["packages"]
+        noble["linuxSctpSendallNvidiaCopy"] = dict(noble["linuxSctpSendallNvidia"])
+        self.assertEqual(
+            self.grade(table, "24.04", "6.8.0-1059-nvidia"), ("unknown", "[]", "[]")
+        )
+
+    def test_missing_grader_is_unknown(self) -> None:
+        path = self.write_minimum_table(self.all_kernels_table())
+        run = bashtest.run_bash(
+            f'source "{AUDIT_COMMON}"\n'
+            'AUDIT_COMMON_DIR=/nonexistent\n'
+            'grade_ubuntu_kernel_cves ubuntu 24.04 6.8.0-136-generic\n'
+            'printf "%s\\n" "$UBUNTU_KERNEL_CVE_STATUS"\n',
+            env={"CLUSTERMAX_MINIMUM_VERSIONS": str(path)},
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stdout.strip(), "unknown")
+
+    def test_shipped_table_grades_every_listed_kernel_package(self) -> None:
+        shipped = json.loads((WORKLOAD / "minimum-versions.json").read_text())
+        for component, release in (
+            ("ubuntuJammy", "22.04"), ("ubuntuNoble", "24.04"), ("ubuntuResolute", "26.04"),
+        ):
+            rows = {
+                key: entry
+                for key, entry in shipped["components"][component]["packages"].items()
+                if entry.get("kernelGroup") == "linuxSctpSendall"
+            }
+            self.assertIn("linuxSctpSendall", rows, component)
+            self.assertGreater(len(rows), 1, component)
+            for key, entry in rows.items():
+                self.assertNotIn("riscv", entry["package"])
+                if entry["status"] != "released":
+                    continue
+                kernel = f'{entry["kernelFamily"]}.0-{entry["abi"]}-{entry["kernelFlavors"][0]}'
+                with self.subTest(component=component, key=key):
+                    _, cves, _ = self.grade(shipped, release, kernel)
+                    self.assertNotIn("CVE-2026-46227", json.loads(cves))
+
+    def test_other_kernel_trains_and_flavors_are_not_applicable(self) -> None:
+        for release, kernel in (
+            ("22.04", "5.15.0-1084-aws"),
+            ("24.04", "6.8.0-1044-nvidia"),
+            ("22.04", "6.8.0-60-generic"),
+            ("20.04", "5.4.0-200-generic"),
+        ):
+            with self.subTest(kernel=kernel):
+                self.assertEqual(
+                    self.grade(minimum_table(), release, kernel),
+                    ("not-applicable", "[]", "[]"),
+                )
 
 
 class FragnesiaAbiMinimumTests(TempDirMixin):

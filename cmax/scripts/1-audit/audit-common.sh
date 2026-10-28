@@ -133,6 +133,47 @@ minimum_version_grace() {
     fi
 }
 
+# grade_ubuntu_kernel_cves - grade the running Ubuntu kernel against the exact
+# tracker state for each container-relevant CVE that the minimum table
+# publishes. ubuntu_kernel_cves.py selects the table row whose kernel family and
+# flavor match the running release string, so GA, HWE, cloud, NVIDIA,
+# lowlatency, FIPS, and realtime kernels each use their own source package row.
+# The fixed ABI always comes from the table. A tracker status of needed,
+# pending, deferred, or ignored is vulnerable because Ubuntu has not released a
+# fix for that kernel. A released status compares the running ABI with the
+# generated fixed ABI. A running kernel with no SCTP_SENDALL row (custom,
+# mainline, or newer than the table), a missing GA row, a missing reader, an
+# unreadable release string, or an ambiguous row match is unknown.
+grade_ubuntu_kernel_cves() {
+    local os_id="${1:-unknown}" release="${2:-unknown}" running="${3:-unknown}"
+    local grader="${AUDIT_COMMON_DIR}/ubuntu_kernel_cves.py" output=""
+    UBUNTU_KERNEL_CVE_STATUS="not-applicable"
+    UBUNTU_KERNEL_VULNERABLE_CVES_JSON="[]"
+    UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON="[]"
+
+    [[ "$os_id" == ubuntu ]] || return 0
+    case "$release" in
+        22.04|24.04|26.04) ;;
+        *) return 0 ;;
+    esac
+    UBUNTU_KERNEL_CVE_STATUS="unknown"
+    [[ -f "$grader" ]] && command -v python3 >/dev/null 2>&1 || return 0
+    output=$(python3 "$grader" "$os_id" "$release" "$running" 2>/dev/null) || return 0
+    {
+        IFS= read -r UBUNTU_KERNEL_CVE_STATUS
+        IFS= read -r UBUNTU_KERNEL_VULNERABLE_CVES_JSON
+        IFS= read -r UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON
+    } <<<"$output"
+    case "$UBUNTU_KERNEL_CVE_STATUS" in
+        pass|fail|unknown|not-applicable) ;;
+        *)
+            UBUNTU_KERNEL_CVE_STATUS="unknown"
+            UBUNTU_KERNEL_VULNERABLE_CVES_JSON="[]"
+            UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON="[]"
+            ;;
+    esac
+}
+
 # build_security_advisory_json - emit the Ubuntu Noble advisory members that
 # every collector reports: fragnesia, januscape, qemuCve20243446, and vmscape.
 #
@@ -1286,6 +1327,8 @@ build_audit_json() {
     local security_advisory_json
     local security_version_audit_json="${SECURITY_VERSION_AUDIT_JSON:-}"
     januscape_exposed_json=$(json_bool_or_unknown "${WORKER_JANUSCAPE_EXPOSED:-}")
+    grade_ubuntu_kernel_cves "${WORKER_OS_ID:-unknown}" \
+        "${WORKER_OS_VERSION_ID:-unknown}" "${WORKER_GUEST_KERNEL_RUNNING:-unknown}"
     if [[ "${AUDIT_TYPE:-}" == "standalone" \
             && "${WORKER_NVLINK_TOPOLOGY_CHECKED:-false}" == "true" ]]; then
         nvlink_topology_coverage_complete=true
@@ -1613,7 +1656,10 @@ build_audit_json() {
       "running": "${WORKER_GUEST_KERNEL_RUNNING:-unknown}",
       "newestInstalled": "${WORKER_GUEST_KERNEL_NEWEST_INSTALLED:-unknown}",
       "newerInstalled": ${WORKER_GUEST_KERNEL_NEWER_INSTALLED:-false},
-      "rebootRequired": ${WORKER_GUEST_REBOOT_REQUIRED:-false}
+      "rebootRequired": ${WORKER_GUEST_REBOOT_REQUIRED:-false},
+      "ubuntuCveStatus": "${UBUNTU_KERNEL_CVE_STATUS:-unknown}",
+      "ubuntuVulnerableCves": ${UBUNTU_KERNEL_VULNERABLE_CVES_JSON:-[]},
+      "ubuntuCveGracePeriods": ${UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON:-[]}
     },
 ${security_advisory_json}
     "nvidiaMay2026": {

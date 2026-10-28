@@ -19,6 +19,7 @@ COMMAND_TIMEOUT_S = 20
 SLURM_TIMEOUT_S = 90
 KUBECTL_TIMEOUT_S = 60
 MAX_OUTPUT_CHARS = 4000
+VBOOST_AMD_NOT_APPLICABLE = "vboost is not applicable to AMD Kubernetes GPU nodes"
 
 _VBOOST_UNSUPPORTED_GPU_RE = re.compile(r"\bg?b300\b", re.IGNORECASE)
 # nvidia-smi prints this when the process can see no GPU at all, for example a
@@ -337,9 +338,14 @@ def k8s_vboost_results(
     nodes_json, error = fanout.k8s_nodes_json(lambda args: kubectl(args, runner=runner, timeout=45))
     if nodes_json is None:
         return [], [error]
-    nodes = fanout.k8s_gpu_nodes(nodes_json, gpu_vendor="nvidia")
+    discovered_nodes = fanout.k8s_gpu_nodes(nodes_json)
+    if not discovered_nodes:
+        return [], ["no Kubernetes nodes advertise nvidia.com/gpu or amd.com/gpu capacity"]
+    nodes = [node for node in discovered_nodes if node.get("gpu_vendor") == "nvidia"]
     if not nodes:
-        return [], ["no Kubernetes nodes advertise nvidia.com/gpu capacity"]
+        # vboost is an NVIDIA control. A cluster with only AMD GPU nodes has
+        # nothing to test, so this is not an error.
+        return [], [VBOOST_AMD_NOT_APPLICABLE]
 
     namespace = k8s_gpu_namespace(env=env, runner=runner)
     if not namespace:
@@ -418,6 +424,16 @@ def build_check_payload(
 
     allowed_nodes = sum(1 for node in nodes if node.get("allowed") is True)
     status = aggregate_status(nodes)
+    not_applicable = (
+        harness == "k8s"
+        and not nodes
+        and any(error.get("message") == VBOOST_AMD_NOT_APPLICABLE for error in errors)
+    )
+    if not_applicable:
+        status = "not_applicable"
+        errors = [
+            error for error in errors if error.get("message") != VBOOST_AMD_NOT_APPLICABLE
+        ]
     vboost: dict[str, Any] = {
         "target": TARGET_VBOOST,
         "checked": bool(nodes),
@@ -430,6 +446,8 @@ def build_check_payload(
     }
     if errors:
         vboost["errors"] = errors
+    if not_applicable:
+        vboost["reason"] = VBOOST_AMD_NOT_APPLICABLE
     return {"gpu_controls": {"vboost": vboost}}
 
 

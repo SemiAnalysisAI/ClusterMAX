@@ -73,6 +73,10 @@ _PASS_ASSESSMENTS = {
     "hugepage_allocation.status": "The explicit allocation trial passed and restored the pool.",
     "storage_config.status": "The collected node storage inventory is consistent.",
     "k8s_scheduling.status": "The scheduling inventory has no recorded findings.",
+    "slurm.slinkyControllerSeparate": (
+        "The Slinky slurmctld controller runs on a different Kubernetes node "
+        "from every slurmd worker."
+    ),
     "tenant_pod_defaults.status": "The tenant pod check completed.",
     "tenant_pod_defaults.checks.memlock.status": "The tenant pod has sufficient locked memory.",
     "tenant_pod_defaults.checks.shm.status": "The tenant pod has sufficient shared memory.",
@@ -111,6 +115,10 @@ _PASS_ASSESSMENTS = {
     ),
     "security.guestKernel.newerInstalled": (
         "The audit did not find a newer installed kernel that is waiting for a reboot."
+    ),
+    "security.guestKernel.ubuntuCveStatus": (
+        "Ubuntu tracks a released fix for each graded kernel CVE and the running "
+        "kernel meets it."
     ),
     "security.ubuntuNobleKernelMinimum.status": (
         "The running Ubuntu Noble kernel meets the aggregate published security minimum."
@@ -249,6 +257,19 @@ def _load_findings(repo_root: Path):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _without_ubuntu_cve_evidence(audit: dict[str, Any]) -> dict[str, Any]:
+    """Return audit data whose guestKernel block has no Ubuntu CVE fields."""
+    security_block = audit.get("security")
+    kernel = security_block.get("guestKernel") if isinstance(security_block, dict) else None
+    if not isinstance(kernel, dict):
+        return audit
+    stripped = {
+        name: value for name, value in kernel.items()
+        if name not in {"ubuntuCveStatus", "ubuntuVulnerableCves", "ubuntuCveGracePeriods"}
+    }
+    return {**audit, "security": {**security_block, "guestKernel": stripped}}
 
 
 def _title(key: str) -> str:
@@ -546,6 +567,22 @@ def _version_observation(audit: dict[str, Any], key: str, value: Any) -> Any:
                     ("status", "status"),
                 )
             )
+    if key == "security.guestKernel.ubuntuCveStatus":
+        kernel = _nested(audit, "security.guestKernel")
+        if isinstance(kernel, dict):
+            observation = (
+                f"{kernel.get('ubuntuCveStatus', 'unknown')}; running kernel "
+                f"{kernel.get('running', 'unknown')}"
+            )
+            vulnerable = kernel.get("ubuntuVulnerableCves")
+            if isinstance(vulnerable, list) and vulnerable:
+                observation += "; vulnerable to " + ", ".join(map(str, vulnerable))
+            grace = kernel.get("ubuntuCveGracePeriods")
+            if isinstance(grace, list) and grace:
+                observation += "; policy grace active for " + ", ".join(
+                    str(item.get("cve")) for item in grace if isinstance(item, dict)
+                )
+            return observation
     if key == "security.guestKernel.newerInstalled":
         kernel = _nested(audit, "security.guestKernel")
         if isinstance(kernel, dict):
@@ -698,8 +735,33 @@ def _version_observation(audit: dict[str, Any], key: str, value: Any) -> Any:
     return observation
 
 
-def _reproduction(key: str) -> str:
+_SLURM_REPRODUCTION_COMMANDS = {
+    # The defaults above name Kubernetes steps. A Slurm report must name
+    # steps that a Slurm user can run.
+    "networking.topologyConfigured": (
+        "from a Slurm login node: `scontrol show config | grep -i TopologyPlugin`; "
+        "then run `scontrol show topology`"
+    ),
+    "securityVersions.dcgmExporter.status": (
+        "on the audited worker: find the running exporter with "
+        "`ps -eo args | grep -i [d]cgm-exporter` or `systemctl status dcgm-exporter`, "
+        "then read its version or container image tag"
+    ),
+    "software.cudaVisibleDevicesStatus": (
+        "in a one-GPU Slurm job: `srun --gres=gpu:1 bash -c 'printf \"%s\\n\" "
+        "\"$CUDA_VISIBLE_DEVICES\"; nvidia-smi'`"
+    ),
+    "software.ncu.profilingEnabled": (
+        "in a one-GPU Slurm job: run `srun --gres=gpu:1 ncu --query-metrics`, "
+        "then profile a minimal CUDA kernel"
+    ),
+}
+
+
+def _reproduction(key: str, harness: str | None = None) -> str:
     """Return a concise command that independently reproduces a check."""
+    if harness == "slurm" and key in _SLURM_REPRODUCTION_COMMANDS:
+        return _SLURM_REPRODUCTION_COMMANDS[key]
     return _REPRODUCTION_COMMANDS.get(key, "")
 
 
@@ -1074,7 +1136,12 @@ def evaluate(
         observed = findings.nested_get(audit, *key.split("."))
         if key == "security.guestKernel.newerInstalled" and observed is not None:
             from cmax import security
-            grade, observation, assessment = security._guest_kernel(audit)
+            # security.guestKernel.ubuntuCveStatus is its own row, so grade
+            # this row on the reboot state only. Otherwise one vulnerable
+            # kernel fails two rows, and this row fails under the wrong title.
+            grade, observation, assessment = security._guest_kernel(
+                _without_ubuntu_cve_evidence(audit)
+            )
             checks.append(AuditCheck(
                 key, _title(key), check_category,
                 {security.PASS: PASS, security.CRITICAL: FAIL}.get(grade, WARNING),
@@ -1235,7 +1302,7 @@ def evaluate(
                 assessment,
                 recommendation,
                 references,
-                _reproduction(key),
+                _reproduction(key, harness),
             )
         )
     checks.extend(

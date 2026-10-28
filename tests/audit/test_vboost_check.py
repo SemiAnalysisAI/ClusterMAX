@@ -146,6 +146,45 @@ class VboostCheckTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(result["status"], "no_gpu_visible")
 
+    def test_k8s_amd_only_cluster_is_not_applicable(self) -> None:
+        nodes = {
+            "items": [
+                {
+                    "metadata": {"name": "mi355-worker"},
+                    "status": {"capacity": {"amd.com/gpu": "8"}},
+                }
+            ]
+        }
+
+        def runner(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+            if command[1:3] == ["get", "nodes"]:
+                return subprocess.CompletedProcess(command, 0, json.dumps(nodes), "")
+            raise AssertionError(f"an AMD-only cluster has no vboost to test: {command}")
+
+        status = vboost.build_check_payload(
+            harness="k8s", env={}, runner=runner, which=lambda _name: None
+        )["gpu_controls"]["vboost"]
+
+        self.assertEqual(status["mode"], "k8s")
+        self.assertEqual(status["status"], "not_applicable")
+        self.assertFalse(status["checked"])
+        self.assertEqual(status["nodes"], [])
+        self.assertEqual(status["reason"], vboost.VBOOST_AMD_NOT_APPLICABLE)
+        self.assertNotIn("errors", status)
+
+    def test_k8s_cluster_without_gpu_nodes_is_still_an_error(self) -> None:
+        def runner(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+            if command[1:3] == ["get", "nodes"]:
+                return subprocess.CompletedProcess(command, 0, json.dumps({"items": []}), "")
+            raise AssertionError(f"unexpected command: {command}")
+
+        status = vboost.build_check_payload(
+            harness="k8s", env={}, runner=runner, which=lambda _name: None
+        )["gpu_controls"]["vboost"]
+
+        self.assertEqual(status["status"], "not_checked")
+        self.assertIn("amd.com/gpu", status["errors"][0]["message"])
+
     def test_local_check_skips_when_nvidia_smi_is_missing(self) -> None:
         def runner(_command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
             raise AssertionError("runner should not be called")

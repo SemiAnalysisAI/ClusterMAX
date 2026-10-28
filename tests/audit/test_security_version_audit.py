@@ -1437,6 +1437,23 @@ class UnreadableVirtioVersionCorrelationTests(unittest.TestCase):
         self.assertEqual(record["virtioNetBluefield"]["versionUnavailableReason"], "not-observed")
         self.assertEqual(record["dpuHostIsolation"]["status"], "unknown")
 
+    def test_closed_rshim_with_an_incomplete_scan_is_not_hardened(self) -> None:
+        record = self.graded({
+            "scanComplete": False,
+            "scanError": "lspci is not installed",
+            "rshimHostAccess": {
+                "rshimRestricted": True,
+                "rshimDeviceNode": False,
+                "tmfifoNet0": False,
+                "internalCpuRshim": "1",
+            },
+        })
+        virtio = record["virtioNetBluefield"]
+        self.assertEqual(record["dpuHostIsolation"]["status"], "unknown")
+        self.assertEqual(virtio["status"], "unknown")
+        self.assertEqual(virtio["versionUnavailableReason"], "not-observed")
+        self.assertNotIn("correctly isolated", virtio["detail"])
+
     def test_a_readable_version_carries_no_unavailable_reason(self) -> None:
         lines = read_minimum("components.virtioNetBluefield.lines")
         highest = max(

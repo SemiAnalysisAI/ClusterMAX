@@ -385,11 +385,54 @@ class SecurityReportTests(unittest.TestCase):
             if item.id == "bmc-ipmi"
         )
 
-        self.assertEqual(check.status, security.CRITICAL)
+        # The fleet probe ran as root on the host, so an exposed BMC does not
+        # prove tenant reachability. It is a warning, not a critical.
+        self.assertEqual(check.status, security.WARNING)
         self.assertIn("4/6 worker nodes", check.observed)
         self.assertIn("gpu-1, gpu-2, cpu-1, cpu-2", check.observed)
         self.assertIn("privileged pod", check.assessment)
         self.assertIn("ordinary workload pod", check.assessment)
+        self.assertIn("does not establish tenant reachability", check.assessment)
+        self.assertIn("admission control", check.assessment)
+
+        values["audit_data"]["security"]["bmcIpmi"]["ordinaryPodExposureTested"] = True
+        check = next(
+            item
+            for item in security.evaluate_security(values)
+            if item.id == "bmc-ipmi"
+        )
+        self.assertEqual(check.status, security.CRITICAL)
+
+    def test_bmc_ipmi_grade_depends_on_the_probe_context(self) -> None:
+        cases = (
+            # (bmcIpmi, expected status, observed fragment)
+            ({"exposed": True}, security.CRITICAL, "BMC/IPMI=true"),
+            ({"exposed": False}, security.PASS, "BMC/IPMI=false"),
+            (
+                {"exposed": True, "ipmitoolInstalled": True, "measuredFrom": "privileged-pod"},
+                security.WARNING,
+                "measured as root on the host",
+            ),
+            (
+                {"exposed": False, "ipmitoolInstalled": False, "measuredFrom": "privileged-pod"},
+                security.PASS,
+                "ipmitool absent",
+            ),
+            (
+                {"exposed": False, "ipmitoolInstalled": True, "measuredFrom": "privileged-pod"},
+                security.PASS,
+                "BMC/IPMI=false",
+            ),
+        )
+        for bmc, expected, observed in cases:
+            with self.subTest(bmc=bmc):
+                status, seen, assessment = security._bmc_ipmi(
+                    {"security": {"bmcIpmi": bmc}}
+                )
+                self.assertEqual(status, expected)
+                self.assertIn(observed, seen)
+                if status == security.WARNING:
+                    self.assertIn("admission control", assessment)
 
     def test_bmc_ipmi_incomplete_fleet_without_exposure_warns(self) -> None:
         values = security_values()
@@ -569,6 +612,118 @@ class SecurityReportTests(unittest.TestCase):
                 self.assertIn(included, check.observed)
                 if excluded is not None:
                     self.assertNotIn(excluded, check.observed)
+
+    def test_ubuntu_tracker_vulnerability_fails_the_active_kernel_check(self) -> None:
+        values = security_values()
+        guest_kernel = values["audit_data"]["security"]["guestKernel"]
+        guest_kernel.update(
+            running="5.15.0-185-generic",
+            newestInstalled="5.15.0-185-generic",
+            newerInstalled=False,
+            ubuntuCveStatus="fail",
+            ubuntuVulnerableCves=["CVE-2026-64531", "CVE-2026-64378"],
+        )
+        check = next(
+            check
+            for check in security.evaluate_security(values)
+            if check.id == "guest-kernel"
+        )
+        self.assertEqual(check.status, security.CRITICAL)
+        self.assertIn("CVE-2026-64531, CVE-2026-64378", check.observed)
+        self.assertIn("Ubuntu CVE status", check.title)
+        self.assertIn("supported Ubuntu kernel fix", check.remediation)
+        self.assertIn(
+            "CVE-2026-64531", {reference.label for reference in check.references}
+        )
+
+    def test_sctp_sendall_vulnerability_fails_the_active_kernel_check(self) -> None:
+        values = security_values()
+        values["audit_data"]["security"]["guestKernel"].update(
+            running="5.15.0-181-generic",
+            newestInstalled="5.15.0-181-generic",
+            newerInstalled=False,
+            ubuntuCveStatus="fail",
+            ubuntuVulnerableCves=["CVE-2026-46227"],
+        )
+        check = next(
+            check
+            for check in security.evaluate_security(values)
+            if check.id == "guest-kernel"
+        )
+        self.assertEqual(check.status, security.CRITICAL)
+        self.assertIn("vulnerable to CVE-2026-46227", check.observed)
+        self.assertIn(
+            "https://ubuntu.com/security/CVE-2026-46227",
+            {reference.url for reference in check.references},
+        )
+
+    def test_unknown_ubuntu_tracker_status_never_passes(self) -> None:
+        values = security_values()
+        values["audit_data"]["security"]["guestKernel"].update(
+            running="6.8.0-138-generic",
+            newestInstalled="6.8.0-138-generic",
+            newerInstalled=False,
+            ubuntuCveStatus="unknown",
+            ubuntuVulnerableCves=[],
+        )
+        check = next(
+            check
+            for check in security.evaluate_security(values)
+            if check.id == "guest-kernel"
+        )
+        self.assertEqual(check.status, security.WARNING)
+        self.assertIn("Ubuntu CVE status", check.assessment)
+
+    def test_non_ubuntu_kernel_keeps_the_generic_guest_kernel_check(self) -> None:
+        values = security_values()
+        values["audit_data"]["security"]["guestKernel"].update(
+            running="5.14.0-570.12.1.el9_6.x86_64",
+            newestInstalled="5.14.0-570.18.1.el9_6.x86_64",
+            newerInstalled=True,
+            ubuntuCveStatus="not-applicable",
+            ubuntuVulnerableCves=[],
+        )
+        check = next(
+            check
+            for check in security.evaluate_security(values)
+            if check.id == "guest-kernel"
+        )
+        self.assertEqual(check.status, security.CRITICAL)
+        self.assertEqual(check.title, "Active kernel version")
+        self.assertNotIn(
+            "CVE-2026-64531", {reference.label for reference in check.references}
+        )
+
+    def test_guest_kernel_grace_pass_stays_visible_in_the_default_report(self) -> None:
+        values = security_values()
+        values["audit_data"]["security"]["guestKernel"].update(
+            running="6.8.0-137-generic",
+            newestInstalled="6.8.0-137-generic",
+            newerInstalled=False,
+            ubuntuCveStatus="pass",
+            ubuntuVulnerableCves=[],
+            ubuntuCveGracePeriods=[
+                {
+                    "cve": "CVE-2026-64531",
+                    "policy": {
+                        "active": True,
+                        "message": "(passes as fix became available within past 3 days)",
+                    },
+                }
+            ],
+        )
+        checks = security.evaluate_security(values)
+        check = next(check for check in checks if check.id == "guest-kernel")
+        report = security.format_report(
+            checks,
+            security.SecurityTarget("standalone", "vm"),
+            Path("/tmp/report"),
+        )
+        self.assertEqual(check.status, security.PASS)
+        self.assertIs(check.grace_period, True)
+        self.assertIn("active Ubuntu bulletin grace period", check.assessment)
+        self.assertIn("fix became available within past 3 days", check.grace_note)
+        self.assertIn("[guest-kernel]", report)
 
     def test_unknown_guest_kernel_inventory_never_passes(self) -> None:
         for missing_field in ("running", "newestInstalled"):

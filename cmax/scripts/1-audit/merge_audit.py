@@ -412,6 +412,10 @@ def remap_k8s_canonical(audit: dict[str, Any]) -> None:
             _set_default(bmc, "sudoAccess", str(sudo_access))
         exposed = _truthy(user_access) or _truthy(sudo_access)
         _set_default(bmc, "exposed", exposed)
+        # On Kubernetes this probe runs only in the privileged audit pod
+        # (root, host / mounted and chrooted). The grader needs to know that
+        # host root, not a tenant, reached the BMC.
+        _set_default(bmc, "measuredFrom", "privileged-pod")
 
     # --- Monitoring stack: bridge monitoring.* -> healthChecks.monitoringStack.*
     # so the existing monitoring-stack grader resolves on k8s, and surface DCGM +

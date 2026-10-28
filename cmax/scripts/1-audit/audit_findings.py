@@ -260,6 +260,17 @@ def _vboost_check_unavailable(audit: dict[str, Any]) -> bool:
     return str(status).strip().lower() == "unavailable"
 
 
+def _vboost_not_applicable(audit: dict[str, Any]) -> bool:
+    """True when the vboost check found no NVIDIA GPU control to test.
+
+    The check reports ``status`` = "not_applicable" for a GPU model with no
+    vboost slider and for a Kubernetes cluster whose GPU nodes are all AMD.
+    The sibling ``allowed`` = false is then not a provider denial.
+    """
+    status = nested_get(audit, "gpu_controls", "vboost", "status")
+    return str(status).strip().lower() == "not_applicable"
+
+
 # GPU models with no vboost slider: B300 and GB300 (with or without a vendor
 # prefix or an SXM/NVL suffix, e.g. "NVIDIA-B300-SXM6-AC", "GB300 NVL72").
 _VBOOST_UNSUPPORTED_GPU_RE = re.compile(r"\bg?b300\b", re.IGNORECASE)
@@ -891,6 +902,12 @@ RULES: tuple[Rule, ...] = (
         _status_is("unknown"),
     ),
     Rule(
+        "security.guestKernel.ubuntuCveStatus",
+        "Running Ubuntu kernel is vulnerable under the distribution CVE tracker",
+        VERSION,
+        _status_is("fail"),
+    ),
+    Rule(
         "security.fragnesia.status",
         "Running kernel is exposed to Fragnesia and Dirty Frag",
         VERSION,
@@ -1032,6 +1049,7 @@ RULES: tuple[Rule, ...] = (
         _is_false,
         guard=lambda audit: _not_amd_gpu(audit)
         and not _vboost_check_unavailable(audit)
+        and not _vboost_not_applicable(audit)
         and not _vboost_unsupported_gpu(audit),
     ),
     # --- GPU HBM memory exposure -------------------------------------------
@@ -1102,6 +1120,14 @@ RULES: tuple[Rule, ...] = (
         CONFIG,
         _status_is("warning"),
         harnesses=frozenset({"slurm", "k8s"}),
+    ),
+    # --- Slurm on Kubernetes ---------------------------------------------
+    Rule(
+        "slurm.slinkyControllerSeparate",
+        "Slinky Slurm controller is not running on a separate Kubernetes node",
+        CONFIG,
+        _is_false,
+        harnesses=frozenset({"k8s"}),
     ),
     # --- Networking -------------------------------------------------------
     Rule(
@@ -1507,6 +1533,18 @@ GUARD_SUPPRESSIONS: dict[str, tuple[GuardReason, ...]] = {
     "gpu_controls.vboost.allowed": (
         _AMD_HARDWARE,
         GuardReason(
+            _vboost_unsupported_gpu,
+            NOT_APPLICABLE_KIND,
+            "B300 and GB300 GPUs do not implement the nvidia-smi vboost slider, "
+            "so allowed=false is a hardware limit, not a provider denial.",
+        ),
+        GuardReason(
+            _vboost_not_applicable,
+            NOT_APPLICABLE_KIND,
+            "The vBoost check found no NVIDIA GPU with a vboost slider to test, "
+            "for example a Kubernetes cluster whose GPU nodes are all AMD.",
+        ),
+        GuardReason(
             _vboost_check_unavailable,
             UNVERIFIED_KIND,
             "The vBoost check never reached a GPU with nvidia-smi on any node, "
@@ -1565,6 +1603,8 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "hugepage_allocation.status": None,
     "storage_config.status": None,
     "k8s_scheduling.status": None,
+    # CLI-only until the criteria catalog has a Slinky placement criterion.
+    "slurm.slinkyControllerSeparate": None,
     "tenant_pod_defaults.status": None,
     "tenant_pod_defaults.checks.memlock.status": None,
     "tenant_pod_defaults.checks.shm.status": None,
@@ -1584,6 +1624,7 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "securityVersions.dpuHostIsolation.status": "security-dpu-host-isolation",
     "security.januscape.status": "security-januscape",
     "security.guestKernel.newerInstalled": "guest-kernel-current",
+    "security.guestKernel.ubuntuCveStatus": "guest-kernel-current",
     "security.ubuntuNobleKernelMinimum.status": "ubuntu-kernel-minimum-version",
     "security.fragnesia.status": "ubuntu-kernel-fragnesia-dirty-frag",
     # CLI-only until the website catalog publishes a dedicated Bad Epoll row.
@@ -1921,6 +1962,25 @@ def _finding_guidance(
             "Set the kubelet CPU Manager policy to static on GPU workers. Drain "
             "each worker before you restart its kubelet, then run the audit again."
         )
+    elif rule.key == "security.guestKernel.ubuntuCveStatus":
+        kernel = nested_get(audit, "security", "guestKernel")
+        kernel = kernel if isinstance(kernel, dict) else {}
+        vulnerable = kernel.get("ubuntuVulnerableCves")
+        cve_text = (
+            ", ".join(str(cve) for cve in vulnerable)
+            if isinstance(vulnerable, list) and vulnerable
+            else "a tracked CVE"
+        )
+        detected = (
+            f"The running kernel {kernel.get('running', 'unknown')} is vulnerable "
+            f"to {cve_text} under the Ubuntu CVE tracker."
+        )
+        recommendation = (
+            "Install the fixed Ubuntu kernel package for this kernel and reboot "
+            "into it. If the tracker lists no fix for this kernel package (for "
+            "example, an end-of-life kernel), move to a supported kernel series "
+            "that has the fix."
+        )
     elif rule.key == "networking.topologyConfigured":
         detected = "No topology-aware scheduling configuration was detected."
         recommendation = (
@@ -2088,6 +2148,21 @@ def detect_findings(values: dict[str, Any], *, source: str = "") -> list[Finding
         detected, recommendation, cves, advisories = _finding_guidance(
             audit, finding_rule, guidance_value
         )
+        if rule.key == "security.guestKernel.ubuntuCveStatus":
+            # The finding names only the CVEs this kernel is vulnerable to.
+            vulnerable_cves = nested_get(
+                audit, "security", "guestKernel", "ubuntuVulnerableCves"
+            )
+            cves = (
+                tuple(
+                    cve
+                    for cve in vulnerable_cves
+                    if isinstance(cve, str)
+                    and re.fullmatch(r"CVE-\d{4}-\d+", cve)
+                )
+                if isinstance(vulnerable_cves, list)
+                else ()
+            )
         findings.append(
             Finding(
                 title=finding_rule.title,
