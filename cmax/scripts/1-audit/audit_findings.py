@@ -884,6 +884,13 @@ RULES: tuple[Rule, ...] = (
         cves=("CVE-2026-53359",),
     ),
     Rule(
+        "security.januscape.status",
+        "Fleet coverage is incomplete for the Januscape exposure check",
+        CONFIG,
+        _status_is("coverage-incomplete"),
+        cves=("CVE-2026-53359",),
+    ),
+    Rule(
         "security.guestKernel.newerInstalled",
         "Newer guest/worker kernel installed but not running; reboot required",
         VERSION,
@@ -912,6 +919,13 @@ RULES: tuple[Rule, ...] = (
         "Running kernel is exposed to Fragnesia and Dirty Frag",
         VERSION,
         _status_is("fail"),
+        cves=("CVE-2026-46300", "CVE-2026-43284", "CVE-2026-43500"),
+    ),
+    Rule(
+        "security.fragnesia.status",
+        "Fleet coverage is incomplete for the Fragnesia / Dirty Frag check",
+        CONFIG,
+        _status_is("coverage-incomplete"),
         cves=("CVE-2026-46300", "CVE-2026-43284", "CVE-2026-43500"),
     ),
     Rule(

@@ -115,6 +115,29 @@ class AuditReportTests(unittest.TestCase):
             check.assessment, "Nested virtualization prerequisites are exposed"
         )
 
+    def test_fleet_coverage_incomplete_never_renders_as_a_pass(self) -> None:
+        values = {
+            "audit_data": {
+                "security": {
+                    "fragnesia": {"status": "coverage-incomplete", "scope": "fleet"},
+                    "januscape": {"status": "coverage-incomplete", "scope": "fleet"},
+                    "pwnescape": {"status": "coverage-incomplete", "scope": "fleet"},
+                }
+            }
+        }
+
+        checks = audit_report.evaluate(values, RUNTIME_ROOT)
+
+        for key in (
+            "security.fragnesia.status",
+            "security.januscape.status",
+            "security.pwnescape.status",
+        ):
+            with self.subTest(key=key):
+                check = next(c for c in checks if c.key == key)
+                self.assertEqual(check.status, audit_report.WARNING)
+                self.assertIn("not a pass", check.assessment)
+
     def test_removed_checks_do_not_run_for_any_cluster(self) -> None:
         removed = {
             "containers.dockerVersionOk",
