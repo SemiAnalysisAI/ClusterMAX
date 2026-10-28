@@ -141,8 +141,9 @@ minimum_version_grace() {
 # The fixed ABI always comes from the table. A tracker status of needed,
 # pending, deferred, or ignored is vulnerable because Ubuntu has not released a
 # fix for that kernel. A released status compares the running ABI with the
-# generated fixed ABI. A missing GA row, a missing reader, or an ambiguous
-# row match is unknown.
+# generated fixed ABI. A running kernel with no SCTP_SENDALL row (custom,
+# mainline, or newer than the table), a missing GA row, a missing reader, an
+# unreadable release string, or an ambiguous row match is unknown.
 grade_ubuntu_kernel_cves() {
     local os_id="${1:-unknown}" release="${2:-unknown}" running="${3:-unknown}"
     local grader="${AUDIT_COMMON_DIR}/ubuntu_kernel_cves.py" output=""

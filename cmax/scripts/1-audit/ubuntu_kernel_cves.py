@@ -13,7 +13,12 @@ metadata and describe the GA generic kernel of the release. The running
 release string `<x.y.z>-<abi>-<flavor>` selects at most one row per group.
 
 - No row for the GA generic kernel: unknown, because that row is required.
-- No row for another kernel: the group is outside this check.
+- No row in a group that has per-kernel rows (`kernelGroup`): unknown. The
+  tracker lists every Ubuntu kernel package, so a kernel with no row is a
+  custom or mainline build, a package newer than the table, or a flavor name
+  the table does not know. The audit cannot check it.
+- No row in a group with only the GA row: that group checks only the GA
+  kernel, so other kernels are outside it.
 - More than one row: unknown, because the table cannot name the package.
 - `released`: compare the running ABI with the fixed ABI, with bulletin grace.
 - `needed`, `pending`, `deferred`, `ignored`: vulnerable. Ubuntu has not
@@ -69,7 +74,8 @@ def grade(os_id: str, release: str, running: str) -> tuple[str, list[str], list[
     component, ga_family, groups = RELEASES[release]
     match = RUNNING.fullmatch(running)
     if match is None:
-        return "not-applicable", [], []
+        # A Ubuntu host with a release string the audit cannot read.
+        return "unknown", [], []
     family = f"{match.group(1)}.{match.group(2)}"
     running_abi = int(match.group(3))
     flavor = match.group(4)
@@ -84,12 +90,11 @@ def grade(os_id: str, release: str, running: str) -> tuple[str, list[str], list[
     grace_periods: list[dict] = []
     unknown = checked = 0
     for group in groups:
-        matches = [
-            row for row in _rows(packages, group, ga_family)
-            if row[2] == family and flavor in row[3]
-        ]
+        rows = _rows(packages, group, ga_family)
+        per_kernel = any("kernelGroup" in row[1] for row in rows)
+        matches = [row for row in rows if row[2] == family and flavor in row[3]]
         if len(matches) != 1:
-            if matches or is_ga:
+            if matches or is_ga or per_kernel:
                 unknown += 1
             continue
         key, entry, _, _ = matches[0]

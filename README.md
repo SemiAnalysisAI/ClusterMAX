@@ -103,10 +103,13 @@ The kernel family and the flavor in the running release string select the
 row. A `needed`, `pending`, `deferred`, or `ignored` (for example, end of life)
 tracker state fails because Ubuntu has not released a fix for that kernel. A
 `released` state compares the running ABI with the published fixed ABI after
-the standard bulletin grace period. A GA kernel with no row, or a kernel that
-matches more than one row, is unknown. Other kernels with no row are not
-applicable. riscv64 kernels have no row, because their `generic` flavor name
-cannot be told apart from the amd64 and arm64 kernels.
+the standard bulletin grace period. A kernel with no row is unknown, because the
+audit cannot check it: for example a custom or mainline build, a package newer
+than the table, or a release string the audit cannot read. A kernel that
+matches more than one row is also unknown. riscv64 kernels have no row of
+their own, because their `generic` flavor name cannot be told apart from the
+amd64 and arm64 kernels. The two CVEs above check only the GA kernel, so they
+do not make other kernels unknown.
 
 An absent host Docker installation or an absent CUDA Toolkit in the inspected
 scope remains not applicable. This differs from an unreadable tool or failed

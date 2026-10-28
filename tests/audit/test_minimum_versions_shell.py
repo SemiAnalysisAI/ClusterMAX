@@ -495,16 +495,48 @@ class UbuntuKernelCveTests(TempDirMixin):
             ("fail", '["CVE-2026-46227"]'),
         )
 
-    def test_kernel_without_a_row_stays_not_applicable(self) -> None:
+    def test_kernel_without_a_row_is_unknown(self) -> None:
+        # The tracker lists every Ubuntu kernel package. A kernel with no row
+        # is a custom, mainline, or new build that the audit cannot check.
         table = self.all_kernels_table()
         for release, kernel in (
             ("24.04", "6.8.0-1050-gcp"),
             ("22.04", "5.15.0-1090-oracle"),
+            ("24.04", "6.10.3-061003-generic"),
+            ("24.04", "6.8.0-136-custom"),
+            ("26.04", "7.0.0-1009-aws"),
+            ("24.04", "6.8.0-136-generic+"),
+            ("24.04", "6.8.12"),
         ):
             with self.subTest(kernel=kernel):
                 self.assertEqual(
-                    self.grade(table, release, kernel), ("not-applicable", "[]", "[]")
+                    self.grade(table, release, kernel), ("unknown", "[]", "[]")
                 )
+
+    def test_unknown_kernel_still_reports_a_known_failure(self) -> None:
+        # A missing row in one group must not hide a failure in another.
+        table = self.all_kernels_table()
+        table["components"]["ubuntuNoble"]["packages"]["linuxCgroupWriteback"] = {
+            "cve": "CVE-2026-64378", "package": "linux-nvidia-6.17",
+            "status": "needed", "fixed": "", "allowUnfixed": True,
+            "kernelGroup": "linuxCgroupWriteback", "kernelFamily": "6.17",
+            "kernelFlavors": ["nvidia", "nvidia-64k"],
+        }
+        status, cves, _ = self.grade(table, "24.04", "6.17.0-1031-nvidia")
+        self.assertEqual(status, "fail")
+        self.assertEqual(json.loads(cves), ["CVE-2026-64378", "CVE-2026-46227"])
+
+    def test_ga_only_groups_skip_other_kernels(self) -> None:
+        # Groups with only the GA row check only the GA kernel. Without
+        # per-kernel rows, a non-GA kernel is outside this check.
+        self.assertEqual(
+            self.grade(minimum_table(), "22.04", "5.15.0-1084-aws"),
+            ("not-applicable", "[]", "[]"),
+        )
+        self.assertEqual(
+            self.grade(minimum_table(), "24.04", "6.8.0-136-generic+"),
+            ("unknown", "[]", "[]"),
+        )
 
     def test_two_rows_for_one_kernel_are_unknown(self) -> None:
         table = self.all_kernels_table()
