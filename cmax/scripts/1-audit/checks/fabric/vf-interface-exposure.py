@@ -135,6 +135,10 @@ def collect(*, root: Path = Path("/")) -> dict[str, Any]:
             })
     verbs: dict[str, list[dict[str, Any]]] = {}
     for interface in entries(path("sys/class/infiniband_verbs")):
+        # The class directory also carries plain attribute files such as
+        # abi_version; only the interface entries are directories.
+        if not interface.is_dir():
+            continue
         # Linux ibdev_show is a read-only text attribute containing the HCA name.
         ibdev = text(interface / "ibdev", required=True)
         pci_name = hca_pci.get(ibdev) if ibdev else None

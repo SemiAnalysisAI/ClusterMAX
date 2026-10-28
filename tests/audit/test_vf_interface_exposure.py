@@ -102,6 +102,19 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual(record["evidence"]["device_code_execution"], "unverified")
         self.assertNotIn("pass", json.dumps(record))
 
+    def test_class_attribute_files_do_not_fail_the_inventory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture(root)
+            # Real kernels expose plain attribute files such as abi_version
+            # next to the interface directories; they are not interfaces.
+            (root / "sys/class/infiniband_verbs/abi_version").write_text("6\n")
+            write(root, "sys/bus/pci/devices/0000:03:00.0/vendor", "0x15b3\n")
+            record = exposure.collect(root=root)
+
+        self.assertEqual(record["errors"], [])
+        self.assertEqual(record["status"], "observed")
+
     def test_hidden_physfn_is_unknown_not_physical_function(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
