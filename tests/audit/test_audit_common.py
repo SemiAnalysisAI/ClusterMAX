@@ -230,6 +230,7 @@ class AuditCommonTests(unittest.TestCase):
             selected["security"],
             {
                 "fabric/nic-topology-check.py",
+                "fabric/vf-interface-exposure.py",
                 "fabric/virtio-net-check.py",
             },
         )
