@@ -609,6 +609,18 @@ class ExtractorTest(unittest.TestCase):
             self.assertEqual(cgroup["status"], "needed")
             self.assertFalse(cgroup.get("fixed"))
             self.assertIs(cgroup["allowUnfixed"], True)
+        for component, fixed, abi, notice in (
+            ("ubuntuNoble", "6.8.0-136.136", 136, "USN-8567-1"),
+            ("ubuntuJammy", "5.15.0-186.196", 186, "USN-8575-1"),
+        ):
+            sctp = data["components"][component]["packages"]["linuxSctpSendall"]
+            self.assertEqual(sctp["cve"], "CVE-2026-46227")
+            self.assertEqual(sctp["package"], "linux")
+            self.assertEqual(sctp["status"], "released")
+            self.assertEqual(sctp["fixed"], fixed)
+            self.assertEqual(sctp["abi"], abi)
+            self.assertEqual(sctp["source"]["id"], notice)
+            self.assertIs(sctp["allowUnfixed"], True)
         fr.verify(data, data)
 
     def test_ga_kernel_cve_refresh_rejects_unknown_states_and_loss_of_a_fix(self) -> None:

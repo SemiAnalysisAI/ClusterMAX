@@ -593,6 +593,27 @@ class SecurityReportTests(unittest.TestCase):
             "CVE-2026-64531", {reference.label for reference in check.references}
         )
 
+    def test_sctp_sendall_vulnerability_fails_the_active_kernel_check(self) -> None:
+        values = security_values()
+        values["audit_data"]["security"]["guestKernel"].update(
+            running="5.15.0-181-generic",
+            newestInstalled="5.15.0-181-generic",
+            newerInstalled=False,
+            ubuntuCveStatus="fail",
+            ubuntuVulnerableCves=["CVE-2026-46227"],
+        )
+        check = next(
+            check
+            for check in security.evaluate_security(values)
+            if check.id == "guest-kernel"
+        )
+        self.assertEqual(check.status, security.CRITICAL)
+        self.assertIn("vulnerable to CVE-2026-46227", check.observed)
+        self.assertIn(
+            "https://ubuntu.com/security/CVE-2026-46227",
+            {reference.url for reference in check.references},
+        )
+
     def test_unknown_ubuntu_tracker_status_never_passes(self) -> None:
         values = security_values()
         values["audit_data"]["security"]["guestKernel"].update(

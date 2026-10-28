@@ -1,6 +1,63 @@
 {
   "_comment": "Trimmed Canonical OSV records as OSV.dev serves them (https://api.osv.dev/v1/vulns/UBUNTU-<CVE> and .../<USN-id>). Each CVE record keeps only the Noble (Ubuntu:24.04:LTS), Jammy, and Resolute (Ubuntu:26.04:LTS) entries for the tracked source package, so the extractor must pick the right ecosystem. CVE-2026-53359 is trimmed to the state it had while Canonical tracked the Noble fix as pending: Noble is listed without a fixed event, so the generator falls back to the Ubuntu security API fixture. Each USN record keeps only the fields the generator reads.",
   "cves": {
+    "CVE-2026-46227": {
+      "id": "UBUNTU-CVE-2026-46227",
+      "upstream": [
+        "CVE-2026-46227"
+      ],
+      "related": [
+        "USN-8567-1",
+        "USN-8575-1"
+      ],
+      "published": "2026-05-28T10:16:00Z",
+      "severity": [
+        {
+          "type": "Ubuntu",
+          "score": "medium"
+        }
+      ],
+      "affected": [
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:22.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "5.15.0-186.196"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:24.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "6.8.0-136.136"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
     "CVE-2026-99999": {
       "id": "UBUNTU-CVE-2026-99999",
       "affected": [
@@ -388,6 +445,56 @@
     }
   },
   "notices": {
+    "USN-8567-1": {
+      "id": "USN-8567-1",
+      "published": "2026-07-20T15:36:35Z",
+      "affected": [
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:24.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "6.8.0-136.136"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "USN-8575-1": {
+      "id": "USN-8575-1",
+      "published": "2026-07-21T10:01:10Z",
+      "affected": [
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:22.04:LTS"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "5.15.0-186.196"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
     "USN-7744-1": {
       "id": "USN-7744-1",
       "published": "2025-09-11T12:41:28Z",

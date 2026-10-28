@@ -209,6 +209,14 @@ def minimum_table(
                         "package": "linux",
                         "status": "needed",
                     },
+                    "linuxSctpSendall": {
+                        "abi": 136,
+                        "allowUnfixed": True,
+                        "cve": "CVE-2026-46227",
+                        "fixed": "6.8.0-136.136",
+                        "package": "linux",
+                        "status": "released",
+                    },
                     "linux": {
                         "abi": linux_abi,
                         "fixed": linux_fixed,
@@ -253,6 +261,14 @@ def minimum_table(
                         "package": "linux",
                         "status": "needed",
                     },
+                    "linuxSctpSendall": {
+                        "abi": 186,
+                        "allowUnfixed": True,
+                        "cve": "CVE-2026-46227",
+                        "fixed": "5.15.0-186.196",
+                        "package": "linux",
+                        "status": "released",
+                    },
                 },
             },
         },
@@ -260,7 +276,7 @@ def minimum_table(
 
 
 class UbuntuKernelCveTests(TempDirMixin):
-    """grade_ubuntu_kernel_cves grades the two tracked GA-kernel CVEs."""
+    """grade_ubuntu_kernel_cves grades each GA-kernel CVE in the minimum table."""
 
     def grade(self, table: dict, release: str, kernel: str) -> tuple[str, ...]:
         path = self.write_minimum_table(table)
@@ -275,10 +291,12 @@ class UbuntuKernelCveTests(TempDirMixin):
         self.assertEqual(run.returncode, 0, run.stderr)
         return tuple(run.stdout.splitlines())
 
-    def test_jammy_kernel_fails_both_unreleased_cves(self) -> None:
+    def test_jammy_kernel_fails_the_unreleased_and_the_below_minimum_cves(self) -> None:
         status, cves, grace = self.grade(minimum_table(), "22.04", "5.15.0-185-generic")
         self.assertEqual(status, "fail")
-        self.assertEqual(json.loads(cves), ["CVE-2026-64531", "CVE-2026-64378"])
+        self.assertEqual(
+            json.loads(cves), ["CVE-2026-64531", "CVE-2026-64378", "CVE-2026-46227"]
+        )
         self.assertEqual(json.loads(grace), [])
 
     def test_noble_kernel_fails_only_the_unfixed_cve_at_the_released_abi(self) -> None:
@@ -316,12 +334,78 @@ class UbuntuKernelCveTests(TempDirMixin):
             },
         )
         packages["linuxCgroupWriteback"].update(status="not-affected")
+        packages["linuxSctpSendall"].update(status="not-affected")
 
         status, cves, grace = self.grade(table, "22.04", "5.15.0-185-generic")
 
         self.assertEqual((status, cves), ("pass", "[]"))
         self.assertEqual(json.loads(grace)[0]["cve"], "CVE-2026-64531")
         self.assertIs(json.loads(grace)[0]["policy"]["active"], True)
+
+    def sctp_only_table(self) -> dict:
+        """Clear the other tracked CVEs so only SCTP_SENDALL decides the grade."""
+        table = minimum_table()
+        for component in ("ubuntuJammy", "ubuntuNoble"):
+            packages = table["components"][component]["packages"]
+            packages["linuxOpenvswitchNestedActions"].update(status="not-affected")
+            packages["linuxCgroupWriteback"].update(status="not-affected")
+        return table
+
+    def test_sctp_sendall_boundary_is_the_published_fixed_abi(self) -> None:
+        for release, kernel, expected in (
+            # The internal incident kernel: jammy 5.15.0-181 is below the fix.
+            ("22.04", "5.15.0-181-generic", "fail"),
+            ("22.04", "5.15.0-185-generic-64k", "fail"),
+            ("22.04", "5.15.0-186-generic", "pass"),
+            ("22.04", "5.15.0-187-generic-64k", "pass"),
+            ("24.04", "6.8.0-135-generic", "fail"),
+            ("24.04", "6.8.0-136-generic-64k", "pass"),
+            ("24.04", "6.8.0-137-generic", "pass"),
+        ):
+            with self.subTest(kernel=kernel):
+                status, cves, _ = self.grade(self.sctp_only_table(), release, kernel)
+                self.assertEqual(status, expected)
+                self.assertEqual(
+                    json.loads(cves),
+                    ["CVE-2026-46227"] if expected == "fail" else [],
+                )
+
+    def test_sctp_sendall_minimum_is_read_from_the_table(self) -> None:
+        # A later fixed ABI in the table moves the boundary. No floor is coded
+        # in the grader.
+        table = self.sctp_only_table()
+        table["components"]["ubuntuJammy"]["packages"]["linuxSctpSendall"]["abi"] = 190
+        status, cves, _ = self.grade(table, "22.04", "5.15.0-186-generic")
+        self.assertEqual((status, json.loads(cves)), ("fail", ["CVE-2026-46227"]))
+        # A tracker that withdraws the fix makes every kernel on the train fail.
+        table["components"]["ubuntuJammy"]["packages"]["linuxSctpSendall"].update(
+            status="needed", abi=None, fixed=""
+        )
+        status, cves, _ = self.grade(table, "22.04", "5.15.0-999-generic")
+        self.assertEqual((status, json.loads(cves)), ("fail", ["CVE-2026-46227"]))
+
+    def test_missing_sctp_sendall_row_is_unknown(self) -> None:
+        table = self.sctp_only_table()
+        del table["components"]["ubuntuNoble"]["packages"]["linuxSctpSendall"]
+        self.assertEqual(
+            self.grade(table, "24.04", "6.8.0-140-generic"), ("unknown", "[]", "[]")
+        )
+
+    def test_shipped_table_grades_sctp_sendall(self) -> None:
+        shipped = json.loads((WORKLOAD / "minimum-versions.json").read_text())
+        for component, release, below, fixed in (
+            ("ubuntuJammy", "22.04", "5.15.0-185-generic", "5.15.0-186-generic"),
+            ("ubuntuNoble", "24.04", "6.8.0-135-generic", "6.8.0-136-generic"),
+        ):
+            with self.subTest(component=component):
+                entry = shipped["components"][component]["packages"]["linuxSctpSendall"]
+                self.assertEqual(entry["cve"], "CVE-2026-46227")
+                self.assertEqual(entry["package"], "linux")
+                self.assertEqual(entry["status"], "released")
+                _, cves, _ = self.grade(shipped, release, below)
+                self.assertIn("CVE-2026-46227", json.loads(cves))
+                _, cves, _ = self.grade(shipped, release, fixed)
+                self.assertNotIn("CVE-2026-46227", json.loads(cves))
 
     def test_missing_tracker_rows_are_unknown(self) -> None:
         table = minimum_table()

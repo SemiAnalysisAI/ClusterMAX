@@ -101,6 +101,7 @@ _GUEST_KERNEL_UBUNTU_REFERENCES = _references(
     ("Ubuntu kernel update guidance", "https://ubuntu.com/security/notices"),
     ("CVE-2026-64531", "https://ubuntu.com/security/CVE-2026-64531"),
     ("CVE-2026-64378", "https://ubuntu.com/security/CVE-2026-64378"),
+    ("CVE-2026-46227", "https://ubuntu.com/security/CVE-2026-46227"),
 )
 
 

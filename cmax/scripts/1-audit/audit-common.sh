@@ -134,7 +134,8 @@ minimum_version_grace() {
 }
 
 # grade_ubuntu_kernel_cves - grade the running Ubuntu general-availability
-# kernel against the exact tracker state for the two container-relevant CVEs.
+# kernel against the exact tracker state for each container-relevant CVE that
+# the minimum table publishes. The fixed ABI always comes from the table.
 # A tracker status of needed or pending is vulnerable because Ubuntu has not
 # released a supported fix. A released status compares the running ABI with the
 # generated fixed ABI. Other Ubuntu kernel trains use different source packages
@@ -161,7 +162,7 @@ grade_ubuntu_kernel_cves() {
     esac
     running_abi=$(printf '%s\n' "$running" | sed -nE 's/^[0-9]+\.[0-9]+\.0-([0-9]+).*/\1/p')
 
-    for key in linuxOpenvswitchNestedActions linuxCgroupWriteback; do
+    for key in linuxOpenvswitchNestedActions linuxCgroupWriteback linuxSctpSendall; do
         cve=$(minimum_version "components.${component}.packages.${key}.cve")
         tracker=$(minimum_version "components.${component}.packages.${key}.status")
         fixed_abi=$(minimum_version "components.${component}.packages.${key}.abi")

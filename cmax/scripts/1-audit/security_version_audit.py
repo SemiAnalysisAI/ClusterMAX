@@ -1277,6 +1277,10 @@ def explain_unreadable_virtio_version(
     """
     if virtio.get("status") != "unknown" or virtio.get("versionUnavailableReason") is None:
         return virtio
+    # Isolation passes only after a completed BlueField scan.
+    # Closed RShim flags from an incomplete scan stay unknown.
+    if isolation.get("status") != "pass":
+        return virtio
     hardened = (
         isolation.get("rshimRestricted") is True
         and isolation.get("rshimDeviceNode") is False

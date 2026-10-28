@@ -1,6 +1,37 @@
 {
   "_comment": "One trimmed response per CVE from the Ubuntu security API (https://ubuntu.com/security/cves/<CVE>.json), keyed by CVE id. Each value is the document that endpoint returns, unchanged in shape, so the extractor under test reads real packages[].statuses[] entries. Folded into one file because these four share a feed and a shape; the CSAF and OSV fixtures stay separate because they do not.",
   "responses": {
+    "CVE-2026-46227": {
+      "id": "CVE-2026-46227",
+      "priority": "medium",
+      "notices": [
+        {
+          "id": "USN-8567-1",
+          "published": "2026-07-20T15:36:35.152969"
+        },
+        {
+          "id": "USN-8575-1",
+          "published": "2026-07-21T10:01:10.996036"
+        }
+      ],
+      "packages": [
+        {
+          "name": "linux",
+          "statuses": [
+            {
+              "release_codename": "jammy",
+              "status": "released",
+              "description": "5.15.0-186.196"
+            },
+            {
+              "release_codename": "noble",
+              "status": "released",
+              "description": "6.8.0-136.136"
+            }
+          ]
+        }
+      ]
+    },
     "CVE-2026-99999": {
       "priority": "medium",
       "packages": [

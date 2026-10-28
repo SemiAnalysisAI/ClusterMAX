@@ -233,8 +233,8 @@ UBUNTU_PACKAGES: tuple[dict[str, Any], ...] = (
 )
 
 # Container-relevant GA kernel CVEs that the audit grades per CVE on Ubuntu
-# 22.04 (5.15) and 24.04 (6.8). Ubuntu can track either CVE as `needed` or
-# `pending` before it releases a fix. That state is a vulnerability finding, so
+# 22.04 (5.15) and 24.04 (6.8). Ubuntu can track any of these CVEs as `needed`
+# or `pending` before it releases a fix. That state is a vulnerability finding, so
 # `allowUnfixed` lets the entry publish without a fixed version.
 UBUNTU_KERNEL_CVE_PACKAGES: tuple[dict[str, Any], ...] = (
     {
@@ -247,6 +247,14 @@ UBUNTU_KERNEL_CVE_PACKAGES: tuple[dict[str, Any], ...] = (
     {
         "key": "linuxCgroupWriteback",
         "cve": "CVE-2026-64378",
+        "package": "linux",
+        "abi": True,
+        "allowUnfixed": True,
+    },
+    # SCTP SCTP_SENDALL stale list cursor (container escape to the host kernel).
+    {
+        "key": "linuxSctpSendall",
+        "cve": "CVE-2026-46227",
         "package": "linux",
         "abi": True,
         "allowUnfixed": True,
