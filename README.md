@@ -92,13 +92,21 @@ the client reports the mismatch and retains its installed table.
 On Ubuntu 22.04 and 24.04, the `generic` and `generic-64k` kernels built from
 the GA `linux` source package (5.15 and 6.8) are also graded per CVE against
 the Ubuntu tracker for
-[CVE-2026-64531](https://ubuntu.com/security/CVE-2026-64531),
-[CVE-2026-64378](https://ubuntu.com/security/CVE-2026-64378), and
+[CVE-2026-64531](https://ubuntu.com/security/CVE-2026-64531) and
+[CVE-2026-64378](https://ubuntu.com/security/CVE-2026-64378).
 [CVE-2026-46227](https://ubuntu.com/security/CVE-2026-46227) (SCTP
-`SCTP_SENDALL` container escape). A `needed` or
-`pending` tracker state fails because Ubuntu has not released a fix. A
+`SCTP_SENDALL` container escape) is graded on Ubuntu 22.04, 24.04, and 26.04
+for every kernel source package that the tracker lists on that release: GA,
+HWE, cloud (AWS, Azure, GCP, Oracle, IBM, GKE), NVIDIA, lowlatency, FIPS,
+realtime, and the others. The minimum table has one row per source package.
+The kernel family and the flavor in the running release string select the
+row. A `needed`, `pending`, `deferred`, or `ignored` (for example, end of life)
+tracker state fails because Ubuntu has not released a fix for that kernel. A
 `released` state compares the running ABI with the published fixed ABI after
-the standard bulletin grace period. Other kernel trains are not applicable.
+the standard bulletin grace period. A GA kernel with no row, or a kernel that
+matches more than one row, is unknown. Other kernels with no row are not
+applicable. riscv64 kernels have no row, because their `generic` flavor name
+cannot be told apart from the amd64 and arm64 kernels.
 
 An absent host Docker installation or an absent CUDA Toolkit in the inspected
 scope remains not applicable. This differs from an unreadable tool or failed

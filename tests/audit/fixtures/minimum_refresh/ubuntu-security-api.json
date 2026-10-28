@@ -12,7 +12,11 @@
         {
           "id": "USN-8575-1",
           "published": "2026-07-21T10:01:10.996036"
-        }
+        },
+        {"id": "USN-8566-1", "published": "2026-07-20T15:24:18.105911"},
+        {"id": "USN-8574-2", "published": "2026-07-23T07:48:36.203715"},
+        {"id": "USN-8596-1", "published": "2026-07-23T08:06:00.518443"},
+        {"id": "USN-8619-1", "published": "2026-07-28T07:28:45.671033"}
       ],
       "packages": [
         {
@@ -27,9 +31,41 @@
               "release_codename": "noble",
               "status": "released",
               "description": "6.8.0-136.136"
+            },
+            {
+              "release_codename": "resolute",
+              "status": "released",
+              "description": "7.0.0-28.28"
             }
           ]
-        }
+        },
+        {"name": "linux-hwe-6.8", "statuses": [
+          {"release_codename": "jammy", "status": "released", "description": "6.8.0-136.136~22.04.1"},
+          {"release_codename": "noble", "status": "DNE", "description": ""}
+        ]},
+        {"name": "linux-lowlatency", "statuses": [
+          {"release_codename": "noble", "status": "released", "description": "6.8.0-136.136.2"}
+        ]},
+        {"name": "linux-nvidia", "statuses": [
+          {"release_codename": "noble", "status": "released", "description": "6.8.0-1059.62"}
+        ]},
+        {"name": "linux-nvidia-6.17", "statuses": [
+          {"release_codename": "jammy", "status": "DNE", "description": ""},
+          {"release_codename": "noble", "status": "ignored", "description": "end of life, was needed"}
+        ]},
+        {"name": "linux-hwe-6.17", "statuses": [
+          {"release_codename": "noble", "status": "needed", "description": ""}
+        ]},
+        {"name": "linux-azure-nvidia", "statuses": [
+          {"release_codename": "noble", "status": "pending", "description": "6.8.0-1046.49"}
+        ]},
+        {"name": "linux-aws-7.0", "statuses": [
+          {"release_codename": "noble", "status": "not-affected", "description": "7.0.0-1009.9~24.04.1"}
+        ]},
+        {"name": "linux-riscv", "statuses": [
+          {"release_codename": "noble", "status": "ignored", "description": "replaced by linux-riscv-6.14"},
+          {"release_codename": "resolute", "status": "released", "description": "7.0.0-28.28.1"}
+        ]}
       ]
     },
     "CVE-2026-99999": {

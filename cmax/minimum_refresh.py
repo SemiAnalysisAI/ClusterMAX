@@ -252,15 +252,33 @@ UBUNTU_KERNEL_CVE_PACKAGES: tuple[dict[str, Any], ...] = (
         "allowUnfixed": True,
     },
     # SCTP SCTP_SENDALL stale list cursor (container escape to the host kernel).
+    # `allKernels` publishes one row for every kernel source package that the
+    # Ubuntu tracker lists on the release, not only the GA `linux` package.
     {
         "key": "linuxSctpSendall",
         "cve": "CVE-2026-46227",
         "package": "linux",
         "abi": True,
         "allowUnfixed": True,
+        "allKernels": True,
     },
 )
 UBUNTU_PACKAGES += UBUNTU_KERNEL_CVE_PACKAGES
+UBUNTU_ALL_KERNEL_CVE_PACKAGES = tuple(
+    spec for spec in UBUNTU_KERNEL_CVE_PACKAGES if spec.get("allKernels")
+)
+
+# The GA kernel family of each release. A kernel source package without a
+# version suffix (linux, linux-aws, linux-nvidia, ...) builds this family.
+UBUNTU_GA_KERNEL_FAMILY = {"jammy": "5.15", "noble": "6.8", "resolute": "7.0"}
+# Tracker states an `allKernels` row can carry. DNE packages get no row.
+UBUNTU_KERNEL_ROW_STATES = {
+    "released", "needed", "pending", "deferred", "ignored", "not-affected",
+}
+# riscv64 kernels use the "generic" flavor name, so a running release string
+# cannot tell them apart from the GA or HWE generic kernel of the same family.
+# A row for them would grade every amd64 and arm64 generic host as well.
+UBUNTU_KERNEL_EXCLUDED = re.compile(r"linux-riscv(?:-\d+\.\d+)?")
 
 # Ubuntu 26.04 (resolute) GA kernel fixes the audit grades by source package.
 UBUNTU_RESOLUTE_PACKAGES: tuple[dict[str, Any], ...] = (
@@ -273,6 +291,7 @@ UBUNTU_RESOLUTE_PACKAGES: tuple[dict[str, Any], ...] = (
         "relatedCves": ["CVE-2026-43284", "CVE-2026-43500"],
         "abi": True,
     },
+    *UBUNTU_ALL_KERNEL_CVE_PACKAGES,
 )
 
 # Docker Engine majors whose release-note pages feed the Docker minimum. Docker
@@ -1917,6 +1936,126 @@ def ubuntu_entry(
     return entry
 
 
+class _MemoFetcher:
+    """Share one response per URL across the rows of one Ubuntu release.
+
+    Every `allKernels` row reads the same CVE record and the same USN records,
+    so without this a CVE with a hundred kernel rows would fetch each feed a
+    hundred times. Only successful JSON reads are kept.
+    """
+
+    def __init__(self, inner: Fetcher | None) -> None:
+        self._inner = _fetcher(inner)
+        self._json: dict[str, Any] = {}
+        self._optional: dict[str, Any] = {}
+
+    def get_json(self, url: str) -> Any:
+        if url not in self._json:
+            self._json[url] = self._inner.get_json(url)
+        return copy.deepcopy(self._json[url])
+
+    def get_optional_json(self, url: str) -> Any | None:
+        if url not in self._optional:
+            self._optional[url] = self._inner.get_optional_json(url)
+        return copy.deepcopy(self._optional[url])
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+def ubuntu_kernel_identity(package: str, codename: str) -> tuple[str, list[str]] | None:
+    """Return the kernel family and release-string flavors of one source package.
+
+    Ubuntu names a kernel source package `linux[-<flavor>][-<x.y>]`. The
+    version suffix marks a backport of that family to an older release; no
+    suffix means the release's GA family. HWE packages build the generic (or
+    lowlatency) flavor. The running release string is
+    `<x.y.z>-<abi>-<flavor>`, so family plus flavor names one package.
+    """
+    match = re.fullmatch(r"linux((?:-[a-z][a-z0-9]*)*)(?:-(\d+\.\d+))?", package)
+    if match is None or UBUNTU_KERNEL_EXCLUDED.fullmatch(package):
+        return None
+    family = match.group(2) or UBUNTU_GA_KERNEL_FAMILY.get(codename)
+    if family is None:
+        return None
+    tokens = [token for token in match.group(1).split("-") if token and token != "hwe"]
+    flavor = "-".join(tokens) or "generic"
+    return family, [flavor, f"{flavor}-64k"]
+
+
+def ubuntu_kernel_row_key(key: str, package: str) -> str:
+    """`linuxSctpSendall` + `linux-hwe-6.8` -> `linuxSctpSendallHwe6_8`.
+
+    The key stays a single dotted-path segment for minimum_versions.py.
+    """
+    parts = [part for part in package.split("-")[1:] if part]
+    return key + "".join(
+        part.replace(".", "_") if part[0].isdigit() else part.capitalize()
+        for part in parts
+    )
+
+
+def ubuntu_kernel_cve_rows(
+    spec: dict, codename: str, fetch: Fetcher | None = None
+) -> dict[str, dict]:
+    """One row per kernel source package the Ubuntu tracker lists for one CVE.
+
+    The tracker is the only source that names every kernel package and its
+    state on a release. A `released` row carries the fixed ABI. `needed`,
+    `pending`, `deferred`, and `ignored` rows carry no fixed version: Ubuntu
+    has not shipped a fix, or never will for an end-of-life kernel, so the
+    audit grades them vulnerable. The tracker text for such rows is kept as
+    `trackerNote`. The GA `linux` row is required.
+    """
+    cve = spec["cve"]
+    doc = _fetcher(fetch).get_json(f"{UBUNTU_CVE_URL}{cve}.json")
+    listed: list[tuple[str, str, list[str]]] = []
+    for candidate in doc.get("packages", []) if isinstance(doc, dict) else []:
+        name = candidate.get("name") if isinstance(candidate, dict) else None
+        if not isinstance(name, str):
+            continue
+        states = [
+            status for status in candidate.get("statuses", [])
+            if isinstance(status, dict) and status.get("release_codename") == codename
+        ]
+        if not states or str(states[-1].get("status")) == "DNE":
+            continue
+        identity = ubuntu_kernel_identity(name, codename)
+        if identity is None:
+            continue
+        listed.append((name, *identity))
+    if not any(name == spec["package"] for name, _, _ in listed):
+        raise MinimumRefreshError(
+            f"ubuntu: {cve} lists no {spec['package']} status on {codename}"
+        )
+
+    def resolve(item: tuple[str, str, list[str]]) -> tuple[str, dict]:
+        name, family, flavors = item
+        entry = ubuntu_entry(cve, name, codename, fetch=fetch)
+        state = str(entry.get("status") or "")
+        if state != "released":
+            note = entry.get("fixed")
+            entry["fixed"] = ""
+            entry.pop("fixAvailability", None)
+            if note:
+                entry["trackerNote"] = note
+        if state == "released":
+            abi = kernel_abi(entry.get("fixed"))
+            if abi is not None:
+                entry["abi"] = abi
+            fixed_family = re.match(r"(\d+\.\d+)\.", str(entry.get("fixed") or ""))
+            if fixed_family:
+                family = fixed_family.group(1)
+        entry["allowUnfixed"] = True
+        entry["kernelGroup"] = spec["key"]
+        entry["kernelFamily"] = family
+        entry["kernelFlavors"] = flavors
+        return ubuntu_kernel_row_key(spec["key"], name), entry
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        return dict(pool.map(resolve, listed))
+
+
 def ubuntu_minimums(
     codename: str = UBUNTU_RELEASE,
     specs: Sequence[dict] = UBUNTU_PACKAGES,
@@ -1938,8 +2077,13 @@ def ubuntu_minimums(
     # Independent package lookups must not add every slow Ubuntu response to
     # the refresh's wall time. map preserves the input order and propagates
     # failures: no partial package table is returned.
+    single = [spec for spec in specs if not spec.get("allKernels")]
     with ThreadPoolExecutor(max_workers=4) as pool:
-        packages = dict(pool.map(resolve, specs))
+        packages = dict(pool.map(resolve, single))
+    memo = _MemoFetcher(fetch)
+    for spec in specs:
+        if spec.get("allKernels"):
+            packages.update(ubuntu_kernel_cve_rows(spec, codename, fetch=memo))
     # Named CVE entries remain because the audit reports those findings
     # separately. Package-wide floors are discovered from every matching Noble
     # USN, so a new kernel or QEMU advisory cannot wait for a code edit.
@@ -3009,6 +3153,17 @@ def verify(doc: dict, existing: dict | None = None) -> None:
                         f"{entry.get('cve')} disappeared"
                     )
                     continue
+                if entry.get("kernelGroup"):
+                    # A per-kernel row. Unfixed and not-affected states are
+                    # valid tracker evidence; anything else is unverified.
+                    if state not in UBUNTU_KERNEL_ROW_STATES:
+                        problems.append(
+                            f"{name}.{key}: Ubuntu tracker status for {entry.get('cve')} "
+                            f"is unverified ({state!r})"
+                        )
+                        continue
+                    if state != "released" or entry.get("fixed"):
+                        continue
                 if state in {"needed", "pending"} and not entry.get("fixed"):
                     continue
                 if state not in {"needed", "pending", "released"}:
