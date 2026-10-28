@@ -871,6 +871,13 @@ RULES: tuple[Rule, ...] = (
     # --- Hypervisor security bulletins ----------------------------------
     Rule(
         "security.januscape.status",
+        "Nested virtualization exposes Januscape prerequisites on a fleet host",
+        VERSION,
+        _status_is("fail"),
+        cves=("CVE-2026-53359",),
+    ),
+    Rule(
+        "security.januscape.status",
         "Nested virtualization exposes Januscape prerequisites",
         CONFIG,
         _status_is("host-patch-required"),
@@ -1859,9 +1866,15 @@ def _finding_guidance(
     component_name = _COMPONENT_NAMES.get(component, component)
     if (
         rule.key == "security.januscape.status"
-        and str(value).strip().lower() == "host-patch-required"
+        and str(value).strip().lower() in {"host-patch-required", "fail"}
     ):
-        detected = "Nested virtualization prerequisites are exposed"
+        payload = nested_get(audit, "security", "januscape", default={})
+        reason = str(payload.get("reason") or "").strip()
+        detected = (
+            reason
+            if str(value).strip().lower() == "fail" and reason
+            else "Nested virtualization prerequisites are exposed"
+        )
         recommendation = (
             "Disable nested virtualization and remove guest access to /dev/kvm "
             "until the provider confirms the physical-host patch."
