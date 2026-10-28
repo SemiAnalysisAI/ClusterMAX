@@ -848,6 +848,50 @@ def _januscape(audit: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
+def _ufm_observed(status: str, value: dict[str, Any]) -> str:
+    """Render the IB fabric facts collected for the otherwise manual row."""
+    observed = f"status {status}"
+    evidence = value.get("fabricEvidence")
+    if not isinstance(evidence, dict):
+        return observed
+    facts: list[str] = []
+    sm_lids = [str(item) for item in evidence.get("smLids") or []]
+    if sm_lids:
+        facts.append("SM LID " + ",".join(sm_lids))
+    ports = [port for port in evidence.get("ports") or [] if isinstance(port, dict)]
+    if ports:
+        hosts = evidence.get("hostCount") or len({port.get("host") for port in ports})
+        port_count = evidence.get("portCount") or len(ports)
+        links: list[str] = []
+        for port in ports:
+            detail = " ".join(
+                part
+                for part in (
+                    str(port.get("state") or ""),
+                    f"{port['rate_gbps']} Gb/s" if port.get("rate_gbps") else "",
+                    f"{port.get('width', '')} {port.get('speed', '')}".strip(),
+                )
+                if part
+            )
+            if detail and detail not in links:
+                links.append(detail)
+        summary = f"{hosts} host(s), {port_count} fabric port(s)"
+        if links:
+            summary += " " + ", ".join(links)
+        facts.append(summary)
+    pkeys = [str(item) for item in evidence.get("pkeys") or []]
+    if pkeys:
+        detail = "pkeys " + ",".join(pkeys)
+        if evidence.get("defaultFullPkeyPresent") is False:
+            detail += " (full-membership default PKey 0xffff absent)"
+        facts.append(detail)
+        limited = [str(item) for item in evidence.get("limitedMembershipPkeys") or []]
+        facts.append("default limited-membership PKey " + (",".join(limited) if limited else "none"))
+    if not facts:
+        return observed
+    return observed + "; " + "; ".join(facts)
+
+
 def _ufm(audit: dict[str, Any]) -> tuple[str, str, str]:
     value = _get(audit, "security.ufmSecuredBareMetalCloud")
     if not isinstance(value, dict):
@@ -866,7 +910,7 @@ def _ufm(audit: dict[str, Any]) -> tuple[str, str, str]:
             "No native InfiniBand fabric requiring this UFM profile was detected.",
         )
     status = str(value.get("status") or "unknown").lower()
-    observed = f"status {status}"
+    observed = _ufm_observed(status, value)
     if value.get("probeComplete") is False:
         return WARNING, observed, "The UFM probe did not complete; profile isolation is unverified."
     controls = value.get("controls")
@@ -898,7 +942,10 @@ def _ufm(audit: dict[str, Any]) -> tuple[str, str, str]:
     return (
         WARNING,
         observed,
-        "The UFM security profile requires provider-side verification.",
+        "The UFM security profile requires provider-side verification. The "
+        "tenant reads the SM LID, port state, link width and speed, and the "
+        "PKey table from fabric sysfs, so the provider only needs to confirm "
+        "the UFM-managed MAD keys, GUID access list, and rate limits.",
     )
 
 

@@ -488,6 +488,43 @@ def parse_lldp(text: str) -> dict:
     return fields
 
 
+def parse_pkey_table(entries: list[str]) -> list[str]:
+    """Normalize non-empty sysfs PKey slots to lowercase 0xNNNN strings.
+
+    Only populated slots matter: 0x0000 marks an empty table row. A full
+    membership key has the high bit set (0x8000); a limited membership key
+    leaves it clear. The caller keeps the raw value so the partition policy
+    stays visible without a second read.
+    """
+    out: list[str] = []
+    for entry in entries:
+        value = (entry or "").strip().lower()
+        if not value or value in {"0x0000", "0x0"}:
+            continue
+        if not value.startswith("0x"):
+            try:
+                value = f"0x{int(value, 16):#06x}"
+            except ValueError:
+                continue
+        out.append(value)
+    return out
+
+
+def parse_fabric_facts(lid: str, sm_lid: str, pkey_entries: list[str]) -> dict:
+    """SM and partition facts that a tenant can read from IB port sysfs."""
+    facts: dict[str, Any] = {}
+    lid = (lid or "").strip().lower()
+    sm_lid = (sm_lid or "").strip().lower()
+    if lid:
+        facts["lid"] = lid
+    if sm_lid:
+        facts["smLid"] = sm_lid
+    pkeys = parse_pkey_table(pkey_entries)
+    if pkeys:
+        facts["pkeys"] = pkeys
+    return facts
+
+
 def parse_ibnetdiscover(text: str, node_guid: str, host: str) -> dict:
     """Per-plane neighbor summary from `ibnetdiscover -C <dev> -p`.
 
@@ -528,6 +565,7 @@ def evidence_from_raw(
     *,
     node_guid: str = "",
     host: str = "",
+    fabric: dict[str, Any] | None = None,
 ) -> dict:
     """Assemble one HCA's tri-state evidence record from raw tool outputs.
 
@@ -536,6 +574,8 @@ def evidence_from_raw(
     orchestrator so both paths emit identical shapes.
     """
     record: dict[str, Any] = {"ibdev": dev, "port": parse_port_attrs(rate_raw)}
+    if fabric:
+        record["fabric"] = fabric
     record["mlxconfig"] = _tri(*raws.get("mlxconfig", ("", "not attempted")), parse_mlxconfig)
     record["mlxlink"] = _tri(*raws.get("mlxlink", ("", "not attempted")), parse_mlxlink)
 
@@ -577,6 +617,25 @@ def evidence_from_raw(
     return record
 
 
+def _read_fabric_facts(sysfs_root: str, dev: str) -> dict | None:
+    """SM and partition facts from IB port sysfs, without touching UMAD.
+
+    ``sminfo``, ``perfquery`` and ``ibnetdiscover`` all need a UMAD
+    registration, which a tenant pod can be denied. The same SM LID and PKey
+    table are plain sysfs reads, so the evidence survives that boundary.
+    """
+    base = f"{sysfs_root}/{dev}/ports/1"
+    entries: list[str] = []
+    for path in sorted(glob.glob(f"{base}/pkeys/*")):
+        try:
+            entries.append(_read_sysfs(path))
+        except OSError:
+            continue
+    return parse_fabric_facts(
+        _read_sysfs(f"{base}/lid"), _read_sysfs(f"{base}/sm_lid"), entries
+    ) or None
+
+
 def _read_sysfs(path: str) -> str:
     try:
         return open(path).read().strip()
@@ -615,12 +674,14 @@ def collect_plane_evidence(
             continue
         dev = nic["name"]
         rate_raw = _read_sysfs(f"{sysfs_root}/{dev}/ports/1/rate")
+        fabric = _read_fabric_facts(sysfs_root, dev) if nic.get("layer") == "InfiniBand" else None
         if time_fn() - started > budget_s:
             record = evidence_from_raw(
                 dev,
                 nic.get("layer", "?"),
                 rate_raw,
                 {tool: ("", "budget exhausted") for tool in ("mlxconfig", "mlxlink", "ibnetdiscover", "lldp")},
+                fabric=fabric,
             )
             out.append(record)
             continue
@@ -646,7 +707,8 @@ def collect_plane_evidence(
             raws["lldp"] = ("", "no netdev exposed for this HCA")
         out.append(
             evidence_from_raw(
-                dev, nic.get("layer", "?"), rate_raw, raws, node_guid=node_guid, host=host
+                dev, nic.get("layer", "?"), rate_raw, raws,
+                node_guid=node_guid, host=host, fabric=fabric,
             )
         )
     return out
@@ -1070,6 +1132,18 @@ for d in /sys/class/infiniband/*; do
   checked=$((checked+1))
   g=$(cat "$d/node_guid" 2>/dev/null)
   printf '@@PLANEGUID@@\t%s\t%s\n' "$n" "$g"
+  # SM and PKey facts are plain sysfs reads, so they survive the UMAD denial
+  # that makes sminfo / perfquery / ibnetdiscover unusable in a system pod.
+  lid=$(cat "$d/ports/1/lid" 2>/dev/null)
+  smlid=$(cat "$d/ports/1/sm_lid" 2>/dev/null)
+  pk=""
+  for pf in "$d"/ports/1/pkeys/*; do
+    [ -e "$pf" ] || continue
+    v=$(cat "$pf" 2>/dev/null)
+    case "$v" in ""|0x0000|0X0000) continue;; esac
+    pk="${pk:+$pk,}$v"
+  done
+  printf '@@PORT@@\t%s\t%s\t%s\t%s\n' "$n" "$lid" "$smlid" "$pk"
   l=$(cat "$d/ports/1/link_layer" 2>/dev/null)
   # Renamed ibdevs (for example rail0) do not resolve in the mlx tools; the
   # PCI function does.
@@ -1138,6 +1212,21 @@ def _k8s_rate_raws(text: str) -> dict[str, str]:
             if len(parts) >= 3:
                 raws[parts[1]] = parts[2].strip()
     return raws
+
+
+def _parse_k8s_ports(text: str) -> dict[str, dict]:
+    """Parse @@PORT@@ lines (dev, LID, SM LID, populated PKeys) into facts."""
+    ports: dict[str, dict] = {}
+    for line in text.splitlines():
+        if not line.startswith("@@PORT@@\t"):
+            continue
+        parts = line.split("\t")
+        if len(parts) < 5:
+            continue
+        facts = parse_fabric_facts(parts[2], parts[3], parts[4].split(","))
+        if facts:
+            ports[parts[1]] = facts
+    return ports
 
 
 def _parse_k8s_plane(text: str) -> tuple[dict[str, dict[str, tuple[str, str | None]]], dict[str, str]]:
@@ -1241,6 +1330,7 @@ def run_k8s_node_check(
         record["topo_error"] = "no output"
     plane_raws, plane_guids = _parse_k8s_plane(proc.stdout)
     rate_raws = _k8s_rate_raws(proc.stdout)
+    ports = _parse_k8s_ports(proc.stdout)
     evidence = [
         evidence_from_raw(
             nic["name"],
@@ -1249,6 +1339,7 @@ def run_k8s_node_check(
             plane_raws.get(nic["name"], {}),
             node_guid=plane_guids.get(nic["name"], ""),
             host=node,
+            fabric=ports.get(nic["name"]),
         )
         for nic in record["nics"]
         if plane_candidate(nic)

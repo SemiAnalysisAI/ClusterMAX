@@ -562,6 +562,91 @@ def refine_rdma_fabric_from_topology(audit: dict[str, Any], nic_topology: dict[s
         security["ufmSecuredBareMetalCloud"]["applicable"] = applicable
 
 
+def attach_ufm_fabric_evidence(
+    audit: dict[str, Any],
+    nic_topology: dict[str, Any],
+    plane_evidence: dict[str, Any],
+) -> None:
+    """Record the IB fabric facts a tenant can prove for the UFM row.
+
+    The UFM Secured Bare Metal Cloud profile itself lives outside the cluster,
+    so the row stays a warning. SM LID, port state, link width and speed, and
+    the PKey table are readable from IB port sysfs inside a tenant pod, which
+    lets the reader see the fabric the provider must secure. No UFM server is
+    assumed: with no sysfs facts the row is left exactly as collected.
+    """
+    security = audit.get("security")
+    ufm = security.get("ufmSecuredBareMetalCloud") if isinstance(security, dict) else None
+    if not isinstance(ufm, dict) or ufm.get("applicable") is not True:
+        return
+    if not isinstance(plane_evidence, dict):
+        return
+    states: dict[tuple[str, str], str] = {}
+    if isinstance(nic_topology, dict):
+        for host, nics in nic_topology.items():
+            if not isinstance(nics, list):
+                continue
+            for nic in nics:
+                if isinstance(nic, dict) and nic.get("name"):
+                    states[(str(host), str(nic["name"]))] = str(nic.get("state") or "")
+
+    ports: list[dict[str, Any]] = []
+    pkeys: set[str] = set()
+    sm_lids: set[str] = set()
+    for host in sorted(plane_evidence):
+        records = plane_evidence[host]
+        if not isinstance(records, list):
+            continue
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            fabric = record.get("fabric")
+            if not isinstance(fabric, dict):
+                continue
+            device = str(record.get("ibdev") or "")
+            port_attrs = record.get("port") if isinstance(record.get("port"), dict) else {}
+            entry: dict[str, Any] = {"host": str(host), "device": device}
+            for key, field in (("lid", "lid"), ("smLid", "smLid")):
+                if fabric.get(key):
+                    entry[field] = str(fabric[key])
+            state = states.get((str(host), device))
+            if state:
+                entry["state"] = state
+            for key in ("rate_gbps", "width", "speed"):
+                if port_attrs.get(key) not in (None, ""):
+                    entry[key] = port_attrs[key]
+            port_pkeys = [str(p) for p in fabric.get("pkeys") or []]
+            if port_pkeys:
+                entry["pkeys"] = port_pkeys
+            pkeys.update(port_pkeys)
+            if fabric.get("smLid"):
+                sm_lids.add(str(fabric["smLid"]))
+            ports.append(entry)
+    if not ports:
+        return
+
+    def _value(pkey: str) -> int | None:
+        try:
+            return int(pkey, 16)
+        except ValueError:
+            return None
+
+    ufm["fabricEvidence"] = {
+        "source": "InfiniBand port sysfs read from the tenant audit pod",
+        "hostCount": len({entry["host"] for entry in ports}),
+        "portCount": len(ports),
+        "smLids": sorted(sm_lids),
+        "pkeys": sorted(pkeys),
+        "defaultFullPkeyPresent": "0xffff" in pkeys,
+        # The high bit of a PKey marks full membership. A cleared bit means the
+        # SM limits that partition's traffic, so record it explicitly.
+        "limitedMembershipPkeys": sorted(
+            pkey for pkey in pkeys if (_value(pkey) is not None and _value(pkey) < 0x8000)
+        ),
+        "ports": ports,
+    }
+
+
 def build_values(
     audit: dict[str, Any],
     *,
@@ -593,6 +678,7 @@ def build_values(
                 else "unknown"
             )
     refine_rdma_fabric_from_topology(audit, nic_topology)
+    attach_ufm_fabric_evidence(audit, nic_topology, check_data.get("nic_plane_evidence"))
 
     if harness == "k8s":
         remap_k8s_canonical(audit)

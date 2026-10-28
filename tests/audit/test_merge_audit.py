@@ -250,7 +250,7 @@ class MergeAuditTests(unittest.TestCase):
                 "country": "US",
                 "coordinates": "40.6097,-111.9391",
             },
-            gpus={"total": 4, "model": "NVIDIA GB300", "perNode": 4},
+            gpus={"total": 4, "model": "NVIDIA H100", "perNode": 4},
         )
 
         cluster = merge_audit.build_values(audit, harness="slurm", check_data={})["cluster"]
@@ -264,7 +264,7 @@ class MergeAuditTests(unittest.TestCase):
                 "audit": {"timestamp": "2026-06-09T02:53:44Z"},
                 "serverLocation": server_location,
                 "nodes": {"total": 1},
-                "gpus": {"total": 4, "model": "NVIDIA GB300", "perNode": 4},
+                "gpus": {"total": 4, "model": "NVIDIA H100", "perNode": 4},
                 "software": {"ncclVersion": "unknown"},
             }
             cluster = merge_audit.build_values(audit, harness="slurm", check_data={})["cluster"]
@@ -434,6 +434,60 @@ class K8sCanonicalRemapTests(unittest.TestCase):
         out = merge_audit.build_values(audit, harness="k8s", check_data={"nic_topology": nt})["audit_data"]
         self.assertEqual(out["networking"]["rdmaType"], "infiniband")
         self.assertEqual(out["security"]["ufmSecuredBareMetalCloud"]["status"], "manual")
+
+    def test_ufm_row_records_tenant_visible_fabric_facts(self) -> None:
+        audit = {
+            "audit": {"timestamp": "2026-10-24T07:06:05Z"},
+            "nodes": {"total": 4},
+            "gpus": {"total": 16, "model": "NVIDIA H100", "perNode": 4},
+            "software": {"ncclVersion": "unknown"},
+            "networking": {"rdmaType": "rdma"},
+            "security": {"ufmSecuredBareMetalCloud": {"status": "unknown"}},
+        }
+        nt = {
+            "node-01": [
+                {"layer": "InfiniBand", "name": "mlx5_0", "role": "fabric", "state": "ACTIVE"}
+            ]
+        }
+        plane = {
+            "node-01": [
+                {
+                    "ibdev": "mlx5_0",
+                    "port": {"rate_gbps": 800, "width": "4X", "speed": "XDR"},
+                    "fabric": {"lid": "0x705", "smLid": "0x1", "pkeys": ["0x8001", "0x7fff"]},
+                }
+            ]
+        }
+        out = merge_audit.build_values(
+            audit,
+            harness="k8s",
+            check_data={"nic_topology": nt, "nic_plane_evidence": plane},
+        )["audit_data"]
+        ufm = out["security"]["ufmSecuredBareMetalCloud"]
+        self.assertEqual(ufm["status"], "manual")
+        evidence = ufm["fabricEvidence"]
+        self.assertEqual(evidence["smLids"], ["0x1"])
+        self.assertEqual(evidence["hostCount"], 1)
+        self.assertEqual(evidence["portCount"], 1)
+        self.assertEqual(evidence["pkeys"], ["0x7fff", "0x8001"])
+        self.assertFalse(evidence["defaultFullPkeyPresent"])
+        self.assertEqual(evidence["limitedMembershipPkeys"], ["0x7fff"])
+        self.assertEqual(evidence["ports"][0]["state"], "ACTIVE")
+        self.assertEqual(evidence["ports"][0]["rate_gbps"], 800)
+
+    def test_ufm_row_without_sysfs_facts_stays_manual(self) -> None:
+        audit = {
+            "audit": {"timestamp": "2026-10-24T07:06:05Z"},
+            "nodes": {"total": 4},
+            "gpus": {"total": 16, "model": "NVIDIA H100", "perNode": 4},
+            "software": {"ncclVersion": "unknown"},
+            "networking": {"rdmaType": "infiniband"},
+            "security": {"ufmSecuredBareMetalCloud": {"status": "manual", "applicable": True}},
+        }
+        out = merge_audit.build_values(audit, harness="k8s", check_data={})["audit_data"]
+        ufm = out["security"]["ufmSecuredBareMetalCloud"]
+        self.assertEqual(ufm["status"], "manual")
+        self.assertNotIn("fabricEvidence", ufm)
 
     def test_amd_device_metrics_exporter_bridges_as_gpu_metrics(self) -> None:
         audit = merge_fixture(
