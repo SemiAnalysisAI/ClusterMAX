@@ -2113,10 +2113,13 @@ if [[ "$WORKER_CHECK_OK" == "true" ]]; then
 
     if [[ "$WORKER_DCGM_HEALTH_OK" == "true" ]]; then
         DCGM_HEALTH_WATCHES_ENABLED="true"
-        print_info "DCGM health watches: Enabled on compute node (dcgmi health -g 0 -s a OK)"
+        print_info "DCGM health watches: Active on compute node (dcgmi health -g 0 -f)"
+    elif [[ "${WORKER_DCGM_HEALTH_QUERY:-}" == "failed" ]]; then
+        print_warn "DCGM health watches: Could not read watch status on compute node (dcgmi health -g 0 -f failed)"
+        print_detail "Check GPU group 0 and the DCGM host engine: dcgmi group -l && dcgmi health -g 0 -f"
     else
-        print_warn "DCGM health watches: Could not enable on compute node (dcgmi health -g 0 -s a failed)"
-        print_detail "Ensure GPU group 0 exists: dcgmi group -c mygroup && dcgmi health -g <id> -s a"
+        print_warn "DCGM health watches: Not enabled on compute node (no active DCGM health watches)"
+        print_detail "Enable watches on the node: dcgmi health -g 0 -s <flags> (see dcgmi health --help)"
     fi
     case "$DCGM_DIAG_R1" in
         pass) print_info "DCGM diag -r 1: PASS" ;;

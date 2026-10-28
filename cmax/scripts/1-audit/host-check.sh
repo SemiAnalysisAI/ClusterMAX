@@ -2349,10 +2349,21 @@ fi
 if command -v dcgmi &>/dev/null; then
     echo "WORKER_DCGM_VERSION=$(dcgmi --version 2>/dev/null | grep -m1 -v '^[[:space:]]*$' || echo unknown)"
     if ! security_checks_only; then
-    if dcgmi health -g 0 -s a &>/dev/null 2>&1; then
+    # Read-only DCGM health-watches probe. Do NOT set watches from the audit
+    # (`dcgmi health -g 0 -s a`): enabling all watches also turns on watches
+    # for subsystems that may not be deployed (for example the IMEX daemon).
+    # A site health checker that polls DCGM health then reports a failure and
+    # drains the node. Query the current watch state instead.
+    WORKER_DCGM_WATCH_OUTPUT=$(dcgmi health -g 0 -f 2>/dev/null); DCGM_WATCH_QUERY_RC=$?
+    if [[ $DCGM_WATCH_QUERY_RC -ne 0 ]]; then
+        echo "WORKER_DCGM_HEALTH_OK=false"
+        echo "WORKER_DCGM_HEALTH_QUERY=failed"
+    elif printf '%s\n' "$WORKER_DCGM_WATCH_OUTPUT" | grep -qE '\|[[:space:]]*On[[:space:]]*\|'; then
         echo "WORKER_DCGM_HEALTH_OK=true"
+        echo "WORKER_DCGM_HEALTH_QUERY=active-watches"
     else
         echo "WORKER_DCGM_HEALTH_OK=false"
+        echo "WORKER_DCGM_HEALTH_QUERY=no-watches"
     fi
     timeout 60 dcgmi diag -r 1 >/dev/null 2>&1
     DCGM_DIAG_R1_RC=$?
@@ -2379,12 +2390,14 @@ if command -v dcgmi &>/dev/null; then
     fi
     else
         echo "WORKER_DCGM_HEALTH_OK=skipped"
+        echo "WORKER_DCGM_HEALTH_QUERY=skipped"
         echo "WORKER_DCGM_DIAG_R1=skipped"
         echo "WORKER_DCGM_DIAG_R2=skipped"
     fi
 else
     echo "WORKER_DCGM_VERSION=not-found"
     echo "WORKER_DCGM_HEALTH_OK=false"
+    echo "WORKER_DCGM_HEALTH_QUERY=no-dcgmi"
     echo "WORKER_DCGM_DIAG_R1=no-dcgmi"
     echo "WORKER_DCGM_DIAG_R2=no-dcgmi"
 fi
