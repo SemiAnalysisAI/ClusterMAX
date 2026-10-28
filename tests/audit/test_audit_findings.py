@@ -671,6 +671,19 @@ class DetectFindingsTests(unittest.TestCase):
         findings = audit_findings.detect_findings({"audit_data": audit_data})
         self.assertNotIn("gpu_controls.vboost.allowed", by_key(findings))
 
+    def test_vboost_not_applicable_check_does_not_flag_denial(self) -> None:
+        audit_data = {
+            "gpu_controls": {
+                "vboost": {
+                    "checked": False,
+                    "allowed": False,
+                    "status": "not_applicable",
+                }
+            }
+        }
+        findings = audit_findings.detect_findings({"audit_data": audit_data})
+        self.assertNotIn("gpu_controls.vboost.allowed", by_key(findings))
+
     def test_vboost_denied_on_b300_family_does_not_flag(self) -> None:
         for model in (
             "NVIDIA-B300-SXM6-AC",

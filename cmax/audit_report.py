@@ -73,6 +73,10 @@ _PASS_ASSESSMENTS = {
     "hugepage_allocation.status": "The explicit allocation trial passed and restored the pool.",
     "storage_config.status": "The collected node storage inventory is consistent.",
     "k8s_scheduling.status": "The scheduling inventory has no recorded findings.",
+    "slurm.slinkyControllerSeparate": (
+        "The Slinky slurmctld controller runs on a different Kubernetes node "
+        "from every slurmd worker."
+    ),
     "tenant_pod_defaults.status": "The tenant pod check completed.",
     "tenant_pod_defaults.checks.memlock.status": "The tenant pod has sufficient locked memory.",
     "tenant_pod_defaults.checks.shm.status": "The tenant pod has sufficient shared memory.",

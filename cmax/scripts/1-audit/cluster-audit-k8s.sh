@@ -423,6 +423,29 @@ k8s_audit_merge_gpu_allocations() {
         | from_entries'
 }
 
+k8s_audit_slinky_controller_separate() {
+    # Slinky labels its daemon pods with app.kubernetes.io/name. The slurmd
+    # worker pods also carry slinky.slurm.net/cluster, and the slurmctld pod
+    # carries the same cluster name in app.kubernetes.io/instance. Print true
+    # when every Slinky worker has a controller in its cluster and no
+    # controller shares a node with that worker. Print null when the cluster
+    # runs no Slinky workers.
+    jq -c '
+        [.items[]? | .metadata.labels["app.kubernetes.io/name"] as $daemon
+         | select(.metadata.deletionTimestamp == null and
+                  any(.status.containerStatuses[]?; .name == $daemon and .state.running != null))
+         | {daemon: $daemon, namespace: (.metadata.namespace // "default"),
+            cluster: (if $daemon == "slurmd" then .metadata.labels["slinky.slurm.net/cluster"]
+                      else .metadata.labels["app.kubernetes.io/instance"] end),
+            node: .spec.nodeName}] as $daemons
+        | [$daemons[] | select(.daemon == "slurmd" and .cluster != null)] as $workers
+        | [$daemons[] | select(.daemon == "slurmctld")] as $controllers
+        | if ($workers | length) == 0 then null else all($workers[]; . as $worker |
+            any($controllers[]; .namespace == $worker.namespace and .cluster == $worker.cluster)
+            and all($controllers[]; .namespace != $worker.namespace or .cluster != $worker.cluster or .node != $worker.node)) end
+    '
+}
+
 # Cache node data (single API call)
 NODES_JSON=$(kubectl get nodes -o json 2>/dev/null)
 if k8s_gpu_dra_enabled; then
@@ -1091,6 +1114,9 @@ fi
 # pending pods already request), fullest-free first, so check pods that need a
 # GPU land where one can actually be allocated.
 AUDIT_PODS_JSON=$(kubectl get pods --all-namespaces -o json --request-timeout=60s 2>/dev/null)
+SLINKY_CONTROLLER_SEPARATE=$(printf '%s\n' "$AUDIT_PODS_JSON" | k8s_audit_slinky_controller_separate 2>/dev/null || true)
+[[ -z "$SLINKY_CONTROLLER_SEPARATE" ]] && SLINKY_CONTROLLER_SEPARATE=null
+[[ "$SLINKY_CONTROLLER_SEPARATE" == "false" ]] && print_warn "Slinky slurmctld and slurmd daemons are not on separate Kubernetes nodes"
 GPU_ALLOC_BY_NODE=$(k8s_audit_scalar_gpu_alloc_by_node "$AUDIT_PODS_JSON" "$GPU_RESOURCE_KEY" 2>/dev/null || true)
 [[ -z "$GPU_ALLOC_BY_NODE" ]] && GPU_ALLOC_BY_NODE='{}'
 if k8s_gpu_dra_enabled; then
@@ -3623,6 +3649,9 @@ JSON_OUTPUT=$(cat <<EOF
       "summary": "${KUBECTL_RBAC_SUMMARY}",
       "checks": ${KUBECTL_AUTH_JSON}
     }
+  },
+  "slurm": {
+    "slinkyControllerSeparate": ${SLINKY_CONTROLLER_SEPARATE}
   },
   "nodes": {
     "total": ${TOTAL_NODES},

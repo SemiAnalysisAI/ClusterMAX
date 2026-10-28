@@ -365,6 +365,11 @@ administrative identity can reach. It does not prove that an ordinary workload
 pod can reach the same local management interface. The check examines up to 32
 worker nodes by default. Set `CLUSTERMAX_AUDIT_K8S_BMC_NODE_LIMIT` to a larger
 positive integer when a larger fleet requires complete coverage.
+Because the probe runs as root on the host, an exposed BMC on Kubernetes is a
+WARNING, not a CRITICAL: root on a bare-metal host can usually reach the
+in-band BMC. Verify that tenants cannot schedule privileged pods or mount host
+IPMI devices. On Slurm and standalone hosts the probe runs as the tenant user,
+so an exposed BMC stays CRITICAL.
 
 The focused security audit (`cmax audit security`) grades host-level minimums
 on every GPU host, not only the sampled worker: the GPU driver, NVIDIA
