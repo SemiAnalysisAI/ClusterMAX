@@ -201,6 +201,14 @@ def _local_target(*, explicit: bool) -> SecurityTarget:
     return SecurityTarget("standalone", local_environment(), explicit)
 
 
+def _slurm_login_pod() -> bool:
+    return bool(
+        shutil.which("sbatch")
+        and shutil.which("scontrol")
+        and _command_ok(["scontrol", "ping"])
+    )
+
+
 def detect_target(explicit: str | None = None) -> SecurityTarget:
     if explicit:
         if explicit in {"slurm", "k8s"}:
@@ -226,6 +234,10 @@ def detect_target(explicit: str | None = None) -> SecurityTarget:
         if os.environ.get("SLURM_JOB_ID"):
             return SecurityTarget("slurm", "slurm")
         if os.environ.get("KUBERNETES_SERVICE_HOST"):
+            # Slurm on Kubernetes (for example Slinky) runs login nodes as
+            # pods. A pod that reaches a Slurm controller is a Slurm login node.
+            if _slurm_login_pod():
+                return SecurityTarget("slurm", "slurm")
             return SecurityTarget("k8s", "k8s")
         if shutil.which("sbatch"):
             return SecurityTarget("slurm", "slurm")

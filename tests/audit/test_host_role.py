@@ -359,3 +359,69 @@ def test_cli_passes_allow_cluster_node() -> None:
 
     assert result == 0
     assert prepared.call_args.kwargs["allow_cluster_node"] is True
+
+
+@pytest.mark.parametrize(
+    ("ping_ok", "harness"),
+    [(True, "slurm"), (False, "k8s")],
+)
+def test_slurm_login_pod_on_kubernetes_selects_slurm(ping_ok: bool, harness: str) -> None:
+    with mock.patch.dict(
+        "os.environ", {"KUBERNETES_SERVICE_HOST": "10.0.0.1"}, clear=True
+    ), mock.patch.object(
+        security.shutil, "which", side_effect=lambda name: f"/usr/bin/{name}"
+    ), mock.patch.object(security, "_command_ok", return_value=ping_ok) as ping:
+        target = security.detect_target()
+
+    assert target.harness == harness
+    ping.assert_called_once_with(["scontrol", "ping"])
+
+
+def test_kubernetes_pod_without_slurm_client_selects_k8s() -> None:
+    with mock.patch.dict(
+        "os.environ", {"KUBERNETES_SERVICE_HOST": "10.0.0.1"}, clear=True
+    ), mock.patch.object(security.shutil, "which", return_value=None), mock.patch.object(
+        security, "_command_ok"
+    ) as ping:
+        assert security.detect_target().harness == "k8s"
+
+    ping.assert_not_called()
+
+
+# Slinky runs Slurm on Kubernetes. Each part of the cluster has its own role.
+SLINKY = {
+    "login pod": (
+        facts(environ={"KUBERNETES_SERVICE_HOST": "10.0.0.1"}, commands=SLURM_CLIENT),
+        host_role.SLURM_LOGIN,
+        {"slurm": False, "standalone": True},
+    ),
+    "slurmd pod": (
+        facts(
+            environ={"KUBERNETES_SERVICE_HOST": "10.0.0.1", "SLURMD_NODENAME": "slinky-0"},
+            processes=frozenset({"slurmd"}),
+            commands=SLURM_CLIENT,
+        ),
+        host_role.SLURM_COMPUTE,
+        {"slurm": True, "standalone": True},
+    ),
+    "kubernetes node that hosts the slurmd pod": (
+        facts(processes=frozenset({"kubelet", "slurmd"})),
+        host_role.SLURM_COMPUTE,
+        {"slurm": True, "standalone": True},
+    ),
+    "operator machine with kubectl": (
+        facts(commands=frozenset({"kubectl"})),
+        host_role.UNKNOWN,
+        {"k8s": False, "standalone": False},
+    ),
+}
+
+
+@pytest.mark.parametrize("case", SLINKY)
+def test_slinky_roles_and_guards(case: str) -> None:
+    observed, expected, guarded = SLINKY[case]
+    role = host_role.classify(observed)
+
+    assert role.kind == expected
+    for harness, expected_guard in guarded.items():
+        assert (host_role.guard(harness, role) is not None) is expected_guard
