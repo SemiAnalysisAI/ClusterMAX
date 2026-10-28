@@ -84,6 +84,13 @@ def _references(*items: tuple[str, str]) -> tuple[SecurityReference, ...]:
     return tuple(SecurityReference(label, url) for label, url in items)
 
 
+_CONNECTX_REMEDIATION = (
+    "Apply the fixed NVIDIA firmware release for every detected ConnectX or "
+    "BlueField device. Check the active firmware on each device after vendor-required "
+    "activation. Request provider evidence for devices hidden from the tenant."
+)
+
+
 _GUEST_KERNEL_UBUNTU_TITLE = "Active kernel version and Ubuntu CVE status"
 _GUEST_KERNEL_UBUNTU_IMPORTANCE = (
     "Installed kernel fixes provide no protection until the fixed kernel is running, "
@@ -482,7 +489,8 @@ def _connectx_firmware(audit: dict[str, Any]) -> tuple[str, str, str]:
         return (
             CRITICAL,
             observed,
-            "The named devices are below the published firmware minimum version.",
+            "The named devices are below the published firmware minimum version. "
+            "Version evidence does not establish VF command-interface access or exploitation.",
         )
     if status == "pass":
         grace_active, grace_note = _grace_details(verdict)
@@ -1752,13 +1760,30 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
     CheckSpec(
         "connectx-firmware",
         "ConnectX and BlueField firmware minimum version",
-        "NIC firmware handles direct memory access and fabric traffic at a privileged hardware boundary.",
-        "Apply the fixed NVIDIA firmware release for every detected ConnectX or BlueField device.",
+        (
+            "NVIDIA describes CVE-2025-23350 and CVE-2025-23351 as an out-of-bounds "
+            "write that can enable device code execution on affected hardware. "
+            "Both require a local user with virtual function (VF) access. "
+            "NVIDIA assigns CVSS v3.1 9.0 "
+            "(CVSS:3.1/AV:A/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H). "
+            "The score reflects adjacent access, low complexity, low privileges, "
+            "no user interaction, changed scope, and high confidentiality/integrity/availability impact. "
+            "This audit does not prove host takeover, persistence, or cross-tenant compromise."
+        ),
+        _CONNECTX_REMEDIATION,
         # The bulletin link comes from the minimum table (see MINIMUM_BOUND_CHECKS),
         # so it follows the train table a refresh rebuilds.
         _references(
             ("CVE-2025-23350", "https://nvd.nist.gov/vuln/detail/CVE-2025-23350"),
             ("CVE-2025-23351", "https://nvd.nist.gov/vuln/detail/CVE-2025-23351"),
+            (
+                "NVIDIA VF command-interface CVE details",
+                "https://github.com/NVIDIA/product-security/tree/main/2026/5699",
+            ),
+            (
+                "CVSS v3.1 scoring definitions",
+                "https://www.first.org/cvss/v3.1/specification-document",
+            ),
         ),
         _connectx_firmware,
     ),
@@ -2012,8 +2037,7 @@ MINIMUM_BOUND_CHECKS: dict[str, tuple[str, str, str]] = {
     "connectx-firmware": (
         "connectxFirmware",
         # Per firmware train, so no single minimum to name.
-        "Apply the fixed NVIDIA firmware release for every detected ConnectX "
-        "or BlueField device.",
+        _CONNECTX_REMEDIATION,
         "NVIDIA networking security bulletin",
     ),
     "virtio-net-bluefield": (
@@ -2167,6 +2191,33 @@ def _inject_observability(
         security = audit["security"] = {}
     security["observability"] = summary
 
+def _vf_interface_summary(audit: dict[str, Any]) -> str:
+    """Describe passive evidence without promoting it to an exploit verdict."""
+    evidence = audit.get("vf_interface_exposure")
+    if not isinstance(evidence, dict):
+        return (
+            "VF/interface exposure: unknown (no collection evidence); "
+            "command access unverified"
+        )
+    records = evidence.get("records")
+    records = [r for r in records if isinstance(r, dict)] if isinstance(records, list) else []
+    vf_count = 0
+    for record in records:
+        devices = record.get("devices")
+        if isinstance(devices, list):
+            vf_count += sum(
+                1 for device in devices if isinstance(device, dict)
+                and device.get("function_type") == "vf"
+            )
+    scope = evidence.get("scope")
+    coverage = scope.get("coverage", "unknown") if isinstance(scope, dict) else "unknown"
+    return (
+        f"VF/interface exposure: {evidence.get('status', 'unknown')}; "
+        f"{len(records)} process views, {vf_count} VF mappings; "
+        f"scope={coverage}; command access unverified"
+    )
+
+
 def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
     audit = (
         values.get("audit_data")
@@ -2187,6 +2238,8 @@ def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
     }
     for spec in CHECK_SPECS:
         status, observed, assessment = spec.evaluate(audit)
+        if spec.id == "connectx-firmware":
+            observed = f"{observed}; {_vf_interface_summary(audit)}"
         title = spec.title
         importance = spec.importance
         remediation, references = _minimum_bound_details(spec)
