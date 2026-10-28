@@ -680,7 +680,8 @@ collect_slurm_pwnescape_fleet() {
 
     local_host=$(hostname -s 2>/dev/null || hostname)
     add_pwnescape_host_record "$local_host" login \
-        "$(bash "$WORKLOAD_DIR/pwnescape-host-facts.sh" 2>/dev/null)" \
+        "$(CLUSTERMAX_FRAGNESIA_ABI_MINIMUM="$floor" \
+            bash "$WORKLOAD_DIR/pwnescape-host-facts.sh" 2>/dev/null)" \
         "The login host returned no PwnEscape facts."
 
     control_hosts=$(slurm_control_hosts)

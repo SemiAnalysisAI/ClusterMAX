@@ -503,7 +503,7 @@ def parse_pkey_table(entries: list[str]) -> list[str]:
             continue
         if not value.startswith("0x"):
             try:
-                value = f"0x{int(value, 16):#06x}"
+                value = f"{int(value, 16):#06x}"
             except ValueError:
                 continue
         out.append(value)

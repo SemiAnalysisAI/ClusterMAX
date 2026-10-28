@@ -155,9 +155,69 @@ def test_host_fact_script_reports_the_shared_facts(tmp_path):
     assert graded["januscape"]["status"] == "fail"
 
 
+def test_unresolved_fragnesia_verdict_names_the_missing_evidence():
+    value = host_fleet.grade_fleet(
+        [host("gpu-1"), host("cp-1", "control-plane", WORKER_FRAGNESIA_STATUS="unknown")],
+        CONTROL,
+        "136",
+    )
+    assert value["fragnesia"]["status"] == "unknown"
+    assert "unresolved Fragnesia verdict" in value["fragnesia"]["reason"]
+    assert "cp-1" in value["fragnesia"]["reason"]
+    assert "Every audited host" not in value["fragnesia"]["reason"]
+
+
+def test_unresolved_januscape_verdict_names_the_missing_evidence():
+    value = host_fleet.grade_fleet(
+        [host("gpu-1"), host("cp-1", "control-plane", WORKER_JANUSCAPE_EXPOSED="unknown")],
+        CONTROL,
+        "136",
+    )
+    assert value["januscape"]["status"] == "unknown"
+    assert "unresolved Januscape verdict" in value["januscape"]["reason"]
+    assert "cp-1" in value["januscape"]["reason"]
+    assert "No audited host exposes" not in value["januscape"]["reason"]
+
+
 def test_collector_wires_the_fleet_grader_into_the_security_advisory():
     source = (WORKLOAD / "cluster-audit-slurm-security.sh").read_text()
     assert "apply_host_fleet" in source
     assert 'python3 "$WORKLOAD_DIR/host_fleet.py"' in source
     assert ".pwnescape = $fleet.pwnescape" in source
     assert ".fragnesia = ((.fragnesia // {})" in source
+
+
+def test_login_host_read_carries_the_fragnesia_floor():
+    collector = WORKLOAD / "cluster-audit-slurm-security.sh"
+    script = (
+        "minimum_version() { echo 136; }\n"
+        "minimum_version_grace() { echo false; }\n"
+        "print_info() { :; }\n"
+        + bashtest.extract_function(collector, "add_pwnescape_host_record")
+        + bashtest.extract_function(collector, "slurm_control_hosts")
+        + bashtest.extract_function(collector, "collect_slurm_pwnescape_fleet")
+        + "\ncollect_slurm_pwnescape_fleet\n"
+        'printf \'%s\\n\' "$PWNESCAPE_HOST_RECORDS"\n'
+    )
+    run = bashtest.run_bash(
+        script,
+        stubs={
+            "sinfo": ":",  # no compute rows
+            "scontrol": ":",  # no control hosts reported
+            "hostname": "echo audit-login",
+        },
+        env={
+            "WORKLOAD_DIR": str(WORKLOAD),
+            "CLUSTERMAX_AUDIT_PWNESCAPE_CONCURRENCY": "1",
+        },
+    )
+    assert run.returncode == 0, run.stderr
+    record = run.stdout.splitlines()[0]
+    import json
+
+    entry = json.loads(record)
+    assert entry["node"] == "audit-login"
+    assert entry["checked"] is True
+    # The login-host read must receive the published floor, so its on-host
+    # comparison never guesses a minimum.
+    assert "WORKER_FRAGNESIA_ABI_FLOOR=136" in entry["facts"]

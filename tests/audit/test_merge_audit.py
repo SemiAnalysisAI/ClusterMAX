@@ -250,7 +250,7 @@ class MergeAuditTests(unittest.TestCase):
                 "country": "US",
                 "coordinates": "40.6097,-111.9391",
             },
-            gpus={"total": 4, "model": "NVIDIA H100", "perNode": 4},
+            gpus={"total": 4, "model": "NVIDIA GB300", "perNode": 4},
         )
 
         cluster = merge_audit.build_values(audit, harness="slurm", check_data={})["cluster"]
@@ -264,7 +264,7 @@ class MergeAuditTests(unittest.TestCase):
                 "audit": {"timestamp": "2026-06-09T02:53:44Z"},
                 "serverLocation": server_location,
                 "nodes": {"total": 1},
-                "gpus": {"total": 4, "model": "NVIDIA H100", "perNode": 4},
+                "gpus": {"total": 4, "model": "NVIDIA GB300", "perNode": 4},
                 "software": {"ncclVersion": "unknown"},
             }
             cluster = merge_audit.build_values(audit, harness="slurm", check_data={})["cluster"]

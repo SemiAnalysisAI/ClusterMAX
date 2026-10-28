@@ -123,6 +123,11 @@ def _fleet(
             f"The audit could not read {len(unassessed)} host(s): {pwnescape._names(unassessed)}. "
             "Request the running-kernel build and CVE-specific patch evidence for each one."
         )
+    elif unknown:
+        reasons.append(
+            f"{len(unknown)} host(s) have an unresolved {label} verdict: "
+            f"{pwnescape._names(unknown)}. Request the missing host evidence for each one."
+        )
     if not control_discovered:
         reasons.append(
             str(control_plane.get("detail") or "The audit could not find the control-plane hosts.")

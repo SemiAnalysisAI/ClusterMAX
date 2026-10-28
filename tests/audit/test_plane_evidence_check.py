@@ -92,6 +92,12 @@ class FabricFactsTests(unittest.TestCase):
     def test_fabric_facts_absent_sysfs_returns_empty(self) -> None:
         self.assertEqual(nic.parse_fabric_facts("", "", []), {})
 
+    def test_pkey_table_normalizes_unprefixed_hex(self) -> None:
+        self.assertEqual(
+            nic.parse_pkey_table(["7fff", "ffff", "0x9002", "0x0000"]),
+            ["0x7fff", "0xffff", "0x9002"],
+        )
+
 
 class ParserTests(unittest.TestCase):
     def test_ibnetdiscover_matches_guid_or_exact_hostname(self) -> None:
