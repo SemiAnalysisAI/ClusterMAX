@@ -384,11 +384,29 @@ class UbuntuKernelCveTests(TempDirMixin):
         status, cves, _ = self.grade(table, "22.04", "5.15.0-999-generic")
         self.assertEqual((status, json.loads(cves)), ("fail", ["CVE-2026-46227"]))
 
-    def test_missing_sctp_sendall_row_is_unknown(self) -> None:
+    def test_unlisted_sctp_sendall_row_is_skipped(self) -> None:
+        """A package the table does not list is skipped, not graded unknown.
+
+        The host cannot fail a CVE that the table does not track for the
+        release, so the listed rows alone decide the grade.
+        """
         table = self.sctp_only_table()
         del table["components"]["ubuntuNoble"]["packages"]["linuxSctpSendall"]
         self.assertEqual(
-            self.grade(table, "24.04", "6.8.0-140-generic"), ("unknown", "[]", "[]")
+            self.grade(table, "24.04", "6.8.0-140-generic"), ("pass", "[]", "[]")
+        )
+
+    def test_release_without_tracked_cve_rows_is_not_applicable(self) -> None:
+        """A release whose table lists no CVE row is not-applicable.
+
+        The grader skips every package the table does not list, so no row is
+        checked and the status stays not-applicable instead of unknown.
+        """
+        table = minimum_table()
+        table["components"]["ubuntuNoble"]["packages"] = {}
+        self.assertEqual(
+            self.grade(table, "24.04", "6.8.0-140-generic"),
+            ("not-applicable", "[]", "[]"),
         )
 
     def test_shipped_table_grades_sctp_sendall(self) -> None:

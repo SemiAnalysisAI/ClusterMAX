@@ -17,6 +17,9 @@ release string `<x.y.z>-<abi>-<flavor>` selects at most one row per group.
   tracker lists every Ubuntu kernel package, so a kernel with no row is a
   custom or mainline build, a package newer than the table, or a flavor name
   the table does not know. The audit cannot check it.
+- A group the table does not list for the release at all: skipped. The host
+  cannot fail a CVE that the table does not track, so the status stays
+  not-applicable unless another listed group decides it.
 - No row in a group with only the GA row: that group checks only the GA
   kernel, so other kernels are outside it.
 - More than one row: unknown, because the table cannot name the package.
@@ -138,6 +141,11 @@ def grade(os_id: str, release: str, running: str) -> tuple[str, list[str], list[
     unknown = checked = 0
     for group in groups:
         rows = _rows(packages, group, ga_family)
+        if not rows:
+            # The table lists no row for this package on this release. The
+            # package is untracked, so the host cannot fail it. Leave the
+            # status not-applicable instead of grading it unknown.
+            continue
         per_kernel = any("kernelGroup" in row[1] for row in rows)
         matches = [row for row in rows if row[2] == family and flavor in row[3]]
         if len(matches) != 1:
