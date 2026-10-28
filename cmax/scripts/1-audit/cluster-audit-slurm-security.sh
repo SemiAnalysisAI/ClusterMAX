@@ -230,6 +230,51 @@ apply_security_host_fleet() {
     print_info "Host-level security checks: read $(grep -c '"checked":true' <<< "$SECURITY_HOST_RECORDS" || true) of ${SECURITY_GPU_HOSTS_TOTAL} GPU host(s)"
 }
 
+# Grade the host-kernel CVEs across every node the fleet collector reached:
+# workers, the login host, and every control-plane host. The sampled GPU
+# worker stays the source for the fleet-scope version rows; these rows are
+# fleet-scope from the start, so the merge can fold them over the sampled
+# result without re-collecting.
+apply_host_fleet() {
+    local fleet floor grace=false
+    floor=$(minimum_version components.ubuntuNoble.packages.linuxFragnesia.abi)
+    [[ "$(minimum_version_grace ubuntuNoble linuxFragnesia 2>/dev/null || true)" == "true" ]] \
+        && grace=true
+    if fleet=$(printf '%s' "$PWNESCAPE_HOST_RECORDS" \
+            | jq -s --argjson control "$PWNESCAPE_CONTROL_PLANE_JSON" \
+                --arg floor "$floor" --argjson grace "$grace" \
+                '{hosts: ., controlPlane: $control, fragnesiaAbiFloor: $floor,
+                  fragnesiaGrace: $grace}' \
+            | python3 "$WORKLOAD_DIR/host_fleet.py" 2>/dev/null) \
+            && [[ -n "$fleet" ]]; then
+        SECURITY_ADVISORY_JSON=$(jq --argjson fleet "$fleet" '
+            .pwnescape = $fleet.pwnescape
+            | .fragnesia = ((.fragnesia // {})
+                + {status: $fleet.fragnesia.status,
+                   reason: $fleet.fragnesia.reason,
+                   scope: "fleet", fleet: $fleet.fragnesia})
+            | .januscape = ((.januscape // {})
+                + {status: $fleet.januscape.status,
+                   exposed: $fleet.januscape.exposed,
+                   reason: $fleet.januscape.reason,
+                   scope: "fleet", fleet: $fleet.januscape})
+        ' <<< "$SECURITY_ADVISORY_JSON")
+    else
+        SECURITY_ADVISORY_JSON=$(jq '
+            .pwnescape = {
+                status: "unknown", scope: "fleet", exploitTested: false,
+                reason: "The host fleet grader failed. Every host needs CVE-specific patch evidence."
+            }
+            | .fragnesia = ((.fragnesia // {})
+                + {status: "unknown", scope: "fleet",
+                   reason: "The host fleet grader failed. Every host needs CVE-specific patch evidence."})
+            | .januscape = ((.januscape // {})
+                + {status: "unknown", exposed: "unknown", scope: "fleet",
+                   reason: "The host fleet grader failed. Every host needs CVE-specific patch evidence."})
+        ' <<< "$SECURITY_ADVISORY_JSON")
+    fi
+}
+
 cleanup_k8s_security_pod() {
     if [[ -n "$K8S_SECURITY_CHECK_POD" ]]; then
         kubectl delete pod "$K8S_SECURITY_CHECK_POD" \
@@ -584,12 +629,16 @@ slurm_control_hosts() {
 # allocation, and --immediate keeps a busy node from blocking the audit.
 slurm_pwnescape_facts_on_node() {
     local node="$1" partition="$2"
+    local floor
+    floor=$(minimum_version components.ubuntuNoble.packages.linuxFragnesia.abi)
     if [[ -n "${SLURM_JOB_ID:-}" && "$SLURM_ALLOCATION_NODES" == *$'\n'"$node"$'\n'* ]]; then
         srun "${AUDIT_SRUN_FLAGS[@]}" -N1 --ntasks=1 -w "$node" --time=2:00 \
+            env CLUSTERMAX_FRAGNESIA_ABI_MINIMUM="$floor" \
             bash -s < "$WORKLOAD_DIR/pwnescape-host-facts.sh" 2>/dev/null
     else
         env -u SLURM_JOB_ID -u SLURM_JOBID srun -p "$partition" -N1 --ntasks=1 \
             -w "$node" --time=2:00 --immediate=30 \
+            env CLUSTERMAX_FRAGNESIA_ABI_MINIMUM="$floor" \
             bash -s < "$WORKLOAD_DIR/pwnescape-host-facts.sh" 2>/dev/null
     fi
 }
@@ -599,7 +648,8 @@ slurm_pwnescape_facts_on_node() {
 # read over ssh in batch mode, so the audit never prompts for a credential.
 collect_slurm_pwnescape_fleet() {
     local rows node partition host local_host tmp batch="" batch_size=0 concurrency
-    local compute_nodes control_hosts facts
+    local compute_nodes control_hosts facts floor
+    floor=$(minimum_version components.ubuntuNoble.packages.linuxFragnesia.abi)
     concurrency="${CLUSTERMAX_AUDIT_PWNESCAPE_CONCURRENCY:-16}"
     [[ "$concurrency" =~ ^[1-9][0-9]*$ ]] || concurrency=16
     SLURM_ALLOCATION_NODES=$'\n'
@@ -645,11 +695,13 @@ collect_slurm_pwnescape_fleet() {
     while IFS= read -r host; do
         [[ -n "$host" ]] || continue
         if [[ "$host" == "$local_host" ]]; then
-            facts=$(bash "$WORKLOAD_DIR/pwnescape-host-facts.sh" 2>/dev/null)
+            facts=$(CLUSTERMAX_FRAGNESIA_ABI_MINIMUM="$floor" \
+                bash "$WORKLOAD_DIR/pwnescape-host-facts.sh" 2>/dev/null)
         elif [[ "$compute_nodes" == *$'\n'"$host"$'\n'* ]]; then
             facts=$(cat "$tmp/$host.facts" 2>/dev/null)
         else
-            facts=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$host" bash -s \
+            facts=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$host" \
+                env CLUSTERMAX_FRAGNESIA_ABI_MINIMUM="$floor" bash -s \
                 < "$WORKLOAD_DIR/pwnescape-host-facts.sh" 2>/dev/null || true)
         fi
         add_pwnescape_host_record "$host" control-plane "$facts" \
@@ -975,7 +1027,7 @@ SECURITY_ADVISORY_JSON=$(printf '{%s "_end": null}' \
 # A standalone target is one host, so its sampled verdict is already complete.
 if [[ "$SECURITY_HARNESS" != "standalone" ]]; then
     apply_security_host_fleet
-    apply_pwnescape_fleet
+    apply_host_fleet
 fi
 
 print_section "Write security collector JSON"

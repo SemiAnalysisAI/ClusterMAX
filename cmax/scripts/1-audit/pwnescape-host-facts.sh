@@ -146,3 +146,74 @@ collect_kernel_identity_facts() {
     printf 'WORKER_KERNEL_SOURCE_PACKAGE=%s\n' "$source_package"
 }
 collect_kernel_identity_facts
+
+
+# The same passive reads also establish the other host-kernel CVEs. They add no
+# device opens and no probe traffic; the collector grades them across every
+# worker and control-plane host, not only the sampled GPU worker.
+
+collect_fragnesia_facts() {
+    local root="${CLUSTERMAX_AUDIT_ROOT:-}"
+    local running floor abi status
+    running=$(uname -r 2>/dev/null || echo unknown)
+    floor="${CLUSTERMAX_FRAGNESIA_ABI_MINIMUM:-unknown}"
+    abi=unknown
+    status=not-applicable
+    if [[ -f "${root}/etc/os-release" ]]; then
+        # shellcheck disable=SC1091
+        . "${root}/etc/os-release"
+        if [[ "${ID:-unknown}" == ubuntu && "${VERSION_ID:-unknown}" == 24.04 \
+                && "$running" == 6.8.* ]]; then
+            abi=$(printf '%s\n' "$running" | sed -nE 's/^6\.8\.0-([0-9]+).*/\1/p')
+            [[ -n "$abi" ]] || abi=unknown
+            status=unknown
+            if [[ "$abi" =~ ^[0-9]+$ && "$floor" =~ ^[0-9]+$ ]]; then
+                if (( abi >= floor )); then status=pass; else status=fail; fi
+            fi
+        fi
+    fi
+    printf 'WORKER_FRAGNESIA_ABI=%s\n' "$abi"
+    printf 'WORKER_FRAGNESIA_ABI_FLOOR=%s\n' "$floor"
+    printf 'WORKER_FRAGNESIA_STATUS=%s\n' "$status"
+}
+collect_fragnesia_facts
+
+collect_januscape_facts() {
+    local root="${CLUSTERMAX_AUDIT_ROOT:-}"
+    local cpu=false kvm=false module=none nested=unknown exposed=false status=pass
+    if grep -qm1 -E '(^|[[:space:]])(svm|vmx)([[:space:]]|$)' \
+            "${root}/proc/cpuinfo" 2>/dev/null; then
+        cpu=true
+    fi
+    [[ -e "${root}/dev/kvm" ]] && kvm=true
+    local mod nested_file nested_value
+    for mod in kvm_amd kvm_intel; do
+        nested_file="${root}/sys/module/${mod}/parameters/nested"
+        if [[ -r "$nested_file" ]]; then
+            module="$mod"
+            nested_value=$(cat "$nested_file" 2>/dev/null || echo unknown)
+            case "$nested_value" in
+                1|Y|y) nested=true ;;
+                0|N|n) nested=false ;;
+                *) nested=unknown ;;
+            esac
+            break
+        fi
+    done
+    if [[ "$cpu" == true && "$kvm" == true ]]; then
+        if [[ "$nested" == true ]]; then
+            exposed=true
+            status=fail
+        elif [[ "$nested" == unknown ]]; then
+            exposed=unknown
+            status=unknown
+        fi
+    fi
+    printf 'WORKER_NESTED_CPU_EXPOSED=%s\n' "$cpu"
+    printf 'WORKER_KVM_DEVICE=%s\n' "$kvm"
+    printf 'WORKER_NESTED_MODULE=%s\n' "$module"
+    printf 'WORKER_NESTED_ENABLED=%s\n' "$nested"
+    printf 'WORKER_JANUSCAPE_EXPOSED=%s\n' "$exposed"
+    printf 'WORKER_JANUSCAPE_STATUS=%s\n' "$status"
+}
+collect_januscape_facts
