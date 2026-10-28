@@ -385,11 +385,54 @@ class SecurityReportTests(unittest.TestCase):
             if item.id == "bmc-ipmi"
         )
 
-        self.assertEqual(check.status, security.CRITICAL)
+        # The fleet probe ran as root on the host, so an exposed BMC does not
+        # prove tenant reachability. It is a warning, not a critical.
+        self.assertEqual(check.status, security.WARNING)
         self.assertIn("4/6 worker nodes", check.observed)
         self.assertIn("gpu-1, gpu-2, cpu-1, cpu-2", check.observed)
         self.assertIn("privileged pod", check.assessment)
         self.assertIn("ordinary workload pod", check.assessment)
+        self.assertIn("does not establish tenant reachability", check.assessment)
+        self.assertIn("admission control", check.assessment)
+
+        values["audit_data"]["security"]["bmcIpmi"]["ordinaryPodExposureTested"] = True
+        check = next(
+            item
+            for item in security.evaluate_security(values)
+            if item.id == "bmc-ipmi"
+        )
+        self.assertEqual(check.status, security.CRITICAL)
+
+    def test_bmc_ipmi_grade_depends_on_the_probe_context(self) -> None:
+        cases = (
+            # (bmcIpmi, expected status, observed fragment)
+            ({"exposed": True}, security.CRITICAL, "BMC/IPMI=true"),
+            ({"exposed": False}, security.PASS, "BMC/IPMI=false"),
+            (
+                {"exposed": True, "ipmitoolInstalled": True, "measuredFrom": "privileged-pod"},
+                security.WARNING,
+                "measured as root on the host",
+            ),
+            (
+                {"exposed": False, "ipmitoolInstalled": False, "measuredFrom": "privileged-pod"},
+                security.PASS,
+                "ipmitool absent",
+            ),
+            (
+                {"exposed": False, "ipmitoolInstalled": True, "measuredFrom": "privileged-pod"},
+                security.PASS,
+                "BMC/IPMI=false",
+            ),
+        )
+        for bmc, expected, observed in cases:
+            with self.subTest(bmc=bmc):
+                status, seen, assessment = security._bmc_ipmi(
+                    {"security": {"bmcIpmi": bmc}}
+                )
+                self.assertEqual(status, expected)
+                self.assertIn(observed, seen)
+                if status == security.WARNING:
+                    self.assertIn("admission control", assessment)
 
     def test_bmc_ipmi_incomplete_fleet_without_exposure_warns(self) -> None:
         values = security_values()
@@ -591,6 +634,27 @@ class SecurityReportTests(unittest.TestCase):
         self.assertIn("supported Ubuntu kernel fix", check.remediation)
         self.assertIn(
             "CVE-2026-64531", {reference.label for reference in check.references}
+        )
+
+    def test_sctp_sendall_vulnerability_fails_the_active_kernel_check(self) -> None:
+        values = security_values()
+        values["audit_data"]["security"]["guestKernel"].update(
+            running="5.15.0-181-generic",
+            newestInstalled="5.15.0-181-generic",
+            newerInstalled=False,
+            ubuntuCveStatus="fail",
+            ubuntuVulnerableCves=["CVE-2026-46227"],
+        )
+        check = next(
+            check
+            for check in security.evaluate_security(values)
+            if check.id == "guest-kernel"
+        )
+        self.assertEqual(check.status, security.CRITICAL)
+        self.assertIn("vulnerable to CVE-2026-46227", check.observed)
+        self.assertIn(
+            "https://ubuntu.com/security/CVE-2026-46227",
+            {reference.url for reference in check.references},
         )
 
     def test_unknown_ubuntu_tracker_status_never_passes(self) -> None:

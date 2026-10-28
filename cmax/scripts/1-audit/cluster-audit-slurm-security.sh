@@ -944,6 +944,11 @@ if [[ "$SECURITY_HARNESS" == "slurm" ]]; then
 fi
 
 JANUSCAPE_EXPOSED_JSON=$(json_bool_or_unknown "${WORKER_JANUSCAPE_EXPOSED:-}")
+# Grade the audited worker kernel against the per-kernel Ubuntu CVE rows, the
+# same way the full audit does in build_audit_json. Without this, the security
+# profile never reports CVE-2026-64531, CVE-2026-64378, or CVE-2026-46227.
+grade_ubuntu_kernel_cves "${WORKER_OS_ID:-unknown}" \
+    "${WORKER_OS_VERSION_ID:-unknown}" "${WORKER_GUEST_KERNEL_RUNNING:-unknown}"
 SECURITY_ADVISORY_JSON=$(printf '{%s "_end": null}' \
     "$(build_security_advisory_json \
         --host-facts "${WORKER_CHECK_OUTPUT:-}" \
@@ -1010,6 +1015,9 @@ JSON_OUTPUT=$(jq -n \
     --arg qemu_machine "${WORKER_QEMU_MACHINE:-unknown}" \
     --argjson virtio_serial "$(json_bool "${WORKER_VIRTIO_SERIAL:-false}")" \
     --arg running_kernel "${WORKER_GUEST_KERNEL_RUNNING:-unknown}" \
+    --arg ubuntu_cve_status "${UBUNTU_KERNEL_CVE_STATUS:-unknown}" \
+    --argjson ubuntu_vulnerable_cves "${UBUNTU_KERNEL_VULNERABLE_CVES_JSON:-[]}" \
+    --argjson ubuntu_cve_grace "${UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON:-[]}" \
     --arg newest_kernel "${WORKER_GUEST_KERNEL_NEWEST_INSTALLED:-unknown}" \
     --argjson newer_kernel "$(json_bool "${WORKER_GUEST_KERNEL_NEWER_INSTALLED:-false}")" \
     --argjson reboot_required "$(json_bool "${WORKER_GUEST_REBOOT_REQUIRED:-false}")" \
@@ -1061,7 +1069,10 @@ JSON_OUTPUT=$(jq -n \
                 running: $running_kernel,
                 newestInstalled: $newest_kernel,
                 newerInstalled: $newer_kernel,
-                rebootRequired: $reboot_required
+                rebootRequired: $reboot_required,
+                ubuntuCveStatus: $ubuntu_cve_status,
+                ubuntuVulnerableCves: $ubuntu_vulnerable_cves,
+                ubuntuCveGracePeriods: $ubuntu_cve_grace
             },
             nvidiaMay2026: {
                 driverVersion: $nvidia_driver,

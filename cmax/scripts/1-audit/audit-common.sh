@@ -133,73 +133,45 @@ minimum_version_grace() {
     fi
 }
 
-# grade_ubuntu_kernel_cves - grade the running Ubuntu general-availability
-# kernel against the exact tracker state for the two container-relevant CVEs.
-# A tracker status of needed or pending is vulnerable because Ubuntu has not
-# released a supported fix. A released status compares the running ABI with the
-# generated fixed ABI. Other Ubuntu kernel trains use different source packages
-# and stay outside this check.
+# grade_ubuntu_kernel_cves - grade the running Ubuntu kernel against the exact
+# tracker state for each container-relevant CVE that the minimum table
+# publishes. ubuntu_kernel_cves.py selects the table row whose kernel family and
+# flavor match the running release string, so GA, HWE, cloud, NVIDIA,
+# lowlatency, FIPS, and realtime kernels each use their own source package row.
+# The fixed ABI always comes from the table. A tracker status of needed,
+# pending, deferred, or ignored is vulnerable because Ubuntu has not released a
+# fix for that kernel. A released status compares the running ABI with the
+# generated fixed ABI. A running kernel with no SCTP_SENDALL row (custom,
+# mainline, or newer than the table), a missing GA row, a missing reader, an
+# unreadable release string, or an ambiguous row match is unknown.
 grade_ubuntu_kernel_cves() {
     local os_id="${1:-unknown}" release="${2:-unknown}" running="${3:-unknown}"
-    local component="" expected_prefix="" key="" cve="" tracker="" fixed_abi=""
-    local running_abi="" vulnerable="" grace="" grace_periods=""
-    local unknown_count=0 checked=0
+    local grader="${AUDIT_COMMON_DIR}/ubuntu_kernel_cves.py" output=""
     UBUNTU_KERNEL_CVE_STATUS="not-applicable"
     UBUNTU_KERNEL_VULNERABLE_CVES_JSON="[]"
     UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON="[]"
 
     [[ "$os_id" == ubuntu ]] || return 0
     case "$release" in
-        22.04) component="ubuntuJammy"; expected_prefix="5.15.0-" ;;
-        24.04) component="ubuntuNoble"; expected_prefix="6.8.0-" ;;
+        22.04|24.04|26.04) ;;
         *) return 0 ;;
     esac
-    [[ "$running" == "${expected_prefix}"* ]] || return 0
-    case "$running" in
-        *-generic|*-generic-64k) ;;
-        *) return 0 ;;
+    UBUNTU_KERNEL_CVE_STATUS="unknown"
+    [[ -f "$grader" ]] && command -v python3 >/dev/null 2>&1 || return 0
+    output=$(python3 "$grader" "$os_id" "$release" "$running" 2>/dev/null) || return 0
+    {
+        IFS= read -r UBUNTU_KERNEL_CVE_STATUS
+        IFS= read -r UBUNTU_KERNEL_VULNERABLE_CVES_JSON
+        IFS= read -r UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON
+    } <<<"$output"
+    case "$UBUNTU_KERNEL_CVE_STATUS" in
+        pass|fail|unknown|not-applicable) ;;
+        *)
+            UBUNTU_KERNEL_CVE_STATUS="unknown"
+            UBUNTU_KERNEL_VULNERABLE_CVES_JSON="[]"
+            UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON="[]"
+            ;;
     esac
-    running_abi=$(printf '%s\n' "$running" | sed -nE 's/^[0-9]+\.[0-9]+\.0-([0-9]+).*/\1/p')
-
-    for key in linuxOpenvswitchNestedActions linuxCgroupWriteback; do
-        cve=$(minimum_version "components.${component}.packages.${key}.cve")
-        tracker=$(minimum_version "components.${component}.packages.${key}.status")
-        fixed_abi=$(minimum_version "components.${component}.packages.${key}.abi")
-        case "$(printf '%s' "$tracker" | tr '[:upper:]' '[:lower:]')" in
-            needed|pending)
-                vulnerable="${vulnerable:+${vulnerable},}${cve}"
-                checked=$((checked + 1))
-                ;;
-            released)
-                checked=$((checked + 1))
-                if [[ "$running_abi" =~ ^[0-9]+$ && "$fixed_abi" =~ ^[0-9]+$ ]]; then
-                    if (( running_abi < fixed_abi )); then
-                        if grace=$(minimum_version_grace "$component" "$key"); then
-                            grace_periods="${grace_periods:+${grace_periods},}{\"cve\":\"${cve}\",\"policy\":${grace}}"
-                        else
-                            vulnerable="${vulnerable:+${vulnerable},}${cve}"
-                        fi
-                    fi
-                else
-                    unknown_count=$((unknown_count + 1))
-                fi
-                ;;
-            not-affected|dne)
-                checked=$((checked + 1))
-                ;;
-            *) unknown_count=$((unknown_count + 1)) ;;
-        esac
-    done
-
-    UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON="[${grace_periods}]"
-    if [[ -n "$vulnerable" ]]; then
-        UBUNTU_KERNEL_CVE_STATUS="fail"
-        UBUNTU_KERNEL_VULNERABLE_CVES_JSON="[\"${vulnerable//,/\",\"}\"]"
-    elif (( unknown_count > 0 || checked == 0 )); then
-        UBUNTU_KERNEL_CVE_STATUS="unknown"
-    else
-        UBUNTU_KERNEL_CVE_STATUS="pass"
-    fi
 }
 
 # build_security_advisory_json - emit the Ubuntu Noble advisory members that

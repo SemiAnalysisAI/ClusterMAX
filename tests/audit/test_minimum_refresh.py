@@ -609,7 +609,107 @@ class ExtractorTest(unittest.TestCase):
             self.assertEqual(cgroup["status"], "needed")
             self.assertFalse(cgroup.get("fixed"))
             self.assertIs(cgroup["allowUnfixed"], True)
+        for component, fixed, abi, notice in (
+            ("ubuntuNoble", "6.8.0-136.136", 136, "USN-8567-1"),
+            ("ubuntuJammy", "5.15.0-186.196", 186, "USN-8575-1"),
+        ):
+            sctp = data["components"][component]["packages"]["linuxSctpSendall"]
+            self.assertEqual(sctp["cve"], "CVE-2026-46227")
+            self.assertEqual(sctp["package"], "linux")
+            self.assertEqual(sctp["status"], "released")
+            self.assertEqual(sctp["fixed"], fixed)
+            self.assertEqual(sctp["abi"], abi)
+            self.assertEqual(sctp["source"]["id"], notice)
+            self.assertIs(sctp["allowUnfixed"], True)
         fr.verify(data, data)
+
+    def test_sctp_sendall_publishes_one_row_per_kernel_source_package(self) -> None:
+        spec = fr.UBUNTU_ALL_KERNEL_CVE_PACKAGES[0]
+        self.assertEqual(spec["key"], "linuxSctpSendall")
+        rows = {
+            codename: fr.ubuntu_kernel_cve_rows(
+                spec, codename, fetch=fr._MemoFetcher(StubFetcher())
+            )
+            for codename in ("jammy", "noble", "resolute")
+        }
+        self.assertEqual(set(rows["jammy"]), {"linuxSctpSendall", "linuxSctpSendallHwe6_8"})
+        self.assertEqual(set(rows["resolute"]), {"linuxSctpSendall"})
+        self.assertEqual(set(rows["noble"]), {
+            "linuxSctpSendall",
+            "linuxSctpSendallLowlatency",
+            "linuxSctpSendallNvidia",
+            "linuxSctpSendallNvidia6_17",
+            "linuxSctpSendallHwe6_17",
+            "linuxSctpSendallAzureNvidia",
+            "linuxSctpSendallAws7_0",
+        })
+        for codename_rows in rows.values():
+            for entry in codename_rows.values():
+                self.assertEqual(entry["kernelGroup"], "linuxSctpSendall")
+                self.assertEqual(entry["cve"], "CVE-2026-46227")
+                self.assertIs(entry["allowUnfixed"], True)
+        hwe = rows["jammy"]["linuxSctpSendallHwe6_8"]
+        self.assertEqual(hwe["package"], "linux-hwe-6.8")
+        self.assertEqual((hwe["status"], hwe["abi"]), ("released", 136))
+        self.assertEqual(hwe["kernelFamily"], "6.8")
+        self.assertEqual(hwe["kernelFlavors"], ["generic", "generic-64k"])
+        self.assertEqual(hwe["source"]["id"], "USN-8619-1")
+        nvidia = rows["noble"]["linuxSctpSendallNvidia"]
+        self.assertEqual((nvidia["abi"], nvidia["kernelFamily"]), (1059, "6.8"))
+        self.assertEqual(nvidia["kernelFlavors"], ["nvidia", "nvidia-64k"])
+        lowlatency = rows["noble"]["linuxSctpSendallLowlatency"]
+        self.assertEqual(lowlatency["kernelFlavors"], ["lowlatency", "lowlatency-64k"])
+        eol = rows["noble"]["linuxSctpSendallNvidia6_17"]
+        self.assertEqual((eol["status"], eol["fixed"]), ("ignored", ""))
+        self.assertEqual(eol["kernelFamily"], "6.17")
+        self.assertEqual(eol["trackerNote"], "end of life, was needed")
+        self.assertNotIn("abi", eol)
+        pending = rows["noble"]["linuxSctpSendallAzureNvidia"]
+        self.assertEqual((pending["status"], pending["fixed"]), ("pending", ""))
+        self.assertEqual(pending["trackerNote"], "6.8.0-1046.49")
+        self.assertEqual(rows["noble"]["linuxSctpSendallHwe6_17"]["status"], "needed")
+        self.assertEqual(rows["noble"]["linuxSctpSendallAws7_0"]["status"], "not-affected")
+        self.assertEqual(rows["resolute"]["linuxSctpSendall"]["abi"], 28)
+
+    def test_kernel_identity_skips_riscv_and_names_flavors(self) -> None:
+        cases = {
+            "linux": ("6.8", ["generic", "generic-64k"]),
+            "linux-hwe-6.17": ("6.17", ["generic", "generic-64k"]),
+            "linux-lowlatency-hwe-6.8": ("6.8", ["lowlatency", "lowlatency-64k"]),
+            "linux-aws-fips": ("6.8", ["aws-fips", "aws-fips-64k"]),
+            "linux-nvidia-tegra": ("6.8", ["nvidia-tegra", "nvidia-tegra-64k"]),
+        }
+        for package, expected in cases.items():
+            with self.subTest(package=package):
+                self.assertEqual(fr.ubuntu_kernel_identity(package, "noble"), expected)
+        # riscv64 kernels also call their flavor "generic".
+        self.assertIsNone(fr.ubuntu_kernel_identity("linux-riscv", "noble"))
+        self.assertIsNone(fr.ubuntu_kernel_identity("linux-riscv-6.14", "noble"))
+        self.assertEqual(
+            fr.ubuntu_kernel_row_key("linuxSctpSendall", "linux-lowlatency-hwe-6.8"),
+            "linuxSctpSendallLowlatencyHwe6_8",
+        )
+
+    def test_kernel_rows_accept_unfixed_tracker_states(self) -> None:
+        old = baseline()
+        for state in ("ignored", "deferred", "not-affected", "needed", "pending"):
+            data = baseline()
+            data["components"]["ubuntuNoble"]["packages"]["linuxSctpSendallNvidia6_17"] = {
+                "cve": "CVE-2026-46227", "package": "linux-nvidia-6.17",
+                "status": state, "fixed": "", "allowUnfixed": True,
+                "kernelGroup": "linuxSctpSendall", "kernelFamily": "6.17",
+                "kernelFlavors": ["nvidia", "nvidia-64k"],
+            }
+            with self.subTest(state=state):
+                fr.verify(data, old)
+        data = baseline()
+        data["components"]["ubuntuNoble"]["packages"]["linuxSctpSendallNvidia6_17"] = {
+            "cve": "CVE-2026-46227", "package": "linux-nvidia-6.17",
+            "status": "needs-triage", "fixed": "", "allowUnfixed": True,
+            "kernelGroup": "linuxSctpSendall",
+        }
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "linuxSctpSendallNvidia6_17"):
+            fr.verify(data, old)
 
     def test_ga_kernel_cve_refresh_rejects_unknown_states_and_loss_of_a_fix(self) -> None:
         old = baseline()
@@ -666,6 +766,8 @@ class ExtractorTest(unittest.TestCase):
             f"{fr.UBUNTU_CVE_URL}CVE-2026-46300.json",
             f"{fr.UBUNTU_CVE_URL}CVE-2026-53359.json",
             f"{fr.UBUNTU_CVE_URL}CVE-2026-64378.json",
+            # One read covers every per-kernel row of CVE-2026-46227.
+            f"{fr.UBUNTU_CVE_URL}CVE-2026-46227.json",
         ])
 
     def test_ubuntu_notice_discovery_fails_closed_on_incomplete_pagination(self) -> None:

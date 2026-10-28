@@ -78,6 +78,7 @@ _CHECK_ANCHORS = {
     "hugepage_allocation.status": "lifecycle",
     "storage_config.status": "storage",
     "k8s_scheduling.status": "orchestration",
+    "slurm.slinkyControllerSeparate": "orchestration",
     "tenant_pod_defaults.status": "orchestration",
     "tenant_pod_defaults.checks.memlock.status": "lifecycle",
     "tenant_pod_defaults.checks.shm.status": "lifecycle",

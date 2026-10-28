@@ -1114,6 +1114,1416 @@
           "package": "linux-hwe-6.8",
           "priority": "medium",
           "status": "needed"
+        },
+        "linuxSctpSendall": {
+          "abi": 186,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-21T10:01:10.996036",
+            "bulletinReleased": "2026-07-21T10:01:10.996036",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json",
+            "version": "5.15.0-186.196"
+          },
+          "fixed": "5.15.0-186.196",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux",
+          "priority": "medium",
+          "released": "2026-07-21T10:01:10.996036",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAllwinner5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "allwinner",
+            "allwinner-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-allwinner-5.19",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of kernel support"
+        },
+        "linuxSctpSendallAws": {
+          "abi": 1112,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T08:14:28.777294",
+            "bulletinReleased": "2026-07-23T08:14:28.777294",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-2",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-2.json",
+            "version": "5.15.0-1112.119"
+          },
+          "fixed": "5.15.0-1112.119",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-aws",
+          "priority": "medium",
+          "released": "2026-07-23T08:14:28.777294",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-2",
+            "url": "https://ubuntu.com/security/notices/USN-8575-2.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAws5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-aws-5.19",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-aws-6.2"
+        },
+        "linuxSctpSendallAws6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-aws-6.2",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-aws-6.5"
+        },
+        "linuxSctpSendallAws6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-aws-6.5",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-aws-6.8"
+        },
+        "linuxSctpSendallAws6_8": {
+          "abi": 1061,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-28T07:25:50.734580",
+            "bulletinReleased": "2026-07-28T07:25:50.734580",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8595-3",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8595-3.json",
+            "version": "6.8.0-1061.64~22.04.1"
+          },
+          "fixed": "6.8.0-1061.64~22.04.1",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-aws-6.8",
+          "priority": "medium",
+          "released": "2026-07-28T07:25:50.734580",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8595-3",
+            "url": "https://ubuntu.com/security/notices/USN-8595-3.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAwsFips": {
+          "abi": 1112,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T08:14:28.777294",
+            "bulletinReleased": "2026-07-23T08:14:28.777294",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-2",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-2.json",
+            "version": "5.15.0-1112.119+fips1"
+          },
+          "fixed": "5.15.0-1112.119+fips1",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "aws-fips",
+            "aws-fips-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-aws-fips",
+          "priority": "medium",
+          "released": "2026-07-23T08:14:28.777294",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-2",
+            "url": "https://ubuntu.com/security/notices/USN-8575-2.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAzure": {
+          "abi": 1117,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-24T10:30:08.689290",
+            "bulletinReleased": "2026-07-24T10:30:08.689290",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-3",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-3.json",
+            "version": "5.15.0-1117.126"
+          },
+          "fixed": "5.15.0-1117.126",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure",
+          "priority": "medium",
+          "released": "2026-07-24T10:30:08.689290",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-3",
+            "url": "https://ubuntu.com/security/notices/USN-8575-3.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAzure5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-5.19",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-azure-6.2"
+        },
+        "linuxSctpSendallAzure6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-6.2",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-azure-6.5"
+        },
+        "linuxSctpSendallAzure6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-6.5",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-azure-6.8"
+        },
+        "linuxSctpSendallAzure6_8": {
+          "abi": 1063,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-24T10:17:16.315922",
+            "bulletinReleased": "2026-07-24T10:17:16.315922",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8606-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8606-1.json",
+            "version": "6.8.0-1063.71~22.04.1"
+          },
+          "fixed": "6.8.0-1063.71~22.04.1",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-6.8",
+          "priority": "medium",
+          "released": "2026-07-24T10:17:16.315922",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8606-1",
+            "url": "https://ubuntu.com/security/notices/USN-8606-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAzureFde": {
+          "abi": 1117,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-24T10:34:35.640009",
+            "bulletinReleased": "2026-07-24T10:34:35.640009",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8610-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8610-1.json",
+            "version": "5.15.0-1117.126"
+          },
+          "fixed": "5.15.0-1117.126",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-fde",
+          "priority": "medium",
+          "released": "2026-07-24T10:34:35.640009",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8610-1",
+            "url": "https://ubuntu.com/security/notices/USN-8610-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAzureFde5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-fde-5.19",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-azure-fde-6.2"
+        },
+        "linuxSctpSendallAzureFde6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-fde-6.2",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "replaced by linux-azure-6.5"
+        },
+        "linuxSctpSendallAzureFde6_8": {
+          "abi": 1062,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-24T10:26:03.905111",
+            "bulletinReleased": "2026-07-24T10:26:03.905111",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8609-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8609-1.json",
+            "version": "6.8.0-1062.69~22.04.1"
+          },
+          "fixed": "6.8.0-1062.69~22.04.1",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-fde-6.8",
+          "priority": "medium",
+          "released": "2026-07-24T10:26:03.905111",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8609-1",
+            "url": "https://ubuntu.com/security/notices/USN-8609-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAzureFips": {
+          "abi": 1117,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-29T07:46:56.039756",
+            "bulletinReleased": "2026-07-29T07:46:56.039756",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8620-2",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8620-2.json",
+            "version": "5.15.0-1117.126+fips1"
+          },
+          "fixed": "5.15.0-1117.126+fips1",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "azure-fips",
+            "azure-fips-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-fips",
+          "priority": "medium",
+          "released": "2026-07-29T07:46:56.039756",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8620-2",
+            "url": "https://ubuntu.com/security/notices/USN-8620-2.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallFips": {
+          "abi": 186,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T08:14:28.777294",
+            "bulletinReleased": "2026-07-23T08:14:28.777294",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-2",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-2.json",
+            "version": "5.15.0-186.196+fips1"
+          },
+          "fixed": "5.15.0-186.196+fips1",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "fips",
+            "fips-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-fips",
+          "priority": "medium",
+          "released": "2026-07-23T08:14:28.777294",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-2",
+            "url": "https://ubuntu.com/security/notices/USN-8575-2.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallGcp": {
+          "abi": 1112,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-21T10:01:10.996036",
+            "bulletinReleased": "2026-07-21T10:01:10.996036",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json",
+            "version": "5.15.0-1112.122"
+          },
+          "fixed": "5.15.0-1112.122",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gcp",
+          "priority": "medium",
+          "released": "2026-07-21T10:01:10.996036",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallGcp5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gcp-5.19",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-gcp-6.2"
+        },
+        "linuxSctpSendallGcp6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gcp-6.2",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-gcp-6.5"
+        },
+        "linuxSctpSendallGcp6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gcp-6.5",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-gcp-6.8"
+        },
+        "linuxSctpSendallGcp6_8": {
+          "abi": 1064,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-20T15:36:35.152969",
+            "bulletinReleased": "2026-07-20T15:36:35.152969",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8567-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8567-1.json",
+            "version": "6.8.0-1064.72~22.04.1"
+          },
+          "fixed": "6.8.0-1064.72~22.04.1",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gcp-6.8",
+          "priority": "medium",
+          "released": "2026-07-20T15:36:35.152969",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8567-1",
+            "url": "https://ubuntu.com/security/notices/USN-8567-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallGcpFips": {
+          "abi": 1112,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-21T10:01:10.996036",
+            "bulletinReleased": "2026-07-21T10:01:10.996036",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json",
+            "version": "5.15.0-1112.122+fips1"
+          },
+          "fixed": "5.15.0-1112.122+fips1",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "gcp-fips",
+            "gcp-fips-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gcp-fips",
+          "priority": "medium",
+          "released": "2026-07-21T10:01:10.996036",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallGke": {
+          "abi": 1108,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-21T10:01:10.996036",
+            "bulletinReleased": "2026-07-21T10:01:10.996036",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json",
+            "version": "5.15.0-1108.114"
+          },
+          "fixed": "5.15.0-1108.114",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "gke",
+            "gke-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gke",
+          "priority": "medium",
+          "released": "2026-07-21T10:01:10.996036",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallGkeop": {
+          "abi": 1095,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-21T10:01:10.996036",
+            "bulletinReleased": "2026-07-21T10:01:10.996036",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json",
+            "version": "5.15.0-1095.103"
+          },
+          "fixed": "5.15.0-1095.103",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "gkeop",
+            "gkeop-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gkeop",
+          "priority": "medium",
+          "released": "2026-07-21T10:01:10.996036",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallHwe5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-hwe-5.19",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-hwe-6.2"
+        },
+        "linuxSctpSendallHwe6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-hwe-6.2",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-hwe-6.5"
+        },
+        "linuxSctpSendallHwe6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-hwe-6.5",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-hwe-6.8"
+        },
+        "linuxSctpSendallHwe6_8": {
+          "abi": 136,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-28T07:28:45.796332",
+            "bulletinReleased": "2026-07-28T07:28:45.796332",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8619-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8619-1.json",
+            "version": "6.8.0-136.136~22.04.1"
+          },
+          "fixed": "6.8.0-136.136~22.04.1",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-hwe-6.8",
+          "priority": "medium",
+          "released": "2026-07-28T07:28:45.796332",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8619-1",
+            "url": "https://ubuntu.com/security/notices/USN-8619-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallIbm": {
+          "abi": 1106,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T08:14:28.777294",
+            "bulletinReleased": "2026-07-23T08:14:28.777294",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-2",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-2.json",
+            "version": "5.15.0-1106.110"
+          },
+          "fixed": "5.15.0-1106.110",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "ibm",
+            "ibm-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-ibm",
+          "priority": "medium",
+          "released": "2026-07-23T08:14:28.777294",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-2",
+            "url": "https://ubuntu.com/security/notices/USN-8575-2.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallIbm6_8": {
+          "abi": 1061,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-28T07:23:25.770240",
+            "bulletinReleased": "2026-07-28T07:23:25.770240",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-3",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8574-3.json",
+            "version": "6.8.0-1061.62~22.04.1"
+          },
+          "fixed": "6.8.0-1061.62~22.04.1",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "ibm",
+            "ibm-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-ibm-6.8",
+          "priority": "medium",
+          "released": "2026-07-28T07:23:25.770240",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-3",
+            "url": "https://ubuntu.com/security/notices/USN-8574-3.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallIntelIotRealtime": {
+          "abi": 1104,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-31T09:40:09.826541",
+            "bulletinReleased": "2026-07-31T09:40:09.826541",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8620-3",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8620-3.json",
+            "version": "5.15.0-1104.106"
+          },
+          "fixed": "5.15.0-1104.106",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "intel-iot-realtime",
+            "intel-iot-realtime-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-intel-iot-realtime",
+          "priority": "medium",
+          "released": "2026-07-31T09:40:09.826541",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8620-3",
+            "url": "https://ubuntu.com/security/notices/USN-8620-3.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallIntelIotg": {
+          "abi": 1107,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-31T15:00:56.127396",
+            "bulletinReleased": "2026-07-31T15:00:56.127396",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8620-4",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8620-4.json",
+            "version": "5.15.0-1107.113"
+          },
+          "fixed": "5.15.0-1107.113",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "intel-iotg",
+            "intel-iotg-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-intel-iotg",
+          "priority": "medium",
+          "released": "2026-07-31T15:00:56.127396",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8620-4",
+            "url": "https://ubuntu.com/security/notices/USN-8620-4.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallKvm": {
+          "abi": 1104,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-21T10:01:10.996036",
+            "bulletinReleased": "2026-07-21T10:01:10.996036",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json",
+            "version": "5.15.0-1104.109"
+          },
+          "fixed": "5.15.0-1104.109",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "kvm",
+            "kvm-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-kvm",
+          "priority": "medium",
+          "released": "2026-07-21T10:01:10.996036",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallLowlatency": {
+          "abi": 184,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-21T10:01:10.996036",
+            "bulletinReleased": "2026-07-21T10:01:10.996036",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json",
+            "version": "5.15.0-184.194"
+          },
+          "fixed": "5.15.0-184.194",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "lowlatency",
+            "lowlatency-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-lowlatency",
+          "priority": "medium",
+          "released": "2026-07-21T10:01:10.996036",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallLowlatencyHwe5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "lowlatency",
+            "lowlatency-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-lowlatency-hwe-5.19",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-lowlatency-hwe-6.2"
+        },
+        "linuxSctpSendallLowlatencyHwe6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "lowlatency",
+            "lowlatency-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-lowlatency-hwe-6.2",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-lowlatency-hwe-6.5"
+        },
+        "linuxSctpSendallLowlatencyHwe6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "lowlatency",
+            "lowlatency-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-lowlatency-hwe-6.5",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-lowlatency-hwe-6.8"
+        },
+        "linuxSctpSendallLowlatencyHwe6_8": {
+          "abi": 136,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T07:48:36.072520",
+            "bulletinReleased": "2026-07-23T07:48:36.072520",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-2",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8574-2.json",
+            "version": "6.8.0-136.136.2~22.04.1"
+          },
+          "fixed": "6.8.0-136.136.2~22.04.1",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "lowlatency",
+            "lowlatency-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-lowlatency-hwe-6.8",
+          "priority": "medium",
+          "released": "2026-07-23T07:48:36.072520",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-2",
+            "url": "https://ubuntu.com/security/notices/USN-8574-2.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallNvidia": {
+          "abi": 1107,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T08:14:28.777294",
+            "bulletinReleased": "2026-07-23T08:14:28.777294",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-2",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-2.json",
+            "version": "5.15.0-1107.108"
+          },
+          "fixed": "5.15.0-1107.108",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-nvidia",
+          "priority": "medium",
+          "released": "2026-07-23T08:14:28.777294",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-2",
+            "url": "https://ubuntu.com/security/notices/USN-8575-2.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallNvidia6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-nvidia-6.2",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-nvidia-6.5"
+        },
+        "linuxSctpSendallNvidia6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-nvidia-6.5",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-nvidia-6.8"
+        },
+        "linuxSctpSendallNvidia6_8": {
+          "abi": 1059,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T08:06:00.045634",
+            "bulletinReleased": "2026-07-23T08:06:00.045634",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8596-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8596-1.json",
+            "version": "6.8.0-1059.62~22.04.1"
+          },
+          "fixed": "6.8.0-1059.62~22.04.1",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-nvidia-6.8",
+          "priority": "medium",
+          "released": "2026-07-23T08:06:00.045634",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8596-1",
+            "url": "https://ubuntu.com/security/notices/USN-8596-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallNvidiaTegra": {
+          "abi": 1064,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T08:22:07.499959",
+            "bulletinReleased": "2026-07-23T08:22:07.499959",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8576-2",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8576-2.json",
+            "version": "5.15.0-1064.66"
+          },
+          "fixed": "5.15.0-1064.66",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "nvidia-tegra",
+            "nvidia-tegra-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-nvidia-tegra",
+          "priority": "medium",
+          "released": "2026-07-23T08:22:07.499959",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8576-2",
+            "url": "https://ubuntu.com/security/notices/USN-8576-2.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallNvidiaTegraIgx": {
+          "abi": 1053,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T08:22:07.499959",
+            "bulletinReleased": "2026-07-23T08:22:07.499959",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8576-2",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8576-2.json",
+            "version": "5.15.0-1053.53"
+          },
+          "fixed": "5.15.0-1053.53",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "nvidia-tegra-igx",
+            "nvidia-tegra-igx-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-nvidia-tegra-igx",
+          "priority": "medium",
+          "released": "2026-07-23T08:22:07.499959",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8576-2",
+            "url": "https://ubuntu.com/security/notices/USN-8576-2.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallOem5_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "5.17",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oem-5.17",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-oem-6.1"
+        },
+        "linuxSctpSendallOem6_0": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.0",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oem-6.0",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-oem-6.1"
+        },
+        "linuxSctpSendallOem6_1": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.1",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oem-6.1",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-oem-6.5"
+        },
+        "linuxSctpSendallOem6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oem-6.5",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-oem-6.8"
+        },
+        "linuxSctpSendallOracle": {
+          "abi": 1109,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-24T10:30:08.689290",
+            "bulletinReleased": "2026-07-24T10:30:08.689290",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-3",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-3.json",
+            "version": "5.15.0-1109.115"
+          },
+          "fixed": "5.15.0-1109.115",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oracle",
+          "priority": "medium",
+          "released": "2026-07-24T10:30:08.689290",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-3",
+            "url": "https://ubuntu.com/security/notices/USN-8575-3.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallOracle6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oracle-6.5",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-oracle-6.8"
+        },
+        "linuxSctpSendallOracle6_8": {
+          "abi": 1058,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T07:57:09.923125",
+            "bulletinReleased": "2026-07-23T07:57:09.923125",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8595-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8595-1.json",
+            "version": "6.8.0-1058.61~22.04.1"
+          },
+          "fixed": "6.8.0-1058.61~22.04.1",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oracle-6.8",
+          "priority": "medium",
+          "released": "2026-07-23T07:57:09.923125",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8595-1",
+            "url": "https://ubuntu.com/security/notices/USN-8595-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallRaspi": {
+          "abi": 1106,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-09-21T13:04:55.864959",
+            "bulletinReleased": "2026-09-21T13:04:55.864959",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8668-2",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8668-2.json",
+            "version": "5.15.0-1106.109"
+          },
+          "fixed": "5.15.0-1106.109",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "raspi",
+            "raspi-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-raspi",
+          "priority": "medium",
+          "released": "2026-09-21T13:04:55.864959",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8668-2",
+            "url": "https://ubuntu.com/security/notices/USN-8668-2.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallRealtime": {
+          "abi": 1111,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-21T10:01:10.996036",
+            "bulletinReleased": "2026-07-21T10:01:10.996036",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json",
+            "version": "5.15.0-1111.120"
+          },
+          "fixed": "5.15.0-1111.120",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "realtime",
+            "realtime-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-realtime",
+          "priority": "medium",
+          "released": "2026-07-21T10:01:10.996036",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallRealtime6_8": {
+          "abi": 1056,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-20T15:36:35.152969",
+            "bulletinReleased": "2026-07-20T15:36:35.152969",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8567-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8567-1.json",
+            "version": "6.8.1-1056.57~22.04.2"
+          },
+          "fixed": "6.8.1-1056.57~22.04.2",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "realtime",
+            "realtime-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-realtime-6.8",
+          "priority": "medium",
+          "released": "2026-07-20T15:36:35.152969",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8567-1",
+            "url": "https://ubuntu.com/security/notices/USN-8567-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallStarfive5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "starfive",
+            "starfive-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-starfive-5.19",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of kernel support"
+        },
+        "linuxSctpSendallStarfive6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "starfive",
+            "starfive-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-starfive-6.2",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-starfive-6.5"
+        },
+        "linuxSctpSendallStarfive6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "starfive",
+            "starfive-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-starfive-6.5",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of kernel support"
+        },
+        "linuxSctpSendallXilinxZynqmp": {
+          "abi": 1075,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-21T10:01:10.996036",
+            "bulletinReleased": "2026-07-21T10:01:10.996036",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json",
+            "version": "5.15.0-1075.79"
+          },
+          "fixed": "5.15.0-1075.79",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "xilinx-zynqmp",
+            "xilinx-zynqmp-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-xilinx-zynqmp",
+          "priority": "medium",
+          "released": "2026-07-21T10:01:10.996036",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8575-1",
+            "url": "https://ubuntu.com/security/notices/USN-8575-1.json"
+          },
+          "status": "released"
         }
       },
       "release": "jammy",
@@ -1333,6 +2743,1224 @@
           "priority": "medium",
           "status": "pending"
         },
+        "linuxSctpSendall": {
+          "abi": 136,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-20T15:36:35.152969",
+            "bulletinReleased": "2026-07-20T15:36:35.152969",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8567-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8567-1.json",
+            "version": "6.8.0-136.136"
+          },
+          "fixed": "6.8.0-136.136",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux",
+          "priority": "medium",
+          "released": "2026-07-20T15:36:35.152969",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8567-1",
+            "url": "https://ubuntu.com/security/notices/USN-8567-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAws": {
+          "abi": 1061,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-24T10:14:09.833860",
+            "bulletinReleased": "2026-07-24T10:14:09.833860",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8595-2",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8595-2.json",
+            "version": "6.8.0-1061.64"
+          },
+          "fixed": "6.8.0-1061.64",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-aws",
+          "priority": "medium",
+          "released": "2026-07-24T10:14:09.833860",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8595-2",
+            "url": "https://ubuntu.com/security/notices/USN-8595-2.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAws6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-aws-6.14",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxSctpSendallAws6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-aws-6.17",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of life, was needed"
+        },
+        "linuxSctpSendallAws7_0": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-aws-7.0",
+          "priority": "medium",
+          "status": "not-affected",
+          "trackerNote": "7.0.0-1009.9~24.04.1"
+        },
+        "linuxSctpSendallAwsFips": {
+          "abi": 1061,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-28T07:25:50.734580",
+            "bulletinReleased": "2026-07-28T07:25:50.734580",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8595-3",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8595-3.json",
+            "version": "6.8.0-1061.64+fips1"
+          },
+          "fixed": "6.8.0-1061.64+fips1",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "aws-fips",
+            "aws-fips-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-aws-fips",
+          "priority": "medium",
+          "released": "2026-07-28T07:25:50.734580",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8595-3",
+            "url": "https://ubuntu.com/security/notices/USN-8595-3.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAzure": {
+          "abi": 1063,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-24T10:17:16.315922",
+            "bulletinReleased": "2026-07-24T10:17:16.315922",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8606-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8606-1.json",
+            "version": "6.8.0-1063.71"
+          },
+          "fixed": "6.8.0-1063.71",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure",
+          "priority": "medium",
+          "released": "2026-07-24T10:17:16.315922",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8606-1",
+            "url": "https://ubuntu.com/security/notices/USN-8606-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAzure6_11": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.11",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-6.11",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-azure-6.14"
+        },
+        "linuxSctpSendallAzure6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-6.14",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of life, was needed"
+        },
+        "linuxSctpSendallAzure6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-6.17",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of life, was needed"
+        },
+        "linuxSctpSendallAzure7_0": {
+          "abi": 1014,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-09-22T13:19:49.150743",
+            "bulletinReleased": "2026-09-22T13:19:49.150743",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8728-2",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8728-2.json",
+            "version": "7.0.0-1014.14~24.04.1"
+          },
+          "fixed": "7.0.0-1014.14~24.04.1",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-7.0",
+          "priority": "medium",
+          "released": "2026-09-22T13:19:49.150743",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8728-2",
+            "url": "https://ubuntu.com/security/notices/USN-8728-2.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAzureFde": {
+          "abi": 1062,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-24T10:20:29.873473",
+            "bulletinReleased": "2026-07-24T10:20:29.873473",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8607-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8607-1.json",
+            "version": "6.8.0-1062.69"
+          },
+          "fixed": "6.8.0-1062.69",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-fde",
+          "priority": "medium",
+          "released": "2026-07-24T10:20:29.873473",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8607-1",
+            "url": "https://ubuntu.com/security/notices/USN-8607-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAzureFde6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-fde-6.14",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of life, was needed"
+        },
+        "linuxSctpSendallAzureFde6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-fde-6.17",
+          "priority": "medium",
+          "status": "not-affected",
+          "trackerNote": "6.17.0-1005.5~24.04.1"
+        },
+        "linuxSctpSendallAzureFde7_0": {
+          "abi": 1013,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "feed": "ubuntu-security-api",
+            "status": "unconfirmed",
+            "url": "https://ubuntu.com/security/cves/CVE-2026-46227",
+            "version": "7.0.0-1013.13~24.04.1"
+          },
+          "fixed": "7.0.0-1013.13~24.04.1",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-fde-7.0",
+          "priority": "medium",
+          "status": "released"
+        },
+        "linuxSctpSendallAzureFips": {
+          "abi": 1063,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-24T10:23:19.684413",
+            "bulletinReleased": "2026-07-24T10:23:19.684413",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8608-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8608-1.json",
+            "version": "6.8.0-1063.71+fips2"
+          },
+          "fixed": "6.8.0-1063.71+fips2",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "azure-fips",
+            "azure-fips-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-fips",
+          "priority": "medium",
+          "released": "2026-07-24T10:23:19.684413",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8608-1",
+            "url": "https://ubuntu.com/security/notices/USN-8608-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAzureNvidia": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "azure-nvidia",
+            "azure-nvidia-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-nvidia",
+          "priority": "medium",
+          "status": "pending",
+          "trackerNote": "6.8.0-1046.49"
+        },
+        "linuxSctpSendallAzureNvidia6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "azure-nvidia",
+            "azure-nvidia-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-nvidia-6.14",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of life, was needed"
+        },
+        "linuxSctpSendallFips": {
+          "abi": 136,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T07:48:36.072520",
+            "bulletinReleased": "2026-07-23T07:48:36.072520",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-2",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8574-2.json",
+            "version": "6.8.0-136.136+fips2"
+          },
+          "fixed": "6.8.0-136.136+fips2",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "fips",
+            "fips-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-fips",
+          "priority": "medium",
+          "released": "2026-07-23T07:48:36.072520",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-2",
+            "url": "https://ubuntu.com/security/notices/USN-8574-2.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallGcp": {
+          "abi": 1064,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-20T15:36:35.152969",
+            "bulletinReleased": "2026-07-20T15:36:35.152969",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8567-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8567-1.json",
+            "version": "6.8.0-1064.72"
+          },
+          "fixed": "6.8.0-1064.72",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gcp",
+          "priority": "medium",
+          "released": "2026-07-20T15:36:35.152969",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8567-1",
+            "url": "https://ubuntu.com/security/notices/USN-8567-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallGcp6_11": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.11",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gcp-6.11",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-gcp-6.14"
+        },
+        "linuxSctpSendallGcp6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gcp-6.14",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxSctpSendallGcp6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gcp-6.17",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of life, was needed"
+        },
+        "linuxSctpSendallGcp7_0": {
+          "abi": 1011,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-09-07T09:05:21.339694",
+            "bulletinReleased": "2026-09-07T09:05:21.339694",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8728-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8728-1.json",
+            "version": "7.0.0-1011.11~24.04.1"
+          },
+          "fixed": "7.0.0-1011.11~24.04.1",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gcp-7.0",
+          "priority": "medium",
+          "released": "2026-09-07T09:05:21.339694",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8728-1",
+            "url": "https://ubuntu.com/security/notices/USN-8728-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallGcpFips": {
+          "abi": 1064,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-21T09:51:58.380562",
+            "bulletinReleased": "2026-07-21T09:51:58.380562",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8574-1.json",
+            "version": "6.8.0-1064.72+fips1"
+          },
+          "fixed": "6.8.0-1064.72+fips1",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "gcp-fips",
+            "gcp-fips-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gcp-fips",
+          "priority": "medium",
+          "released": "2026-07-21T09:51:58.380562",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-1",
+            "url": "https://ubuntu.com/security/notices/USN-8574-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallGke": {
+          "abi": 1059,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-20T15:36:35.152969",
+            "bulletinReleased": "2026-07-20T15:36:35.152969",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8567-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8567-1.json",
+            "version": "6.8.0-1059.67"
+          },
+          "fixed": "6.8.0-1059.67",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "gke",
+            "gke-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gke",
+          "priority": "medium",
+          "released": "2026-07-20T15:36:35.152969",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8567-1",
+            "url": "https://ubuntu.com/security/notices/USN-8567-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallGkeop": {
+          "abi": 1046,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-20T15:36:35.152969",
+            "bulletinReleased": "2026-07-20T15:36:35.152969",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8567-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8567-1.json",
+            "version": "6.8.0-1046.50"
+          },
+          "fixed": "6.8.0-1046.50",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "gkeop",
+            "gkeop-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gkeop",
+          "priority": "medium",
+          "released": "2026-07-20T15:36:35.152969",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8567-1",
+            "url": "https://ubuntu.com/security/notices/USN-8567-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallHwe6_11": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.11",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-hwe-6.11",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-hwe-6.14"
+        },
+        "linuxSctpSendallHwe6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-hwe-6.14",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxSctpSendallHwe6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-hwe-6.17",
+          "priority": "medium",
+          "status": "needed"
+        },
+        "linuxSctpSendallHwe7_0": {
+          "abi": 28,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-20T16:06:38.493599",
+            "bulletinReleased": "2026-07-20T16:06:38.493599",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8569-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8569-1.json",
+            "version": "7.0.0-28.28~24.04.1"
+          },
+          "fixed": "7.0.0-28.28~24.04.1",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-hwe-7.0",
+          "priority": "medium",
+          "released": "2026-07-20T16:06:38.493599",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8569-1",
+            "url": "https://ubuntu.com/security/notices/USN-8569-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallIbm": {
+          "abi": 1061,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-28T07:23:25.770240",
+            "bulletinReleased": "2026-07-28T07:23:25.770240",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-3",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8574-3.json",
+            "version": "6.8.0-1061.62"
+          },
+          "fixed": "6.8.0-1061.62",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "ibm",
+            "ibm-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-ibm",
+          "priority": "medium",
+          "released": "2026-07-28T07:23:25.770240",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-3",
+            "url": "https://ubuntu.com/security/notices/USN-8574-3.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallLowlatency": {
+          "abi": 136,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T07:48:36.072520",
+            "bulletinReleased": "2026-07-23T07:48:36.072520",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-2",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8574-2.json",
+            "version": "6.8.0-136.136.2"
+          },
+          "fixed": "6.8.0-136.136.2",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "lowlatency",
+            "lowlatency-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-lowlatency",
+          "priority": "medium",
+          "released": "2026-07-23T07:48:36.072520",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-2",
+            "url": "https://ubuntu.com/security/notices/USN-8574-2.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallLowlatencyHwe6_11": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.11",
+          "kernelFlavors": [
+            "lowlatency",
+            "lowlatency-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-lowlatency-hwe-6.11",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "replaced by linux-hwe-6.14"
+        },
+        "linuxSctpSendallNvidia": {
+          "abi": 1059,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T08:06:00.045634",
+            "bulletinReleased": "2026-07-23T08:06:00.045634",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8596-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8596-1.json",
+            "version": "6.8.0-1059.62"
+          },
+          "fixed": "6.8.0-1059.62",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-nvidia",
+          "priority": "medium",
+          "released": "2026-07-23T08:06:00.045634",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8596-1",
+            "url": "https://ubuntu.com/security/notices/USN-8596-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallNvidia6_11": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.11",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-nvidia-6.11",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of kernel support"
+        },
+        "linuxSctpSendallNvidia6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-nvidia-6.17",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of life, was needed"
+        },
+        "linuxSctpSendallNvidia7_0": {
+          "abi": 1016,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-08-20T23:18:42.038272",
+            "bulletinReleased": "2026-08-20T23:18:42.038272",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8663-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8663-1.json",
+            "version": "7.0.0-1016.16~24.04.1"
+          },
+          "fixed": "7.0.0-1016.16~24.04.1",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-nvidia-7.0",
+          "priority": "medium",
+          "released": "2026-08-20T23:18:42.038272",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8663-1",
+            "url": "https://ubuntu.com/security/notices/USN-8663-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallNvidiaLowlatency": {
+          "abi": 1059,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T08:06:00.045634",
+            "bulletinReleased": "2026-07-23T08:06:00.045634",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8596-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8596-1.json",
+            "version": "6.8.0-1059.62.1"
+          },
+          "fixed": "6.8.0-1059.62.1",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "nvidia-lowlatency",
+            "nvidia-lowlatency-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-nvidia-lowlatency",
+          "priority": "medium",
+          "released": "2026-07-23T08:06:00.045634",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8596-1",
+            "url": "https://ubuntu.com/security/notices/USN-8596-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallNvidiaTegra": {
+          "abi": 1030,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-28T07:23:25.770240",
+            "bulletinReleased": "2026-07-28T07:23:25.770240",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-3",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8574-3.json",
+            "version": "6.8.0-1030.31"
+          },
+          "fixed": "6.8.0-1030.31",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "nvidia-tegra",
+            "nvidia-tegra-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-nvidia-tegra",
+          "priority": "medium",
+          "released": "2026-07-28T07:23:25.770240",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-3",
+            "url": "https://ubuntu.com/security/notices/USN-8574-3.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallOem6_11": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.11",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oem-6.11",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-oem-6.14"
+        },
+        "linuxSctpSendallOem6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oem-6.14",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxSctpSendallOem6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oem-6.17",
+          "priority": "medium",
+          "status": "needed"
+        },
+        "linuxSctpSendallOem6_8": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oem-6.8",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-oem-6.14"
+        },
+        "linuxSctpSendallOracle": {
+          "abi": 1058,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T07:48:36.072520",
+            "bulletinReleased": "2026-07-23T07:48:36.072520",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-2",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8574-2.json",
+            "version": "6.8.0-1058.61"
+          },
+          "fixed": "6.8.0-1058.61",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oracle",
+          "priority": "medium",
+          "released": "2026-07-23T07:48:36.072520",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-2",
+            "url": "https://ubuntu.com/security/notices/USN-8574-2.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallOracle6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oracle-6.14",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxSctpSendallOracle6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oracle-6.17",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of life, was needed"
+        },
+        "linuxSctpSendallOracle7_0": {
+          "abi": 1011,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-09-29T07:53:08.690008",
+            "bulletinReleased": "2026-09-29T07:53:08.690008",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8728-3",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8728-3.json",
+            "version": "7.0.0-1011.11~24.04.1"
+          },
+          "fixed": "7.0.0-1011.11~24.04.1",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oracle-7.0",
+          "priority": "medium",
+          "released": "2026-09-29T07:53:08.690008",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8728-3",
+            "url": "https://ubuntu.com/security/notices/USN-8728-3.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallRaspi": {
+          "abi": 1061,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-08-20T23:31:14.006428",
+            "bulletinReleased": "2026-08-20T23:31:14.006428",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8665-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8665-1.json",
+            "version": "6.8.0-1061.65"
+          },
+          "fixed": "6.8.0-1061.65",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "raspi",
+            "raspi-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-raspi",
+          "priority": "medium",
+          "released": "2026-08-20T23:31:14.006428",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8665-1",
+            "url": "https://ubuntu.com/security/notices/USN-8665-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallRaspiRealtime": {
+          "abi": 2050,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-08-20T23:31:14.006428",
+            "bulletinReleased": "2026-08-20T23:31:14.006428",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8665-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8665-1.json",
+            "version": "6.8.0-2050.52"
+          },
+          "fixed": "6.8.0-2050.52",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "raspi-realtime",
+            "raspi-realtime-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-raspi-realtime",
+          "priority": "medium",
+          "released": "2026-08-20T23:31:14.006428",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8665-1",
+            "url": "https://ubuntu.com/security/notices/USN-8665-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallRealtime": {
+          "abi": 1056,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-20T15:36:35.152969",
+            "bulletinReleased": "2026-07-20T15:36:35.152969",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8567-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8567-1.json",
+            "version": "6.8.1-1056.57"
+          },
+          "fixed": "6.8.1-1056.57",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "realtime",
+            "realtime-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-realtime",
+          "priority": "medium",
+          "released": "2026-07-20T15:36:35.152969",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8567-1",
+            "url": "https://ubuntu.com/security/notices/USN-8567-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallRealtime6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "realtime",
+            "realtime-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-realtime-6.14",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxSctpSendallRealtime6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "realtime",
+            "realtime-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-realtime-6.17",
+          "priority": "medium",
+          "status": "ignored",
+          "trackerNote": "end of life, was needed"
+        },
+        "linuxSctpSendallVmware": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "vmware",
+            "vmware-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-vmware",
+          "priority": "medium",
+          "status": "not-affected"
+        },
+        "linuxSctpSendallXilinx": {
+          "abi": 1033,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-28T07:23:25.770240",
+            "bulletinReleased": "2026-07-28T07:23:25.770240",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-3",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8574-3.json",
+            "version": "6.8.0-1033.34"
+          },
+          "fixed": "6.8.0-1033.34",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "xilinx",
+            "xilinx-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-xilinx",
+          "priority": "medium",
+          "released": "2026-07-28T07:23:25.770240",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8574-3",
+            "url": "https://ubuntu.com/security/notices/USN-8574-3.json"
+          },
+          "status": "released"
+        },
         "linuxVmscape": {
           "cve": "CVE-2025-40300",
           "fixAvailability": {
@@ -1454,6 +4082,396 @@
           "package": "linux",
           "priority": "medium",
           "status": "pending"
+        },
+        "linuxSctpSendall": {
+          "abi": 28,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-20T15:24:18.747835",
+            "bulletinReleased": "2026-07-20T15:24:18.747835",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8566-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8566-1.json",
+            "version": "7.0.0-28.28"
+          },
+          "fixed": "7.0.0-28.28",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux",
+          "priority": "medium",
+          "released": "2026-07-20T15:24:18.747835",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8566-1",
+            "url": "https://ubuntu.com/security/notices/USN-8566-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAws": {
+          "abi": 1009,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-28T07:16:49.282869",
+            "bulletinReleased": "2026-07-28T07:16:49.282869",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8618-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8618-1.json",
+            "version": "7.0.0-1009.9"
+          },
+          "fixed": "7.0.0-1009.9",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-aws",
+          "priority": "medium",
+          "released": "2026-07-28T07:16:49.282869",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8618-1",
+            "url": "https://ubuntu.com/security/notices/USN-8618-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAzure": {
+          "abi": 1010,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-24T09:51:53.477206",
+            "bulletinReleased": "2026-07-24T09:51:53.477206",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8603-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8603-1.json",
+            "version": "7.0.0-1010.10"
+          },
+          "fixed": "7.0.0-1010.10",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure",
+          "priority": "medium",
+          "released": "2026-07-24T09:51:53.477206",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8603-1",
+            "url": "https://ubuntu.com/security/notices/USN-8603-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallAzureFde": {
+          "abi": 1009,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-24T09:51:53.477206",
+            "bulletinReleased": "2026-07-24T09:51:53.477206",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8603-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8603-1.json",
+            "version": "7.0.0-1009.9"
+          },
+          "fixed": "7.0.0-1009.9",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-azure-fde",
+          "priority": "medium",
+          "released": "2026-07-24T09:51:53.477206",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8603-1",
+            "url": "https://ubuntu.com/security/notices/USN-8603-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallGcp": {
+          "abi": 1008,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-20T15:24:18.747835",
+            "bulletinReleased": "2026-07-20T15:24:18.747835",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8566-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8566-1.json",
+            "version": "7.0.0-1008.8"
+          },
+          "fixed": "7.0.0-1008.8",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gcp",
+          "priority": "medium",
+          "released": "2026-07-20T15:24:18.747835",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8566-1",
+            "url": "https://ubuntu.com/security/notices/USN-8566-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallGke": {
+          "abi": 1003,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-20T15:24:18.747835",
+            "bulletinReleased": "2026-07-20T15:24:18.747835",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8566-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8566-1.json",
+            "version": "7.0.0-1003.4"
+          },
+          "fixed": "7.0.0-1003.4",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "gke",
+            "gke-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-gke",
+          "priority": "medium",
+          "released": "2026-07-20T15:24:18.747835",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8566-1",
+            "url": "https://ubuntu.com/security/notices/USN-8566-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallIbm": {
+          "abi": 1010,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T07:35:09.301838",
+            "bulletinReleased": "2026-07-23T07:35:09.301838",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8593-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8593-1.json",
+            "version": "7.0.0-1010.10"
+          },
+          "fixed": "7.0.0-1010.10",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "ibm",
+            "ibm-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-ibm",
+          "priority": "medium",
+          "released": "2026-07-23T07:35:09.301838",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8593-1",
+            "url": "https://ubuntu.com/security/notices/USN-8593-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallNvidia": {
+          "abi": 1016,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-08-20T23:18:42.038272",
+            "bulletinReleased": "2026-08-20T23:18:42.038272",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8663-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8663-1.json",
+            "version": "7.0.0-1016.16"
+          },
+          "fixed": "7.0.0-1016.16",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-nvidia",
+          "priority": "medium",
+          "released": "2026-08-20T23:18:42.038272",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8663-1",
+            "url": "https://ubuntu.com/security/notices/USN-8663-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallNvidiaBos": {
+          "abi": 2016,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-08-20T23:22:25.519840",
+            "bulletinReleased": "2026-08-20T23:22:25.519840",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8664-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8664-1.json",
+            "version": "7.0.0-2016.16"
+          },
+          "fixed": "7.0.0-2016.16",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "nvidia-bos",
+            "nvidia-bos-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-nvidia-bos",
+          "priority": "medium",
+          "released": "2026-08-20T23:22:25.519840",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8664-1",
+            "url": "https://ubuntu.com/security/notices/USN-8664-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallOem7_0": {
+          "abi": 1009,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-20T15:45:34.691959",
+            "bulletinReleased": "2026-07-20T15:45:34.691959",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8568-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8568-1.json",
+            "version": "7.0.0-1009.9"
+          },
+          "fixed": "7.0.0-1009.9",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oem-7.0",
+          "priority": "medium",
+          "released": "2026-07-20T15:45:34.691959",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8568-1",
+            "url": "https://ubuntu.com/security/notices/USN-8568-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallOracle": {
+          "abi": 1008,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-23T07:35:09.301838",
+            "bulletinReleased": "2026-07-23T07:35:09.301838",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8593-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8593-1.json",
+            "version": "7.0.0-1008.8"
+          },
+          "fixed": "7.0.0-1008.8",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-oracle",
+          "priority": "medium",
+          "released": "2026-07-23T07:35:09.301838",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8593-1",
+            "url": "https://ubuntu.com/security/notices/USN-8593-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallRaspi": {
+          "abi": 1015,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-28T07:16:49.282869",
+            "bulletinReleased": "2026-07-28T07:16:49.282869",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8618-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8618-1.json",
+            "version": "7.0.0-1015.15"
+          },
+          "fixed": "7.0.0-1015.15",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "raspi",
+            "raspi-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-raspi",
+          "priority": "medium",
+          "released": "2026-07-28T07:16:49.282869",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8618-1",
+            "url": "https://ubuntu.com/security/notices/USN-8618-1.json"
+          },
+          "status": "released"
+        },
+        "linuxSctpSendallRealtime": {
+          "abi": 28,
+          "allowUnfixed": true,
+          "cve": "CVE-2026-46227",
+          "fixAvailability": {
+            "available": "2026-07-20T15:24:18.747835",
+            "bulletinReleased": "2026-07-20T15:24:18.747835",
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8566-1",
+            "status": "confirmed",
+            "url": "https://ubuntu.com/security/notices/USN-8566-1.json",
+            "version": "7.0.0-28.28.1"
+          },
+          "fixed": "7.0.0-28.28.1",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "realtime",
+            "realtime-64k"
+          ],
+          "kernelGroup": "linuxSctpSendall",
+          "package": "linux-realtime",
+          "priority": "medium",
+          "released": "2026-07-20T15:24:18.747835",
+          "source": {
+            "feed": "ubuntu-security-notice",
+            "id": "USN-8566-1",
+            "url": "https://ubuntu.com/security/notices/USN-8566-1.json"
+          },
+          "status": "released"
         }
       },
       "release": "resolute",

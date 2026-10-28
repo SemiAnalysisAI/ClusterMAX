@@ -671,6 +671,31 @@ class DetectFindingsTests(unittest.TestCase):
         findings = audit_findings.detect_findings({"audit_data": audit_data})
         self.assertNotIn("gpu_controls.vboost.allowed", by_key(findings))
 
+    def test_vboost_not_applicable_check_does_not_flag_denial(self) -> None:
+        audit_data = {
+            "gpu_controls": {
+                "vboost": {
+                    "checked": False,
+                    "allowed": False,
+                    "status": "not_applicable",
+                }
+            }
+        }
+        findings = audit_findings.detect_findings({"audit_data": audit_data})
+        self.assertNotIn("gpu_controls.vboost.allowed", by_key(findings))
+        kind, reason = audit_findings.classify_suppression(
+            "gpu_controls.vboost.allowed", audit_data
+        )
+        self.assertEqual(kind, audit_findings.NOT_APPLICABLE_KIND)
+        self.assertIn("all AMD", reason)
+        # A GB300 cluster reports the same status, but names the GPU limit.
+        audit_data["gpus"] = {"model": "NVIDIA-GB300"}
+        kind, reason = audit_findings.classify_suppression(
+            "gpu_controls.vboost.allowed", audit_data
+        )
+        self.assertEqual(kind, audit_findings.NOT_APPLICABLE_KIND)
+        self.assertIn("B300 and GB300", reason)
+
     def test_vboost_denied_on_b300_family_does_not_flag(self) -> None:
         for model in (
             "NVIDIA-B300-SXM6-AC",

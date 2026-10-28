@@ -71,6 +71,8 @@ WORKER_SECURITY_NVIDIA_GPU_PRESENT=false
 WORKER_SECURITY_NIC_INVENTORY_COMPLETE=true
 WORKER_RDMA_LINK_LAYERS=Ethernet
 WORKER_IB_DEVICES=bnxt_re0
+WORKER_OS_ID=ubuntu
+WORKER_OS_VERSION_ID=24.04
 WORKER_GUEST_KERNEL_RUNNING=6.8.0-124-generic
 WORKER_GUEST_KERNEL_NEWEST_INSTALLED=6.8.0-138-generic
 WORKER_GUEST_KERNEL_NEWER_INSTALLED=true
@@ -134,6 +136,13 @@ WORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.5
         self.assertEqual(payload["securityVersions"]["docker"]["version"], "29.5.3")
         self.assertEqual(payload["securityVersions"]["runc"]["version"], "1.3.5")
         self.assertTrue(payload["security"]["guestKernel"]["newerInstalled"])
+        # The security profile grades the kernel against the per-kernel Ubuntu
+        # CVE rows, as the full audit does. 6.8.0-124 predates every fix.
+        self.assertEqual(payload["security"]["guestKernel"]["ubuntuCveStatus"], "fail")
+        self.assertIn(
+            "CVE-2026-46227", payload["security"]["guestKernel"]["ubuntuVulnerableCves"]
+        )
+        self.assertEqual(payload["security"]["guestKernel"]["ubuntuCveGracePeriods"], [])
         self.assertTrue(payload["security"]["virtualization"]["virtioSerialExposed"])
         self.assertEqual(
             payload["security"]["nvidiaMay2026"]["driverVersion"], "unknown"

@@ -101,6 +101,7 @@ _GUEST_KERNEL_UBUNTU_REFERENCES = _references(
     ("Ubuntu kernel update guidance", "https://ubuntu.com/security/notices"),
     ("CVE-2026-64531", "https://ubuntu.com/security/CVE-2026-64531"),
     ("CVE-2026-64378", "https://ubuntu.com/security/CVE-2026-64378"),
+    ("CVE-2026-46227", "https://ubuntu.com/security/CVE-2026-46227"),
 )
 
 
@@ -856,7 +857,26 @@ def _boolean_exposure(
     return evaluate
 
 
+_BMC_PRIVILEGED_ACCESS_MODE = "administrative-privileged-host-root-pod"
+_BMC_PRIVILEGED_EXPOSED = (
+    "The in-band BMC/IPMI path was reachable from the privileged audit pod, "
+    "which runs as root on the host. This does not establish tenant "
+    "reachability: a tenant reaches the BMC only after it first gets host "
+    "root, for example by scheduling a privileged pod. Verify that "
+    "unprivileged tenants cannot schedule privileged pods or mount host IPMI "
+    "devices; that admission control, not this probe, governs tenant exposure."
+)
+
+
 def _bmc_ipmi(audit: dict[str, Any]) -> tuple[str, str, str]:
+    """Grade BMC/IPMI exposure in light of the context that probed it.
+
+    On Slurm and standalone hosts the probe runs as the tenant user, so an
+    exposed BMC is CRITICAL. On Kubernetes the probe runs only in the
+    privileged host-root audit pod. Root on a bare-metal host is expected to
+    reach the in-band BMC, so there an exposed BMC is a WARNING that defers
+    to privileged-pod admission control.
+    """
     value = _get(audit, "security.bmcIpmi")
     if not isinstance(value, dict):
         return (
@@ -888,10 +908,51 @@ def _bmc_ipmi(audit: dict[str, Any]) -> tuple[str, str, str]:
             "does not certify untested commands or network BMC interfaces."
         )
         if exposed is True or str(exposed).lower() == "true":
+            if (
+                access_mode == _BMC_PRIVILEGED_ACCESS_MODE
+                and value.get("ordinaryPodExposureTested") is not True
+            ):
+                # Root on the host reaches the in-band BMC on any bare-metal
+                # node. That alone does not show that a tenant can reach it.
+                return WARNING, observed, f"{_BMC_PRIVILEGED_EXPOSED} {scope}"
             return CRITICAL, observed, scope
         if complete is True and nodes_checked == nodes_total and nodes_total > 0:
             return PASS, observed, scope
         return WARNING, observed, f"Fleet coverage was incomplete. {scope}"
+
+    measured_from = str(value.get("measuredFrom") or "").lower()
+    if measured_from == "privileged-pod":
+        # The Kubernetes host-check fold records this when the probe ran in
+        # the privileged audit pod (root, host / mounted and chrooted).
+        installed = value.get("ipmitoolInstalled")
+        installed_false = installed is False or str(installed).lower() == "false"
+        exposed_false = exposed is False or str(exposed).lower() == "false"
+        if installed_false or (exposed_false and installed is None):
+            return (
+                PASS,
+                "no in-band BMC path on the host (ipmitool absent)",
+                "No in-band ipmitool or BMC path was present on the host, so "
+                "even root on the host could not reach the BMC in-band.",
+            )
+        if exposed is True or str(exposed).lower() == "true":
+            return (
+                WARNING,
+                "in-band BMC path present; measured as root on the host",
+                _BMC_PRIVILEGED_EXPOSED,
+            )
+        if exposed_false:
+            return (
+                PASS,
+                "BMC/IPMI=false; measured as root on the host",
+                "The privileged audit pod could not reach the BMC in-band.",
+            )
+        return (
+            WARNING,
+            f"BMC/IPMI={_display(exposed)} (measured as root on the host)",
+            "BMC/IPMI exposure could not be verified from the privileged "
+            "audit pod. Tenant reachability is governed by privileged-pod "
+            "admission control; verify it separately.",
+        )
 
     # Older audit artifacts contain only the aggregate Boolean. Keep those
     # artifacts readable, but identify the missing node and access-path scope.

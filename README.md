@@ -93,10 +93,23 @@ On Ubuntu 22.04 and 24.04, the `generic` and `generic-64k` kernels built from
 the GA `linux` source package (5.15 and 6.8) are also graded per CVE against
 the Ubuntu tracker for
 [CVE-2026-64531](https://ubuntu.com/security/CVE-2026-64531) and
-[CVE-2026-64378](https://ubuntu.com/security/CVE-2026-64378). A `needed` or
-`pending` tracker state fails because Ubuntu has not released a fix. A
+[CVE-2026-64378](https://ubuntu.com/security/CVE-2026-64378).
+[CVE-2026-46227](https://ubuntu.com/security/CVE-2026-46227) (SCTP
+`SCTP_SENDALL` container escape) is graded on Ubuntu 22.04, 24.04, and 26.04
+for every kernel source package that the tracker lists on that release: GA,
+HWE, cloud (AWS, Azure, GCP, Oracle, IBM, GKE), NVIDIA, lowlatency, FIPS,
+realtime, and the others. The minimum table has one row per source package.
+The kernel family and the flavor in the running release string select the
+row. A `needed`, `pending`, `deferred`, or `ignored` (for example, end of life)
+tracker state fails because Ubuntu has not released a fix for that kernel. A
 `released` state compares the running ABI with the published fixed ABI after
-the standard bulletin grace period. Other kernel trains are not applicable.
+the standard bulletin grace period. A kernel with no row is unknown, because the
+audit cannot check it: for example a custom or mainline build, a package newer
+than the table, or a release string the audit cannot read. A kernel that
+matches more than one row is also unknown. riscv64 kernels have no row of
+their own, because their `generic` flavor name cannot be told apart from the
+amd64 and arm64 kernels. The two CVEs above check only the GA kernel, so they
+do not make other kernels unknown.
 
 An absent host Docker installation or an absent CUDA Toolkit in the inspected
 scope remains not applicable. This differs from an unreadable tool or failed
@@ -352,6 +365,11 @@ administrative identity can reach. It does not prove that an ordinary workload
 pod can reach the same local management interface. The check examines up to 32
 worker nodes by default. Set `CLUSTERMAX_AUDIT_K8S_BMC_NODE_LIMIT` to a larger
 positive integer when a larger fleet requires complete coverage.
+Because the probe runs as root on the host, an exposed BMC on Kubernetes is a
+WARNING, not a CRITICAL: root on a bare-metal host can usually reach the
+in-band BMC. Verify that tenants cannot schedule privileged pods or mount host
+IPMI devices. On Slurm and standalone hosts the probe runs as the tenant user,
+so an exposed BMC stays CRITICAL.
 
 The focused security audit (`cmax audit security`) grades host-level minimums
 on every GPU host, not only the sampled worker: the GPU driver, NVIDIA
