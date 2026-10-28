@@ -2060,6 +2060,19 @@ def _finding_guidance(
             "host that the audit could not read, including managed "
             "control-plane hosts."
         )
+    elif rule.key == "security.pwnescape.status":
+        block = nested_get(audit, "security", "pwnescape", default={})
+        reason = block.get("reason") if isinstance(block, dict) else None
+        detected = str(value).replace("_", " ").capitalize()
+        recommendation = str(reason) if reason else ""
+        if "source package version" not in recommendation.lower():
+            recommendation = (
+                (recommendation + " " if recommendation else "")
+                + "Ask the provider for the distribution, kernel flavor and "
+                "ABI, the source package version that built the kernel, the "
+                "CVE fix, and the livepatch state, because the upstream "
+                "version alone does not settle a vendor kernel."
+            )
     else:
         detected = str(value).replace("_", " ").capitalize()
         if "reboot required" in rule.title.lower():

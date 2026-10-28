@@ -767,6 +767,54 @@ collect_pwnescape_facts() {
 }
 collect_pwnescape_facts
 
+# Kernel identity facts that a vendor kernel needs for a CVE verdict. The
+# upstream base version of a vendor kernel does not decide a CVE, because the
+# vendor backports the fix into its own release. Record the distribution, the
+# flavor, the ABI, and the source package so the grader can name the exact
+# evidence that a provider must send. Every read here is passive.
+#
+# Keep this function identical to the copy in pwnescape-host-facts.sh.
+# tests/audit/test_pwnescape.py compares the two definitions.
+collect_kernel_identity_facts() {
+    local root="${CLUSTERMAX_AUDIT_ROOT:-}"
+    local running flavor="" abi="" distribution=unknown signature=unknown
+    local source_package=unknown image_package row=""
+    running=$(uname -r 2>/dev/null) || running=unknown
+    [[ -n "$running" ]] || running=unknown
+    if [[ "$running" =~ ^[0-9]+(\.[0-9]+)*\-([0-9]+)\-(.+)$ ]]; then
+        abi="${BASH_REMATCH[2]}"
+        flavor="${BASH_REMATCH[3]}"
+    fi
+    if [[ -r "${root}/etc/os-release" ]]; then
+        distribution=$(
+            awk -F= '
+                $1 == "ID" { id = $2 }
+                $1 == "VERSION_ID" { version = $2 }
+                END {
+                    gsub(/"/, "", id); gsub(/"/, "", version)
+                    if (id == "" && version == "") print "unknown"
+                    else print id " " version
+                }
+            ' "${root}/etc/os-release" 2>/dev/null
+        ) || distribution=unknown
+        [[ -n "$distribution" ]] || distribution=unknown
+    fi
+    if [[ -r "${root}/proc/version_signature" ]]; then
+        signature=$(cat "${root}/proc/version_signature" 2>/dev/null) || signature=unknown
+    fi
+    [[ -n "$signature" ]] || signature=unknown
+    image_package="linux-image-${running}"
+    if command -v dpkg-query >/dev/null 2>&1; then
+        row=$(dpkg-query -W -f='${Source} ${Version}' "$image_package" 2>/dev/null) || row=""
+    fi
+    [[ -n "$row" ]] && source_package="$row"
+    printf 'WORKER_KERNEL_DISTRIBUTION=%s\n' "$distribution"
+    printf 'WORKER_KERNEL_VERSION_SIGNATURE=%s\n' "$signature"
+    printf 'WORKER_KERNEL_FLAVOR=%s\n' "${flavor:-unknown}"
+    printf 'WORKER_KERNEL_ABI=%s\n' "${abi:-unknown}"
+    printf 'WORKER_KERNEL_SOURCE_PACKAGE=%s\n' "$source_package"
+}
+collect_kernel_identity_facts
 
 # --- GPU ---
 if command -v nvidia-smi &>/dev/null; then

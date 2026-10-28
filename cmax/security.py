@@ -585,6 +585,14 @@ def _status_evaluator(
     return evaluate
 
 
+def _kernel_flavor_abi(running: str) -> tuple[str, str]:
+    """Return the kernel flavor and ABI, or unknown when the release has neither."""
+    match = re.fullmatch(r"\d+\.\d+\.\d+-(\d+)-([a-z0-9][a-z0-9-]*)", running)
+    if match is None:
+        return "unknown", "unknown"
+    return match.group(2), match.group(1)
+
+
 def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
     kernel = _get(audit, "security.guestKernel")
     if not isinstance(kernel, dict):
@@ -631,10 +639,20 @@ def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
         str(running_value or "").strip().lower() in unknown_values
         or str(newest_value or "").strip().lower() in unknown_values
     ):
+        flavor, abi = _kernel_flavor_abi(running)
+        target = (
+            f"the {flavor} kernel at ABI {abi}"
+            if flavor != "unknown"
+            else "the running kernel"
+        )
         return (
             WARNING,
             observed,
-            "The installed kernel inventory was unavailable, so a pending security reboot cannot be ruled out.",
+            f"The audit could not list the installed kernel packages for {target}, "
+            "so it cannot rule out a pending security reboot. Ask the provider to "
+            "send the output of dpkg-query -W 'linux-image-*' or rpm -q kernel on "
+            "this host, with the package version and the source build record from "
+            "/proc/version_signature.",
         )
     if newer is False or str(newer).lower() == "false":
         if ubuntu_cve_status == "unknown":
@@ -653,7 +671,9 @@ def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
     return (
         WARNING,
         observed,
-        "The installed kernel inventory was unavailable, so a pending security reboot cannot be ruled out.",
+        "The installed kernel inventory was unreadable, so a pending security "
+        "reboot cannot be ruled out. Ask the provider to send the output of "
+        "dpkg-query -W 'linux-image-*' or rpm -q kernel on this host.",
     )
 
 
@@ -679,6 +699,35 @@ def pwnescape_fleet_coverage(value: dict[str, Any]) -> str:
     return text
 
 
+def _vendor_evidence_note(value: dict[str, Any]) -> str:
+    """Return the evidence a provider must send for a vendor-kernel CVE."""
+    evidence = value.get("providerEvidence")
+    if isinstance(evidence, list) and evidence:
+        return " Provider evidence required: " + "; ".join(
+            str(item) for item in evidence
+        ) + "."
+    return (
+        " Ask the provider for the distribution, kernel flavor and ABI, the "
+        "source package version that built the kernel, the CVE fix, and the "
+        "livepatch state."
+    )
+
+
+def _kernel_identity_observation(value: dict[str, Any]) -> str:
+    """Name the vendor kernel facts that the provider evidence must settle."""
+    parts = []
+    for label, key in (
+        ("distribution", "kernelDistribution"),
+        ("flavor", "kernelFlavor"),
+        ("abi", "kernelAbi"),
+        ("source package", "kernelSourcePackage"),
+    ):
+        item = str(value.get(key) or "").strip()
+        if item and item.lower() not in {"unknown", "not collected"}:
+            parts.append(f"{label}={item}")
+    return "; ".join(parts)
+
+
 def _pwnescape(audit: dict[str, Any]) -> tuple[str, str, str]:
     value = _get(audit, "security.pwnescape")
     if not isinstance(value, dict):
@@ -694,7 +743,13 @@ def _pwnescape(audit: dict[str, Any]) -> tuple[str, str, str]:
         observed += "; " + pwnescape_fleet_coverage(value)
     if value.get("vendorStatus", "unknown") != "unknown":
         observed += f"; vendor={value['vendorStatus']}; package={value.get('sourcePackage', 'unknown')}"
-    return status, observed, str(value.get("reason") or "Host patch evidence is required.")
+    identity = _kernel_identity_observation(value)
+    if identity:
+        observed += "; " + identity
+    reason = str(value.get("reason") or "Host patch evidence is required.")
+    if status == WARNING and "Request from the provider" not in reason:
+        reason += _vendor_evidence_note(value)
+    return status, observed, reason
 
 
 

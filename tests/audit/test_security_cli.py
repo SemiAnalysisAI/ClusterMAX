@@ -820,7 +820,8 @@ class SecurityReportTests(unittest.TestCase):
                     if check.id == "guest-kernel"
                 )
                 self.assertEqual(check.status, security.WARNING)
-                self.assertIn("inventory was unavailable", check.assessment)
+                self.assertIn("could not list the installed kernel packages", check.assessment)
+                self.assertIn("dpkg-query", check.assessment)
 
     def test_default_report_shows_every_check_and_observed_versions(self) -> None:
         values = security_values()
