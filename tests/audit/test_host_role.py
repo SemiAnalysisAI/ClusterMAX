@@ -168,6 +168,7 @@ def test_collect_reads_processes_paths_and_commands(tmp_path: Path) -> None:
     [
         (subprocess.CompletedProcess([], 0, "NodeName=gpu-001 Arch=x86_64\n", ""), True),
         (subprocess.CompletedProcess([], 1, "", "Node gpu-001 not found\n"), False),
+        (subprocess.CompletedProcess([], 1, "Node gpu-001 not found\n", ""), False),
         (subprocess.CompletedProcess([], 1, "", "Unable to contact slurm controller\n"), None),
     ],
 )

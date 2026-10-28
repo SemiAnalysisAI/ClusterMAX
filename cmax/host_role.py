@@ -156,7 +156,10 @@ def _slurm_node_lookup(scontrol: str, environ: Mapping[str, str]) -> bool | None
     except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode != 0:
-        return False if "not found" in result.stderr.lower() else None
+        # Slurm 26.05 prints "Node <name> not found" to stdout; older
+        # releases print it to stderr.
+        message = f"{result.stdout}\n{result.stderr}".lower()
+        return False if "not found" in message else None
     return f"NodeName={hostname} " in f"{result.stdout} "
 
 
