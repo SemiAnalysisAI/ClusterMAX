@@ -19,8 +19,11 @@ fi
 echo "WORKER_CONTAINER_RUNTIME_SCOPE=$RUNTIME_SCOPE"
 # GPU Operator installs host-runtime wrappers here rather than in /usr/bin.
 # Search the host location only when this script is inspecting the host root.
-if [[ "$RUNTIME_SCOPE" == host && -d /usr/local/nvidia/toolkit ]]; then
-    export PATH="/usr/local/nvidia/toolkit:$PATH"
+# Tests point CLUSTERMAX_NVIDIA_TOOLKIT_DIR elsewhere so a GPU Operator host
+# does not leak its toolkit into stubbed runs.
+NVIDIA_TOOLKIT_DIR="${CLUSTERMAX_NVIDIA_TOOLKIT_DIR:-/usr/local/nvidia/toolkit}"
+if [[ "$RUNTIME_SCOPE" == host && -d "$NVIDIA_TOOLKIT_DIR" ]]; then
+    export PATH="$NVIDIA_TOOLKIT_DIR:$PATH"
 fi
 
 # Docker and the NVIDIA runtime registration.  `docker info` is intentionally

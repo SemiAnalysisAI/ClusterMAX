@@ -41,7 +41,9 @@ def setUpModule() -> None:
 
 
 def tearDownModule() -> None:
-    unittest.doModuleCleanups()
+    # unittest.doModuleCleanups is public only from Python 3.11. The project
+    # supports 3.10, where the function lives in unittest.case.
+    unittest.case.doModuleCleanups()
 
 
 def read_minimum(dotted: str):
