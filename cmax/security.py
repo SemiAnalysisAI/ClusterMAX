@@ -1507,6 +1507,34 @@ def minimum_freshness(
     return state
 
 
+def _unassessed_count(obs: dict[str, Any]) -> int:
+    """Count the in-cluster endpoints that this vantage could not measure."""
+    listed = obs.get("unassessed_targets")
+    return len(listed) if isinstance(listed, list) else 0
+
+
+def _unassessed_observed(
+    unassessed: int,
+    answered: int,
+    reachable: int,
+    skipped: int,
+) -> str:
+    """Describe a partially assessed run without losing the evidence it did gather.
+
+    A measured backend that answered stays visible, and so does a truncated
+    check, because the single sentence has to carry everything the operator needs
+    to separate "this backend passed", "this backend was cut short", and "this
+    backend was never reachable from here".
+    """
+    parts: list[str] = []
+    if answered:
+        parts.append(f"{answered} of {reachable} assessed backend(s) answered a query")
+    parts.append(f"{unassessed} in-cluster endpoint(s) not assessed from this vantage")
+    if skipped:
+        parts.append(f"{skipped} endpoint(s) not fully checked; check limit reached")
+    return "; ".join(parts)
+
+
 def _observability_context(obs: dict[str, Any]) -> str:
     """Render the backend product, guard, and discovery vantage for the report.
 
@@ -1586,6 +1614,22 @@ def _observability(audit: dict[str, Any]) -> tuple[str, str, str]:
         return (CRITICAL, "; ".join(flags) + context, assessment)
     answered = int(obs.get("queries_answered") or 0)
     skipped = int(obs.get("targets_skipped") or 0)
+    unassessed = _unassessed_count(obs)
+    if unassessed:
+        # An in-cluster Service name that the operator host cannot resolve was
+        # never measured, so it must not be graded. It is not a PASS, because no
+        # query reached the backend, and it is not "unreachable", because the
+        # cluster never had a chance to answer this host.
+        return (
+            WARNING,
+            _unassessed_observed(unassessed, answered, reachable, skipped) + context,
+            "The Kubernetes Service address resolves only inside the cluster, so "
+            "the operator host could not reach those backends and they were not "
+            "measured. This is a limit of the vantage, not a finding about the "
+            "cluster. Run the check from a node that shares the cluster DNS, or "
+            "set CLUSTERMAX_OBS_TARGETS to an address this host can reach, to "
+            "assess them.",
+        )
     if skipped:
         # An incomplete run must never read as clean. Bounding the check is
         # correct; hiding what the bound dropped is not. Two bounds can drop a
@@ -2118,6 +2162,7 @@ def _inject_observability(
     raw = os.environ.get("CLUSTERMAX_OBS_TARGETS", "").strip()
     targets = _canonical_targets(re.split(r"[,\s]+", raw) if raw else [])
     discovery = None
+    unassessed: list = []
     if targets:
         discovery_label = "operator"
         platforms: list[str] = []
@@ -2138,11 +2183,21 @@ def _inject_observability(
             # sockets, processes, and loopback addresses are not the cluster's.
             local_vantage=not remote_k8s,
         )
-        targets = _canonical_targets(discovery.urls())
+        # A Kubernetes Service address is in-cluster DNS, which the operator host
+        # cannot resolve. Set such a target aside before the check, so it is
+        # reported as unassessed from this vantage instead of unreachable.
+        checkable, unassessed = obs_discovery.split_unassessed(discovery.endpoints)
+        if unassessed:
+            emit(
+                f"  discovery: {len(unassessed)} in-cluster target(s) set aside; "
+                "the Service name did not resolve from this host"
+            )
+        targets = _canonical_targets(endpoint.url for endpoint in checkable)
         discovery_label = discovery.source_label()
         platforms = list(discovery.platforms)
-        emit(f"  discovery: found {len(targets)} target(s) via {discovery_label}")
-    if not targets:
+        emit(f"  discovery: found {len(checkable) + len(unassessed)} target(s) via "
+             f"{discovery_label}; {len(targets)} checkable from this host")
+    if not targets and not unassessed:
         emit("  backend check: no targets found; nothing to check")
         return
 
@@ -2158,27 +2213,38 @@ def _inject_observability(
             )
         sources = dict.fromkeys(endpoint_sources[url] for url in selected_targets)
         discovery_label = "+".join(sources) or "none"
-    emit(
-        f"  backend check: {len(selected_targets)} target(s); "
-        f"{obs_check.REQUEST_TIMEOUT_S:g}s per request; "
-        f"up to {obs_check.MAX_UNANSWERED_PER_TARGET_MS // 1000}s unanswered "
-        "time per target"
-    )
     check_options: dict[str, Any] = {}
     if progress:
         check_options["progress"] = lambda message: emit(f"  {message}")
-    summary = obs_check.check(
-        targets,
-        own_namespace=own_ns,
-        **check_options,
-    )
-    emit(
-        "  backend check: complete; "
-        f"{summary.get('request_count', 0)} request(s), "
-        f"{summary.get('backends_reachable', 0)}/{len(selected_targets)} reachable"
-    )
+    if targets:
+        emit(
+            f"  backend check: {len(selected_targets)} target(s); "
+            f"{obs_check.REQUEST_TIMEOUT_S:g}s per request; "
+            f"up to {obs_check.MAX_UNANSWERED_PER_TARGET_MS // 1000}s unanswered "
+            "time per target"
+        )
+        summary = obs_check.check(
+            targets,
+            own_namespace=own_ns,
+            **check_options,
+        )
+        emit(
+            "  backend check: complete; "
+            f"{summary.get('request_count', 0)} request(s), "
+            f"{summary.get('backends_reachable', 0)}/{len(selected_targets)} reachable"
+        )
+    else:
+        emit("  backend check: no target is reachable from this host; nothing to check")
+        summary = obs_check.check([], own_namespace=own_ns, **check_options)
     summary["discovery"] = discovery_label
-    summary["targets_found"] = len(targets)
+    summary["targets_found"] = len(targets) + len(unassessed)
+    if unassessed:
+        # URLs and platform names only. The check stays counts-only, and these are
+        # the same identifiers discovery already reports.
+        summary["unassessed_targets"] = [
+            {"url": item.url, "platform": item.platform, "reason": item.reason}
+            for item in unassessed
+        ]
     if platforms:
         # Platforms seen by discovery, including a backend the check could not
         # reach. "Grafana is running but did not answer" must stay visible.
