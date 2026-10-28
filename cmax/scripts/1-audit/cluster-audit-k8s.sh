@@ -2762,10 +2762,17 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     echo "WORKER_CUDA_VERSION=$(nvidia-smi 2>/dev/null | grep -oP "CUDA Version: \K[0-9.]+" || echo unknown)"
     echo "WORKER_GPU_MODEL=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 | tr " " "-" || echo unknown)"
     echo "WORKER_GPU_MEMORY=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 || echo 0)"
+    # The NVIDIA driver minimum per driver branch. The audit grades every
+    # branch that the tracked security bulletin moves. The table publishes
+    # the floor, so a new release that moves a branch grades false until the
+    # floor is published. A branch without a floor has no grace period. The
+    # audit fails when the observed driver is below the fixed version.
     minimum=""
     case "$driver" in
-        595.*) minimum=595.71.05 ;;
-        580.*) minimum=580.159.03 ;;
+        615.*) minimum=615.71.09 ;;
+        610.*) minimum=610.57.04 ;;
+        595.*) minimum=595.91.07 ;;
+        580.*) minimum=580.178.04 ;;
         535.*) minimum=535.309.01 ;;
     esac
     patched=unknown
@@ -2777,8 +2784,8 @@ if command -v nvidia-smi >/dev/null 2>&1; then
         fi
     else
         branch=${driver%%.*}
-        if [[ "$branch" =~ ^[0-9]+$ ]] && [ "$branch" -gt 595 ]; then
-            patched=true   # branch newer than the newest in the May 2026 bulletin
+        if [[ "$branch" =~ ^[0-9]+$ ]] && [ "$branch" -gt 615 ]; then
+            patched=true   # branch newer than the newest in the tracked bulletin
         fi
     fi
     echo "WORKER_NVIDIA_MAY_2026_PATCHED=$patched"

@@ -798,10 +798,17 @@ WORKER_NVLINK_EXPOSED=unknown
 WORKER_NVLINK_TOPOLOGY_CHECKED=false
 if command -v nvidia-smi >/dev/null 2>&1; then
     nvidia_driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
+    # The NVIDIA driver minimum per driver branch. The audit grades every
+    # branch that the tracked security bulletin moves. The table publishes
+    # the floor, so a new release that moves a branch grades false until the
+    # floor is published. A branch without a floor has no grace period. The
+    # audit fails when the observed driver is below the fixed version.
     nvidia_min=""
     case "$nvidia_driver" in
-        595.*) nvidia_min=595.71.05 ;;
-        580.*) nvidia_min=580.159.03 ;;
+        615.*) nvidia_min=615.71.09 ;;
+        610.*) nvidia_min=610.57.04 ;;
+        595.*) nvidia_min=595.91.07 ;;
+        580.*) nvidia_min=580.178.04 ;;
         535.*) nvidia_min=535.309.01 ;;
     esac
     if [[ -n "$nvidia_min" ]]; then
@@ -812,8 +819,8 @@ if command -v nvidia-smi >/dev/null 2>&1; then
         fi
     else
         branch=${nvidia_driver%%.*}
-        if [[ "$branch" =~ ^[0-9]+$ ]] && [ "$branch" -gt 595 ]; then
-            WORKER_NVIDIA_MAY_2026_PATCHED=true   # branch newer than the newest in the May 2026 bulletin
+        if [[ "$branch" =~ ^[0-9]+$ ]] && [ "$branch" -gt 615 ]; then
+            WORKER_NVIDIA_MAY_2026_PATCHED=true   # branch newer than the newest in the tracked bulletin
         fi
     fi
     # A step that sees no GPU still prints the NIC matrix, which proves nothing
