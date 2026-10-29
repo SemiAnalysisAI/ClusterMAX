@@ -1229,7 +1229,7 @@ class NvidiaDriverFloorsTests(unittest.TestCase):
             reader = Path(tmp) / "reader.py"
             for body in (
                 "print('not json')",
-                "print('[580.178.04]')",
+                "print('[\"580.178.04\"]')",
                 "print('{\"580\": \"178.04\"}')",
                 "print('{\"580x\": \"580.178.04\"}')",
                 "print('{\"580\": \"580.178.04\", \"615\": \"bad\"}')",
@@ -1494,7 +1494,10 @@ class SlurmJobGpusPerNodeTests(unittest.TestCase):
 
 class SecurityBulletinIntegrationTests(unittest.TestCase):
     def run_nvlink_probe(
-        self, topology_body: str, floors: str = "580=580.178.04"
+        self,
+        topology_body: str,
+        floors: str = "580=580.178.04",
+        driver: str = "580.159.03",
     ) -> dict[str, str]:
         block = bashtest.extract_block(
             HOST_CHECK_PATH,
@@ -1503,7 +1506,7 @@ class SecurityBulletinIntegrationTests(unittest.TestCase):
         )
         nvidia_smi = (
             'if [[ "$*" == "--query-gpu=driver_version --format=csv,noheader" ]]; '
-            "then printf '580.159.03\\n'; exit 0; fi\n"
+            f"then printf '{driver}\\n'; exit 0; fi\n"
             'if [[ "$*" == "topo -m" ]]; then\n'
             f"{topology_body}\n"
             "exit $?\n"
@@ -1533,6 +1536,26 @@ class SecurityBulletinIntegrationTests(unittest.TestCase):
         self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "true")
         probe = self.run_nvlink_probe("exit 1", floors="")
         self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "unknown")
+
+    def test_driver_patch_fact_parses_versions_like_the_report_grader(self) -> None:
+        # A release candidate compares on its numeric prefix, a reading whose
+        # numeric prefix is below the floor fails, and a reading with no
+        # numeric version stays unknown - the same handling the report-side
+        # grader's version parser applies. Both sides compare as normalized
+        # numeric tuples, so a floor published with more components and a
+        # reading without the zero padding still compare equal.
+        probe = self.run_nvlink_probe("exit 1", driver="580.178.04-rc1")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "true")
+        probe = self.run_nvlink_probe("exit 1", driver="580.not-a-version")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "false")
+        probe = self.run_nvlink_probe("exit 1", driver="not-a-version")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "unknown")
+        probe = self.run_nvlink_probe("exit 1", floors="580=580.178.04.0")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "false")
+        probe = self.run_nvlink_probe("exit 1", floors="580=580.159.03.0")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "true")
+        probe = self.run_nvlink_probe("exit 1", driver="580.178.4")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "true")
 
     def test_nvlink_probe_distinguishes_absence_from_a_failed_read(self) -> None:
         failed = self.run_nvlink_probe("exit 1")

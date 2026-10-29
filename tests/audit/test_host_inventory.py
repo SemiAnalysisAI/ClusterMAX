@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 from pathlib import Path
 import pytest
 
@@ -470,13 +471,14 @@ def test_k8s_gpu_check_records_the_assigned_devices() -> None:
         + """
 K8S_AUDIT_CHECK_NS=clustermax-audit
 K8S_AUDIT_GPU_CHECK_IMAGE=cuda-image
+nvidia_driver_floors() { :; }
 apply_gpu_check_pod() { echo gpu-check-pod; }
 cleanup_audit_check_pod() { :; }
 check_deadline() { shift; "$@"; }
 run_gpu_smi_check worker-0
 """,
         stubs={
-            "kubectl": bashtest.exec_from("bash"),
+            "kubectl": bashtest.exec_from("env"),
             "nvidia-smi": """
 case "$*" in
   *--query-gpu=driver_version*) echo 590.48.01 ;;
@@ -544,20 +546,36 @@ def gpu_smi_patched(driver: str, policy: str) -> tuple[str, list[list[str]]]:
     )
 
 
+DEFAULT_FLOORS = "580=580.178.04 615=615.71.09"
+
+
 @pytest.mark.parametrize(
-    ("driver", "expected"),
+    ("driver", "floors", "expected"),
     [
-        ("580.126.09", "false"),  # below the floor
-        ("580.178.04", "true"),  # exactly at the floor
-        ("580.178.05", "true"),  # above the floor
-        ("615.71.09", "true"),  # a different listed branch
-        ("615.71.08", "false"),  # a different listed branch, below floor
+        ("580.126.09", DEFAULT_FLOORS, "false"),  # below the floor
+        ("580.178.04", DEFAULT_FLOORS, "true"),  # exactly at the floor
+        ("580.178.05", DEFAULT_FLOORS, "true"),  # above the floor
+        ("615.71.09", DEFAULT_FLOORS, "true"),  # a different listed branch
+        ("615.71.08", DEFAULT_FLOORS, "false"),  # a different listed branch, below floor
+        # A release candidate compares on its numeric prefix, like the
+        # report-side grader's version parser.
+        ("580.178.04-rc1", DEFAULT_FLOORS, "true"),
+        ("580.178.05-rc2", DEFAULT_FLOORS, "true"),
+        # A reading whose numeric prefix is below the floor fails; a reading
+        # with no numeric version stays unknown.
+        ("580.not-a-version", DEFAULT_FLOORS, "false"),
+        ("not-a-version", DEFAULT_FLOORS, "unknown"),
+        # Both sides are compared as normalized numeric tuples, so a floor
+        # published with more components and a reading without the zero
+        # padding still compare equal, like the report-side grader.
+        ("580.178.04", "580=580.178.04.0", "true"),
+        ("580.178.4", DEFAULT_FLOORS, "true"),
     ],
 )
 def test_k8s_gpu_check_grades_the_driver_against_the_injected_floor(
-    driver: str, expected: str
+    driver: str, floors: str, expected: str
 ) -> None:
-    patched, _ = gpu_smi_patched(driver, "580=580.178.04 615=615.71.09")
+    patched, _ = gpu_smi_patched(driver, floors)
     assert patched == expected
 
 
@@ -602,3 +620,24 @@ def test_k8s_gpu_check_sends_the_policy_to_the_pod() -> None:
     argv = calls[0]
     assert "env" in argv
     assert "CLUSTERMAX_NVIDIA_BRANCH_FLOORS=580=580.178.04 615=615.71.09" in argv
+
+
+def test_host_check_stdin_delivers_the_whole_policy_to_the_payload() -> None:
+    # The host check is delivered as a script piped to `bash -s`, so the
+    # prepended policy assignment must survive word splitting: the whole
+    # multi-branch value has to reach the payload, not just the first entry.
+    function = bashtest.extract_function(K8S_COLLECTOR, "host_check_stdin")
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "host-check.sh").write_text(
+            'printf "policy=[%s]\\n" "${CLUSTERMAX_NVIDIA_BRANCH_FLOORS:-}"\n'
+        )
+        run = bashtest.run_bash(
+            function
+            + f"""
+WORKLOAD_DIR="{tmp}"
+nvidia_driver_floors() {{ printf '%s\\n' '580=580.178.04 615=615.71.09'; }}
+host_check_stdin | bash -s
+"""
+        )
+    assert run.returncode == 0, run.stderr
+    assert "policy=[580=580.178.04 615=615.71.09]" in run.stdout

@@ -248,8 +248,20 @@ VENDOR_KERNEL = {
 }
 
 
-def test_vendor_kernel_asks_for_evidence_instead_of_guessing_a_verdict():
-    value = pwnescape.grade(VENDOR_KERNEL)
+@pytest.mark.parametrize(
+    "kernel",
+    [
+        VENDOR_KERNEL,
+        # The same vendor kernel without the version-signature fact.
+        facts(
+            version="6.17.0-1021-nvidia-64k",
+            WORKER_KERNEL_DISTRIBUTION="ubuntu 24.04",
+            WORKER_KERNEL_SOURCE_PACKAGE="linux-signed-nvidia-6.17 6.17.0-1021.21",
+        ),
+    ],
+)
+def test_vendor_kernel_asks_for_evidence_instead_of_guessing_a_verdict(kernel):
+    value = pwnescape.grade(kernel)
     assert value["status"] == "unknown"
     assert value["exploitTested"] is False
     # The report must name the exact facts a provider has to send: it must not

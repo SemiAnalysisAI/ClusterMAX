@@ -848,13 +848,16 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     nvidia_driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
     # The NVIDIA driver branch floors come from the published minimum version
     # table, injected through the environment by the collector because this
-    # script cannot read the checkout. The verdict matches the report-side
-    # grader: a branch the table lists is compared against its floor, and a
-    # branch the table does not list stays unknown instead of being assumed
-    # fixed. An unreadable policy also stays unknown; this fact never grades
-    # against a guessed floor.
-    branch=${nvidia_driver%%.*}
-    if [[ "$branch" =~ ^[0-9]+$ && -n "${CLUSTERMAX_NVIDIA_BRANCH_FLOORS:-}" ]]; then
+    # script cannot read the checkout. The comparison mirrors the report-side
+    # grader: the reading is reduced to its numeric prefix and both sides are
+    # normalized to four numeric components, so a decorated value such as a
+    # release candidate compares on its numbers and a floor published with
+    # more or fewer components still compares by tuple. A reading with no
+    # numeric version, a branch the table does not list, or an unreadable
+    # policy stays unknown instead of being assumed fixed.
+    if [[ "$nvidia_driver" =~ ([0-9]+(\.[0-9]+){0,3}) && -n "${CLUSTERMAX_NVIDIA_BRANCH_FLOORS:-}" ]]; then
+        nvidia_version_numbers=${BASH_REMATCH[1]}
+        branch=${nvidia_version_numbers%%.*}
         nvidia_min=""
         for entry in $CLUSTERMAX_NVIDIA_BRANCH_FLOORS; do
             if [[ "${entry%%=*}" == "$branch" ]]; then
@@ -862,7 +865,15 @@ if command -v nvidia-smi >/dev/null 2>&1; then
             fi
         done
         if [[ -n "$nvidia_min" ]]; then
-            if [[ "$(printf '%s\n%s\n' "$nvidia_min" "$nvidia_driver" | sort -V | head -1)" == "$nvidia_min" ]]; then
+            version_tuple() {
+                local comp
+                local IFS="."
+                comp=($1)
+                printf "%d.%d.%d.%d\n" "$((10#${comp[0]:-0}))" "$((10#${comp[1]:-0}))" "$((10#${comp[2]:-0}))" "$((10#${comp[3]:-0}))"
+            }
+            nvidia_min_tuple=$(version_tuple "$nvidia_min")
+            nvidia_version_tuple=$(version_tuple "$nvidia_version_numbers")
+            if [[ "$(printf '%s\n%s\n' "$nvidia_min_tuple" "$nvidia_version_tuple" | sort -V | head -1)" == "$nvidia_min_tuple" ]]; then
                 WORKER_NVIDIA_MAY_2026_PATCHED=true
             else
                 WORKER_NVIDIA_MAY_2026_PATCHED=false

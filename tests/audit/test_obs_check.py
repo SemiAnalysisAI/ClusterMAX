@@ -1182,8 +1182,16 @@ def test_missing_observability_evidence_is_not_a_pass():
     assert next(c for c in rows if c.id == "observability-isolation").status == security.WARNING
 
 
-@pytest.mark.parametrize("backends", [1, 4])
-def test_in_cluster_targets_unassessed_do_not_hide_measured_backends(backends):
+@pytest.mark.parametrize(
+    ("backends", "unassessed"),
+    [
+        (1, [[1, 1, 0, None]]),
+        (4, [[1, 0, 0, None]]),
+    ],
+)
+def test_in_cluster_targets_unassessed_do_not_hide_measured_backends(
+    backends, unassessed
+):
     # A k8s Service name resolves only through cluster DNS, so the operator
     # host cannot check it. The report marks those endpoints unassessed from
     # this vantage without downgrading the backends that were measured.
@@ -1191,7 +1199,7 @@ def test_in_cluster_targets_unassessed_do_not_hide_measured_backends(backends):
         "configured": True,
         "backends_reachable": backends,
         "queries_answered": backends,
-        "unassessed_targets": [[1, 0, 0, None]],
+        "unassessed_targets": unassessed,
     }}}
     status, summary, _assessment = security._observability(audit)
     assert status == security.WARNING
