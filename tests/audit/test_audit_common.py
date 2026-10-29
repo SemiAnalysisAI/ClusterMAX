@@ -1083,6 +1083,27 @@ class ContainerWorkerCheckTests(unittest.TestCase):
                 self.assertEqual(facts["WORKER_CONTAINER_SECURITY_RUNC_VERSION"], expected)
                 self.assertIn(["version", "--format", "{{.Server.Version}}"], run.calls("docker"))
 
+    def test_gpu_operator_toolkit_dir_is_searched_only_on_the_host(self) -> None:
+        check = COMMON_PATH.parent / "container-check.sh"
+        with tempfile.TemporaryDirectory() as toolkit:
+            tool = Path(toolkit) / "nvidia-container-toolkit"
+            tool.write_text("#!/bin/bash\necho 1.17.8\n")
+            tool.chmod(0o755)
+            for scope, expected in (("host", "1.17.8"), ("container", "unknown")):
+                with self.subTest(scope=scope):
+                    run = bashtest.run_bash(
+                        f'bash "{check}"',
+                        stubs={"find": "exit 0", "hostname": "echo worker"},
+                        env={
+                            "CLUSTERMAX_CONTAINER_RUNTIME_SCOPE": scope,
+                            "CLUSTERMAX_AUDIT_SCOPE": "security",
+                            "CLUSTERMAX_NVIDIA_TOOLKIT_DIR": toolkit,
+                        },
+                    )
+                    self.assertEqual(run.returncode, 0, run.stderr)
+                    facts = dict(line.split("=", 1) for line in run.stdout.splitlines() if "=" in line)
+                    self.assertEqual(facts["WORKER_CONTAINER_SECURITY_NCT_VERSION"], expected)
+
     def test_nerdctl_docker_compatibility_link_is_not_docker_engine(self) -> None:
         check = COMMON_PATH.parent / "container-check.sh"
         run = bashtest.run_bash(

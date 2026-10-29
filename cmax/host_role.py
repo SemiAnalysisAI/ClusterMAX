@@ -1,9 +1,15 @@
 """Find the role of this host in a Slurm or Kubernetes cluster.
 
-The audit target says what to audit. The host role says where the command
-runs. A standalone audit on a cluster node covers only that node, and a Slurm
-audit from a compute node starts work from a job instead of a login node. The
-role lets the target confirmation stop these runs before collection starts.
+The target says what a command runs against. The host role says where the
+command runs. A standalone run on a cluster node covers only that node, and a
+Slurm run from a compute node starts work from a job instead of a login node.
+`confirm` stops these runs before any work starts.
+
+The guard is not specific to the audit. Every cmax command that runs against
+a target declares a host role policy in the CLI (see `cmax.cli`), and
+`cmax.target_selection.prepare_target` calls `confirm` for it. A new command
+gets the same checks, wording, and `--allow-cluster-node` option without code
+of its own.
 """
 
 from __future__ import annotations
@@ -15,6 +21,7 @@ import subprocess
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TextIO
 
 ISSUE_URL = "https://github.com/SemiAnalysisAI/ClusterMAX/issues/new?title=cmax%20host%20role%20detection%20is%20wrong"
 
@@ -23,6 +30,11 @@ SLURM_LOGIN = "slurm-login"
 K8S_NODE = "k8s-node"
 K8S_POD = "k8s-pod"
 UNKNOWN = "unknown"
+
+# Target flags that every target-selecting cmax command accepts.
+TARGET_FLAGS = frozenset(
+    {"--local", "--vm", "--container", "--standalone", "--slurm", "--k8s"}
+)
 
 LABELS = {
     SLURM_COMPUTE: "Slurm compute node",
@@ -74,9 +86,17 @@ class HostRole:
         return f"{self.label} ({'; '.join(self.evidence)})"
 
 
+class HostRoleRefused(RuntimeError):
+    """The target does not fit this host, and no one can confirm the run."""
+
+
+class HostRoleCancelled(RuntimeError):
+    """The operator did not confirm the run on this host."""
+
+
 @dataclass(frozen=True)
 class Guard:
-    """A reason to ask again before the audit starts."""
+    """A reason to ask again before the command starts."""
 
     reason: str
     instead: str
@@ -197,47 +217,104 @@ def detect(environ: Mapping[str, str] | None = None) -> HostRole:
     return classify(collect(environ))
 
 
-def guard(harness: str, role: HostRole) -> Guard | None:
-    """Return the reason to confirm again, or None when the run is expected."""
+def guard(
+    harness: str,
+    role: HostRole,
+    *,
+    noun: str = "audit",
+    command: str = "cmax audit",
+) -> Guard | None:
+    """Return the reason to confirm again, or None when the run is expected.
+
+    noun names the work in the messages ("audit", "benchmark"). command is the
+    command the operator ran, without target flags; the hint adds the target
+    flag that fits this host.
+    """
     if harness == "standalone":
         if role.kind == SLURM_COMPUTE:
             return Guard(
                 reason=(
-                    "This host is a Slurm compute node. A standalone audit covers "
-                    "only this node and skips the cluster checks."
+                    f"This host is a Slurm compute node. A standalone {noun} "
+                    "covers only this node and skips the cluster checks."
                 ),
-                instead="From a Slurm login node, run: cmax audit --slurm",
-                prompt="Run a standalone audit on this compute node anyway? [y/N]: ",
+                instead=f"From a Slurm login node, run: {command} --slurm",
+                prompt=f"Run a standalone {noun} on this compute node anyway? [y/N]: ",
             )
         if role.kind == SLURM_LOGIN:
             return Guard(
                 reason=(
-                    "This host is a Slurm login node. A standalone audit covers "
-                    "only this login node and not the cluster."
+                    f"This host is a Slurm login node. A standalone {noun} "
+                    "covers only this login node and not the cluster."
                 ),
-                instead="From this login node, run: cmax audit --slurm",
-                prompt="Run a standalone audit on this login node anyway? [y/N]: ",
+                instead=f"From this login node, run: {command} --slurm",
+                prompt=f"Run a standalone {noun} on this login node anyway? [y/N]: ",
             )
         if role.kind in {K8S_NODE, K8S_POD}:
             where = "node" if role.kind == K8S_NODE else "pod"
             return Guard(
                 reason=(
-                    f"This host is a Kubernetes {where}. A standalone audit covers "
-                    f"only this {where} and skips the cluster checks."
+                    f"This host is a Kubernetes {where}. A standalone {noun} "
+                    f"covers only this {where} and skips the cluster checks."
                 ),
                 instead=(
                     "From a machine with kubectl access to the cluster, run: "
-                    "cmax audit --k8s"
+                    f"{command} --k8s"
                 ),
-                prompt=f"Run a standalone audit on this {where} anyway? [y/N]: ",
+                prompt=f"Run a standalone {noun} on this {where} anyway? [y/N]: ",
             )
     if harness == "slurm" and role.kind == SLURM_COMPUTE:
         return Guard(
             reason=(
-                "This host is a Slurm compute node. Run the Slurm audit from a "
+                f"This host is a Slurm compute node. Run the Slurm {noun} from a "
                 "login node so it can schedule its own jobs."
             ),
-            instead="From a Slurm login node, run: cmax audit --slurm",
-            prompt="Run the Slurm audit from this compute node anyway? [y/N]: ",
+            instead=f"From a Slurm login node, run: {command} --slurm",
+            prompt=f"Run the Slurm {noun} from this compute node anyway? [y/N]: ",
         )
     return None
+
+
+def confirm(
+    harness: str,
+    role: HostRole | None,
+    *,
+    noun: str,
+    command: str,
+    reader: Callable[[str], str],
+    stream: TextIO,
+    terminal: bool,
+    allow_cluster_node: bool,
+) -> None:
+    """Ask a second time when the target does not fit the role of this host.
+
+    `--yes` does not answer this question; only `--allow-cluster-node` does.
+    Raises HostRoleRefused in a non-interactive run and HostRoleCancelled when
+    the operator does not confirm.
+    """
+    # The hint adds the target flag that fits; drop the one the operator gave.
+    base = " ".join(word for word in command.split() if word not in TARGET_FLAGS)
+    found = guard(harness, role, noun=noun, command=base) if role is not None else None
+    if found is None:
+        return
+    print(f"cmax: {found.reason}", file=stream)
+    print(f"  {found.instead}", file=stream)
+    print(
+        "  If the detection is wrong (for example, this is a login or head node),"
+        f" report it with the Host role line above: {ISSUE_URL}",
+        file=stream,
+    )
+    if allow_cluster_node:
+        print("  Host role check: accepted with --allow-cluster-node", file=stream)
+        return
+    if not terminal:
+        raise HostRoleRefused(
+            f"{found.reason} {found.instead}. "
+            "To run here anyway, pass --allow-cluster-node."
+        )
+    print("  To skip this question, pass --allow-cluster-node.", file=stream)
+    try:
+        answer = reader(found.prompt).strip().lower()
+    except (EOFError, KeyboardInterrupt) as exc:
+        raise HostRoleCancelled(f"{noun} canceled") from exc
+    if answer not in {"y", "yes"}:
+        raise HostRoleCancelled(f"{noun} canceled")

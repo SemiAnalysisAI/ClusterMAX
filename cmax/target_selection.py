@@ -219,8 +219,9 @@ def _print_target(
     details: tuple[tuple[str, str], ...],
     *,
     stream: TextIO,
+    noun: str = "audit",
 ) -> None:
-    print("# ClusterMAX audit target", file=stream)
+    print(f"# ClusterMAX {noun} target", file=stream)
     print(f"  Command: {command}", file=stream)
     for label, value in details:
         print(f"  {label}: {value}", file=stream)
@@ -405,44 +406,11 @@ def _is_interactive(stream: TextIO) -> bool:
         return False
 
 
-def _confirm_host_role(
-    target: security.SecurityTarget,
-    role: host_roles.HostRole | None,
-    *,
-    reader: Reader,
-    stream: TextIO,
-    terminal: bool,
-    allow_cluster_node: bool,
-) -> None:
-    """Ask a second time when the target does not fit the role of this host."""
-    found = host_roles.guard(target.harness, role) if role is not None else None
-    if found is None:
-        return
-    print(f"cmax: {found.reason}", file=stream)
-    print(f"  {found.instead}", file=stream)
-    print(
-        "  If the detection is wrong (for example, this is a login or head node),"
-        f" report it with the Host role line above: {host_roles.ISSUE_URL}",
-        file=stream,
-    )
-    if allow_cluster_node:
-        print("  Host role check: accepted with --allow-cluster-node", file=stream)
-        return
-    if not terminal:
-        raise TargetSelectionError(
-            f"{found.reason} {found.instead}. "
-            "To run here anyway, pass --allow-cluster-node."
-        )
-    print("  To skip this question, pass --allow-cluster-node.", file=stream)
-    answer = _read(reader, found.prompt).lower()
-    if answer not in {"y", "yes"}:
-        raise TargetSelectionCancelled("audit canceled")
-
-
-def prepare_audit_target(
+def prepare_target(
     target: security.SecurityTarget,
     *,
     command: str,
+    noun: str,
     assume_yes: bool = False,
     kubeconfig: str | None = None,
     reader: Reader | None = None,
@@ -452,7 +420,12 @@ def prepare_audit_target(
     allow_cluster_node: bool = False,
     host_role: host_roles.HostRole | None = None,
 ) -> security.SecurityTarget:
-    """Show, validate, and confirm the audit target before collection."""
+    """Show, validate, and confirm the target before the command starts.
+
+    Every cmax command that runs against a target calls this, so each one
+    gets the same confirmation and host role check. noun names the work in
+    the prompts ("audit", "benchmark").
+    """
     output = sys.stdout if stream is None else stream
     target_environ = os.environ if environ is None else environ
     ask = input if reader is None else reader
@@ -472,14 +445,21 @@ def prepare_audit_target(
         return roles["detected"]
 
     def accept(choice: security.SecurityTarget) -> security.SecurityTarget:
-        _confirm_host_role(
-            choice,
-            role_for(choice.harness),
-            reader=ask,
-            stream=output,
-            terminal=terminal,
-            allow_cluster_node=allow_cluster_node,
-        )
+        try:
+            host_roles.confirm(
+                choice.harness,
+                role_for(choice.harness),
+                noun=noun,
+                command=command,
+                reader=ask,
+                stream=output,
+                terminal=terminal,
+                allow_cluster_node=allow_cluster_node,
+            )
+        except host_roles.HostRoleRefused as exc:
+            raise TargetSelectionError(str(exc)) from exc
+        except host_roles.HostRoleCancelled as exc:
+            raise TargetSelectionCancelled(str(exc)) from exc
         return choice
 
     selected = target
@@ -492,7 +472,7 @@ def prepare_audit_target(
                     role=role_for(selected.harness),
                 )
             except TargetSelectionError as exc:
-                print("# ClusterMAX audit target", file=output)
+                print(f"# ClusterMAX {noun} target", file=output)
                 print(f"  Command: {command}", file=output)
                 print(f"  Access check: failed; {exc}", file=output)
                 if assume_yes or not terminal:
@@ -507,7 +487,7 @@ def prepare_audit_target(
                 )
                 continue
 
-            _print_target(command, details, stream=output)
+            _print_target(command, details, stream=output, noun=noun)
             if assume_yes:
                 print("  Confirmation: accepted with --yes", file=output)
                 return accept(selected)
@@ -522,7 +502,7 @@ def prepare_audit_target(
 
             answer = _read(
                 ask,
-                "Run this audit? [y]es, [c]hange target or access, [N]o: ",
+                f"Run this {noun}? [y]es, [c]hange target or access, [N]o: ",
             ).lower()
             if answer in {"y", "yes"}:
                 return accept(selected)
@@ -542,3 +522,10 @@ def prepare_audit_target(
     except (TargetSelectionError, TargetSelectionCancelled):
         _restore_kubernetes_contexts(context_changes)
         raise
+
+
+def prepare_audit_target(
+    target: security.SecurityTarget, **options
+) -> security.SecurityTarget:
+    """prepare_target for the audit."""
+    return prepare_target(target, noun="audit", **options)

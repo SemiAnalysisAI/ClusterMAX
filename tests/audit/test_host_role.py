@@ -1,3 +1,4 @@
+import argparse
 import io
 import subprocess
 from pathlib import Path
@@ -352,7 +353,7 @@ def test_auto_detected_host_type_has_no_mismatch_warning() -> None:
 def test_cli_passes_allow_cluster_node() -> None:
     target = security.SecurityTarget("standalone", "bare-metal", True)
     with mock.patch.object(security, "detect_target", return_value=target), mock.patch.object(
-        target_selection, "prepare_audit_target", return_value=target
+        target_selection, "prepare_target", return_value=target
     ) as prepared, mock.patch("cmax.audit_runner.run", return_value=0):
         result = cli.main(
             ["--repo", "/runtime", "audit", "--standalone", "--allow-cluster-node"]
@@ -426,3 +427,68 @@ def test_slinky_roles_and_guards(case: str) -> None:
     assert role.kind == expected
     for harness, expected_guard in guarded.items():
         assert (host_role.guard(harness, role) is not None) is expected_guard
+
+
+# The guard applies to every cmax command, not only the audit.
+
+
+def test_every_cli_command_has_the_host_role_guard() -> None:
+    assert cli.host_role_unguarded_commands(cli.build_parser()) == []
+
+
+def test_a_new_command_without_the_guard_is_reported() -> None:
+    parser = cli.build_parser()
+    commands = next(
+        action for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    commands.add_parser("bench", prog="cmax bench")
+    guarded = commands.add_parser("burn", prog="cmax burn")
+    cli._add_target_confirmation_options(guarded, noun="burn-in")
+
+    assert cli.host_role_unguarded_commands(parser) == ["cmax bench"]
+    assert guarded.parse_args([]).host_role_noun == "burn-in"
+
+
+def test_a_stale_exemption_is_reported() -> None:
+    with mock.patch.object(
+        cli, "HOST_ROLE_EXEMPT_COMMANDS", cli.HOST_ROLE_EXEMPT_COMMANDS | {"cmax gone"}
+    ):
+        unguarded = cli.host_role_unguarded_commands(cli.build_parser())
+
+    assert unguarded == ["cmax gone (exempt, but no such command)"]
+
+
+def test_target_flags_match_the_cli() -> None:
+    assert host_role.TARGET_FLAGS == {f"--{name}" for name in cli.AUDIT_TARGET_NAMES}
+
+
+def test_guard_messages_name_the_command_and_its_work() -> None:
+    found = host_role.guard(
+        "standalone", COMPUTE, noun="benchmark", command="cmax bench"
+    )
+
+    assert found.reason.startswith("This host is a Slurm compute node. A standalone benchmark")
+    assert found.instead == "From a Slurm login node, run: cmax bench --slurm"
+    assert "standalone benchmark" in found.prompt
+
+
+def test_prepare_target_guards_any_command() -> None:
+    output = io.StringIO()
+    with mock.patch.object(security, "local_environment", return_value="bare-metal"):
+        with pytest.raises(target_selection.TargetSelectionError) as error:
+            target_selection.prepare_target(
+                STANDALONE,
+                command="cmax bench --standalone",
+                noun="benchmark",
+                stream=output,
+                environ={},
+                interactive=False,
+                host_role=COMPUTE,
+            )
+
+    text = output.getvalue()
+    assert "# ClusterMAX benchmark target" in text
+    assert "From a Slurm login node, run: cmax bench --slurm" in text
+    assert "--standalone --slurm" not in text
+    assert "--allow-cluster-node" in str(error.value)

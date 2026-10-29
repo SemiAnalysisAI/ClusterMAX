@@ -1046,7 +1046,7 @@ class SecurityCliTests(unittest.TestCase):
             security, "detect_target", return_value=target
         ) as detect:
             with mock.patch.object(
-                target_selection, "prepare_audit_target", return_value=target
+                target_selection, "prepare_target", return_value=target
             ) as prepare, mock.patch(
                 "cmax.audit_runner.run", return_value=0
             ) as run:
@@ -1064,6 +1064,7 @@ class SecurityCliTests(unittest.TestCase):
         prepare.assert_called_once_with(
             target,
             command="cmax audit security",
+            noun="audit",
             assume_yes=False,
             kubeconfig=None,
             allow_cluster_node=False,
@@ -1079,7 +1080,7 @@ class SecurityCliTests(unittest.TestCase):
     def test_security_cancel_stops_before_the_collector(self) -> None:
         with mock.patch.object(
             target_selection,
-            "prepare_audit_target",
+            "prepare_target",
             side_effect=target_selection.TargetSelectionCancelled("audit canceled"),
         ), mock.patch(
             "cmax.audit_runner.run"
@@ -1114,7 +1115,7 @@ class SecurityCliTests(unittest.TestCase):
         repo_root = Path(__file__).resolve().parents[2]
         runtime_root = runtime_paths.package_runtime_root()
         with mock.patch.object(
-            target_selection, "prepare_audit_target"
+            target_selection, "prepare_target"
         ) as prepare, mock.patch("cmax.audit_runner.run") as run:
             with contextlib.redirect_stdout(output):
                 result = cli.main(
