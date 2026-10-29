@@ -257,7 +257,15 @@ logo, prayer, and progress display.
 
 The command detects Slurm, Kubernetes, containers, virtual machines, macOS, and standalone hosts automatically, and confirms the selection interactively with the user. To skip this confirmation and force the CLI to use a certain approach, use `--local`, `--slurm`, `--k8s`, `--container`, `--vm`, or `--standalone`. Use `--kubeconfig PATH` to select Kubernetes credentials. An explicit target option confirms the target in a non-interactive run. Use `--yes` to accept an auto-detected target without a prompt.
 
-Run Slurm audits from a login node and Kubernetes audits from a machine with `kubectl` access. When a standalone audit starts on a Slurm or Kubernetes node, or a Slurm audit starts on a Slurm compute node, the CLI shows the detected host role and the command to run instead, and asks a second time. `--yes` does not skip this question. Use `--allow-cluster-node` to run there anyway. If the host role is wrong, [open an issue](https://github.com/SemiAnalysisAI/ClusterMAX/issues/new) with the `Host role` line.
+Run Slurm audits from a login node and Kubernetes audits from a machine with `kubectl` access. When a standalone command starts on a cluster node, or a Slurm command starts on a compute node, the CLI shows the evidence, scope, and recommended command before work starts.
+
+The mismatch menu defaults to cancel. Select `c` and then confirm with `y` to continue on this host. Select `r` to review sanitized detection details and the [public issue form](https://github.com/SemiAnalysisAI/ClusterMAX/issues/new). The CLI does not upload anything. Review the preview before sharing it, and do not attach credentials, cluster names, hostnames, or raw logs.
+
+`--yes` does not skip the mismatch menu. `--allow-cluster-node` permits the selected run on this host. Without a terminal, a mismatched run stops unless this override is present.
+
+For Slurm on Kubernetes, including Slinky, the CLI shows the Slurm role separately from the runtime context. When auto-detection finds both interfaces reachable, it asks which interface to use. Automated runs must select `--slurm` or `--k8s` explicitly. An explicit interface skips this choice, but a Slurm run from a compute node still requires the host override or interactive confirmation.
+
+The regression tests use synthetic signals to cover cancellation, reporting, overrides, mixed interfaces, and failed access checks. They do not establish live cluster qualification.
 
 Users can run the command multiple times. Each run writes timestamped artifacts
 under `~/.clustermax/audit/` by default.

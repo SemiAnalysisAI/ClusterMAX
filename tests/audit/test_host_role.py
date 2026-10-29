@@ -107,7 +107,7 @@ def test_role_summary_names_the_evidence() -> None:
     )
 
     assert role.summary == (
-        "Slurm compute node (SLURMD_NODENAME=gpu-001; slurmd is running)"
+        "Slurm compute node (SLURMD_NODENAME is set; slurmd is running)"
     )
     assert host_role.HostRole(host_role.UNKNOWN).summary == ""
 
@@ -265,28 +265,29 @@ def test_allow_cluster_node_overrides_the_guard() -> None:
 
 
 def test_interactive_run_asks_twice() -> None:
-    reader = answers("y", "y")
+    reader = answers("c", "y")
 
     selected, _text = prepare(interactive=True, reader=reader)
 
     assert selected == STANDALONE
     assert reader.prompts == [
-        "Run this audit? [y]es, [c]hange target or access, [N]o: ",
+        "Host role mismatch: [Enter] cancel, [c] continue here, [r] detection looks wrong: ",
         "Run a standalone audit on this compute node anyway? [y/N]: ",
     ]
 
 
 def test_interactive_second_confirmation_defaults_to_no() -> None:
     with pytest.raises(target_selection.TargetSelectionCancelled):
-        prepare(interactive=True, reader=answers("y", ""))
+        prepare(interactive=True, reader=answers("c", ""))
 
 
 def test_interactive_yes_still_asks_the_second_confirmation() -> None:
-    reader = answers("y")
+    reader = answers("c", "y")
 
     prepare(interactive=True, reader=reader, assume_yes=True)
 
     assert reader.prompts == [
+        "Host role mismatch: [Enter] cancel, [c] continue here, [r] detection looks wrong: ",
         "Run a standalone audit on this compute node anyway? [y/N]: ",
     ]
 
@@ -468,7 +469,7 @@ def test_guard_messages_name_the_command_and_its_work() -> None:
         "standalone", COMPUTE, noun="benchmark", command="cmax bench"
     )
 
-    assert found.reason.startswith("This host is a Slurm compute node. A standalone benchmark")
+    assert found.reason.startswith("This host looks like a Slurm compute node. A standalone benchmark")
     assert found.instead == "From a Slurm login node, run: cmax bench --slurm"
     assert "standalone benchmark" in found.prompt
 

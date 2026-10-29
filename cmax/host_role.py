@@ -55,6 +55,7 @@ KUBELET_PATHS = (
 # k3s runs the kubelet inside its own process, so its process names count too.
 KUBERNETES_PROCESSES = ("kubelet", "k3s-server", "k3s-agent")
 WATCHED_PROCESSES = frozenset({"slurmd", "slurmctld", *KUBERNETES_PROCESSES})
+CONTAINER_PATHS = ("/.dockerenv", "/run/.containerenv")
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,7 @@ class HostFacts:
 class HostRole:
     kind: str
     evidence: tuple[str, ...] = ()
+    context: tuple[str, ...] = ()
 
     @property
     def label(self) -> str:
@@ -103,7 +105,7 @@ class Guard:
     prompt: str
 
 
-def classify(facts: HostFacts) -> HostRole:
+def _classify(facts: HostFacts) -> HostRole:
     env = facts.environ
 
     if "slurmctld" in facts.processes:
@@ -114,7 +116,7 @@ def classify(facts: HostFacts) -> HostRole:
     slurm = []
     node_name = env.get("SLURMD_NODENAME", "").strip()
     if node_name:
-        slurm.append(f"SLURMD_NODENAME={node_name}")
+        slurm.append("SLURMD_NODENAME is set")
     if "slurmd" in facts.processes:
         slurm.append("slurmd is running")
     if facts.slurm_node:
@@ -140,6 +142,29 @@ def classify(facts: HostFacts) -> HostRole:
     if in_pod:
         return HostRole(K8S_POD, ("KUBERNETES_SERVICE_HOST is set",))
     return HostRole(UNKNOWN)
+
+
+def classify(facts: HostFacts) -> HostRole:
+    """Keep the scheduler role separate from the runtime context."""
+    role = _classify(facts)
+    context = []
+    if facts.environ.get("KUBERNETES_SERVICE_HOST", "").strip():
+        context.append("Kubernetes pod")
+    elif facts.processes & set(KUBERNETES_PROCESSES) or facts.paths & set(KUBELET_PATHS):
+        context.append("Kubernetes node")
+    if facts.paths & set(CONTAINER_PATHS) or facts.environ.get("container"):
+        context.append("container")
+    return HostRole(role.kind, role.evidence, tuple(context))
+
+
+def may_have_both_interfaces(role: HostRole | None) -> bool:
+    """Decide whether to probe both interfaces, not whether either is usable."""
+    return bool(
+        (role is not None
+         and role.kind in {SLURM_LOGIN, SLURM_COMPUTE}
+         and any(item.startswith("Kubernetes") for item in role.context))
+        or (shutil.which("scontrol") and shutil.which("kubectl"))
+    )
 
 
 def _running_processes(proc: Path = Path("/proc")) -> frozenset[str]:
@@ -207,7 +232,7 @@ def collect(
     return HostFacts(
         environ=dict(env),
         processes=running,
-        paths=frozenset(path for path in KUBELET_PATHS if exists(path)),
+        paths=frozenset(path for path in (*KUBELET_PATHS, *CONTAINER_PATHS) if exists(path)),
         commands=commands,
         slurm_node=slurm_node,
     )
@@ -234,7 +259,7 @@ def guard(
         if role.kind == SLURM_COMPUTE:
             return Guard(
                 reason=(
-                    f"This host is a Slurm compute node. A standalone {noun} "
+                    f"This host looks like a Slurm compute node. A standalone {noun} "
                     "covers only this node and skips the cluster checks."
                 ),
                 instead=f"From a Slurm login node, run: {command} --slurm",
@@ -243,7 +268,7 @@ def guard(
         if role.kind == SLURM_LOGIN:
             return Guard(
                 reason=(
-                    f"This host is a Slurm login node. A standalone {noun} "
+                    f"This host looks like a Slurm login node. A standalone {noun} "
                     "covers only this login node and not the cluster."
                 ),
                 instead=f"From this login node, run: {command} --slurm",
@@ -253,7 +278,7 @@ def guard(
             where = "node" if role.kind == K8S_NODE else "pod"
             return Guard(
                 reason=(
-                    f"This host is a Kubernetes {where}. A standalone {noun} "
+                    f"This host looks like a Kubernetes {where}. A standalone {noun} "
                     f"covers only this {where} and skips the cluster checks."
                 ),
                 instead=(
@@ -265,13 +290,35 @@ def guard(
     if harness == "slurm" and role.kind == SLURM_COMPUTE:
         return Guard(
             reason=(
-                f"This host is a Slurm compute node. Run the Slurm {noun} from a "
+                f"This host looks like a Slurm compute node. Run the Slurm {noun} from a "
                 "login node so it can schedule its own jobs."
             ),
             instead=f"From a Slurm login node, run: {command} --slurm",
             prompt=f"Run the Slurm {noun} from this compute node anyway? [y/N]: ",
         )
     return None
+
+
+def report_preview(harness: str, role: HostRole, *, stream: TextIO) -> None:
+    """Print only known signal labels. Never copy raw environment or log data."""
+    allowed = {
+        "SLURMD_NODENAME is set", "the hostname is a Slurm node",
+        "KUBERNETES_SERVICE_HOST is set", "sbatch is in PATH", "scontrol is in PATH",
+        *(f"{name} is running" for name in WATCHED_PROCESSES),
+        *(f"{path} exists" for path in KUBELET_PATHS),
+    }
+    signals = [item for item in role.evidence if item in allowed]
+    context = [item for item in role.context if item in {
+        "Kubernetes pod", "Kubernetes node", "container",
+    }]
+    print("Detection report preview (nothing has been uploaded):", file=stream)
+    print(f"  Target: {harness if harness in {'slurm', 'k8s', 'standalone'} else 'unknown'}", file=stream)
+    print(f"  Detected role: {role.label or 'unknown'}", file=stream)
+    print(f"  Signals: {'; '.join(signals) or 'no shareable signals'}", file=stream)
+    print(f"  Runtime context: {', '.join(context) or 'unknown'}", file=stream)
+    print("  Describe the expected role and review these details before sharing.", file=stream)
+    print("  Do not attach credentials, hostnames, cluster names, or raw logs.", file=stream)
+    print(f"  File an issue: {ISSUE_URL}", file=stream)
 
 
 def confirm(
@@ -297,10 +344,11 @@ def confirm(
     if found is None:
         return
     print(f"cmax: {found.reason}", file=stream)
+    if role is not None and role.evidence:
+        print(f"  Evidence: {'; '.join(role.evidence)}", file=stream)
     print(f"  {found.instead}", file=stream)
     print(
-        "  If the detection is wrong (for example, this is a login or head node),"
-        f" report it with the Host role line above: {ISSUE_URL}",
+        f"  If the detection is wrong, review sanitized details before filing: {ISSUE_URL}",
         file=stream,
     )
     if allow_cluster_node:
@@ -312,9 +360,22 @@ def confirm(
             "To run here anyway, pass --allow-cluster-node."
         )
     print("  To skip this question, pass --allow-cluster-node.", file=stream)
-    try:
-        answer = reader(found.prompt).strip().lower()
-    except (EOFError, KeyboardInterrupt) as exc:
-        raise HostRoleCancelled(f"{noun} canceled") from exc
-    if answer not in {"y", "yes"}:
-        raise HostRoleCancelled(f"{noun} canceled")
+    while True:
+        try:
+            answer = reader(
+                "Host role mismatch: [Enter] cancel, [c] continue here, "
+                "[r] detection looks wrong: "
+            ).strip().lower()
+            if answer in {"r", "report"}:
+                report_preview(harness, role, stream=stream)
+                continue
+            if answer in {"c", "continue"}:
+                confirmed = reader(found.prompt).strip().lower()
+                if confirmed in {"y", "yes"}:
+                    return
+                raise HostRoleCancelled(f"{noun} canceled")
+            if answer in {"", "n", "no", "q", "quit"}:
+                raise HostRoleCancelled(f"{noun} canceled")
+            print("Enter c or r, or press Enter to cancel.", file=stream)
+        except (EOFError, KeyboardInterrupt) as exc:
+            raise HostRoleCancelled(f"{noun} canceled") from exc
