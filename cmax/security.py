@@ -193,14 +193,27 @@ def _inside_vm() -> bool:
     return False
 
 
-def _local_target(*, explicit: bool) -> SecurityTarget:
+def local_environment() -> str:
+    """Return the detected kind of this host: container, vm, local, or bare-metal."""
     if _inside_container():
-        return SecurityTarget("standalone", "container", explicit)
+        return "container"
     if _inside_vm():
-        return SecurityTarget("standalone", "vm", explicit)
+        return "vm"
     if platform.system() == "Darwin":
-        return SecurityTarget("standalone", "local", explicit)
-    return SecurityTarget("standalone", "bare-metal", explicit)
+        return "local"
+    return "bare-metal"
+
+
+def _local_target(*, explicit: bool) -> SecurityTarget:
+    return SecurityTarget("standalone", local_environment(), explicit)
+
+
+def _slurm_login_pod() -> bool:
+    return bool(
+        shutil.which("sbatch")
+        and shutil.which("scontrol")
+        and _command_ok(["scontrol", "ping"])
+    )
 
 
 def detect_target(explicit: str | None = None) -> SecurityTarget:
@@ -228,6 +241,10 @@ def detect_target(explicit: str | None = None) -> SecurityTarget:
         if os.environ.get("SLURM_JOB_ID"):
             return SecurityTarget("slurm", "slurm")
         if os.environ.get("KUBERNETES_SERVICE_HOST"):
+            # Slurm on Kubernetes (for example Slinky) runs login nodes as
+            # pods. A pod that reaches a Slurm controller is a Slurm login node.
+            if _slurm_login_pod():
+                return SecurityTarget("slurm", "slurm")
             return SecurityTarget("k8s", "k8s")
         if shutil.which("sbatch"):
             return SecurityTarget("slurm", "slurm")

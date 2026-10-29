@@ -26,8 +26,22 @@ class PlanAuditTests(unittest.TestCase):
                 clear=True,
             ),
             patch.object(plan_audit.shutil, "which", return_value="/usr/bin/sbatch"),
+            patch.object(plan_audit, "command_ok", return_value=False),
         ):
             self.assertEqual(plan_audit.detect_harness(), "k8s")
+
+    def test_slurm_login_pod_on_kubernetes_selects_slurm(self) -> None:
+        with (
+            patch.dict(
+                plan_audit.os.environ,
+                {"KUBERNETES_SERVICE_HOST": "10.0.0.1"},
+                clear=True,
+            ),
+            patch.object(plan_audit.shutil, "which", side_effect=lambda name: f"/usr/bin/{name}"),
+            patch.object(plan_audit, "command_ok", return_value=True) as ping,
+        ):
+            self.assertEqual(plan_audit.detect_harness(), "slurm")
+        ping.assert_called_once_with(["scontrol", "ping"], timeout=5.0)
 
     def test_infers_slug_from_nested_bench_audit_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

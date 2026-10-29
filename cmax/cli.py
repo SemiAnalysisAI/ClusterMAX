@@ -66,6 +66,13 @@ def _add_target_confirmation_options(
         help="Accept the reported audit target without an interactive confirmation.",
     )
     parser.add_argument(
+        "--allow-cluster-node",
+        action="store_true",
+        default=default,
+        dest="allow_cluster_node",
+        help="Run even when this host is a cluster node that the target does not fit.",
+    )
+    parser.add_argument(
         "--kubeconfig",
         default=argparse.SUPPRESS if suppress_default else None,
         metavar="PATH",
@@ -308,6 +315,7 @@ def _resolve_audit_target(
             command=command,
             assume_yes=args.assume_yes,
             kubeconfig=args.kubeconfig,
+            allow_cluster_node=getattr(args, "allow_cluster_node", False),
         )
         if selected.harness != "k8s":
             restore_kubeconfig()
