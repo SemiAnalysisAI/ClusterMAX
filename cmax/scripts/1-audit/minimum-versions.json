@@ -1084,6 +1084,897 @@
           "priority": "low",
           "status": "needed"
         },
+        "linuxIpv4InetOptUaf": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "5.15.0-203.213"
+        },
+        "linuxIpv4InetOptUafAllwinner5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "allwinner",
+            "allwinner-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-allwinner-5.19",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of kernel support"
+        },
+        "linuxIpv4InetOptUafAws": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-aws",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "5.15.0-1120.127"
+        },
+        "linuxIpv4InetOptUafAws5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-aws-5.19",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-aws-6.2"
+        },
+        "linuxIpv4InetOptUafAws6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-aws-6.2",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-aws-6.5"
+        },
+        "linuxIpv4InetOptUafAws6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-aws-6.5",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-aws-6.8"
+        },
+        "linuxIpv4InetOptUafAws6_8": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-aws-6.8",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafAwsFips": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "aws-fips",
+            "aws-fips-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-aws-fips",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "5.15.0-1120.127+fips1"
+        },
+        "linuxIpv4InetOptUafAzure": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "5.15.0-1126.135"
+        },
+        "linuxIpv4InetOptUafAzure5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-5.19",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-azure-6.2"
+        },
+        "linuxIpv4InetOptUafAzure6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-6.2",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-azure-6.5"
+        },
+        "linuxIpv4InetOptUafAzure6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-6.5",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-azure-6.8"
+        },
+        "linuxIpv4InetOptUafAzure6_8": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-6.8",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "6.8.0-1073.82~22.04.1"
+        },
+        "linuxIpv4InetOptUafAzureFde": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-fde",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafAzureFde5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-fde-5.19",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-azure-fde-6.2"
+        },
+        "linuxIpv4InetOptUafAzureFde6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-fde-6.2",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "replaced by linux-azure-6.5"
+        },
+        "linuxIpv4InetOptUafAzureFde6_8": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-fde-6.8",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafAzureFips": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "azure-fips",
+            "azure-fips-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-fips",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafFips": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "fips",
+            "fips-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-fips",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "5.15.0-203.213+fips1"
+        },
+        "linuxIpv4InetOptUafGcp": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gcp",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafGcp5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gcp-5.19",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-gcp-6.2"
+        },
+        "linuxIpv4InetOptUafGcp6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gcp-6.2",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-gcp-6.5"
+        },
+        "linuxIpv4InetOptUafGcp6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gcp-6.5",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-gcp-6.8"
+        },
+        "linuxIpv4InetOptUafGcp6_8": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gcp-6.8",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafGcpFips": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "gcp-fips",
+            "gcp-fips-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gcp-fips",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafGke": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "gke",
+            "gke-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gke",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafGkeop": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "gkeop",
+            "gkeop-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gkeop",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafHwe5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-hwe-5.19",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-hwe-6.2"
+        },
+        "linuxIpv4InetOptUafHwe6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-hwe-6.2",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-hwe-6.5"
+        },
+        "linuxIpv4InetOptUafHwe6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-hwe-6.5",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-hwe-6.8"
+        },
+        "linuxIpv4InetOptUafHwe6_8": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-hwe-6.8",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafIbm": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "ibm",
+            "ibm-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-ibm",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "5.15.0-1114.118"
+        },
+        "linuxIpv4InetOptUafIbm6_8": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "ibm",
+            "ibm-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-ibm-6.8",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafIntelIotRealtime": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "intel-iot-realtime",
+            "intel-iot-realtime-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-intel-iot-realtime",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafIntelIotg": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "intel-iotg",
+            "intel-iotg-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-intel-iotg",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafKvm": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "kvm",
+            "kvm-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-kvm",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafLowlatency": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "lowlatency",
+            "lowlatency-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-lowlatency",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "5.15.0-198.208"
+        },
+        "linuxIpv4InetOptUafLowlatencyHwe5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "lowlatency",
+            "lowlatency-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-lowlatency-hwe-5.19",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-lowlatency-hwe-6.2"
+        },
+        "linuxIpv4InetOptUafLowlatencyHwe6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "lowlatency",
+            "lowlatency-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-lowlatency-hwe-6.2",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-lowlatency-hwe-6.5"
+        },
+        "linuxIpv4InetOptUafLowlatencyHwe6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "lowlatency",
+            "lowlatency-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-lowlatency-hwe-6.5",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-lowlatency-hwe-6.8"
+        },
+        "linuxIpv4InetOptUafLowlatencyHwe6_8": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "lowlatency",
+            "lowlatency-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-lowlatency-hwe-6.8",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafNvidia": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-nvidia",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafNvidia6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-nvidia-6.2",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-nvidia-6.5"
+        },
+        "linuxIpv4InetOptUafNvidia6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-nvidia-6.5",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-nvidia-6.8"
+        },
+        "linuxIpv4InetOptUafNvidia6_8": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-nvidia-6.8",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafNvidiaTegra": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "nvidia-tegra",
+            "nvidia-tegra-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-nvidia-tegra",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafNvidiaTegraIgx": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "nvidia-tegra-igx",
+            "nvidia-tegra-igx-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-nvidia-tegra-igx",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafOem5_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.17",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oem-5.17",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-oem-6.1"
+        },
+        "linuxIpv4InetOptUafOem6_0": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.0",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oem-6.0",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-oem-6.1"
+        },
+        "linuxIpv4InetOptUafOem6_1": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.1",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oem-6.1",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-oem-6.5"
+        },
+        "linuxIpv4InetOptUafOem6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oem-6.5",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-oem-6.8"
+        },
+        "linuxIpv4InetOptUafOracle": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oracle",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "5.15.0-1117.123"
+        },
+        "linuxIpv4InetOptUafOracle6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oracle-6.5",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-oracle-6.8"
+        },
+        "linuxIpv4InetOptUafOracle6_8": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oracle-6.8",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafRaspi": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "raspi",
+            "raspi-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-raspi",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafRealtime": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "realtime",
+            "realtime-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-realtime",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafRealtime6_8": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "realtime",
+            "realtime-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-realtime-6.8",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafStarfive5_19": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.19",
+          "kernelFlavors": [
+            "starfive",
+            "starfive-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-starfive-5.19",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of kernel support"
+        },
+        "linuxIpv4InetOptUafStarfive6_2": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.2",
+          "kernelFlavors": [
+            "starfive",
+            "starfive-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-starfive-6.2",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-starfive-6.5"
+        },
+        "linuxIpv4InetOptUafStarfive6_5": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.5",
+          "kernelFlavors": [
+            "starfive",
+            "starfive-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-starfive-6.5",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of kernel support"
+        },
+        "linuxIpv4InetOptUafXilinxZynqmp": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "5.15",
+          "kernelFlavors": [
+            "xilinx-zynqmp",
+            "xilinx-zynqmp-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-xilinx-zynqmp",
+          "priority": "high",
+          "status": "needed"
+        },
         "linuxOpenvswitchNestedActions": {
           "abi": 190,
           "allowUnfixed": true,
@@ -2684,6 +3575,808 @@
           },
           "status": "released"
         },
+        "linuxIpv4InetOptUaf": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "6.8.0-149.149"
+        },
+        "linuxIpv4InetOptUafAws": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-aws",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "6.8.0-1069.72"
+        },
+        "linuxIpv4InetOptUafAws6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-aws-6.14",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafAws6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-aws-6.17",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafAws7_0": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-aws-7.0",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafAwsFips": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "aws-fips",
+            "aws-fips-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-aws-fips",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafAzure": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "6.8.0-1073.82"
+        },
+        "linuxIpv4InetOptUafAzure6_11": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.11",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-6.11",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-azure-6.14"
+        },
+        "linuxIpv4InetOptUafAzure6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-6.14",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafAzure6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-6.17",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafAzure7_0": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-7.0",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafAzureFde": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-fde",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "6.8.0-1071.78"
+        },
+        "linuxIpv4InetOptUafAzureFde6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-fde-6.14",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafAzureFde6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-fde-6.17",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafAzureFde7_0": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-fde-7.0",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafAzureFips": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "azure-fips",
+            "azure-fips-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-fips",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafAzureNvidia": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "azure-nvidia",
+            "azure-nvidia-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-nvidia",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafAzureNvidia6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "azure-nvidia",
+            "azure-nvidia-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-nvidia-6.14",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafFips": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "fips",
+            "fips-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-fips",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "6.8.0-149.149+fips1"
+        },
+        "linuxIpv4InetOptUafGcp": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gcp",
+          "priority": "high",
+          "status": "pending"
+        },
+        "linuxIpv4InetOptUafGcp6_11": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.11",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gcp-6.11",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-gcp-6.14"
+        },
+        "linuxIpv4InetOptUafGcp6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gcp-6.14",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafGcp6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gcp-6.17",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafGcp7_0": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gcp-7.0",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafGcpFips": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "gcp-fips",
+            "gcp-fips-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gcp-fips",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafGke": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "gke",
+            "gke-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gke",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "6.8.0-1068.76"
+        },
+        "linuxIpv4InetOptUafGkeop": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "gkeop",
+            "gkeop-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gkeop",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafHwe6_11": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.11",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-hwe-6.11",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-hwe-6.14"
+        },
+        "linuxIpv4InetOptUafHwe6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-hwe-6.14",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafHwe6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-hwe-6.17",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafHwe7_0": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-hwe-7.0",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafIbm": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "ibm",
+            "ibm-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-ibm",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "6.8.0-1069.70"
+        },
+        "linuxIpv4InetOptUafLowlatency": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "lowlatency",
+            "lowlatency-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-lowlatency",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "6.8.0-149.149.1"
+        },
+        "linuxIpv4InetOptUafLowlatencyHwe6_11": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.11",
+          "kernelFlavors": [
+            "lowlatency",
+            "lowlatency-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-lowlatency-hwe-6.11",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "replaced by linux-hwe-6.14"
+        },
+        "linuxIpv4InetOptUafNvidia": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-nvidia",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafNvidia6_11": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.11",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-nvidia-6.11",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of kernel support"
+        },
+        "linuxIpv4InetOptUafNvidia6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-nvidia-6.17",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafNvidia7_0": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-nvidia-7.0",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafNvidiaLowlatency": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "nvidia-lowlatency",
+            "nvidia-lowlatency-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-nvidia-lowlatency",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafNvidiaTegra": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "nvidia-tegra",
+            "nvidia-tegra-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-nvidia-tegra",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafOem6_11": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.11",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oem-6.11",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-oem-6.14"
+        },
+        "linuxIpv4InetOptUafOem6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oem-6.14",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafOem6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oem-6.17",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafOem6_8": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oem-6.8",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "superseded by linux-oem-6.14"
+        },
+        "linuxIpv4InetOptUafOracle": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oracle",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "6.8.0-1067.71"
+        },
+        "linuxIpv4InetOptUafOracle6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oracle-6.14",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafOracle6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oracle-6.17",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafOracle7_0": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oracle-7.0",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafRaspi": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "raspi",
+            "raspi-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-raspi",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafRaspiRealtime": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "raspi-realtime",
+            "raspi-realtime-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-raspi-realtime",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafRealtime": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "realtime",
+            "realtime-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-realtime",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafRealtime6_14": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.14",
+          "kernelFlavors": [
+            "realtime",
+            "realtime-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-realtime-6.14",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafRealtime6_17": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.17",
+          "kernelFlavors": [
+            "realtime",
+            "realtime-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-realtime-6.17",
+          "priority": "high",
+          "status": "ignored",
+          "trackerNote": "end of life, was needs-triage"
+        },
+        "linuxIpv4InetOptUafVmware": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "vmware",
+            "vmware-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-vmware",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafXilinx": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "6.8",
+          "kernelFlavors": [
+            "xilinx",
+            "xilinx-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-xilinx",
+          "priority": "high",
+          "status": "needed"
+        },
         "linuxJanuscape": {
           "cve": "CVE-2026-53359",
           "fixAvailability": {
@@ -4069,6 +5762,192 @@
             "url": "https://ubuntu.com/security/notices/USN-8370-1.json"
           },
           "status": "released"
+        },
+        "linuxIpv4InetOptUaf": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "generic",
+            "generic-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "7.0.0-43.43"
+        },
+        "linuxIpv4InetOptUafAws": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "aws",
+            "aws-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-aws",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.18"
+        },
+        "linuxIpv4InetOptUafAzure": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "azure",
+            "azure-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "7.0.0-1020.21"
+        },
+        "linuxIpv4InetOptUafAzureFde": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "azure-fde",
+            "azure-fde-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-azure-fde",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafGcp": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "gcp",
+            "gcp-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gcp",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafGke": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "gke",
+            "gke-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-gke",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafIbm": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "ibm",
+            "ibm-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-ibm",
+          "priority": "high",
+          "status": "pending",
+          "trackerNote": "7.0.0-1018.18"
+        },
+        "linuxIpv4InetOptUafNvidia": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "nvidia",
+            "nvidia-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-nvidia",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafNvidiaBos": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "nvidia-bos",
+            "nvidia-bos-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-nvidia-bos",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafOem7_0": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "oem",
+            "oem-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oem-7.0",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafOracle": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "oracle",
+            "oracle-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-oracle",
+          "priority": "high",
+          "status": "pending"
+        },
+        "linuxIpv4InetOptUafRaspi": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "raspi",
+            "raspi-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-raspi",
+          "priority": "high",
+          "status": "needed"
+        },
+        "linuxIpv4InetOptUafRealtime": {
+          "allowUnfixed": true,
+          "cve": "CVE-2026-98432",
+          "fixed": "",
+          "kernelFamily": "7.0",
+          "kernelFlavors": [
+            "realtime",
+            "realtime-64k"
+          ],
+          "kernelGroup": "linuxIpv4InetOptUaf",
+          "package": "linux-realtime",
+          "priority": "high",
+          "status": "needed"
         },
         "linuxPwnescape": {
           "cve": "CVE-2026-99999",

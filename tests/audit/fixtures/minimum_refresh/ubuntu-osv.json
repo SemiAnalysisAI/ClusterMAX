@@ -1,6 +1,81 @@
 {
   "_comment": "Trimmed Canonical OSV records as OSV.dev serves them (https://api.osv.dev/v1/vulns/UBUNTU-<CVE> and .../<USN-id>). Each CVE record keeps only the Noble (Ubuntu:24.04:LTS), Jammy, and Resolute (Ubuntu:26.04:LTS) entries for the tracked source package, so the extractor must pick the right ecosystem. CVE-2026-53359 is trimmed to the state it had while Canonical tracked the Noble fix as pending: Noble is listed without a fixed event, so the generator falls back to the Ubuntu security API fixture. Each USN record keeps only the fields the generator reads.",
   "cves": {
+    "CVE-2026-98432": {
+      "id": "UBUNTU-CVE-2026-98432",
+      "upstream": [
+        "CVE-2026-98432"
+      ],
+      "related": [],
+      "published": "2026-10-15T13:17:00Z",
+      "severity": [
+        {
+          "type": "CVSS_V4",
+          "score": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N"
+        },
+        {
+          "type": "CVSS_V3",
+          "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+        },
+        {
+          "type": "Ubuntu",
+          "score": "high"
+        }
+      ],
+      "affected": [
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:22.04:LTS",
+            "purl": "pkg:deb/ubuntu/linux?arch=source&distro=jammy"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:24.04:LTS",
+            "purl": "pkg:deb/ubuntu/linux?arch=source&distro=noble"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "linux",
+            "ecosystem": "Ubuntu:26.04:LTS",
+            "purl": "pkg:deb/ubuntu/linux?arch=source&distro=resolute"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
     "CVE-2026-46227": {
       "id": "UBUNTU-CVE-2026-46227",
       "upstream": [

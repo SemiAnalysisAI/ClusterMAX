@@ -217,6 +217,13 @@ def minimum_table(
                         "package": "linux",
                         "status": "released",
                     },
+                    # Neutral here; CVE-2026-98432 tests set their own state.
+                    "linuxIpv4InetOptUaf": {
+                        "allowUnfixed": True,
+                        "cve": "CVE-2026-98432",
+                        "package": "linux",
+                        "status": "not-affected",
+                    },
                     "linux": {
                         "abi": linux_abi,
                         "fixed": linux_fixed,
@@ -268,6 +275,12 @@ def minimum_table(
                         "fixed": "5.15.0-186.196",
                         "package": "linux",
                         "status": "released",
+                    },
+                    "linuxIpv4InetOptUaf": {
+                        "allowUnfixed": True,
+                        "cve": "CVE-2026-98432",
+                        "package": "linux",
+                        "status": "not-affected",
                     },
                 },
             },
@@ -407,6 +420,50 @@ class UbuntuKernelCveTests(TempDirMixin):
                 _, cves, _ = self.grade(shipped, release, fixed)
                 self.assertNotIn("CVE-2026-46227", json.loads(cves))
 
+    def test_ipv4_inet_opt_without_a_fix_fails_every_ga_abi(self) -> None:
+        # CVE-2026-98432: the tracker lists the GA kernel as pending with no
+        # released fix, so no running ABI on the train can pass.
+        for release, component, kernel in (
+            ("22.04", "ubuntuJammy", "5.15.0-999-generic"),
+            ("24.04", "ubuntuNoble", "6.8.0-999-generic-64k"),
+        ):
+            with self.subTest(release=release):
+                table = self.sctp_only_table()
+                packages = table["components"][component]["packages"]
+                packages["linuxSctpSendall"].update(status="not-affected")
+                packages["linuxIpv4InetOptUaf"].update(
+                    status="pending", fixed="", trackerNote="6.8.0-149.149"
+                )
+                status, cves, _ = self.grade(table, release, kernel)
+                self.assertEqual((status, json.loads(cves)), ("fail", ["CVE-2026-98432"]))
+
+    def test_missing_ipv4_inet_opt_row_is_unknown(self) -> None:
+        table = self.sctp_only_table()
+        del table["components"]["ubuntuNoble"]["packages"]["linuxIpv4InetOptUaf"]
+        self.assertEqual(
+            self.grade(table, "24.04", "6.8.0-140-generic"), ("unknown", "[]", "[]")
+        )
+
+    def test_shipped_table_grades_ipv4_inet_opt_on_every_tracked_kernel(self) -> None:
+        # The shipped table carries the tracker state of CVE-2026-98432. No
+        # Ubuntu kernel has a released fix, so a high ABI still fails.
+        shipped = json.loads((WORKLOAD / "minimum-versions.json").read_text())
+        for release, kernel in (
+            ("22.04", "5.15.0-999-generic"),
+            ("22.04", "5.15.0-9999-nvidia"),
+            ("22.04", "6.8.0-999-generic"),
+            ("24.04", "6.8.0-999-generic"),
+            ("24.04", "6.8.0-9999-nvidia-64k"),
+            ("24.04", "6.8.0-9999-aws"),
+            ("24.04", "6.17.0-999-generic"),
+            ("26.04", "7.0.0-999-generic"),
+            ("26.04", "7.0.0-9999-nvidia"),
+        ):
+            with self.subTest(kernel=kernel):
+                status, cves, _ = self.grade(shipped, release, kernel)
+                self.assertEqual(status, "fail")
+                self.assertIn("CVE-2026-98432", json.loads(cves))
+
     def test_missing_tracker_rows_are_unknown(self) -> None:
         table = minimum_table()
         del table["components"]["ubuntuJammy"]
@@ -454,6 +511,12 @@ class UbuntuKernelCveTests(TempDirMixin):
             "linux-fips", "6.8", "fips", "released", 136)
         table["components"]["ubuntuResolute"] = {"packages": {
             "linuxSctpSendall": self.kernel_row("linux", "7.0", "generic", "released", 28),
+            "linuxIpv4InetOptUaf": {
+                "allowUnfixed": True,
+                "cve": "CVE-2026-98432",
+                "package": "linux",
+                "status": "not-affected",
+            },
         }}
         return table
 

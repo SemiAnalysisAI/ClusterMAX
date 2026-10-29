@@ -946,7 +946,8 @@ fi
 JANUSCAPE_EXPOSED_JSON=$(json_bool_or_unknown "${WORKER_JANUSCAPE_EXPOSED:-}")
 # Grade the audited worker kernel against the per-kernel Ubuntu CVE rows, the
 # same way the full audit does in build_audit_json. Without this, the security
-# profile never reports CVE-2026-64531, CVE-2026-64378, or CVE-2026-46227.
+# profile never reports CVE-2026-64531, CVE-2026-64378, CVE-2026-46227, or
+# CVE-2026-98432.
 grade_ubuntu_kernel_cves "${WORKER_OS_ID:-unknown}" \
     "${WORKER_OS_VERSION_ID:-unknown}" "${WORKER_GUEST_KERNEL_RUNNING:-unknown}"
 SECURITY_ADVISORY_JSON=$(printf '{%s "_end": null}' \
