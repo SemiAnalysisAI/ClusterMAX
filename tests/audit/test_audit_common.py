@@ -1199,6 +1199,48 @@ class ContainerWorkerCheckTests(unittest.TestCase):
             security["connectxFirmware"]["devices"][0]["device"], "mlx5_unknown"
         )
 
+class NvidiaDriverFloorsTests(unittest.TestCase):
+    def floors(self, reader: str) -> bashtest.BashRun:
+        return bashtest.run_bash(
+            f'source "{COMMON_PATH}"; MINIMUM_VERSIONS_READER="{reader}"; '
+            "nvidia_driver_floors"
+        )
+
+    def test_floors_match_the_published_table(self) -> None:
+        # The formatted policy must be exactly what the table publishes, so a
+        # refreshed NVIDIA bulletin reaches the checks without shell edits.
+        run = bashtest.run_bash(f'source "{COMMON_PATH}"; nvidia_driver_floors')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        branches = minimum_versions.get("components.nvidiaDriver.branches")
+        expected = " ".join(
+            f"{branch}={branches[branch]}" for branch in sorted(branches, key=int)
+        )
+        self.assertEqual(run.stdout.strip(), expected)
+
+    def test_a_missing_reader_prints_nothing(self) -> None:
+        run = self.floors("/nonexistent/minimum_versions.py")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stdout.strip(), "")
+
+    def test_a_malformed_table_prints_nothing(self) -> None:
+        # The policy is all or nothing: any malformed row fails the whole read
+        # instead of grading the valid rows and silently dropping the rest.
+        with tempfile.TemporaryDirectory() as tmp:
+            reader = Path(tmp) / "reader.py"
+            for body in (
+                "print('not json')",
+                "print('[580.178.04]')",
+                "print('{\"580\": \"178.04\"}')",
+                "print('{\"580x\": \"580.178.04\"}')",
+                "print('{\"580\": \"580.178.04\", \"615\": \"bad\"}')",
+            ):
+                with self.subTest(body=body):
+                    reader.write_text("import sys\n" + body + "\n")
+                    run = self.floors(str(reader))
+                    self.assertEqual(run.returncode, 0, run.stderr)
+                    self.assertEqual(run.stdout.strip(), "")
+
+
 class HostCheckNicInventoryTests(unittest.TestCase):
     ANCHORS = (
         "# Security inventory includes logical/bonded devices",

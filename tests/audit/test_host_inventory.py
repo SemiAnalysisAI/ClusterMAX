@@ -495,3 +495,110 @@ esac
     assert run.returncode == 0, run.stderr
     assert "WORKER_CUDA_VISIBLE_DEVICES=GPU-a" in run.stdout
     assert "WORKER_NVIDIA_VISIBLE_DEVICES=GPU-a" in run.stdout
+
+
+def run_gpu_smi_check_with_policy(driver: str, policy: str) -> bashtest.BashRun:
+    """Run the real k8s GPU check with a controlled driver-floor policy.
+
+    The nvidia-smi stub reports the given driver, the collector stub resolves
+    the given policy, and the kubectl stub runs the pod payload in-process
+    with the policy environment applied, exactly as the remote command does.
+    """
+    function = bashtest.extract_function(K8S_COLLECTOR, "run_gpu_smi_check")
+    return bashtest.run_bash(
+        function
+        + f"""
+K8S_AUDIT_CHECK_NS=clustermax-audit
+K8S_AUDIT_GPU_CHECK_IMAGE=cuda-image
+nvidia_driver_floors() {{ printf '%s\\n' '{policy}'; }}
+apply_gpu_check_pod() {{ echo gpu-check-pod; }}
+cleanup_audit_check_pod() {{ :; }}
+check_deadline() {{ shift; "$@"; }}
+run_gpu_smi_check worker-0
+""",
+        stubs={
+            "kubectl": bashtest.exec_from("env"),
+            "nvidia-smi": f"""
+case "$*" in
+  *--query-gpu=driver_version*) echo {driver} ;;
+  *--query-gpu=name*) echo "NVIDIA H100" ;;
+  *--query-gpu=memory.total*) echo 81559 ;;
+  *) echo "CUDA Version: 13.0" ;;
+esac
+""",
+        },
+    )
+
+
+def gpu_smi_patched(driver: str, policy: str) -> tuple[str, list[list[str]]]:
+    run = run_gpu_smi_check_with_policy(driver, policy)
+    assert run.returncode == 0, run.stderr
+    facts = dict(
+        line.split("=", 1)
+        for line in run.stdout.splitlines()
+        if line.startswith("WORKER_")
+    )
+    return (
+        facts["WORKER_NVIDIA_MAY_2026_PATCHED"],
+        run.calls("kubectl"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("driver", "expected"),
+    [
+        ("580.126.09", "false"),  # below the floor
+        ("580.178.04", "true"),  # exactly at the floor
+        ("580.178.05", "true"),  # above the floor
+        ("615.71.09", "true"),  # a different listed branch
+        ("615.71.08", "false"),  # a different listed branch, below floor
+    ],
+)
+def test_k8s_gpu_check_grades_the_driver_against_the_injected_floor(
+    driver: str, expected: str
+) -> None:
+    patched, _ = gpu_smi_patched(driver, "580=580.178.04 615=615.71.09")
+    assert patched == expected
+
+
+def test_k8s_gpu_check_grades_a_branch_the_old_case_did_not_list() -> None:
+    # 570 and 590 are published by the table but were missing from the
+    # hardcoded branch list this check used to carry; the injected policy
+    # grades them like any other branch.
+    patched, _ = gpu_smi_patched("570.100.00", "570=570.211.01 580=580.178.04")
+    assert patched == "false"
+    patched, _ = gpu_smi_patched("590.48.01", "590=590.48.01")
+    assert patched == "true"
+
+
+def test_k8s_gpu_check_floor_change_regrades_without_shell_edits() -> None:
+    # A refreshed bulletin only moves the table; the same driver flips
+    # verdicts when the injected floor moves across it.
+    patched, _ = gpu_smi_patched("580.173.02", "580=580.170.00")
+    assert patched == "true"
+    patched, _ = gpu_smi_patched("580.173.02", "580=580.180.00")
+    assert patched == "false"
+
+
+def test_k8s_gpu_check_without_a_policy_stays_unknown() -> None:
+    patched, _ = gpu_smi_patched("580.178.04", "")
+    assert patched == "unknown"
+
+
+@pytest.mark.parametrize("driver", ["620.05.00", "600.10.00", "560.127.09"])
+def test_k8s_gpu_check_unlisted_branch_stays_unknown(driver: str) -> None:
+    # A branch the table does not list is never assumed fixed; the
+    # collect-side fact matches the report-side grader's unknown verdict.
+    patched, _ = gpu_smi_patched(driver, "580=580.178.04 615=615.71.09")
+    assert patched == "unknown"
+
+
+def test_k8s_gpu_check_sends_the_policy_to_the_pod() -> None:
+    # The remote command itself must carry the policy, not just the extracted
+    # script block: the pod environment is the only channel by which the
+    # table reaches code that cannot see the checkout.
+    _, calls = gpu_smi_patched("580.178.04", "580=580.178.04 615=615.71.09")
+    assert calls, "kubectl was never invoked"
+    argv = calls[0]
+    assert "env" in argv
+    assert "CLUSTERMAX_NVIDIA_BRANCH_FLOORS=580=580.178.04 615=615.71.09" in argv

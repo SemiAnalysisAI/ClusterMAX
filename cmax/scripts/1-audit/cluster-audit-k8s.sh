@@ -2762,30 +2762,28 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     echo "WORKER_CUDA_VERSION=$(nvidia-smi 2>/dev/null | grep -oP "CUDA Version: \K[0-9.]+" || echo unknown)"
     echo "WORKER_GPU_MODEL=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 | tr " " "-" || echo unknown)"
     echo "WORKER_GPU_MEMORY=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 || echo 0)"
-    # The NVIDIA driver minimum per driver branch. The audit grades every
-    # branch that the tracked security bulletin moves. The table publishes
-    # the floor, so a new release that moves a branch grades false until the
-    # floor is published. A branch without a floor has no grace period. The
-    # audit fails when the observed driver is below the fixed version.
-    minimum=""
-    case "$driver" in
-        615.*) minimum=615.71.09 ;;
-        610.*) minimum=610.57.04 ;;
-        595.*) minimum=595.91.07 ;;
-        580.*) minimum=580.178.04 ;;
-        535.*) minimum=535.309.01 ;;
-    esac
+    # The NVIDIA driver branch floors come from the published minimum version
+    # table, injected through the environment by the collector because this
+    # pod cannot see the checkout. The verdict matches the report-side
+    # grader: a branch the table lists is compared against its floor, and a
+    # branch the table does not list stays unknown instead of being assumed
+    # fixed. An unreadable policy also stays unknown; the collect-side fact
+    # never grades against a guessed floor.
     patched=unknown
-    if [[ -n "$minimum" ]]; then
-        if [[ "$(printf "%s\n%s\n" "$minimum" "$driver" | sort -V | head -1)" == "$minimum" ]]; then
-            patched=true
-        else
-            patched=false
-        fi
-    else
-        branch=${driver%%.*}
-        if [[ "$branch" =~ ^[0-9]+$ ]] && [ "$branch" -gt 615 ]; then
-            patched=true   # branch newer than the newest in the tracked bulletin
+    branch=${driver%%.*}
+    if [[ "$branch" =~ ^[0-9]+$ && -n "${CLUSTERMAX_NVIDIA_BRANCH_FLOORS:-}" ]]; then
+        minimum=""
+        for entry in $CLUSTERMAX_NVIDIA_BRANCH_FLOORS; do
+            if [[ "${entry%%=*}" == "$branch" ]]; then
+                minimum=${entry#*=}
+            fi
+        done
+        if [[ -n "$minimum" ]]; then
+            if [[ "$(printf "%s\n%s\n" "$minimum" "$driver" | sort -V | head -1)" == "$minimum" ]]; then
+                patched=true
+            else
+                patched=false
+            fi
         fi
     fi
     echo "WORKER_NVIDIA_MAY_2026_PATCHED=$patched"
@@ -2799,7 +2797,16 @@ fi
     pod=$(apply_gpu_check_pod "$node" "$K8S_AUDIT_GPU_CHECK_IMAGE" || true)
     [[ -z "$pod" ]] && return 0
 
-    outcome=$(check_deadline 120 kubectl exec -n "$ns" "$pod" -- bash -c "$script" 2>/dev/null | grep '^WORKER_' || true)
+    # The GPU check pod cannot see this checkout, so the driver branch floors
+    # are resolved from the minimum version table here and passed through the
+    # pod environment. An unreadable table yields an empty policy and the
+    # check reports an unknown patched state.
+    local nvidia_branch_floors=""
+    nvidia_branch_floors=$(nvidia_driver_floors)
+
+    outcome=$(check_deadline 120 kubectl exec -n "$ns" "$pod" -- \
+        env "CLUSTERMAX_NVIDIA_BRANCH_FLOORS=$nvidia_branch_floors" \
+        bash -c "$script" 2>/dev/null | grep '^WORKER_' || true)
     cleanup_audit_check_pod "$ns" "$pod"
     printf '%s\n' "$outcome"
 }
