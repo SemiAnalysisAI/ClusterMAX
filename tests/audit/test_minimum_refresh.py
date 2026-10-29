@@ -671,6 +671,70 @@ class ExtractorTest(unittest.TestCase):
         self.assertEqual(rows["noble"]["linuxSctpSendallAws7_0"]["status"], "not-affected")
         self.assertEqual(rows["resolute"]["linuxSctpSendall"]["abi"], 28)
 
+    def test_ipv4_inet_opt_rows_carry_the_unfixed_tracker_state(self) -> None:
+        # CVE-2026-98432 has no released fix on any Ubuntu kernel. Every row is
+        # an unfixed tracker state, so the table grades each kernel vulnerable.
+        spec = next(
+            s for s in fr.UBUNTU_ALL_KERNEL_CVE_PACKAGES if s["cve"] == "CVE-2026-98432"
+        )
+        self.assertEqual(spec["key"], "linuxIpv4InetOptUaf")
+        rows = {
+            codename: fr.ubuntu_kernel_cve_rows(
+                spec, codename, fetch=fr._MemoFetcher(StubFetcher())
+            )
+            for codename in ("jammy", "noble", "resolute")
+        }
+        self.assertEqual(set(rows["jammy"]), {
+            "linuxIpv4InetOptUaf",
+            "linuxIpv4InetOptUafHwe6_8",
+            "linuxIpv4InetOptUafNvidia",
+            "linuxIpv4InetOptUafAws",
+        })
+        self.assertEqual(set(rows["noble"]), {
+            "linuxIpv4InetOptUaf",
+            "linuxIpv4InetOptUafHwe6_17",
+            "linuxIpv4InetOptUafNvidia",
+            "linuxIpv4InetOptUafNvidia6_17",
+            "linuxIpv4InetOptUafAws",
+        })
+        self.assertEqual(set(rows["resolute"]), {
+            "linuxIpv4InetOptUaf",
+            "linuxIpv4InetOptUafNvidia",
+            "linuxIpv4InetOptUafAws",
+        })
+        for codename, codename_rows in rows.items():
+            for key, entry in codename_rows.items():
+                with self.subTest(codename=codename, key=key):
+                    self.assertEqual(entry["cve"], "CVE-2026-98432")
+                    self.assertEqual(entry["kernelGroup"], "linuxIpv4InetOptUaf")
+                    self.assertIn(entry["status"], {"needed", "pending", "ignored"})
+                    self.assertEqual(entry["fixed"], "")
+                    self.assertNotIn("abi", entry)
+        for codename, note in (
+            ("jammy", "5.15.0-203.213"),
+            ("noble", "6.8.0-149.149"),
+            ("resolute", "7.0.0-43.43"),
+        ):
+            ga = rows[codename]["linuxIpv4InetOptUaf"]
+            self.assertEqual((ga["status"], ga["trackerNote"]), ("pending", note))
+        self.assertEqual(rows["noble"]["linuxIpv4InetOptUafNvidia6_17"]["status"], "ignored")
+        self.assertEqual(rows["noble"]["linuxIpv4InetOptUafHwe6_17"]["status"], "needed")
+
+    def test_shipped_table_has_ipv4_inet_opt_rows(self) -> None:
+        shipped = json.loads(
+            (Path(fr.__file__).resolve().parent / fr.DEFAULT_RELATIVE_PATH).read_text()
+        )
+        for component in ("ubuntuJammy", "ubuntuNoble", "ubuntuResolute"):
+            with self.subTest(component=component):
+                packages = shipped["components"][component]["packages"]
+                ga = packages["linuxIpv4InetOptUaf"]
+                self.assertEqual((ga["cve"], ga["package"]), ("CVE-2026-98432", "linux"))
+                group = [
+                    entry for entry in packages.values()
+                    if entry.get("kernelGroup") == "linuxIpv4InetOptUaf"
+                ]
+                self.assertGreater(len(group), 1)
+
     def test_kernel_identity_skips_riscv_and_names_flavors(self) -> None:
         cases = {
             "linux": ("6.8", ["generic", "generic-64k"]),
@@ -768,6 +832,8 @@ class ExtractorTest(unittest.TestCase):
             f"{fr.UBUNTU_CVE_URL}CVE-2026-64378.json",
             # One read covers every per-kernel row of CVE-2026-46227.
             f"{fr.UBUNTU_CVE_URL}CVE-2026-46227.json",
+            # The same holds for CVE-2026-98432.
+            f"{fr.UBUNTU_CVE_URL}CVE-2026-98432.json",
         ])
 
     def test_ubuntu_notice_discovery_fails_closed_on_incomplete_pagination(self) -> None:
