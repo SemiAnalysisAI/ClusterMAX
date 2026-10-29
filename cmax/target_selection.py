@@ -10,6 +10,7 @@ from collections.abc import Callable, Mapping, MutableMapping
 from pathlib import Path
 from typing import TextIO
 
+from cmax import host_role as host_roles
 from cmax import security
 
 
@@ -145,6 +146,20 @@ def _slurm_details(environ: Mapping[str, str]) -> tuple[tuple[str, str], ...]:
     )
 
 
+ENVIRONMENT_LABELS = {
+    "local": "Local machine",
+    "vm": "Local virtual machine",
+    "container": "Local container",
+    "bare-metal": "Standalone bare-metal host",
+}
+ENVIRONMENT_FLAGS = {
+    "vm": "--vm",
+    "container": "--container",
+    "bare-metal": "--standalone",
+    "local": "--local",
+}
+
+
 def _local_details(
     target: security.SecurityTarget,
 ) -> tuple[tuple[str, str], ...]:
@@ -153,14 +168,8 @@ def _local_details(
     system_label = "macOS" if system == "Darwin" else system
     if release:
         system_label = f"{system_label} {release}"
-    environment_labels = {
-        "local": "Local machine",
-        "vm": "Local virtual machine",
-        "container": "Local container",
-        "bare-metal": "Standalone bare-metal host",
-    }
     details = [
-        ("Target", environment_labels.get(target.environment, "Local machine")),
+        ("Target", ENVIRONMENT_LABELS.get(target.environment, "Local machine")),
         ("Host", socket.gethostname()),
         ("System", f"{system_label} ({platform.machine() or 'unknown architecture'})"),
         ("Access", "current shell; cluster credentials are not used"),
@@ -172,6 +181,17 @@ def _local_details(
                 "limited; Linux GPU checks can report unavailable components",
             )
         )
+    if target.explicit:
+        detected = security.local_environment()
+        if detected != target.environment and detected in ENVIRONMENT_LABELS:
+            details.append(
+                (
+                    "Warning",
+                    f"this host looks like a {ENVIRONMENT_LABELS[detected].lower()}"
+                    f" (use {ENVIRONMENT_FLAGS[detected]}); host-type checks use"
+                    f" the selected {ENVIRONMENT_FLAGS[target.environment]} instead",
+                )
+            )
     return tuple(details)
 
 
@@ -179,6 +199,7 @@ def target_details(
     target: security.SecurityTarget,
     *,
     environ: Mapping[str, str] | None = None,
+    role: host_roles.HostRole | None = None,
 ) -> tuple[tuple[str, str], ...]:
     source = os.environ if environ is None else environ
     if target.harness == "k8s":
@@ -188,6 +209,8 @@ def target_details(
     else:
         details = _local_details(target)
     selection = "operator-selected" if target.explicit else "auto-detected"
+    if role is not None and role.summary:
+        details = (*details, ("Host role", role.summary))
     return (*details, ("Selection", selection))
 
 
@@ -382,6 +405,40 @@ def _is_interactive(stream: TextIO) -> bool:
         return False
 
 
+def _confirm_host_role(
+    target: security.SecurityTarget,
+    role: host_roles.HostRole | None,
+    *,
+    reader: Reader,
+    stream: TextIO,
+    terminal: bool,
+    allow_cluster_node: bool,
+) -> None:
+    """Ask a second time when the target does not fit the role of this host."""
+    found = host_roles.guard(target.harness, role) if role is not None else None
+    if found is None:
+        return
+    print(f"cmax: {found.reason}", file=stream)
+    print(f"  {found.instead}", file=stream)
+    print(
+        "  If the detection is wrong (for example, this is a login or head node),"
+        f" report it with the Host role line above: {host_roles.ISSUE_URL}",
+        file=stream,
+    )
+    if allow_cluster_node:
+        print("  Host role check: accepted with --allow-cluster-node", file=stream)
+        return
+    if not terminal:
+        raise TargetSelectionError(
+            f"{found.reason} {found.instead}. "
+            "To run here anyway, pass --allow-cluster-node."
+        )
+    print("  To skip this question, pass --allow-cluster-node.", file=stream)
+    answer = _read(reader, found.prompt).lower()
+    if answer not in {"y", "yes"}:
+        raise TargetSelectionCancelled("audit canceled")
+
+
 def prepare_audit_target(
     target: security.SecurityTarget,
     *,
@@ -392,6 +449,8 @@ def prepare_audit_target(
     stream: TextIO | None = None,
     environ: MutableMapping[str, str] | None = None,
     interactive: bool | None = None,
+    allow_cluster_node: bool = False,
+    host_role: host_roles.HostRole | None = None,
 ) -> security.SecurityTarget:
     """Show, validate, and confirm the audit target before collection."""
     output = sys.stdout if stream is None else stream
@@ -401,11 +460,37 @@ def prepare_audit_target(
     terminal = _is_interactive(output) if interactive is None else interactive
     context_changes: list[KubernetesContextChange] = []
 
+    roles: dict[str, host_roles.HostRole] = {}
+
+    def role_for(harness: str) -> host_roles.HostRole | None:
+        if harness not in {"standalone", "slurm"}:
+            return None
+        if host_role is not None:
+            return host_role
+        if "detected" not in roles:
+            roles["detected"] = host_roles.detect(target_environ)
+        return roles["detected"]
+
+    def accept(choice: security.SecurityTarget) -> security.SecurityTarget:
+        _confirm_host_role(
+            choice,
+            role_for(choice.harness),
+            reader=ask,
+            stream=output,
+            terminal=terminal,
+            allow_cluster_node=allow_cluster_node,
+        )
+        return choice
+
     selected = target
     try:
         while True:
             try:
-                details = target_details(selected, environ=target_environ)
+                details = target_details(
+                    selected,
+                    environ=target_environ,
+                    role=role_for(selected.harness),
+                )
             except TargetSelectionError as exc:
                 print("# ClusterMAX audit target", file=output)
                 print(f"  Command: {command}", file=output)
@@ -425,11 +510,11 @@ def prepare_audit_target(
             _print_target(command, details, stream=output)
             if assume_yes:
                 print("  Confirmation: accepted with --yes", file=output)
-                return selected
+                return accept(selected)
             if not terminal:
                 if selected.explicit:
                     print("  Confirmation: accepted from the explicit target", file=output)
-                    return selected
+                    return accept(selected)
                 raise TargetSelectionError(
                     "target confirmation requires an interactive terminal. "
                     "Pass an explicit target option or --yes for automation."
@@ -440,7 +525,7 @@ def prepare_audit_target(
                 "Run this audit? [y]es, [c]hange target or access, [N]o: ",
             ).lower()
             if answer in {"y", "yes"}:
-                return selected
+                return accept(selected)
             if answer in {"c", "change", "e", "edit"}:
                 _restore_kubernetes_contexts(context_changes)
                 selected = _choose_target(

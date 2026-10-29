@@ -15,12 +15,16 @@ from pathlib import Path
 SUPPORTED_HARNESSES = {"slurm", "k8s", "standalone"}
 
 
-def command_ok(command: list[str]) -> bool:
-    return subprocess.run(
-        command,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    ).returncode == 0
+def command_ok(command: list[str], timeout: float | None = None) -> bool:
+    try:
+        return subprocess.run(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+        ).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 def detect_harness() -> str:
@@ -34,6 +38,13 @@ def detect_harness() -> str:
     if os.environ.get("SLURM_JOB_ID"):
         return "slurm"
     if os.environ.get("KUBERNETES_SERVICE_HOST"):
+        # A Slurm-on-Kubernetes login pod reaches a Slurm controller.
+        if (
+            shutil.which("sbatch")
+            and shutil.which("scontrol")
+            and command_ok(["scontrol", "ping"], timeout=5.0)
+        ):
+            return "slurm"
         return "k8s"
     if shutil.which("sbatch"):
         return "slurm"

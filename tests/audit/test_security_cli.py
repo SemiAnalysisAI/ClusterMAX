@@ -208,9 +208,11 @@ class TargetDetectionTests(unittest.TestCase):
     def test_detection_prefers_slurm_then_kubernetes(self) -> None:
         with mock.patch.dict("os.environ", {"SLURM_JOB_ID": "123"}, clear=True):
             self.assertEqual(security.detect_target().harness, "slurm")
+        # A test host with a working Slurm client would make this pod look
+        # like a Slurm login pod, so pin the login-pod probe.
         with mock.patch.dict(
             "os.environ", {"KUBERNETES_SERVICE_HOST": "10.0.0.1"}, clear=True
-        ):
+        ), mock.patch.object(security, "_slurm_login_pod", return_value=False):
             self.assertEqual(security.detect_target().harness, "k8s")
 
     def test_standalone_subtypes_are_detected(self) -> None:
@@ -981,6 +983,7 @@ class SecurityCliTests(unittest.TestCase):
             command="cmax audit security",
             assume_yes=False,
             kubeconfig=None,
+            allow_cluster_node=False,
         )
         run.assert_called_once_with(
             repo="/runtime",

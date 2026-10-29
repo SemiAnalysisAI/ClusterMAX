@@ -41,7 +41,9 @@ cmax = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "-n auto"
+# Cap workers: "-n auto" starts one worker per core, which overloads
+# large login nodes and pods (144 cores restarted a Slurm login pod).
+addopts = "-n auto --maxprocesses=8"
 
 [tool.check-wheel-contents]
 # The audit runs these Python files as package resources through their paths.

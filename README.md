@@ -255,6 +255,8 @@ logo, prayer, and progress display.
 
 The command detects Slurm, Kubernetes, containers, virtual machines, macOS, and standalone hosts automatically, and confirms the selection interactively with the user. To skip this confirmation and force the CLI to use a certain approach, use `--local`, `--slurm`, `--k8s`, `--container`, `--vm`, or `--standalone`. Use `--kubeconfig PATH` to select Kubernetes credentials. An explicit target option confirms the target in a non-interactive run. Use `--yes` to accept an auto-detected target without a prompt.
 
+Run Slurm audits from a login node and Kubernetes audits from a machine with `kubectl` access. When a standalone audit starts on a Slurm or Kubernetes node, or a Slurm audit starts on a Slurm compute node, the CLI shows the detected host role and the command to run instead, and asks a second time. `--yes` does not skip this question. Use `--allow-cluster-node` to run there anyway. If the host role is wrong, [open an issue](https://github.com/SemiAnalysisAI/ClusterMAX/issues/new) with the `Host role` line.
+
 Users can run the command multiple times. Each run writes timestamped artifacts
 under `~/.clustermax/audit/` by default.
 
