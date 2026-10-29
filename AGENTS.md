@@ -13,6 +13,31 @@ This repository contains the ClusterMAX command-line interface.
 - `cmax/scripts/1-audit/` contains the audit scripts.
 - `tests/audit/` contains the automated audit tests, fixtures, and test helpers.
 
+## New and ported commands
+
+Every command that runs against a cluster or host target gets the host role
+guard (`cmax/host_role.py`). The guard stops a standalone run on a cluster
+node and a Slurm run from a compute node, and `--allow-cluster-node` skips it.
+
+- Add the target options with `_add_target_confirmation_options(parser, noun=...)`
+  in `cmax/cli.py`. `noun` names the work in the messages, for example `"benchmark"`.
+- Select the target with `target_selection.prepare_target(..., noun=...)`.
+- A command that runs nothing on a target (for example, it reads saved files)
+  goes in `HOST_ROLE_EXEMPT_COMMANDS` with a comment that says why.
+
+`test_every_cli_command_has_the_host_role_guard` walks the whole parser tree
+and fails for a command that does neither.
+
+## Tests on cluster hosts
+
+`tests/conftest.py` applies to every test directory. It hides the host's Slurm,
+Kubernetes, container, GPU, and fabric tools from PATH, removes `SLURM_*`,
+`SLURMD_*`, and `KUBERNETES_*` variables, and makes host role detection return
+unknown. The suite then runs the same on a laptop, a CI runner, a login node,
+a compute node under `srun`, and a pod. Stub a tool or set a variable in the
+test that needs it. Put tests for a new module in a new `tests/<module>/`
+directory; they get the same isolation.
+
 ## Audit tests
 
 Put audit tests, fixtures, and test helpers in `tests/audit/`.

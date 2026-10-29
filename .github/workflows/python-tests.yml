@@ -186,3 +186,23 @@ jobs:
           /tmp/clustermax-wheel-venv/bin/python -c 'from cmax.security import find_runtime_root; assert find_runtime_root().is_dir()'
           /tmp/clustermax-wheel-venv/bin/python -c 'from cmax.security import find_runtime_root; root = find_runtime_root(); assert root.name == "cmax"; assert (root / "cmax.yaml").is_file(); assert (root / "scripts/1-audit/run.sh").is_file()'
           /tmp/clustermax-wheel-venv/bin/python -c 'import cmax; from importlib.metadata import version; assert cmax.__version__ == version("clustermax")'
+
+  minimum-python:
+    # pyproject.toml declares requires-python >=3.10, and Ubuntu 22.04 login
+    # nodes ship Python 3.10. Run the whole suite there so a 3.11+ API cannot
+    # slip in unnoticed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.10'
+
+      - name: Install test runner
+        run: python -m pip install pytest pytest-xdist pyyaml prompt-toolkit
+
+      - name: Run Python tests on the minimum Python
+        run: python -m pytest -q

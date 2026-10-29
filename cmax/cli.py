@@ -51,11 +51,57 @@ def _add_target_options(
         )
 
 
+# Host role guard (see cmax.host_role). Every command that runs against a
+# target adds its options with _add_target_confirmation_options, which adds
+# --allow-cluster-node and names the work for the guard messages, and selects
+# its target with target_selection.prepare_target, which runs the guard.
+# Commands that start no work on a target are listed here. A test walks the
+# whole parser tree, so a new or ported command that neither adds the options
+# nor appears here fails the suite.
+HOST_ROLE_EXEMPT_COMMANDS = frozenset({
+    # Reads a saved audit; runs nothing on the cluster.
+    "cmax audit review",
+})
+
+
+def host_role_unguarded_commands(parser: argparse.ArgumentParser) -> list[str]:
+    """Return commands that skip the host role guard by mistake.
+
+    A command is covered when it has --allow-cluster-node (added by
+    _add_target_confirmation_options) or is in HOST_ROLE_EXEMPT_COMMANDS.
+    An exemption that names no command is reported too, so the list stays
+    current when a command is renamed or removed.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def walk(current: argparse.ArgumentParser, *, root: bool) -> None:
+        for action in current._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for child in dict.fromkeys(action.choices.values()):
+                    walk(child, root=False)
+        if root:
+            return
+        seen.add(current.prog)
+        guarded = "--allow-cluster-node" in current._option_string_actions
+        if not guarded and current.prog not in HOST_ROLE_EXEMPT_COMMANDS:
+            found.append(current.prog)
+
+    walk(parser, root=True)
+    found.extend(
+        f"{name} (exempt, but no such command)"
+        for name in sorted(HOST_ROLE_EXEMPT_COMMANDS - seen)
+    )
+    return found
+
+
 def _add_target_confirmation_options(
     parser: argparse.ArgumentParser,
     *,
     suppress_default: bool = False,
+    noun: str = "audit",
 ) -> None:
+    parser.set_defaults(host_role_noun=noun)
     default = argparse.SUPPRESS if suppress_default else False
     parser.add_argument(
         "-y",
@@ -294,6 +340,7 @@ def _resolve_audit_target(
 ):
     from cmax import security, target_selection
 
+    noun = getattr(args, "host_role_noun", "audit")
     had_kubeconfig = "KUBECONFIG" in os.environ
     original_kubeconfig = os.environ.get("KUBECONFIG", "")
 
@@ -310,9 +357,10 @@ def _resolve_audit_target(
             if not keep_kubeconfig or target.harness != "k8s":
                 restore_kubeconfig()
             return target
-        selected = target_selection.prepare_audit_target(
+        selected = target_selection.prepare_target(
             target,
             command=command,
+            noun=noun,
             assume_yes=args.assume_yes,
             kubeconfig=args.kubeconfig,
             allow_cluster_node=getattr(args, "allow_cluster_node", False),
@@ -322,7 +370,7 @@ def _resolve_audit_target(
         return selected
     except target_selection.TargetSelectionCancelled:
         restore_kubeconfig()
-        print("cmax: audit canceled", file=sys.stderr)
+        print(f"cmax: {noun} canceled", file=sys.stderr)
         return None
     except (security.SecurityAuditError, target_selection.TargetSelectionError) as exc:
         restore_kubeconfig()

@@ -49,7 +49,6 @@ FULL_SUITE = (
     "pyproject.toml",
     "setup.py",
     "tests/conftest.py",
-    "tests/audit/conftest.py",
     "tests/audit/bashtest.py",
     ".github/workflows/python-tests.yml",
     ".github/scripts/select_tests.py",
