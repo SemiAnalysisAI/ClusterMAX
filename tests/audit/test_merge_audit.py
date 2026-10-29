@@ -435,8 +435,8 @@ class K8sCanonicalRemapTests(unittest.TestCase):
         self.assertEqual(out["networking"]["rdmaType"], "infiniband")
         self.assertEqual(out["security"]["ufmSecuredBareMetalCloud"]["status"], "manual")
 
-    def test_ufm_row_records_tenant_visible_fabric_facts(self) -> None:
-        audit = {
+    def _ufm_audit(self) -> dict:
+        return {
             "audit": {"timestamp": "2026-10-24T07:06:05Z"},
             "nodes": {"total": 4},
             "gpus": {"total": 16, "model": "NVIDIA H100", "perNode": 4},
@@ -444,6 +444,9 @@ class K8sCanonicalRemapTests(unittest.TestCase):
             "networking": {"rdmaType": "rdma"},
             "security": {"ufmSecuredBareMetalCloud": {"status": "unknown"}},
         }
+
+    def test_ufm_row_records_tenant_visible_fabric_facts(self) -> None:
+        audit = self._ufm_audit()
         nt = {
             "node-01": [
                 {"layer": "InfiniBand", "name": "mlx5_0", "role": "fabric", "state": "ACTIVE"}
@@ -476,13 +479,10 @@ class K8sCanonicalRemapTests(unittest.TestCase):
         self.assertEqual(evidence["ports"][0]["rate_gbps"], 800)
 
     def test_ufm_row_without_sysfs_facts_stays_manual(self) -> None:
-        audit = {
-            "audit": {"timestamp": "2026-10-24T07:06:05Z"},
-            "nodes": {"total": 4},
-            "gpus": {"total": 16, "model": "NVIDIA H100", "perNode": 4},
-            "software": {"ncclVersion": "unknown"},
-            "networking": {"rdmaType": "infiniband"},
-            "security": {"ufmSecuredBareMetalCloud": {"status": "manual", "applicable": True}},
+        audit = self._ufm_audit()
+        audit["networking"]["rdmaType"] = "infiniband"
+        audit["security"]["ufmSecuredBareMetalCloud"] = {
+            "status": "manual", "applicable": True,
         }
         out = merge_audit.build_values(audit, harness="k8s", check_data={})["audit_data"]
         ufm = out["security"]["ufmSecuredBareMetalCloud"]

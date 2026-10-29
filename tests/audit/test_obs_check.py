@@ -1182,29 +1182,20 @@ def test_missing_observability_evidence_is_not_a_pass():
     assert next(c for c in rows if c.id == "observability-isolation").status == security.WARNING
 
 
-def test_observability_marks_in_cluster_targets_unassessed_from_this_vantage():
+@pytest.mark.parametrize("backends", [1, 4])
+def test_in_cluster_targets_unassessed_do_not_hide_measured_backends(backends):
+    # A k8s Service name resolves only through cluster DNS, so the operator
+    # host cannot check it. The report marks those endpoints unassessed from
+    # this vantage without downgrading the backends that were measured.
     audit = {"security": {"observability": {
         "configured": True,
-        "backends_reachable": 1,
-        "queries_answered": 1,
-        "unassessed_targets": [[1, 1, 0, None]],
-    }}}
-    status, summary, _assessment = security._observability(audit)
-    assert status == security.WARNING
-    assert "1 of 1 assessed backend(s) answered a query" in summary
-    assert "1 in-cluster endpoint(s) not assessed from this vantage" in summary
-
-
-def test_a_service_vantage_is_set_aside_without_hiding_measured_backends():
-    audit = {"security": {"observability": {
-        "configured": True,
-        "backends_reachable": 4,
-        "queries_answered": 4,
+        "backends_reachable": backends,
+        "queries_answered": backends,
         "unassessed_targets": [[1, 0, 0, None]],
     }}}
     status, summary, _assessment = security._observability(audit)
     assert status == security.WARNING
-    assert "4 of 4 assessed backend(s) answered a query" in summary
+    assert f"{backends} of {backends} assessed backend(s) answered a query" in summary
     assert "1 in-cluster endpoint(s) not assessed from this vantage" in summary
     assert "not fully checked" not in summary
 
