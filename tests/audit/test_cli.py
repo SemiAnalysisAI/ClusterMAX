@@ -252,7 +252,7 @@ class PublicCliTests(unittest.TestCase):
             with self.subTest(flag=flag), mock.patch.object(
                 security, "detect_target", return_value=target
             ), mock.patch.object(
-                target_selection, "prepare_audit_target", return_value=target
+                target_selection, "prepare_target", return_value=target
             ), mock.patch("cmax.audit_runner.run", return_value=0) as run:
                 result = cli.main(["audit", flag])
             self.assertEqual(result, 0)
@@ -269,7 +269,7 @@ class PublicCliTests(unittest.TestCase):
             with self.subTest(category=category), mock.patch.object(
                 security, "detect_target", return_value=selected
             ), mock.patch.object(
-                target_selection, "prepare_audit_target", return_value=selected
+                target_selection, "prepare_target", return_value=selected
             ), mock.patch(
                 "cmax.audit_runner.run", return_value=0
             ) as run:
@@ -287,7 +287,7 @@ class PublicCliTests(unittest.TestCase):
         with mock.patch.object(
             security, "detect_target", return_value=selected
         ), mock.patch.object(
-            target_selection, "prepare_audit_target", return_value=selected
+            target_selection, "prepare_target", return_value=selected
         ), mock.patch("cmax.audit_runner.run", return_value=0) as run:
             result = cli.main(["audit", "hardware", "--slurm"])
 
@@ -305,7 +305,7 @@ class PublicCliTests(unittest.TestCase):
             with self.subTest(target=target_name), mock.patch.object(
                 security, "detect_target", return_value=selected
             ) as detect, mock.patch.object(
-                target_selection, "prepare_audit_target", return_value=selected
+                target_selection, "prepare_target", return_value=selected
             ), mock.patch(
                 "cmax.audit_runner.run", return_value=0
             ) as run:
@@ -331,7 +331,7 @@ class PublicCliTests(unittest.TestCase):
     def test_audit_cancel_stops_before_the_runner(self) -> None:
         with mock.patch.object(
             target_selection,
-            "prepare_audit_target",
+            "prepare_target",
             side_effect=target_selection.TargetSelectionCancelled("audit canceled"),
         ), mock.patch("cmax.audit_runner.run") as run, contextlib.redirect_stderr(
             io.StringIO()
@@ -354,7 +354,7 @@ class PublicCliTests(unittest.TestCase):
         ), mock.patch.object(
             security, "detect_target", return_value=selected
         ), mock.patch.object(
-            target_selection, "prepare_audit_target", return_value=selected
+            target_selection, "prepare_target", return_value=selected
         ), mock.patch(
             "cmax.audit_runner.run", return_value=0
         ):

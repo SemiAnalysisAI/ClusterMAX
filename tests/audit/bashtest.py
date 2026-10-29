@@ -28,7 +28,6 @@ how a tool was invoked as well as on the script's observable result.
 
 from __future__ import annotations
 
-import atexit
 import importlib.util
 import os
 import shutil
@@ -42,51 +41,6 @@ from pathlib import Path
 # tool arguments these workloads pass.
 _FS = "\x1f"
 _RS = "\x1e"
-
-# Cluster clients that a real login or compute node has on PATH. run_bash
-# hides them so a Slurm host runs the suite like a laptop or CI runner does;
-# a test that needs one stubs it.
-HOST_CLUSTER_TOOLS = frozenset({
-    "sacct", "sacctmgr", "salloc", "sattach", "sbatch", "sbcast", "scancel",
-    "scontrol", "scrontab", "sdiag", "sinfo", "sprio", "squeue", "sreport",
-    "srun", "sshare", "sstat", "strigger", "sview",
-})
-
-_host_path_cache: dict[str, str] = {}
-_host_path_root: Path | None = None
-
-
-def _host_path(path: str) -> str:
-    """Return path with HOST_CLUSTER_TOOLS removed.
-
-    Each PATH entry that holds one of the tools is replaced by a cached
-    directory of symlinks to everything else in it, so the rest of the host
-    inventory stays available.
-    """
-    global _host_path_root
-    if path in _host_path_cache:
-        return _host_path_cache[path]
-    entries = []
-    for entry in path.split(os.pathsep):
-        directory = Path(entry)
-        try:
-            names = {child.name for child in directory.iterdir()}
-        except OSError:
-            entries.append(entry)
-            continue
-        if not names & HOST_CLUSTER_TOOLS:
-            entries.append(entry)
-            continue
-        if _host_path_root is None:
-            _host_path_root = Path(tempfile.mkdtemp(prefix="bashtest-path-"))
-            atexit.register(shutil.rmtree, _host_path_root, True)
-        farm = _host_path_root / str(len(list(_host_path_root.iterdir())))
-        farm.mkdir()
-        for name in sorted(names - HOST_CLUSTER_TOOLS):
-            (farm / name).symlink_to(directory / name)
-        entries.append(str(farm))
-    _host_path_cache[path] = os.pathsep.join(entries)
-    return _host_path_cache[path]
 
 
 def load_python_script(path: Path, name: str):
@@ -171,7 +125,6 @@ def run_bash(
     env entries are overlaid on os.environ. The snippet runs without
     `set -e` unless it opts in. With path_only=True, only the supplied stubs
     are on PATH, so missing-tool tests do not depend on the host inventory.
-    Otherwise the host PATH follows the stubs, minus HOST_CLUSTER_TOOLS.
     """
     with tempfile.TemporaryDirectory(prefix="bashtest-") as tmp:
         stub_dir = Path(tmp) / "bin"
@@ -194,13 +147,10 @@ def run_bash(
             stub.chmod(0o755)
         merged_env = {
             **os.environ,
-            # A GPU Operator host has a real toolkit here; keep it out unless
-            # the test supplies its own directory.
-            "CLUSTERMAX_NVIDIA_TOOLKIT_DIR": str(Path(tmp) / "no-nvidia-toolkit"),
             **(env or {}),
             "PATH": (
                 str(stub_dir) if path_only
-                else f"{stub_dir}{os.pathsep}{_host_path(os.environ.get('PATH', ''))}"
+                else f"{stub_dir}{os.pathsep}{os.environ.get('PATH', '')}"
             ),
         }
         # The outer interpreter is resolved from the parent environment, not
