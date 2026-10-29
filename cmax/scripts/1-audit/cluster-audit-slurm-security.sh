@@ -400,18 +400,20 @@ EOF
 }
 
 run_k8s_security_script() {
-    local fragnesia_abi_minimum ubuntu_kernel_abi_minimum
+    local fragnesia_abi_minimum ubuntu_kernel_abi_minimum nvidia_branch_floors
     fragnesia_abi_minimum=$(minimum_version \
         components.ubuntuNoble.packages.linuxFragnesia.abi)
     ubuntu_kernel_abi_minimum=$(minimum_version \
         components.ubuntuNoble.packages.linux.abi)
+    nvidia_branch_floors=$(nvidia_driver_floors)
     kubectl exec -i -n "$K8S_SECURITY_CHECK_NS" \
         --request-timeout=300s "$K8S_SECURITY_CHECK_POD" -- \
         chroot /host env CLUSTERMAX_AUDIT_SCOPE=security \
         CLUSTERMAX_AUDIT_HARNESS=k8s \
         CLUSTERMAX_CONTAINER_RUNTIME_SCOPE=host \
         CLUSTERMAX_FRAGNESIA_ABI_MINIMUM="$fragnesia_abi_minimum" \
-        CLUSTERMAX_UBUNTU_KERNEL_ABI_MINIMUM="$ubuntu_kernel_abi_minimum" bash -s
+        CLUSTERMAX_UBUNTU_KERNEL_ABI_MINIMUM="$ubuntu_kernel_abi_minimum" \
+        CLUSTERMAX_NVIDIA_BRANCH_FLOORS="$nvidia_branch_floors" bash -s
 }
 
 k8s_bmc_record_for_current_pod() {
@@ -718,15 +720,19 @@ collect_slurm_pwnescape_fleet() {
 # node.
 slurm_security_script_on_node() {
     local node="$1" partition="$2" script="$3" limit="$4"
+    local nvidia_branch_floors
+    nvidia_branch_floors=$(nvidia_driver_floors)
     if [[ -n "${SLURM_JOB_ID:-}" && "$SLURM_ALLOCATION_NODES" == *$'\n'"$node"$'\n'* ]]; then
         srun "${AUDIT_SRUN_FLAGS[@]}" -N1 --ntasks=1 -w "$node" \
             --gres=gpu:"$(slurm_job_gpus_per_node "$node")" \
             --time="$limit" env CLUSTERMAX_AUDIT_SCOPE=security CLUSTERMAX_AUDIT_HARNESS=slurm \
+            CLUSTERMAX_NVIDIA_BRANCH_FLOORS="$nvidia_branch_floors" \
             bash -s < "$WORKLOAD_DIR/$script" 2>/dev/null
     else
         env -u SLURM_JOB_ID -u SLURM_JOBID srun -p "$partition" -N1 --ntasks=1 \
             -w "$node" --gres=gpu:1 --time="$limit" --immediate=30 \
             env CLUSTERMAX_AUDIT_SCOPE=security CLUSTERMAX_AUDIT_HARNESS=slurm \
+            CLUSTERMAX_NVIDIA_BRANCH_FLOORS="$nvidia_branch_floors" \
             bash -s < "$WORKLOAD_DIR/$script" 2>/dev/null
     fi
 }
@@ -815,10 +821,12 @@ if [[ "$SECURITY_HARNESS" == "slurm" ]]; then
         "${GPU_SRUN_SCOPE_ARGS[@]}" \
         -N1 --ntasks=1 --gres=gpu:"$(slurm_job_gpus_per_node)" --time=5:00 \
         env CLUSTERMAX_AUDIT_SCOPE=security CLUSTERMAX_AUDIT_HARNESS=slurm \
+        CLUSTERMAX_NVIDIA_BRANCH_FLOORS="$(nvidia_driver_floors)" \
         bash -s < "$WORKLOAD_DIR/host-check.sh" 2>/dev/null || true)
 elif [[ "$SECURITY_HARNESS" == "standalone" ]]; then
     WORKER_CHECK_OUTPUT=$(CLUSTERMAX_AUDIT_SCOPE=security \
         CLUSTERMAX_AUDIT_HARNESS=standalone \
+        CLUSTERMAX_NVIDIA_BRANCH_FLOORS="$(nvidia_driver_floors)" \
         bash "$WORKLOAD_DIR/host-check.sh" 2>/dev/null || true)
 else
     WORKER_CHECK_OUTPUT=$(run_k8s_security_script \

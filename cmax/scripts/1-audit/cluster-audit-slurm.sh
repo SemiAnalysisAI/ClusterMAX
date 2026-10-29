@@ -483,6 +483,7 @@ if [[ -n "$GPU_PARTITION" ]]; then
         -N1 --ntasks=1 \
         --gres=gpu:"$(slurm_job_gpus_per_node)" \
         --time=5:00 \
+        env CLUSTERMAX_NVIDIA_BRANCH_FLOORS="$(nvidia_driver_floors)" \
         bash -s < "$WORKLOAD_DIR/host-check.sh" 2>/dev/null || echo "SRUN_FAILED")
     if [[ -z "$WORKER_CHECK_OUTPUT" || ! "$WORKER_CHECK_OUTPUT" =~ WORKER_HOSTNAME ]]; then
         WORKER_CHECK_OUTPUT="SRUN_FAILED"

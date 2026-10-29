@@ -2678,12 +2678,14 @@ host_check_kv() {
 # Prepend the Fragnesia kernel ABI minimum the collector already read from the
 # table. minimum_version() yields "unknown" when the reader or the table is
 # unavailable, and the check then reports an unknown Fragnesia state rather than
-# grading the worker against a guessed minimum.
+# grading the worker against a guessed minimum. The NVIDIA driver branch floors
+# are injected the same way.
 host_check_stdin() {
     printf 'CLUSTERMAX_FRAGNESIA_ABI_MINIMUM=%s\n' \
         "$(minimum_version components.ubuntuNoble.packages.linuxFragnesia.abi)"
     printf 'CLUSTERMAX_UBUNTU_KERNEL_ABI_MINIMUM=%s\n' \
         "$(minimum_version components.ubuntuNoble.packages.linux.abi)"
+    printf 'CLUSTERMAX_NVIDIA_BRANCH_FLOORS=%s\n' "$(nvidia_driver_floors)"
     cat "$WORKLOAD_DIR/host-check.sh"
 }
 

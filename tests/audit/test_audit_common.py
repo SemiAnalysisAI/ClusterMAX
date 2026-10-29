@@ -1493,7 +1493,9 @@ class SlurmJobGpusPerNodeTests(unittest.TestCase):
 
 
 class SecurityBulletinIntegrationTests(unittest.TestCase):
-    def run_nvlink_probe(self, topology_body: str) -> dict[str, str]:
+    def run_nvlink_probe(
+        self, topology_body: str, floors: str = "580=580.178.04"
+    ) -> dict[str, str]:
         block = bashtest.extract_block(
             HOST_CHECK_PATH,
             "WORKER_NVIDIA_MAY_2026_PATCHED=unknown",
@@ -1508,13 +1510,29 @@ class SecurityBulletinIntegrationTests(unittest.TestCase):
             "fi\n"
             "exit 1"
         )
-        run = bashtest.run_bash(block, stubs={"nvidia-smi": nvidia_smi})
+        run = bashtest.run_bash(
+            block,
+            stubs={"nvidia-smi": nvidia_smi},
+            env={"CLUSTERMAX_NVIDIA_BRANCH_FLOORS": floors},
+        )
         self.assertEqual(run.returncode, 0, run.stderr)
         return dict(
             line.split("=", 1)
             for line in run.stdout.splitlines()
-            if line.startswith("WORKER_NVLINK_")
+            if line.startswith(("WORKER_NVLINK_", "WORKER_NVIDIA_MAY_2026_PATCHED"))
         )
+
+    def test_driver_patch_fact_follows_the_injected_branch_floors(self) -> None:
+        # The host check grades the driver against the branch floors the
+        # collector injects from the table: below the floor is false, at or
+        # above it is true, and no policy leaves an unknown instead of a
+        # guessed verdict. The stub reports 580.159.03.
+        probe = self.run_nvlink_probe("exit 1")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "false")
+        probe = self.run_nvlink_probe("exit 1", floors="580=580.159.03")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "true")
+        probe = self.run_nvlink_probe("exit 1", floors="")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "unknown")
 
     def test_nvlink_probe_distinguishes_absence_from_a_failed_read(self) -> None:
         failed = self.run_nvlink_probe("exit 1")
