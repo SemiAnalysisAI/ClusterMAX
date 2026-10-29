@@ -99,11 +99,25 @@ _GUEST_KERNEL_UBUNTU_REFERENCES = _references(
         "https://documentation.ubuntu.com/security/security-updates/",
     ),
     ("Ubuntu kernel update guidance", "https://ubuntu.com/security/notices"),
-    ("CVE-2026-64531", "https://ubuntu.com/security/CVE-2026-64531"),
-    ("CVE-2026-64378", "https://ubuntu.com/security/CVE-2026-64378"),
-    ("CVE-2026-46227", "https://ubuntu.com/security/CVE-2026-46227"),
-    ("CVE-2026-98432", "https://ubuntu.com/security/CVE-2026-98432"),
 )
+# The kernel CVEs come from the minimum table, so the check links the CVEs
+# that the host fails instead of a fixed list.
+_UBUNTU_CVE_ID = re.compile(r"CVE-\d{4}-\d{4,}")
+
+
+def _guest_kernel_ubuntu_references(audit: Any) -> tuple[SecurityReference, ...]:
+    vulnerable = _get(audit, "security.guestKernel.ubuntuVulnerableCves")
+    cves = sorted(
+        {
+            str(cve) for cve in vulnerable
+            if isinstance(cve, str) and _UBUNTU_CVE_ID.fullmatch(cve)
+        } if isinstance(vulnerable, list) else set(),
+        key=lambda cve: tuple(int(part) for part in cve.split("-")[1:]),
+    )
+    return (
+        *_GUEST_KERNEL_UBUNTU_REFERENCES,
+        *(SecurityReference(cve, f"https://ubuntu.com/security/{cve}") for cve in cves),
+    )
 
 
 def _command_ok(command: list[str], *, timeout: float = 5.0) -> bool:
@@ -372,6 +386,31 @@ def format_security_plan_yaml(
     )
     return header + yaml.safe_dump(plan, sort_keys=False)
 
+
+
+def _ubuntu_kernel_cve_group_paths(document: Any) -> set[str]:
+    """Return the GA row path of every Ubuntu kernel CVE group in a table.
+
+    This mirrors `groups()` in the audit's ubuntu_kernel_cves.py: a group is
+    named by the `kernelGroup` of its rows, or is one `linux` row that allows
+    an unfixed tracker state.
+    """
+    found: set[str] = set()
+    components = document.get("components") if isinstance(document, dict) else None
+    for component in ("ubuntuJammy", "ubuntuNoble", "ubuntuResolute"):
+        block = components.get(component) if isinstance(components, dict) else None
+        packages = block.get("packages") if isinstance(block, dict) else None
+        if not isinstance(packages, dict):
+            continue
+        for key, entry in packages.items():
+            if not isinstance(entry, dict):
+                continue
+            group = entry.get("kernelGroup")
+            if isinstance(group, str) and group:
+                found.add(f"components.{component}.packages.{group}")
+            elif entry.get("allowUnfixed") is True and entry.get("package") == "linux":
+                found.add(f"components.{component}.packages.{key}")
+    return found
 
 def _get(data: dict[str, Any], path: str, default: Any = None) -> Any:
     current: Any = data
@@ -2216,7 +2255,7 @@ def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
                 title = _GUEST_KERNEL_UBUNTU_TITLE
                 importance = _GUEST_KERNEL_UBUNTU_IMPORTANCE
                 remediation = _GUEST_KERNEL_UBUNTU_REMEDIATION
-                references = _GUEST_KERNEL_UBUNTU_REFERENCES
+                references = _guest_kernel_ubuntu_references(audit)
         minimum_url = minimum_links.security_check_url(spec.id)
         if minimum_url:
             references = (
@@ -2521,6 +2560,13 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
             if isinstance(_get(installed_document, key), dict)
             and not isinstance(_get(candidate, key), dict)
         ]
+        # Every Ubuntu kernel CVE group, named or discovered, keeps its GA row.
+        # The grader reads the groups from the table, so a table without a
+        # group would stop grading that CVE instead of failing.
+        missing.extend(
+            path for path in sorted(_ubuntu_kernel_cve_group_paths(installed_document))
+            if not isinstance(_get(candidate, path), dict)
+        )
         if (_get(installed_document, "components.connectxFirmware.gaRanges")
                 and not _get(candidate, "components.connectxFirmware.gaRanges")):
             missing.append("components.connectxFirmware.gaRanges")

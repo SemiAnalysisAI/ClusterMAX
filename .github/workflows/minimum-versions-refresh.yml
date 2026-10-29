@@ -98,7 +98,9 @@ jobs:
         run: cp "$MINIMUMS_PATH" "$RUNNER_TEMP/minimums-before.json"
 
       - name: Refresh the minimum table
-        timeout-minutes: 5
+        # The Ubuntu kernel CVE discovery reads several multi-MB search pages
+        # and one tracker record per discovered CVE.
+        timeout-minutes: 10
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -344,8 +346,44 @@ jobs:
               else:
                   yield prefix, str(node)
 
-          old_leaves = dict(flatten(before.get("components") or {}))
-          new_leaves = dict(flatten(after.get("components") or {}))
+          def discovered_rows(table):
+              """(component, key) -> row for each discovered Ubuntu kernel CVE row."""
+              rows = {}
+              for component, block in (table.get("components") or {}).items():
+                  packages = block.get("packages") if isinstance(block, dict) else None
+                  for key, entry in (packages or {}).items():
+                      if isinstance(entry, dict) and entry.get("discovered") is True:
+                          rows[(component, key)] = entry
+              return rows
+
+          # One discovered CVE adds about 130 rows. Its rows are summarized per
+          # CVE below, so the leaf table stays within the pull request body limit.
+          old_discovered = discovered_rows(before)
+          new_discovered = discovered_rows(after)
+          skip = {f"{component}.packages.{key}" for component, key in (*old_discovered, *new_discovered)}
+
+          def kept(leaves):
+              return {
+                  leaf: value for leaf, value in leaves
+                  if not any(leaf == row or leaf.startswith(row + ".") for row in skip)
+              }
+
+          old_leaves = kept(flatten(before.get("components") or {}))
+          new_leaves = kept(flatten(after.get("components") or {}))
+
+          discovered_summary = {}
+          for row in sorted(set(old_discovered) | set(new_discovered)):
+              old_entry, new_entry = old_discovered.get(row), new_discovered.get(row)
+              if old_entry == new_entry:
+                  continue
+              entry = new_entry or old_entry
+              cve = str(entry.get("cve"))
+              summary = discovered_summary.setdefault(cve, {"new": cve not in {
+                  str(e.get("cve")) for e in old_discovered.values()
+              }, "releases": {}})
+              release = summary["releases"].setdefault(row[0], {})
+              status = str((new_entry or {}).get("status") or "removed")
+              release[status] = release.get(status, 0) + 1
 
           def cell(text):
               # Keep a value with a pipe character inside the table cell.
@@ -370,6 +408,27 @@ jobs:
           lines = []
           def count(number, noun):
               return f"{number} {noun}" if number == 1 else f"{number} {noun}s"
+
+          if discovered_summary:
+              lines.append("### Discovered Ubuntu kernel CVEs")
+              lines.append("")
+              lines.append(
+                  "The refresh found these kernel CVEs on the Ubuntu tracker "
+                  "(priority critical, or high with CVSS 9.0 or more). Counts are the "
+                  "changed per-kernel rows by tracker state. Review each new CVE "
+                  "before merge."
+              )
+              lines.append("")
+              lines.append("| CVE | Change | Release | Changed rows |")
+              lines.append("| --- | --- | --- | --- |")
+              for cve, summary in sorted(discovered_summary.items()):
+                  for release, states in sorted(summary["releases"].items()):
+                      counts = ", ".join(f"{state} {n}" for state, n in sorted(states.items()))
+                      lines.append(
+                          f"| [{cve}](https://ubuntu.com/security/{cve}) | "
+                          f"{'new' if summary['new'] else 'updated'} | {release} | {counts} |"
+                      )
+              lines.append("")
 
           if changes:
               total = sum(len(rows) for rows in changes.values())
@@ -397,7 +456,7 @@ jobs:
                       lines.append("Upstream sources:")
                       lines.extend(f"- {link}" for link in source_links)
                       lines.append("")
-          else:
+          elif not discovered_summary:
               lines.append(
                   f"- `{path}`: no minimum changed. Only the `generated` timestamp "
                   "moved, because the table was near its `maxAgeDays` limit."

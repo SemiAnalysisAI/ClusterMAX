@@ -113,6 +113,21 @@ their own, because their `generic` flavor name cannot be told apart from the
 amd64 and arm64 kernels. The two CVEs above check only the GA kernel, so they
 do not make other kernels unknown.
 
+The daily refresh also discovers Ubuntu kernel CVEs before a fix exists. It
+reads the Ubuntu CVE search for `linux` CVEs published since 2026-10-01 and
+within the last 30 days. It adds each CVE that Ubuntu rates `critical`, or
+`high` with a CVSS v3 score of 9.0 or more, and that the tracker lists for the
+GA `linux` package on 22.04, 24.04, or 26.04. A discovered CVE gets the same
+per-kernel rows as the CVEs above, under the key `linuxCve<year>_<number>`, and
+each row carries `"discovered": true`. The audit reads the kernel CVE groups
+from the minimum table, so it grades a discovered CVE without a client change.
+A discovered CVE stays in the table after it leaves the 30-day window, so a
+later fix is still graded. A `needs-triage` row of a discovered CVE makes that
+kernel unknown. The refresh pull request lists each new discovered CVE for
+review. A fetched table that lacks a kernel CVE group of the installed table
+is rejected, and the client keeps its installed table. The refresh fails if
+the table grows above 3 MiB, so it stays below the 4 MiB client fetch limit.
+
 An absent host Docker installation or an absent CUDA Toolkit in the inspected
 scope remains not applicable. This differs from an unreadable tool or failed
 probe, which remains unknown. A complete bare-metal PCI scan with no VFIO

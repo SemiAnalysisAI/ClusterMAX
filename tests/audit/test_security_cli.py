@@ -659,6 +659,31 @@ class SecurityReportTests(unittest.TestCase):
             {reference.url for reference in check.references},
         )
 
+    def test_guest_kernel_links_each_vulnerable_cve_from_the_table(self) -> None:
+        # A CVE that the refresh discovered has no fixed reference in the
+        # client. The check links the CVEs that the host fails.
+        values = security_values()
+        values["audit_data"]["security"]["guestKernel"].update(
+            running="6.8.0-148-generic",
+            newestInstalled="6.8.0-148-generic",
+            newerInstalled=False,
+            ubuntuCveStatus="fail",
+            ubuntuVulnerableCves=["CVE-2026-98805", "CVE-2026-12345", "not-a-cve"],
+        )
+        check = next(
+            check
+            for check in security.evaluate_security(values)
+            if check.id == "guest-kernel"
+        )
+        cve_links = [
+            (reference.label, reference.url) for reference in check.references
+            if reference.label.startswith("CVE-")
+        ]
+        self.assertEqual(cve_links, [
+            ("CVE-2026-12345", "https://ubuntu.com/security/CVE-2026-12345"),
+            ("CVE-2026-98805", "https://ubuntu.com/security/CVE-2026-98805"),
+        ])
+
     def test_unknown_ubuntu_tracker_status_never_passes(self) -> None:
         values = security_values()
         values["audit_data"]["security"]["guestKernel"].update(

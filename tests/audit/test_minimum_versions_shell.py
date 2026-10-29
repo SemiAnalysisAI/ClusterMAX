@@ -308,7 +308,7 @@ class UbuntuKernelCveTests(TempDirMixin):
         status, cves, grace = self.grade(minimum_table(), "22.04", "5.15.0-185-generic")
         self.assertEqual(status, "fail")
         self.assertEqual(
-            json.loads(cves), ["CVE-2026-64531", "CVE-2026-64378", "CVE-2026-46227"]
+            json.loads(cves), ["CVE-2026-46227", "CVE-2026-64378", "CVE-2026-64531"]
         )
         self.assertEqual(json.loads(grace), [])
 
@@ -320,7 +320,7 @@ class UbuntuKernelCveTests(TempDirMixin):
     def test_noble_kernel_below_the_released_abi_fails_that_cve(self) -> None:
         status, cves, _ = self.grade(minimum_table(), "24.04", "6.8.0-137-generic-64k")
         self.assertEqual(status, "fail")
-        self.assertEqual(json.loads(cves), ["CVE-2026-64531", "CVE-2026-64378"])
+        self.assertEqual(json.loads(cves), ["CVE-2026-64378", "CVE-2026-64531"])
 
     def test_released_fixes_pass_at_the_generated_abi(self) -> None:
         table = minimum_table()
@@ -397,9 +397,13 @@ class UbuntuKernelCveTests(TempDirMixin):
         status, cves, _ = self.grade(table, "22.04", "5.15.0-999-generic")
         self.assertEqual((status, json.loads(cves)), ("fail", ["CVE-2026-46227"]))
 
-    def test_missing_sctp_sendall_row_is_unknown(self) -> None:
+    def test_missing_sctp_sendall_ga_row_is_unknown(self) -> None:
+        # The group still has per-kernel rows, so the GA kernel needs its own.
         table = self.sctp_only_table()
-        del table["components"]["ubuntuNoble"]["packages"]["linuxSctpSendall"]
+        packages = table["components"]["ubuntuNoble"]["packages"]
+        del packages["linuxSctpSendall"]
+        packages["linuxSctpSendallNvidia"] = self.kernel_row(
+            "linux-nvidia", "6.8", "nvidia", "released", 1059)
         self.assertEqual(
             self.grade(table, "24.04", "6.8.0-140-generic"), ("unknown", "[]", "[]")
         )
@@ -437,12 +441,56 @@ class UbuntuKernelCveTests(TempDirMixin):
                 status, cves, _ = self.grade(table, release, kernel)
                 self.assertEqual((status, json.loads(cves)), ("fail", ["CVE-2026-98432"]))
 
-    def test_missing_ipv4_inet_opt_row_is_unknown(self) -> None:
+    def test_missing_ipv4_inet_opt_ga_row_is_unknown(self) -> None:
         table = self.sctp_only_table()
-        del table["components"]["ubuntuNoble"]["packages"]["linuxIpv4InetOptUaf"]
+        packages = table["components"]["ubuntuNoble"]["packages"]
+        del packages["linuxIpv4InetOptUaf"]
+        packages["linuxIpv4InetOptUafNvidia"] = {
+            **self.kernel_row("linux-nvidia", "6.8", "nvidia", "needed"),
+            "cve": "CVE-2026-98432",
+            "kernelGroup": "linuxIpv4InetOptUaf",
+        }
         self.assertEqual(
             self.grade(table, "24.04", "6.8.0-140-generic"), ("unknown", "[]", "[]")
         )
+
+    def test_a_discovered_cve_group_is_graded_without_a_client_change(self) -> None:
+        # The refresh adds groups for CVEs it discovers on the tracker. The
+        # grader reads the groups from the table, so an unseen CVE fails the
+        # kernels the tracker lists without a fix.
+        table = self.sctp_only_table()
+        packages = table["components"]["ubuntuNoble"]["packages"]
+        packages["linuxCve2026_12345"] = {
+            **self.kernel_row("linux", "6.8", "generic", "needed"),
+            "cve": "CVE-2026-12345",
+            "kernelGroup": "linuxCve2026_12345",
+            "discovered": True,
+        }
+        packages["linuxCve2026_12345Nvidia"] = {
+            **self.kernel_row("linux-nvidia", "6.8", "nvidia", "released", 1059),
+            "cve": "CVE-2026-12345",
+            "kernelGroup": "linuxCve2026_12345",
+            "discovered": True,
+        }
+        packages["linuxSctpSendallNvidia"] = self.kernel_row(
+            "linux-nvidia", "6.8", "nvidia", "released", 1059)
+        packages["linuxIpv4InetOptUafNvidia"] = {
+            **self.kernel_row("linux-nvidia", "6.8", "nvidia", "not-affected"),
+            "cve": "CVE-2026-98432",
+            "kernelGroup": "linuxIpv4InetOptUaf",
+        }
+        status, cves, _ = self.grade(table, "24.04", "6.8.0-140-generic")
+        self.assertEqual((status, json.loads(cves)), ("fail", ["CVE-2026-12345"]))
+        status, cves, _ = self.grade(table, "24.04", "6.8.0-1058-nvidia")
+        self.assertEqual(
+            (status, json.loads(cves)), ("fail", ["CVE-2026-12345", "CVE-2026-46227"])
+        )
+        status, cves, _ = self.grade(table, "24.04", "6.8.0-1059-nvidia")
+        self.assertEqual((status, json.loads(cves)), ("pass", []))
+        # A NVIDIA kernel with no row in the discovered group is unknown.
+        del packages["linuxCve2026_12345Nvidia"]
+        status, cves, _ = self.grade(table, "24.04", "6.8.0-1059-nvidia")
+        self.assertEqual((status, json.loads(cves)), ("unknown", []))
 
     def test_shipped_table_grades_ipv4_inet_opt_on_every_tracked_kernel(self) -> None:
         # The shipped table carries the tracker state of CVE-2026-98432. No
@@ -587,7 +635,7 @@ class UbuntuKernelCveTests(TempDirMixin):
         }
         status, cves, _ = self.grade(table, "24.04", "6.17.0-1031-nvidia")
         self.assertEqual(status, "fail")
-        self.assertEqual(json.loads(cves), ["CVE-2026-64378", "CVE-2026-46227"])
+        self.assertEqual(json.loads(cves), ["CVE-2026-46227", "CVE-2026-64378"])
 
     def test_ga_only_groups_skip_other_kernels(self) -> None:
         # Groups with only the GA row check only the GA kernel. Without
