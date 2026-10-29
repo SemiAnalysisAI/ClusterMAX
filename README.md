@@ -95,9 +95,11 @@ the Ubuntu tracker for
 [CVE-2026-64531](https://ubuntu.com/security/CVE-2026-64531) and
 [CVE-2026-64378](https://ubuntu.com/security/CVE-2026-64378).
 [CVE-2026-46227](https://ubuntu.com/security/CVE-2026-46227) (SCTP
-`SCTP_SENDALL` container escape) is graded on Ubuntu 22.04, 24.04, and 26.04
-for every kernel source package that the tracker lists on that release: GA,
-HWE, cloud (AWS, Azure, GCP, Oracle, IBM, GKE), NVIDIA, lowlatency, FIPS,
+`SCTP_SENDALL` container escape) and
+[CVE-2026-98432](https://ubuntu.com/security/CVE-2026-98432) (IPv4
+`inet_opt` use-after-free in `ip_options_build()`) are graded on Ubuntu 22.04,
+24.04, and 26.04 for every kernel source package that the tracker lists on
+that release: GA, HWE, cloud (AWS, Azure, GCP, Oracle, IBM, GKE), NVIDIA, lowlatency, FIPS,
 realtime, and the others. The minimum table has one row per source package.
 The kernel family and the flavor in the running release string select the
 row. A `needed`, `pending`, `deferred`, or `ignored` (for example, end of life)

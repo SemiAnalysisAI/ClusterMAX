@@ -262,6 +262,16 @@ UBUNTU_KERNEL_CVE_PACKAGES: tuple[dict[str, Any], ...] = (
         "allowUnfixed": True,
         "allKernels": True,
     },
+    # IPv4 inet_opt/ireq_opt use-after-free in ip_options_build() (TCP SYNACK
+    # race with child socket free). Same per-kernel-package grading as SCTP.
+    {
+        "key": "linuxIpv4InetOptUaf",
+        "cve": "CVE-2026-98432",
+        "package": "linux",
+        "abi": True,
+        "allowUnfixed": True,
+        "allKernels": True,
+    },
 )
 UBUNTU_PACKAGES += UBUNTU_KERNEL_CVE_PACKAGES
 UBUNTU_ALL_KERNEL_CVE_PACKAGES = tuple(

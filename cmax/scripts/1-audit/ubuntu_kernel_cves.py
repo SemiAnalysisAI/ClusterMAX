@@ -43,12 +43,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import minimum_versions  # noqa: E402
 
-GROUPS = ("linuxOpenvswitchNestedActions", "linuxCgroupWriteback", "linuxSctpSendall")
+GROUPS = (
+    "linuxOpenvswitchNestedActions",
+    "linuxCgroupWriteback",
+    "linuxSctpSendall",
+    "linuxIpv4InetOptUaf",
+)
 # VERSION_ID -> (minimum table component, GA kernel family, CVE groups).
 RELEASES: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "22.04": ("ubuntuJammy", "5.15", GROUPS),
     "24.04": ("ubuntuNoble", "6.8", GROUPS),
-    "26.04": ("ubuntuResolute", "7.0", ("linuxSctpSendall",)),
+    "26.04": ("ubuntuResolute", "7.0", ("linuxSctpSendall", "linuxIpv4InetOptUaf")),
 }
 GA_FLAVORS = ("generic", "generic-64k")
 RUNNING = re.compile(r"(\d+)\.(\d+)\.\d+-(\d+)-([a-z][a-z0-9-]*)")

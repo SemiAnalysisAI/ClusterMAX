@@ -102,6 +102,7 @@ _GUEST_KERNEL_UBUNTU_REFERENCES = _references(
     ("CVE-2026-64531", "https://ubuntu.com/security/CVE-2026-64531"),
     ("CVE-2026-64378", "https://ubuntu.com/security/CVE-2026-64378"),
     ("CVE-2026-46227", "https://ubuntu.com/security/CVE-2026-46227"),
+    ("CVE-2026-98432", "https://ubuntu.com/security/CVE-2026-98432"),
 )
 
 

@@ -1,6 +1,153 @@
 {
   "_comment": "One trimmed response per CVE from the Ubuntu security API (https://ubuntu.com/security/cves/<CVE>.json), keyed by CVE id. Each value is the document that endpoint returns, unchanged in shape, so the extractor under test reads real packages[].statuses[] entries. Folded into one file because these four share a feed and a shape; the CSAF and OSV fixtures stay separate because they do not.",
   "responses": {
+    "CVE-2026-98432": {
+      "id": "CVE-2026-98432",
+      "priority": "high",
+      "notices": [],
+      "packages": [
+        {
+          "name": "linux",
+          "statuses": [
+            {
+              "release_codename": "jammy",
+              "status": "pending",
+              "description": "5.15.0-203.213"
+            },
+            {
+              "release_codename": "noble",
+              "status": "pending",
+              "description": "6.8.0-149.149"
+            },
+            {
+              "release_codename": "resolute",
+              "status": "pending",
+              "description": "7.0.0-43.43"
+            }
+          ]
+        },
+        {
+          "name": "linux-hwe-6.8",
+          "statuses": [
+            {
+              "release_codename": "noble",
+              "status": "DNE",
+              "description": ""
+            },
+            {
+              "release_codename": "resolute",
+              "status": "DNE",
+              "description": ""
+            },
+            {
+              "release_codename": "jammy",
+              "status": "needed",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "name": "linux-hwe-6.17",
+          "statuses": [
+            {
+              "release_codename": "jammy",
+              "status": "DNE",
+              "description": ""
+            },
+            {
+              "release_codename": "resolute",
+              "status": "DNE",
+              "description": ""
+            },
+            {
+              "release_codename": "noble",
+              "status": "needed",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "name": "linux-aws",
+          "statuses": [
+            {
+              "release_codename": "jammy",
+              "status": "pending",
+              "description": "5.15.0-1120.127"
+            },
+            {
+              "release_codename": "noble",
+              "status": "pending",
+              "description": "6.8.0-1069.72"
+            },
+            {
+              "release_codename": "resolute",
+              "status": "pending",
+              "description": "7.0.0-1017.18"
+            }
+          ]
+        },
+        {
+          "name": "linux-nvidia",
+          "statuses": [
+            {
+              "release_codename": "jammy",
+              "status": "needed",
+              "description": ""
+            },
+            {
+              "release_codename": "noble",
+              "status": "needed",
+              "description": ""
+            },
+            {
+              "release_codename": "resolute",
+              "status": "needed",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "name": "linux-nvidia-6.17",
+          "statuses": [
+            {
+              "release_codename": "jammy",
+              "status": "DNE",
+              "description": ""
+            },
+            {
+              "release_codename": "resolute",
+              "status": "DNE",
+              "description": ""
+            },
+            {
+              "release_codename": "noble",
+              "status": "ignored",
+              "description": "end of life, was needs-triage"
+            }
+          ]
+        },
+        {
+          "name": "linux-riscv",
+          "statuses": [
+            {
+              "release_codename": "jammy",
+              "status": "ignored",
+              "description": "end of kernel support"
+            },
+            {
+              "release_codename": "noble",
+              "status": "ignored",
+              "description": "replaced by linux-riscv-6.14"
+            },
+            {
+              "release_codename": "resolute",
+              "status": "needed",
+              "description": ""
+            }
+          ]
+        }
+      ]
+    },
     "CVE-2026-46227": {
       "id": "CVE-2026-46227",
       "priority": "medium",
