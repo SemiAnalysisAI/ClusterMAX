@@ -33,7 +33,6 @@ release string `<x.y.z>-<abi>-<flavor>` selects at most one row per group.
   shipped a fix for that kernel, or will not ship one (end of life).
 - `not-affected`, `DNE`: checked and safe.
 - Any other state (for example `needs-triage`): unknown.
-- Any other state: unknown.
 """
 
 from __future__ import annotations
