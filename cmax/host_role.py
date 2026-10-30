@@ -56,6 +56,11 @@ KUBELET_PATHS = (
 KUBERNETES_PROCESSES = ("kubelet", "k3s-server", "k3s-agent")
 WATCHED_PROCESSES = frozenset({"slurmd", "slurmctld", *KUBERNETES_PROCESSES})
 CONTAINER_PATHS = ("/.dockerenv", "/run/.containerenv")
+# Kubernetes mounts a service account token into pods by default. Slurm on
+# Kubernetes (Slinky) can run login and slurmd pods without
+# KUBERNETES_SERVICE_HOST (enableServiceLinks: false) and without a container
+# marker file, so this path is the only sign of the pod.
+POD_PATHS = ("/var/run/secrets/kubernetes.io/serviceaccount",)
 
 
 @dataclass(frozen=True)
@@ -148,7 +153,7 @@ def classify(facts: HostFacts) -> HostRole:
     """Keep the scheduler role separate from the runtime context."""
     role = _classify(facts)
     context = []
-    if facts.environ.get("KUBERNETES_SERVICE_HOST", "").strip():
+    if facts.environ.get("KUBERNETES_SERVICE_HOST", "").strip() or facts.paths & set(POD_PATHS):
         context.append("Kubernetes pod")
     elif facts.processes & set(KUBERNETES_PROCESSES) or facts.paths & set(KUBELET_PATHS):
         context.append("Kubernetes node")
@@ -232,7 +237,9 @@ def collect(
     return HostFacts(
         environ=dict(env),
         processes=running,
-        paths=frozenset(path for path in (*KUBELET_PATHS, *CONTAINER_PATHS) if exists(path)),
+        paths=frozenset(
+            path for path in (*KUBELET_PATHS, *CONTAINER_PATHS, *POD_PATHS) if exists(path)
+        ),
         commands=commands,
         slurm_node=slurm_node,
     )

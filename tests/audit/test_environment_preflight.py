@@ -150,3 +150,24 @@ def test_classification_keeps_slurm_and_runtime_context_separate():
     assert role.kind == host_role.SLURM_COMPUTE
     assert role.context == ("Kubernetes pod", "container")
     assert "private-host" not in role.summary
+
+
+def test_service_account_mount_marks_a_pod_without_service_links():
+    # Slinky login and slurmd pods can run without KUBERNETES_SERVICE_HOST.
+    facts = host_role.collect(
+        {},
+        which=lambda name: f"/usr/bin/{name}" if name == "sbatch" else None,
+        exists=lambda path: path in host_role.POD_PATHS,
+        processes=(),
+    )
+    role = host_role.classify(facts)
+    assert role.kind == host_role.SLURM_LOGIN
+    assert role.context == ("Kubernetes pod",)
+    assert host_role.may_have_both_interfaces(role)
+
+
+def test_container_without_a_service_account_is_not_a_pod():
+    role = host_role.classify(host_role.HostFacts(
+        environ={}, processes=frozenset(), paths=frozenset({"/.dockerenv"}),
+    ))
+    assert role.context == ("container",)
