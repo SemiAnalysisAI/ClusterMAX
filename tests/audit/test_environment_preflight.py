@@ -64,15 +64,23 @@ def test_report_is_a_local_allowlist_and_does_not_confirm():
 
 def test_unknown_menu_answer_cannot_confirm():
     ask = reader("y", "invalid", "c", "y")
-    prepare(reader=ask, assume_yes=True)
+    prepare(reader=ask)
     assert ask.call_count == 4
 
 
-@pytest.mark.parametrize("assume_yes", [False, True])
-def test_automation_requires_the_specific_override(assume_yes):
+def test_automation_requires_an_override():
     with pytest.raises(target_selection.TargetSelectionError, match="--allow-cluster-node"):
-        prepare(interactive=False, assume_yes=assume_yes)
-    prepare(interactive=False, assume_yes=assume_yes, allow_cluster_node=True)
+        prepare(interactive=False)
+    prepare(interactive=False, allow_cluster_node=True)
+
+
+@pytest.mark.parametrize("interactive", [False, True])
+def test_yes_accepts_the_host_role_mismatch_without_a_prompt(interactive):
+    output = io.StringIO()
+    ask = reader()
+    prepare(interactive=interactive, assume_yes=True, reader=ask, stream=output)
+    ask.assert_not_called()
+    assert "Host role check: accepted with --yes" in output.getvalue()
 
 
 @pytest.mark.parametrize("answer,harness", [("s", "slurm"), ("k", "k8s")])
@@ -111,14 +119,43 @@ def test_mixed_worker_still_requires_double_confirmation_after_interface_choice(
     assert ask.call_count == 3
 
 
-def test_mixed_cluster_without_a_terminal_requires_explicit_interface_even_with_overrides():
+def test_mixed_cluster_without_a_terminal_requires_an_interface_or_yes():
     with mock.patch.object(target_selection, "_slurm_details", return_value=()), \
          mock.patch.object(target_selection, "_kubernetes_details", return_value=()):
         with pytest.raises(target_selection.TargetSelectionError, match="Select --slurm or --k8s"):
             prepare(
                 security.SecurityTarget("slurm", "slurm"), host_role=LOGIN_POD,
-                interactive=False, assume_yes=True, allow_cluster_node=True,
+                interactive=False, allow_cluster_node=True,
             )
+
+
+@pytest.mark.parametrize("interactive", [False, True])
+@pytest.mark.parametrize("harness", ["slurm", "k8s"])
+def test_yes_keeps_the_auto_detected_interface(interactive, harness):
+    output = io.StringIO()
+    ask = reader()
+    with mock.patch.object(target_selection, "_slurm_details", return_value=()), \
+         mock.patch.object(target_selection, "_kubernetes_details", return_value=()):
+        selected = prepare(
+            security.SecurityTarget(harness, harness), host_role=LOGIN_POD,
+            interactive=interactive, assume_yes=True, reader=ask, stream=output,
+        )
+    assert selected.harness == harness
+    ask.assert_not_called()
+    assert f"auto-detected {harness}, accepted with --yes" in output.getvalue()
+
+
+def test_yes_on_a_mixed_compute_pod_skips_every_prompt():
+    role = host_role.HostRole(COMPUTE.kind, COMPUTE.evidence, ("Kubernetes pod",))
+    ask = reader()
+    with mock.patch.object(target_selection, "_slurm_details", return_value=()), \
+         mock.patch.object(target_selection, "_kubernetes_details", return_value=()):
+        selected = prepare(
+            security.SecurityTarget("slurm", "slurm"), host_role=role,
+            interactive=False, assume_yes=True, reader=ask,
+        )
+    assert selected.harness == "slurm"
+    ask.assert_not_called()
 
 
 def test_explicit_interface_does_not_probe_the_other_scheduler():
