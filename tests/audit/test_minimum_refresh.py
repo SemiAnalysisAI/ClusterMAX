@@ -551,6 +551,8 @@ class ExtractorTest(unittest.TestCase):
             package_policy=(), fetch=self.stub,
         )
         self.assertEqual(resolute["release"], "resolute")
+        self.assertEqual(resolute["releaseVersion"], "26.04")
+        self.assertEqual(jammy["releaseVersion"], "22.04")
         bad_epoll = resolute["packages"]["linuxBadEpoll"]
         self.assertEqual(bad_epoll["fixed"], "7.0.0-28.28")
         self.assertEqual(bad_epoll["package"], "linux")
