@@ -11128,6 +11128,7 @@
         }
       },
       "release": "jammy",
+      "releaseVersion": "22.04",
       "source": {
         "feed": "ubuntu-security-notices",
         "url": "https://ubuntu.com/security/notices.json"
@@ -20325,6 +20326,7 @@
         }
       },
       "release": "noble",
+      "releaseVersion": "24.04",
       "source": {
         "feed": "ubuntu-security-notices",
         "url": "https://ubuntu.com/security/notices.json"
@@ -22584,6 +22586,7 @@
         }
       },
       "release": "resolute",
+      "releaseVersion": "26.04",
       "source": {
         "feed": "ubuntu-security-notices",
         "url": "https://ubuntu.com/security/notices.json"

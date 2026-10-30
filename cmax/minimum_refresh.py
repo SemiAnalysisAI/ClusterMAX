@@ -2322,6 +2322,9 @@ def ubuntu_minimums(
     return {
         "kind": "distroPackages",
         "release": codename,
+        # The numbered release, such as 24.04, so readers can name the block
+        # without their own codename list.
+        "releaseVersion": UBUNTU_OSV_ECOSYSTEMS[codename].split(":")[1],
         "packages": packages,
         "advisory": "https://ubuntu.com/security/notices",
         "source": {"feed": "ubuntu-security-notices", "url": UBUNTU_NOTICES_URL},
