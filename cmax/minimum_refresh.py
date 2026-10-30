@@ -68,7 +68,7 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Iterator, Sequence
@@ -285,10 +285,44 @@ UBUNTU_GA_KERNEL_FAMILY = {"jammy": "5.15", "noble": "6.8", "resolute": "7.0"}
 UBUNTU_KERNEL_ROW_STATES = {
     "released", "needed", "pending", "deferred", "ignored", "not-affected",
 }
+# A discovered CVE is often new to the tracker, so some kernels are still
+# `needs-triage`. Such a row is kept, and the audit grades that kernel unknown.
+# A named CVE was reviewed, so the refresh still rejects that state for it.
+UBUNTU_DISCOVERED_KERNEL_ROW_STATES = UBUNTU_KERNEL_ROW_STATES | {"needs-triage"}
 # riscv64 kernels use the "generic" flavor name, so a running release string
 # cannot tell them apart from the GA or HWE generic kernel of the same family.
 # A row for them would grade every amd64 and arm64 generic host as well.
 UBUNTU_KERNEL_EXCLUDED = re.compile(r"linux-riscv(?:-\d+\.\d+)?")
+
+# Ubuntu kernel CVE discovery. The named specs above cover CVEs a reviewer
+# chose. Discovery adds every other `linux` CVE that the Ubuntu tracker rates
+# at or above UBUNTU_KERNEL_DISCOVERY_MIN_CVSS for its priority, so a severe
+# kernel CVE is graded on the day the tracker lists it, before any fix exists.
+# A discovered CVE gets the `allKernels` rows of a named spec, under the key
+# `linuxCve<year>_<number>`, and every row carries `"discovered": true`.
+#
+# The scan reads the tracker search, newest publication first, back to the
+# later of UBUNTU_KERNEL_DISCOVERY_SINCE and UBUNTU_KERNEL_DISCOVERY_WINDOW_DAYS
+# before the run. A CVE that the existing table already carries as discovered
+# stays in the table after it leaves the window or the selection (for example,
+# a lowered priority), so a released fix and its grace record cannot vanish.
+# Published CVEs from before UBUNTU_KERNEL_DISCOVERY_SINCE are not backfilled;
+# a reviewer adds such a CVE as a named spec.
+UBUNTU_CVE_SEARCH_URL = "https://ubuntu.com/security/cves.json"
+UBUNTU_CVE_SEARCH_PAGE_SIZE = 20  # the API maximum
+UBUNTU_CVE_SEARCH_MAX_PAGES = 60
+UBUNTU_KERNEL_DISCOVERY_SINCE = "2026-10-01"
+UBUNTU_KERNEL_DISCOVERY_WINDOW_DAYS = 30
+# Ubuntu priority -> lowest CVSS v3 base score that selects the CVE. A critical
+# CVE is selected without a score, because the tracker can rate it before NVD
+# scores it.
+UBUNTU_KERNEL_DISCOVERY_MIN_CVSS: dict[str, float] = {"critical": 0.0, "high": 9.0}
+UBUNTU_KERNEL_DISCOVERY_RELEASES = ("jammy", "noble", "resolute")
+# The refresh fails above this serialized size. It stays below the client
+# fetch limit (`minimum_sync.MAX_BYTES`, 4 MiB) so a published table is never
+# rejected by clients.
+TABLE_SIZE_LIMIT = 3 * 1024 * 1024
+UBUNTU_DISCOVERED_KERNEL_KEY = re.compile(r"linuxCve(\d{4})_(\d+)")
 
 # Ubuntu 26.04 (resolute) GA kernel fixes the audit grades by source package.
 UBUNTU_RESOLUTE_PACKAGES: tuple[dict[str, Any], ...] = (
@@ -2060,10 +2094,170 @@ def ubuntu_kernel_cve_rows(
         entry["kernelGroup"] = spec["key"]
         entry["kernelFamily"] = family
         entry["kernelFlavors"] = flavors
+        if spec.get("discovered"):
+            entry["discovered"] = True
         return ubuntu_kernel_row_key(spec["key"], name), entry
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         return dict(pool.map(resolve, listed))
+
+
+def _linux_states(record: dict) -> dict[str, str]:
+    """Return the tracker state of the GA `linux` package per release codename."""
+    for candidate in record.get("packages") or []:
+        if isinstance(candidate, dict) and candidate.get("name") == "linux":
+            return {
+                str(status.get("release_codename")): str(status.get("status") or "")
+                for status in candidate.get("statuses") or []
+                if isinstance(status, dict)
+            }
+    return {}
+
+
+def ubuntu_kernel_cve_selected(record: dict) -> bool:
+    """True when a tracker CVE record meets the kernel discovery policy.
+
+    The record must be an active CVE that lists the `linux` package on a graded
+    release, with a priority and a CVSS v3 score that meet
+    UBUNTU_KERNEL_DISCOVERY_MIN_CVSS.
+    """
+    if not isinstance(record, dict) or not re.fullmatch(r"CVE-\d{4}-\d+", str(record.get("id"))):
+        return False
+    if str(record.get("status") or "active") != "active":
+        return False
+    floor = UBUNTU_KERNEL_DISCOVERY_MIN_CVSS.get(str(record.get("priority") or ""))
+    if floor is None:
+        return False
+    score = record.get("cvss3")
+    if floor > 0 and (isinstance(score, bool) or not isinstance(score, (int, float)) or score < floor):
+        return False
+    states = _linux_states(record)
+    return any(
+        states.get(codename) not in (None, "", "DNE", "not-affected")
+        for codename in UBUNTU_KERNEL_DISCOVERY_RELEASES
+    )
+
+
+def ubuntu_discovery_floor(now: datetime | None = None) -> str:
+    """Return the oldest publication date (YYYY-MM-DD) the scan reads."""
+    now = now or datetime.now(timezone.utc)
+    window = (now - timedelta(days=UBUNTU_KERNEL_DISCOVERY_WINDOW_DAYS)).strftime("%Y-%m-%d")
+    return max(window, UBUNTU_KERNEL_DISCOVERY_SINCE)
+
+
+def ubuntu_cve_search_url(priority: str, offset: int) -> str:
+    """One page of `linux` CVEs of one priority, newest publication first."""
+    return (
+        f"{UBUNTU_CVE_SEARCH_URL}?package=linux&priority={priority}"
+        f"&limit={UBUNTU_CVE_SEARCH_PAGE_SIZE}&offset={offset}"
+    )
+
+
+def discover_ubuntu_kernel_cves(
+    fetch: Fetcher | None = None, now: datetime | None = None
+) -> list[str]:
+    """Return the tracker CVEs that meet the kernel discovery policy.
+
+    The search lists `linux` CVEs of each discovery priority, newest first, 20
+    per page. Paging stops at the first page that reaches past the floor date.
+    A failed page stops the refresh, because a partial scan would drop a CVE
+    without a trace. A scan that does not reach the floor within
+    UBUNTU_CVE_SEARCH_MAX_PAGES also stops it.
+    """
+    client = _fetcher(fetch)
+    floor = ubuntu_discovery_floor(now)
+
+    def scan(priority: str) -> set[str]:
+        found: set[str] = set()
+        for page in range(UBUNTU_CVE_SEARCH_MAX_PAGES):
+            offset = page * UBUNTU_CVE_SEARCH_PAGE_SIZE
+            doc = client.get_json(ubuntu_cve_search_url(priority, offset))
+            records = doc.get("cves") if isinstance(doc, dict) else None
+            if not isinstance(records, list):
+                raise MinimumRefreshError(
+                    f"ubuntu: the CVE search for {priority} linux CVEs returned no list"
+                )
+            reached_floor = not records
+            for record in records:
+                published = (
+                    str(record.get("published") or "")[:10] if isinstance(record, dict) else ""
+                )
+                if not published or published < floor:
+                    reached_floor = True
+                    continue
+                if ubuntu_kernel_cve_selected(record):
+                    found.add(str(record["id"]))
+            total = doc.get("total_results")
+            if reached_floor or (isinstance(total, int) and offset + len(records) >= total):
+                return found
+        raise MinimumRefreshError(
+            f"ubuntu: the {priority} linux CVE search did not reach {floor} "
+            f"within {UBUNTU_CVE_SEARCH_MAX_PAGES} pages"
+        )
+
+    # Each search page is a few MB, so the priorities are read in parallel.
+    with ThreadPoolExecutor(max_workers=len(UBUNTU_KERNEL_DISCOVERY_MIN_CVSS)) as pool:
+        results = list(pool.map(scan, sorted(UBUNTU_KERNEL_DISCOVERY_MIN_CVSS)))
+    return sorted(set().union(*results), key=_cve_order)
+
+
+def _cve_order(cve: str) -> tuple[int, int]:
+    _, year, number = cve.split("-")
+    return int(year), int(number)
+
+
+def ubuntu_discovered_kernel_key(cve: str) -> str:
+    """`CVE-2026-98432` -> `linuxCve2026_98432`."""
+    _, year, number = cve.split("-")
+    return f"linuxCve{year}_{number}"
+
+
+def known_discovered_kernel_cves(existing: dict | None) -> set[str]:
+    """Return the CVEs that the existing table carries as discovered groups."""
+    found: set[str] = set()
+    components = (existing or {}).get("components") or {}
+    for block in components.values() if isinstance(components, dict) else []:
+        packages = block.get("packages") if isinstance(block, dict) else None
+        for key, entry in (packages or {}).items():
+            if (
+                isinstance(entry, dict)
+                and entry.get("discovered") is True
+                and UBUNTU_DISCOVERED_KERNEL_KEY.fullmatch(str(entry.get("kernelGroup")))
+                and re.fullmatch(r"CVE-\d{4}-\d+", str(entry.get("cve")))
+            ):
+                found.add(str(entry["cve"]))
+    return found
+
+
+def ubuntu_discovered_kernel_specs(
+    existing: dict | None = None,
+    fetch: Fetcher | None = None,
+    now: datetime | None = None,
+) -> tuple[dict[str, Any], ...]:
+    """Return one `allKernels` spec per discovered CVE that no named spec covers."""
+    named = {spec["cve"] for spec in UBUNTU_KERNEL_CVE_PACKAGES}
+    named.update(spec["cve"] for spec in UBUNTU_PACKAGES)
+    cves = set(discover_ubuntu_kernel_cves(fetch=fetch, now=now))
+    cves |= known_discovered_kernel_cves(existing)
+    return tuple(
+        {
+            "key": ubuntu_discovered_kernel_key(cve),
+            "cve": cve,
+            "package": "linux",
+            "abi": True,
+            "allowUnfixed": True,
+            "allKernels": True,
+            "discovered": True,
+        }
+        for cve in sorted(cves - named, key=_cve_order)
+    )
+
+
+def ubuntu_kernel_cve_listed(cve: str, codename: str, fetch: Fetcher | None = None) -> bool:
+    """True when the tracker lists the GA `linux` package of a CVE on a release."""
+    doc = _fetcher(fetch).get_json(f"{UBUNTU_CVE_URL}{cve}.json")
+    state = _linux_states(doc if isinstance(doc, dict) else {}).get(codename)
+    return state not in (None, "", "DNE")
 
 
 def ubuntu_minimums(
@@ -2093,6 +2287,12 @@ def ubuntu_minimums(
     memo = _MemoFetcher(fetch)
     for spec in specs:
         if spec.get("allKernels"):
+            # A discovered CVE applies only where the tracker lists the GA
+            # `linux` package. A named spec requires that row and fails closed.
+            if spec.get("discovered") and not ubuntu_kernel_cve_listed(
+                spec["cve"], codename, fetch=memo
+            ):
+                continue
             packages.update(ubuntu_kernel_cve_rows(spec, codename, fetch=memo))
     # Named CVE entries remain because the audit reports those findings
     # separately. Package-wide floors are discovered from every matching Noble
@@ -2122,6 +2322,9 @@ def ubuntu_minimums(
     return {
         "kind": "distroPackages",
         "release": codename,
+        # The numbered release, such as 24.04, so readers can name the block
+        # without their own codename list.
+        "releaseVersion": UBUNTU_OSV_ECOSYSTEMS[codename].split(":")[1],
         "packages": packages,
         "advisory": "https://ubuntu.com/security/notices",
         "source": {"feed": "ubuntu-security-notices", "url": UBUNTU_NOTICES_URL},
@@ -2889,6 +3092,7 @@ def build_minimums(
     generated: str | None = None,
     existing: dict | None = None,
     fetch: Fetcher | None = None,
+    now: datetime | None = None,
 ) -> dict:
     """Fetch every feed and return the full minimum table.
 
@@ -2900,6 +3104,7 @@ def build_minimums(
     connectx = connectx_minimums(fetch=fetch, documents=nvidia_documents)
     simple_products = nvidia_simple_product_minimums(nvidia_documents, fetch=fetch)
     dcgm = nvidia_dcgm_minimums(nvidia_documents, fetch=fetch)
+    discovered = ubuntu_discovered_kernel_specs(existing, fetch=fetch, now=now)
     doc = {
         "schemaVersion": SCHEMA_VERSION,
         "generated": generated or _now_stamp(),
@@ -2917,7 +3122,9 @@ def build_minimums(
             "docker": docker_minimums(fetch=fetch),
             "rocm": amd_rocm_minimums(fetch=fetch),
             "amdDriver": amd_driver_minimums(fetch=fetch),
-            "ubuntuNoble": ubuntu_minimums(fetch=fetch),
+            "ubuntuNoble": ubuntu_minimums(
+                specs=(*UBUNTU_PACKAGES, *discovered), fetch=fetch
+            ),
             "ubuntuJammy": ubuntu_minimums(
                 codename="jammy",
                 specs=(
@@ -2926,13 +3133,14 @@ def build_minimums(
                     {"key": "linuxPwnescape", "cve": "CVE-2026-99999",
                      "package": "linux-hwe-6.8"},
                     *UBUNTU_KERNEL_CVE_PACKAGES,
+                    *discovered,
                 ),
                 package_policy=(),
                 fetch=fetch,
             ),
             "ubuntuResolute": ubuntu_minimums(
                 codename="resolute",
-                specs=UBUNTU_RESOLUTE_PACKAGES,
+                specs=(*UBUNTU_RESOLUTE_PACKAGES, *discovered),
                 package_policy=(),
                 fetch=fetch,
             ),
@@ -3166,7 +3374,12 @@ def verify(doc: dict, existing: dict | None = None) -> None:
                 if entry.get("kernelGroup"):
                     # A per-kernel row. Unfixed and not-affected states are
                     # valid tracker evidence; anything else is unverified.
-                    if state not in UBUNTU_KERNEL_ROW_STATES:
+                    allowed = (
+                        UBUNTU_DISCOVERED_KERNEL_ROW_STATES
+                        if entry.get("discovered") is True
+                        else UBUNTU_KERNEL_ROW_STATES
+                    )
+                    if state not in allowed:
                         problems.append(
                             f"{name}.{key}: Ubuntu tracker status for {entry.get('cve')} "
                             f"is unverified ({state!r})"
@@ -3193,6 +3406,26 @@ def verify(doc: dict, existing: dict | None = None) -> None:
         for key, old_entry in old_packages.items():
             if key not in payload and old_entry.get("fixed"):
                 problems.append(f"{name}.{key}: package disappeared from the rebuild")
+            elif (
+                key not in payload
+                and old_entry.get("discovered") is True
+                and old_entry.get("kernelGroup") == key
+            ):
+                # The GA row of a discovered kernel CVE. Dropping it would stop
+                # grading that CVE on the release without a reviewer seeing it.
+                problems.append(
+                    f"{name}.{key}: discovered kernel CVE {old_entry.get('cve')} "
+                    "disappeared from the rebuild"
+                )
+    size = len(serialize(doc).encode("utf-8"))
+    if size > TABLE_SIZE_LIMIT:
+        # Clients reject a fetched table above minimum_sync.MAX_BYTES and keep
+        # grading against an older one. Discovered kernel CVEs are the main
+        # source of growth, so fail here while there is headroom.
+        problems.append(
+            f"the table is {size} bytes, above the {TABLE_SIZE_LIMIT}-byte limit "
+            "that keeps it below the client fetch limit"
+        )
     if problems:
         raise MinimumRefreshError(
             "minimum version refresh failed closed; nothing was written:\n  - "
