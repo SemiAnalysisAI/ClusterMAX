@@ -8896,7 +8896,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-aws-6.8",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1069.74~22.04.1"
         },
         "linuxIpv4InetOptUafAwsFips": {
           "allowUnfixed": true,
@@ -9058,7 +9059,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-azure-fips",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "5.15.0-1126.135+fips1"
         },
         "linuxIpv4InetOptUafFips": {
           "allowUnfixed": true,
@@ -9087,7 +9089,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-gcp",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "5.15.0-1121.131"
         },
         "linuxIpv4InetOptUafGcp5_19": {
           "allowUnfixed": true,
@@ -9174,7 +9177,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-gke",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "5.15.0-1116.122"
         },
         "linuxIpv4InetOptUafGkeop": {
           "allowUnfixed": true,
@@ -9188,7 +9192,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-gkeop",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "5.15.0-1103.111"
         },
         "linuxIpv4InetOptUafHwe5_19": {
           "allowUnfixed": true,
@@ -9247,7 +9252,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-hwe-6.8",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-149.149~22.04.1"
         },
         "linuxIpv4InetOptUafIbm": {
           "allowUnfixed": true,
@@ -9304,7 +9310,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-intel-iotg",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "5.15.0-1115.121"
         },
         "linuxIpv4InetOptUafKvm": {
           "allowUnfixed": true,
@@ -9711,10 +9718,16 @@
         },
         "linuxPwnescape": {
           "cve": "CVE-2026-99999",
-          "fixed": "",
+          "fixAvailability": {
+            "feed": "ubuntu-security-api",
+            "status": "unconfirmed",
+            "url": "https://ubuntu.com/security/cves/CVE-2026-99999",
+            "version": "6.8.0-149.149~22.04.1"
+          },
+          "fixed": "6.8.0-149.149~22.04.1",
           "package": "linux-hwe-6.8",
           "priority": "medium",
-          "status": "needed"
+          "status": "pending"
         },
         "linuxSctpSendall": {
           "abi": 186,
@@ -18224,7 +18237,7 @@
           "package": "linux-aws",
           "priority": "high",
           "status": "pending",
-          "trackerNote": "6.8.0-1069.72"
+          "trackerNote": "6.8.0-1069.74"
         },
         "linuxIpv4InetOptUafAws6_14": {
           "allowUnfixed": true,
@@ -18282,7 +18295,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-aws-fips",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1069.74+fips1"
         },
         "linuxIpv4InetOptUafAzure": {
           "allowUnfixed": true,
@@ -18429,7 +18443,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-azure-fips",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1073.82+fips1"
         },
         "linuxIpv4InetOptUafAzureNvidia": {
           "allowUnfixed": true,
@@ -18473,7 +18488,7 @@
           "package": "linux-fips",
           "priority": "high",
           "status": "pending",
-          "trackerNote": "6.8.0-149.149+fips1"
+          "trackerNote": "6.8.0-149.149+fips2"
         },
         "linuxIpv4InetOptUafGcp": {
           "allowUnfixed": true,
@@ -18575,7 +18590,7 @@
           "package": "linux-gke",
           "priority": "high",
           "status": "pending",
-          "trackerNote": "6.8.0-1068.76"
+          "trackerNote": "6.8.0-1068.77"
         },
         "linuxIpv4InetOptUafGkeop": {
           "allowUnfixed": true,
@@ -18589,7 +18604,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-gkeop",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1053.57"
         },
         "linuxIpv4InetOptUafHwe6_11": {
           "allowUnfixed": true,
@@ -18938,7 +18954,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-realtime",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.1-1064.65"
         },
         "linuxIpv4InetOptUafRealtime6_14": {
           "allowUnfixed": true,
@@ -22066,7 +22083,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-gcp",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.19"
         },
         "linuxIpv4InetOptUafGke": {
           "allowUnfixed": true,
@@ -22137,7 +22155,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-oem-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1018.18"
         },
         "linuxIpv4InetOptUafOracle": {
           "allowUnfixed": true,
@@ -22151,7 +22170,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-oracle",
           "priority": "high",
-          "status": "pending"
+          "status": "pending",
+          "trackerNote": "7.0.0-1016.18"
         },
         "linuxIpv4InetOptUafRaspi": {
           "allowUnfixed": true,
@@ -22660,7 +22680,7 @@
       }
     }
   },
-  "generated": "2026-10-27T07:36:20Z",
+  "generated": "2026-10-30T07:22:49Z",
   "gracePeriodDays": 3,
   "maxAgeDays": 10,
   "schemaVersion": 1
