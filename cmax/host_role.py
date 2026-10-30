@@ -338,10 +338,11 @@ def confirm(
     stream: TextIO,
     terminal: bool,
     allow_cluster_node: bool,
+    assume_yes: bool = False,
 ) -> None:
     """Ask a second time when the target does not fit the role of this host.
 
-    `--yes` does not answer this question; only `--allow-cluster-node` does.
+    `--yes` and `--allow-cluster-node` both answer this question.
     Raises HostRoleRefused in a non-interactive run and HostRoleCancelled when
     the operator does not confirm.
     """
@@ -361,12 +362,15 @@ def confirm(
     if allow_cluster_node:
         print("  Host role check: accepted with --allow-cluster-node", file=stream)
         return
+    if assume_yes:
+        print("  Host role check: accepted with --yes", file=stream)
+        return
     if not terminal:
         raise HostRoleRefused(
             f"{found.reason} {found.instead}. "
-            "To run here anyway, pass --allow-cluster-node."
+            "To run here anyway, pass --yes or --allow-cluster-node."
         )
-    print("  To skip this question, pass --allow-cluster-node.", file=stream)
+    print("  To skip this question, pass --yes or --allow-cluster-node.", file=stream)
     while True:
         try:
             answer = reader(

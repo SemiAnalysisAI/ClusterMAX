@@ -242,19 +242,20 @@ def test_standalone_on_a_compute_node_stops_without_a_terminal() -> None:
     assert "--allow-cluster-node" in str(error.value)
 
 
-def test_yes_does_not_skip_the_second_confirmation() -> None:
+def test_yes_accepts_the_mismatch_without_a_terminal() -> None:
     output = io.StringIO()
     with mock.patch.object(security, "local_environment", return_value="bare-metal"):
-        with pytest.raises(target_selection.TargetSelectionError):
-            target_selection.prepare_audit_target(
-                STANDALONE,
-                command="cmax audit --standalone",
-                assume_yes=True,
-                stream=output,
-                environ={},
-                interactive=False,
-                host_role=COMPUTE,
-            )
+        selected = target_selection.prepare_audit_target(
+            STANDALONE,
+            command="cmax audit --standalone",
+            assume_yes=True,
+            stream=output,
+            environ={},
+            interactive=False,
+            host_role=COMPUTE,
+        )
+    assert selected == STANDALONE
+    assert "Host role check: accepted with --yes" in output.getvalue()
 
 
 def test_allow_cluster_node_overrides_the_guard() -> None:
@@ -281,15 +282,14 @@ def test_interactive_second_confirmation_defaults_to_no() -> None:
         prepare(interactive=True, reader=answers("c", ""))
 
 
-def test_interactive_yes_still_asks_the_second_confirmation() -> None:
-    reader = answers("c", "y")
+def test_interactive_yes_skips_the_mismatch_questions() -> None:
+    reader = answers()
 
-    prepare(interactive=True, reader=reader, assume_yes=True)
+    selected, text = prepare(interactive=True, reader=reader, assume_yes=True)
 
-    assert reader.prompts == [
-        "Host role mismatch: [Enter] cancel, [c] continue here, [r] detection looks wrong: ",
-        "Run a standalone audit on this compute node anyway? [y/N]: ",
-    ]
+    assert selected == STANDALONE
+    assert reader.prompts == []
+    assert "Host role check: accepted with --yes" in text
 
 
 def test_slurm_audit_from_a_compute_node_is_guarded() -> None:

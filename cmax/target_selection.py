@@ -455,6 +455,7 @@ def prepare_target(
                 stream=output,
                 terminal=terminal,
                 allow_cluster_node=allow_cluster_node,
+                assume_yes=assume_yes,
             )
         except host_roles.HostRoleRefused as exc:
             raise TargetSelectionError(str(exc)) from exc
@@ -476,12 +477,20 @@ def prepare_target(
                 available.append(harness)
             if len(available) == 2:
                 print("Both Slurm and Kubernetes are reachable from this shell.", file=output)
-                print(f"Select the interface for this {noun}. This does not move execution to a login node.", file=output)
-                if not terminal:
+                if assume_yes:
+                    print(
+                        f"  Interface: auto-detected {selected.harness}, accepted with --yes."
+                        " Pass --slurm or --k8s to choose.",
+                        file=output,
+                    )
+                elif not terminal:
                     raise TargetSelectionError(
                         "both Slurm and Kubernetes are reachable. "
-                        "Select --slurm or --k8s explicitly; --yes does not select an interface."
+                        "Select --slurm or --k8s, or pass --yes to keep the "
+                        f"auto-detected {selected.harness}."
                     )
+            if len(available) == 2 and not assume_yes:
+                print(f"Select the interface for this {noun}. This does not move execution to a login node.", file=output)
                 while True:
                     answer = _read(ask, "Cluster interface: [s] Slurm, [k] Kubernetes, [Enter] cancel: ").lower()
                     if answer in {"s", "slurm", "k", "k8s", "kubernetes"}:
@@ -518,7 +527,7 @@ def prepare_target(
             current_role = role_for(selected.harness)
             if current_role is not None and host_roles.guard(
                 selected.harness, current_role, noun=noun, command=command
-            ) is not None and not allow_cluster_node:
+            ) is not None and not (allow_cluster_node or assume_yes):
                 # The mismatch menu and its final question replace the usual
                 # target question, so the operator confirms exactly twice.
                 return accept(selected)
