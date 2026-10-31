@@ -6992,7 +6992,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-aws-6.8",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1069.74~22.04.1"
         },
         "linuxCve2026_98725AwsFips": {
           "allowUnfixed": true,
@@ -7262,7 +7263,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-gcp-6.8",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1073.81~22.04.1"
         },
         "linuxCve2026_98725GcpFips": {
           "allowUnfixed": true,
@@ -7373,7 +7375,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-hwe-6.8",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-149.149~22.04.1"
         },
         "linuxCve2026_98725Ibm": {
           "allowUnfixed": true,
@@ -7531,7 +7534,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-lowlatency-hwe-6.8",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-149.149.1~22.04.1"
         },
         "linuxCve2026_98725Nvidia": {
           "allowUnfixed": true,
@@ -7957,7 +7961,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-aws-6.8",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1069.74~22.04.1"
         },
         "linuxCve2026_98805AwsFips": {
           "allowUnfixed": true,
@@ -8221,7 +8226,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-gcp-6.8",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1073.81~22.04.1"
         },
         "linuxCve2026_98805GcpFips": {
           "allowUnfixed": true,
@@ -8329,7 +8335,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-hwe-6.8",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-149.149~22.04.1"
         },
         "linuxCve2026_98805Ibm": {
           "allowUnfixed": true,
@@ -8482,7 +8489,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-lowlatency-hwe-6.8",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-149.149.1~22.04.1"
         },
         "linuxCve2026_98805Nvidia": {
           "allowUnfixed": true,
@@ -9149,7 +9157,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-gcp-6.8",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1073.81~22.04.1"
         },
         "linuxIpv4InetOptUafGcpFips": {
           "allowUnfixed": true,
@@ -9163,7 +9172,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-gcp-fips",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "5.15.0-1121.131+fips1"
         },
         "linuxIpv4InetOptUafGke": {
           "allowUnfixed": true,
@@ -9325,7 +9335,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-kvm",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "5.15.0-1112.117"
         },
         "linuxIpv4InetOptUafLowlatency": {
           "allowUnfixed": true,
@@ -9399,7 +9410,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-lowlatency-hwe-6.8",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-149.149.1~22.04.1"
         },
         "linuxIpv4InetOptUafNvidia": {
           "allowUnfixed": true,
@@ -9413,7 +9425,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-nvidia",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "5.15.0-1115.116"
         },
         "linuxIpv4InetOptUafNvidia6_2": {
           "allowUnfixed": true,
@@ -9617,7 +9630,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-realtime",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "5.15.0-1119.128"
         },
         "linuxIpv4InetOptUafRealtime6_8": {
           "allowUnfixed": true,
@@ -11323,7 +11337,8 @@
           "kernelGroup": "linuxCve2026_98365",
           "package": "linux-aws-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.18~24.04.1"
         },
         "linuxCve2026_98365AwsFips": {
           "allowUnfixed": true,
@@ -11418,7 +11433,8 @@
           "kernelGroup": "linuxCve2026_98365",
           "package": "linux-azure-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1020.21~24.04.1"
         },
         "linuxCve2026_98365AzureFde": {
           "allowUnfixed": true,
@@ -11624,7 +11640,8 @@
           "kernelGroup": "linuxCve2026_98365",
           "package": "linux-gcp-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.19~24.04.1"
         },
         "linuxCve2026_98365GcpFips": {
           "allowUnfixed": true,
@@ -11670,7 +11687,8 @@
           "kernelGroup": "linuxCve2026_98365",
           "package": "linux-gkeop",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1053.57"
         },
         "linuxCve2026_98365Hwe6_11": {
           "allowUnfixed": true,
@@ -12000,7 +12018,8 @@
           "kernelGroup": "linuxCve2026_98365",
           "package": "linux-oracle-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1016.18~24.04.1"
         },
         "linuxCve2026_98365Raspi": {
           "allowUnfixed": true,
@@ -12188,7 +12207,8 @@
           "kernelGroup": "linuxCve2026_98464",
           "package": "linux-aws-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.18~24.04.1"
         },
         "linuxCve2026_98464AwsFips": {
           "allowUnfixed": true,
@@ -12283,7 +12303,8 @@
           "kernelGroup": "linuxCve2026_98464",
           "package": "linux-azure-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1020.21~24.04.1"
         },
         "linuxCve2026_98464AzureFde": {
           "allowUnfixed": true,
@@ -12489,7 +12510,8 @@
           "kernelGroup": "linuxCve2026_98464",
           "package": "linux-gcp-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.19~24.04.1"
         },
         "linuxCve2026_98464GcpFips": {
           "allowUnfixed": true,
@@ -12535,7 +12557,8 @@
           "kernelGroup": "linuxCve2026_98464",
           "package": "linux-gkeop",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1053.57"
         },
         "linuxCve2026_98464Hwe6_11": {
           "allowUnfixed": true,
@@ -12865,7 +12888,8 @@
           "kernelGroup": "linuxCve2026_98464",
           "package": "linux-oracle-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1016.18~24.04.1"
         },
         "linuxCve2026_98464Raspi": {
           "allowUnfixed": true,
@@ -13053,7 +13077,8 @@
           "kernelGroup": "linuxCve2026_98490",
           "package": "linux-aws-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.18~24.04.1"
         },
         "linuxCve2026_98490AwsFips": {
           "allowUnfixed": true,
@@ -13148,7 +13173,8 @@
           "kernelGroup": "linuxCve2026_98490",
           "package": "linux-azure-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1020.21~24.04.1"
         },
         "linuxCve2026_98490AzureFde": {
           "allowUnfixed": true,
@@ -13354,7 +13380,8 @@
           "kernelGroup": "linuxCve2026_98490",
           "package": "linux-gcp-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.19~24.04.1"
         },
         "linuxCve2026_98490GcpFips": {
           "allowUnfixed": true,
@@ -13400,7 +13427,8 @@
           "kernelGroup": "linuxCve2026_98490",
           "package": "linux-gkeop",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1053.57"
         },
         "linuxCve2026_98490Hwe6_11": {
           "allowUnfixed": true,
@@ -13730,7 +13758,8 @@
           "kernelGroup": "linuxCve2026_98490",
           "package": "linux-oracle-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1016.18~24.04.1"
         },
         "linuxCve2026_98490Raspi": {
           "allowUnfixed": true,
@@ -13918,7 +13947,8 @@
           "kernelGroup": "linuxCve2026_98548",
           "package": "linux-aws-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.18~24.04.1"
         },
         "linuxCve2026_98548AwsFips": {
           "allowUnfixed": true,
@@ -14013,7 +14043,8 @@
           "kernelGroup": "linuxCve2026_98548",
           "package": "linux-azure-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1020.21~24.04.1"
         },
         "linuxCve2026_98548AzureFde": {
           "allowUnfixed": true,
@@ -14219,7 +14250,8 @@
           "kernelGroup": "linuxCve2026_98548",
           "package": "linux-gcp-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.19~24.04.1"
         },
         "linuxCve2026_98548GcpFips": {
           "allowUnfixed": true,
@@ -14265,7 +14297,8 @@
           "kernelGroup": "linuxCve2026_98548",
           "package": "linux-gkeop",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1053.57"
         },
         "linuxCve2026_98548Hwe6_11": {
           "allowUnfixed": true,
@@ -14595,7 +14628,8 @@
           "kernelGroup": "linuxCve2026_98548",
           "package": "linux-oracle-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1016.18~24.04.1"
         },
         "linuxCve2026_98548Raspi": {
           "allowUnfixed": true,
@@ -14783,7 +14817,8 @@
           "kernelGroup": "linuxCve2026_98571",
           "package": "linux-aws-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.18~24.04.1"
         },
         "linuxCve2026_98571AwsFips": {
           "allowUnfixed": true,
@@ -14878,7 +14913,8 @@
           "kernelGroup": "linuxCve2026_98571",
           "package": "linux-azure-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1020.21~24.04.1"
         },
         "linuxCve2026_98571AzureFde": {
           "allowUnfixed": true,
@@ -15084,7 +15120,8 @@
           "kernelGroup": "linuxCve2026_98571",
           "package": "linux-gcp-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.19~24.04.1"
         },
         "linuxCve2026_98571GcpFips": {
           "allowUnfixed": true,
@@ -15464,7 +15501,8 @@
           "kernelGroup": "linuxCve2026_98571",
           "package": "linux-oracle-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1016.18~24.04.1"
         },
         "linuxCve2026_98571Raspi": {
           "allowUnfixed": true,
@@ -15654,7 +15692,8 @@
           "kernelGroup": "linuxCve2026_98621",
           "package": "linux-aws-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.18~24.04.1"
         },
         "linuxCve2026_98621AwsFips": {
           "allowUnfixed": true,
@@ -15749,7 +15788,8 @@
           "kernelGroup": "linuxCve2026_98621",
           "package": "linux-azure-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1020.21~24.04.1"
         },
         "linuxCve2026_98621AzureFde": {
           "allowUnfixed": true,
@@ -15955,7 +15995,8 @@
           "kernelGroup": "linuxCve2026_98621",
           "package": "linux-gcp-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.19~24.04.1"
         },
         "linuxCve2026_98621GcpFips": {
           "allowUnfixed": true,
@@ -16001,7 +16042,8 @@
           "kernelGroup": "linuxCve2026_98621",
           "package": "linux-gkeop",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1053.57"
         },
         "linuxCve2026_98621Hwe6_11": {
           "allowUnfixed": true,
@@ -16331,7 +16373,8 @@
           "kernelGroup": "linuxCve2026_98621",
           "package": "linux-oracle-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1016.18~24.04.1"
         },
         "linuxCve2026_98621Raspi": {
           "allowUnfixed": true,
@@ -16472,7 +16515,7 @@
           "package": "linux-aws",
           "priority": "critical",
           "status": "pending",
-          "trackerNote": "6.8.0-1069.72"
+          "trackerNote": "6.8.0-1069.74"
         },
         "linuxCve2026_98725Aws6_14": {
           "allowUnfixed": true,
@@ -16519,7 +16562,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-aws-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.18~24.04.1"
         },
         "linuxCve2026_98725AwsFips": {
           "allowUnfixed": true,
@@ -16534,7 +16578,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-aws-fips",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1069.74+fips1"
         },
         "linuxCve2026_98725Azure": {
           "allowUnfixed": true,
@@ -16613,7 +16658,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-azure-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1020.21~24.04.1"
         },
         "linuxCve2026_98725AzureFde": {
           "allowUnfixed": true,
@@ -16691,7 +16737,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-azure-fips",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1073.82+fips1"
         },
         "linuxCve2026_98725AzureNvidia": {
           "allowUnfixed": true,
@@ -16738,7 +16785,7 @@
           "package": "linux-fips",
           "priority": "critical",
           "status": "pending",
-          "trackerNote": "6.8.0-149.149+fips1"
+          "trackerNote": "6.8.0-149.149+fips2"
         },
         "linuxCve2026_98725Gcp": {
           "allowUnfixed": true,
@@ -16753,7 +16800,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-gcp",
           "priority": "critical",
-          "status": "pending"
+          "status": "pending",
+          "trackerNote": "6.8.0-1073.81"
         },
         "linuxCve2026_98725Gcp6_11": {
           "allowUnfixed": true,
@@ -16816,7 +16864,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-gcp-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.19~24.04.1"
         },
         "linuxCve2026_98725GcpFips": {
           "allowUnfixed": true,
@@ -16847,7 +16896,7 @@
           "package": "linux-gke",
           "priority": "critical",
           "status": "pending",
-          "trackerNote": "6.8.0-1068.76"
+          "trackerNote": "6.8.0-1068.77"
         },
         "linuxCve2026_98725Gkeop": {
           "allowUnfixed": true,
@@ -16862,7 +16911,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-gkeop",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1053.57"
         },
         "linuxCve2026_98725Hwe6_11": {
           "allowUnfixed": true,
@@ -17190,7 +17240,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-oracle-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1016.18~24.04.1"
         },
         "linuxCve2026_98725Raspi": {
           "allowUnfixed": true,
@@ -17235,7 +17286,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-realtime",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.1-1064.65"
         },
         "linuxCve2026_98725Realtime6_14": {
           "allowUnfixed": true,
@@ -17282,7 +17334,7 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-vmware",
           "priority": "critical",
-          "status": "needed"
+          "status": "not-affected"
         },
         "linuxCve2026_98725Xilinx": {
           "allowUnfixed": true,
@@ -17297,7 +17349,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-xilinx",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1042.43"
         },
         "linuxCve2026_98805": {
           "allowUnfixed": true,
@@ -17329,7 +17382,7 @@
           "package": "linux-aws",
           "priority": "critical",
           "status": "pending",
-          "trackerNote": "6.8.0-1069.72"
+          "trackerNote": "6.8.0-1069.74"
         },
         "linuxCve2026_98805Aws6_14": {
           "allowUnfixed": true,
@@ -17376,7 +17429,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-aws-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.18~24.04.1"
         },
         "linuxCve2026_98805AwsFips": {
           "allowUnfixed": true,
@@ -17391,7 +17445,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-aws-fips",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1069.74+fips1"
         },
         "linuxCve2026_98805Azure": {
           "allowUnfixed": true,
@@ -17470,7 +17525,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-azure-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1020.21~24.04.1"
         },
         "linuxCve2026_98805AzureFde": {
           "allowUnfixed": true,
@@ -17548,7 +17604,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-azure-fips",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1073.82+fips1"
         },
         "linuxCve2026_98805AzureNvidia": {
           "allowUnfixed": true,
@@ -17595,7 +17652,7 @@
           "package": "linux-fips",
           "priority": "critical",
           "status": "pending",
-          "trackerNote": "6.8.0-149.149+fips1"
+          "trackerNote": "6.8.0-149.149+fips2"
         },
         "linuxCve2026_98805Gcp": {
           "allowUnfixed": true,
@@ -17610,7 +17667,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-gcp",
           "priority": "critical",
-          "status": "pending"
+          "status": "pending",
+          "trackerNote": "6.8.0-1073.81"
         },
         "linuxCve2026_98805Gcp6_11": {
           "allowUnfixed": true,
@@ -17673,7 +17731,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-gcp-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.19~24.04.1"
         },
         "linuxCve2026_98805GcpFips": {
           "allowUnfixed": true,
@@ -17704,7 +17763,7 @@
           "package": "linux-gke",
           "priority": "critical",
           "status": "pending",
-          "trackerNote": "6.8.0-1068.76"
+          "trackerNote": "6.8.0-1068.77"
         },
         "linuxCve2026_98805Gkeop": {
           "allowUnfixed": true,
@@ -17719,7 +17778,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-gkeop",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1053.57"
         },
         "linuxCve2026_98805Hwe6_11": {
           "allowUnfixed": true,
@@ -18047,7 +18107,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-oracle-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1016.18~24.04.1"
         },
         "linuxCve2026_98805Raspi": {
           "allowUnfixed": true,
@@ -18092,7 +18153,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-realtime",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.1-1064.65"
         },
         "linuxCve2026_98805Realtime6_14": {
           "allowUnfixed": true,
@@ -18139,7 +18201,7 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-vmware",
           "priority": "critical",
-          "status": "needed"
+          "status": "not-affected"
         },
         "linuxCve2026_98805Xilinx": {
           "allowUnfixed": true,
@@ -18154,7 +18216,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-xilinx",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1042.43"
         },
         "linuxFragnesia": {
           "abi": 124,
@@ -18281,7 +18344,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-aws-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.18~24.04.1"
         },
         "linuxIpv4InetOptUafAwsFips": {
           "allowUnfixed": true,
@@ -18370,7 +18434,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-azure-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1020.21~24.04.1"
         },
         "linuxIpv4InetOptUafAzureFde": {
           "allowUnfixed": true,
@@ -18502,7 +18567,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-gcp",
           "priority": "high",
-          "status": "pending"
+          "status": "pending",
+          "trackerNote": "6.8.0-1073.81"
         },
         "linuxIpv4InetOptUafGcp6_11": {
           "allowUnfixed": true,
@@ -18561,7 +18627,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-gcp-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.19~24.04.1"
         },
         "linuxIpv4InetOptUafGcpFips": {
           "allowUnfixed": true,
@@ -18912,7 +18979,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-oracle-7.0",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1016.18~24.04.1"
         },
         "linuxIpv4InetOptUafRaspi": {
           "allowUnfixed": true,
@@ -18999,7 +19067,7 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-vmware",
           "priority": "high",
-          "status": "needed"
+          "status": "not-affected"
         },
         "linuxIpv4InetOptUafXilinx": {
           "allowUnfixed": true,
@@ -19013,7 +19081,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-xilinx",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1042.43"
         },
         "linuxJanuscape": {
           "cve": "CVE-2026-53359",
@@ -20436,7 +20505,8 @@
           "kernelGroup": "linuxCve2026_98365",
           "package": "linux-azure-fde",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1019.19"
         },
         "linuxCve2026_98365Gcp": {
           "allowUnfixed": true,
@@ -20467,7 +20537,8 @@
           "kernelGroup": "linuxCve2026_98365",
           "package": "linux-gke",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1010.11"
         },
         "linuxCve2026_98365Ibm": {
           "allowUnfixed": true,
@@ -20638,7 +20709,8 @@
           "kernelGroup": "linuxCve2026_98464",
           "package": "linux-azure-fde",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1019.19"
         },
         "linuxCve2026_98464Gcp": {
           "allowUnfixed": true,
@@ -20669,7 +20741,8 @@
           "kernelGroup": "linuxCve2026_98464",
           "package": "linux-gke",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1010.11"
         },
         "linuxCve2026_98464Ibm": {
           "allowUnfixed": true,
@@ -20840,7 +20913,8 @@
           "kernelGroup": "linuxCve2026_98490",
           "package": "linux-azure-fde",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1019.19"
         },
         "linuxCve2026_98490Gcp": {
           "allowUnfixed": true,
@@ -20871,7 +20945,8 @@
           "kernelGroup": "linuxCve2026_98490",
           "package": "linux-gke",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1010.11"
         },
         "linuxCve2026_98490Ibm": {
           "allowUnfixed": true,
@@ -21042,7 +21117,8 @@
           "kernelGroup": "linuxCve2026_98548",
           "package": "linux-azure-fde",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1019.19"
         },
         "linuxCve2026_98548Gcp": {
           "allowUnfixed": true,
@@ -21073,7 +21149,8 @@
           "kernelGroup": "linuxCve2026_98548",
           "package": "linux-gke",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1010.11"
         },
         "linuxCve2026_98548Ibm": {
           "allowUnfixed": true,
@@ -21244,7 +21321,8 @@
           "kernelGroup": "linuxCve2026_98571",
           "package": "linux-azure-fde",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1019.19"
         },
         "linuxCve2026_98571Gcp": {
           "allowUnfixed": true,
@@ -21275,7 +21353,8 @@
           "kernelGroup": "linuxCve2026_98571",
           "package": "linux-gke",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1010.11"
         },
         "linuxCve2026_98571Ibm": {
           "allowUnfixed": true,
@@ -21446,7 +21525,8 @@
           "kernelGroup": "linuxCve2026_98621",
           "package": "linux-azure-fde",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1019.19"
         },
         "linuxCve2026_98621Gcp": {
           "allowUnfixed": true,
@@ -21477,7 +21557,8 @@
           "kernelGroup": "linuxCve2026_98621",
           "package": "linux-gke",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1010.11"
         },
         "linuxCve2026_98621Ibm": {
           "allowUnfixed": true,
@@ -21648,7 +21729,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-azure-fde",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1019.19"
         },
         "linuxCve2026_98725Gcp": {
           "allowUnfixed": true,
@@ -21663,7 +21745,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-gcp",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.19"
         },
         "linuxCve2026_98725Gke": {
           "allowUnfixed": true,
@@ -21678,7 +21761,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-gke",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1010.11"
         },
         "linuxCve2026_98725Ibm": {
           "allowUnfixed": true,
@@ -21739,7 +21823,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-oem-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1018.18"
         },
         "linuxCve2026_98725Oracle": {
           "allowUnfixed": true,
@@ -21754,7 +21839,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-oracle",
           "priority": "critical",
-          "status": "pending"
+          "status": "pending",
+          "trackerNote": "7.0.0-1016.18"
         },
         "linuxCve2026_98725Raspi": {
           "allowUnfixed": true,
@@ -21847,7 +21933,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-azure-fde",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1019.19"
         },
         "linuxCve2026_98805Gcp": {
           "allowUnfixed": true,
@@ -21862,7 +21949,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-gcp",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1017.19"
         },
         "linuxCve2026_98805Gke": {
           "allowUnfixed": true,
@@ -21877,7 +21965,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-gke",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1010.11"
         },
         "linuxCve2026_98805Ibm": {
           "allowUnfixed": true,
@@ -21938,7 +22027,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-oem-7.0",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1018.18"
         },
         "linuxCve2026_98805Oracle": {
           "allowUnfixed": true,
@@ -21953,7 +22043,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-oracle",
           "priority": "critical",
-          "status": "pending"
+          "status": "pending",
+          "trackerNote": "7.0.0-1016.18"
         },
         "linuxCve2026_98805Raspi": {
           "allowUnfixed": true,
@@ -22069,7 +22160,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-azure-fde",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1019.19"
         },
         "linuxIpv4InetOptUafGcp": {
           "allowUnfixed": true,
@@ -22098,7 +22190,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-gke",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "7.0.0-1010.11"
         },
         "linuxIpv4InetOptUafIbm": {
           "allowUnfixed": true,
@@ -22680,7 +22773,7 @@
       }
     }
   },
-  "generated": "2026-10-30T07:22:49Z",
+  "generated": "2026-10-31T07:19:59Z",
   "gracePeriodDays": 3,
   "maxAgeDays": 10,
   "schemaVersion": 1
