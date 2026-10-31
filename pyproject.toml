@@ -19,7 +19,7 @@ Homepage = "https://clustermax.semianalysis.com/"
 Documentation = "https://www.clustermax.ai/criteria"
 
 [project.optional-dependencies]
-dev = ["build>=1", "pytest>=8", "pytest-xdist>=3"]
+dev = ["build>=1", "pytest>=8", "pytest-xdist>=3", "numpy>=1.24"]
 
 [project.scripts]
 cmax = "cmax.cli:main"
