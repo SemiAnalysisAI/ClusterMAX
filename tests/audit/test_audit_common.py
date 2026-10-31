@@ -230,6 +230,7 @@ class AuditCommonTests(unittest.TestCase):
             selected["security"],
             {
                 "fabric/nic-topology-check.py",
+                "fabric/vf-interface-exposure.py",
                 "fabric/virtio-net-check.py",
             },
         )
@@ -1198,6 +1199,48 @@ class ContainerWorkerCheckTests(unittest.TestCase):
             security["connectxFirmware"]["devices"][0]["device"], "mlx5_unknown"
         )
 
+class NvidiaDriverFloorsTests(unittest.TestCase):
+    def floors(self, reader: str) -> bashtest.BashRun:
+        return bashtest.run_bash(
+            f'source "{COMMON_PATH}"; MINIMUM_VERSIONS_READER="{reader}"; '
+            "nvidia_driver_floors"
+        )
+
+    def test_floors_match_the_published_table(self) -> None:
+        # The formatted policy must be exactly what the table publishes, so a
+        # refreshed NVIDIA bulletin reaches the checks without shell edits.
+        run = bashtest.run_bash(f'source "{COMMON_PATH}"; nvidia_driver_floors')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        branches = minimum_versions.get("components.nvidiaDriver.branches")
+        expected = " ".join(
+            f"{branch}={branches[branch]}" for branch in sorted(branches, key=int)
+        )
+        self.assertEqual(run.stdout.strip(), expected)
+
+    def test_a_missing_reader_prints_nothing(self) -> None:
+        run = self.floors("/nonexistent/minimum_versions.py")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stdout.strip(), "")
+
+    def test_a_malformed_table_prints_nothing(self) -> None:
+        # The policy is all or nothing: any malformed row fails the whole read
+        # instead of grading the valid rows and silently dropping the rest.
+        with tempfile.TemporaryDirectory() as tmp:
+            reader = Path(tmp) / "reader.py"
+            for body in (
+                "print('not json')",
+                "print('[\"580.178.04\"]')",
+                "print('{\"580\": \"178.04\"}')",
+                "print('{\"580x\": \"580.178.04\"}')",
+                "print('{\"580\": \"580.178.04\", \"615\": \"bad\"}')",
+            ):
+                with self.subTest(body=body):
+                    reader.write_text("import sys\n" + body + "\n")
+                    run = self.floors(str(reader))
+                    self.assertEqual(run.returncode, 0, run.stderr)
+                    self.assertEqual(run.stdout.strip(), "")
+
+
 class HostCheckNicInventoryTests(unittest.TestCase):
     ANCHORS = (
         "# Security inventory includes logical/bonded devices",
@@ -1450,7 +1493,12 @@ class SlurmJobGpusPerNodeTests(unittest.TestCase):
 
 
 class SecurityBulletinIntegrationTests(unittest.TestCase):
-    def run_nvlink_probe(self, topology_body: str) -> dict[str, str]:
+    def run_nvlink_probe(
+        self,
+        topology_body: str,
+        floors: str = "580=580.178.04",
+        driver: str = "580.159.03",
+    ) -> dict[str, str]:
         block = bashtest.extract_block(
             HOST_CHECK_PATH,
             "WORKER_NVIDIA_MAY_2026_PATCHED=unknown",
@@ -1458,20 +1506,56 @@ class SecurityBulletinIntegrationTests(unittest.TestCase):
         )
         nvidia_smi = (
             'if [[ "$*" == "--query-gpu=driver_version --format=csv,noheader" ]]; '
-            "then printf '580.159.03\\n'; exit 0; fi\n"
+            f"then printf '{driver}\\n'; exit 0; fi\n"
             'if [[ "$*" == "topo -m" ]]; then\n'
             f"{topology_body}\n"
             "exit $?\n"
             "fi\n"
             "exit 1"
         )
-        run = bashtest.run_bash(block, stubs={"nvidia-smi": nvidia_smi})
+        run = bashtest.run_bash(
+            block,
+            stubs={"nvidia-smi": nvidia_smi},
+            env={"CLUSTERMAX_NVIDIA_BRANCH_FLOORS": floors},
+        )
         self.assertEqual(run.returncode, 0, run.stderr)
         return dict(
             line.split("=", 1)
             for line in run.stdout.splitlines()
-            if line.startswith("WORKER_NVLINK_")
+            if line.startswith(("WORKER_NVLINK_", "WORKER_NVIDIA_MAY_2026_PATCHED"))
         )
+
+    def test_driver_patch_fact_follows_the_injected_branch_floors(self) -> None:
+        # The host check grades the driver against the branch floors the
+        # collector injects from the table: below the floor is false, at or
+        # above it is true, and no policy leaves an unknown instead of a
+        # guessed verdict. The stub reports 580.159.03.
+        probe = self.run_nvlink_probe("exit 1")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "false")
+        probe = self.run_nvlink_probe("exit 1", floors="580=580.159.03")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "true")
+        probe = self.run_nvlink_probe("exit 1", floors="")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "unknown")
+
+    def test_driver_patch_fact_parses_versions_like_the_report_grader(self) -> None:
+        # A release candidate compares on its numeric prefix, a reading whose
+        # numeric prefix is below the floor fails, and a reading with no
+        # numeric version stays unknown - the same handling the report-side
+        # grader's version parser applies. Both sides compare as normalized
+        # numeric tuples, so a floor published with more components and a
+        # reading without the zero padding still compare equal.
+        probe = self.run_nvlink_probe("exit 1", driver="580.178.04-rc1")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "true")
+        probe = self.run_nvlink_probe("exit 1", driver="580.not-a-version")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "false")
+        probe = self.run_nvlink_probe("exit 1", driver="not-a-version")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "unknown")
+        probe = self.run_nvlink_probe("exit 1", floors="580=580.178.04.0")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "false")
+        probe = self.run_nvlink_probe("exit 1", floors="580=580.159.03.0")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "true")
+        probe = self.run_nvlink_probe("exit 1", driver="580.178.4")
+        self.assertEqual(probe["WORKER_NVIDIA_MAY_2026_PATCHED"], "true")
 
     def test_nvlink_probe_distinguishes_absence_from_a_failed_read(self) -> None:
         failed = self.run_nvlink_probe("exit 1")

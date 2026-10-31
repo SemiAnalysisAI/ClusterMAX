@@ -23,6 +23,9 @@ CHECK_PROFILES = {
     "fabric/nic-topology-check.py": frozenset(
         {"security", "versions", "isolation", "networking"}
     ),
+    "fabric/vf-interface-exposure.py": frozenset(
+        {"security", "isolation"}
+    ),
     "fabric/virtio-net-check.py": frozenset(
         {"security", "versions", "isolation"}
     ),
@@ -40,6 +43,9 @@ CHECK_HARNESSES = {
     "fabric/nccl-ib-qps-check.py": frozenset({"slurm", "k8s"}),
     "fabric/nccl-topology-file-check.py": frozenset({"slurm"}),
     "fabric/nic-topology-check.py": frozenset({"slurm", "k8s"}),
+    "fabric/vf-interface-exposure.py": frozenset(
+        {"standalone", "slurm", "k8s"}
+    ),
     "fabric/virtio-net-check.py": frozenset({"slurm", "k8s"}),
     "gpu/vboost.py": frozenset({"standalone", "slurm", "k8s"}),
     "system/arm-smmu-virtualization-check.py": frozenset(
@@ -166,6 +172,7 @@ def discover_gpu_operator_namespace() -> str | None:
 # summary line, and a fail / warning also reaches stderr so it is visible in a
 # scrolling run log before audit_findings.py collects it at the end.
 STATUS_CHECK_KEYS = (
+    "vf_interface_exposure",
     "thp_madvise",
     "static_hugepages",
     "hugepage_allocation",

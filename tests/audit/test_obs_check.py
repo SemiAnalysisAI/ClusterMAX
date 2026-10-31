@@ -1182,6 +1182,61 @@ def test_missing_observability_evidence_is_not_a_pass():
     assert next(c for c in rows if c.id == "observability-isolation").status == security.WARNING
 
 
+@pytest.mark.parametrize(
+    ("backends", "unassessed"),
+    [
+        (1, [[1, 1, 0, None]]),
+        (4, [[1, 0, 0, None]]),
+    ],
+)
+def test_in_cluster_targets_unassessed_do_not_hide_measured_backends(
+    backends, unassessed
+):
+    # A k8s Service name resolves only through cluster DNS, so the operator
+    # host cannot check it. The report marks those endpoints unassessed from
+    # this vantage without downgrading the backends that were measured.
+    audit = {"security": {"observability": {
+        "configured": True,
+        "backends_reachable": backends,
+        "queries_answered": backends,
+        "unassessed_targets": unassessed,
+    }}}
+    status, summary, _assessment = security._observability(audit)
+    assert status == security.WARNING
+    assert f"{backends} of {backends} assessed backend(s) answered a query" in summary
+    assert "1 in-cluster endpoint(s) not assessed from this vantage" in summary
+    assert "not fully checked" not in summary
+
+
+def test_inject_observability_sets_aside_an_unresolvable_service_target(monkeypatch):
+    values = {"audit_data": {"security": {}}}
+    services = {
+        "items": [{
+            "metadata": {"name": "prometheus-operated", "namespace": "monitoring"},
+            "spec": {"ports": [{"port": 9090}]},
+        }]
+    }
+    monkeypatch.delenv("CLUSTERMAX_OBS_TARGETS", raising=False)
+    monkeypatch.setenv("CLUSTERMAX_OBS_DISCOVER", "1")
+    fake = {"configured": True, "backends_reachable": 0}
+    with patch.object(obs_discovery, "collect_local_sockets", return_value=""), \
+         patch.object(obs_discovery, "collect_local_processes", return_value=""), \
+         patch.object(obs_discovery, "collect_kubernetes_services", return_value=services), \
+         patch.object(obs_discovery, "_host_resolves", return_value=False), \
+         patch.object(obs_check, "check", return_value=fake) as check:
+        security._inject_observability(
+            values, target=security.SecurityTarget("k8s", "k8s"),
+        )
+    # No request goes to the name this host cannot resolve.
+    assert check.call_args.args[0] == []
+    recorded = values["audit_data"]["security"]["observability"]
+    assert recorded["targets_found"] == 1
+    assert recorded["unassessed_targets"][0]["platform"] == "prometheus"
+    assert recorded["unassessed_targets"][0]["reason"] == (
+        "Kubernetes Service name did not resolve from the operator host"
+    )
+
+
 @pytest.mark.parametrize("discovered", [False, True])
 @pytest.mark.parametrize("exposure", [False, True])
 def test_target_cap_preserves_incomplete_coverage_and_exposure(monkeypatch, discovered, exposure):
@@ -1240,6 +1295,7 @@ def test_summary_source_label_uses_selected_targets_only(monkeypatch, audit_coun
     with patch.object(obs_discovery, "collect_local_sockets", return_value=""), \
          patch.object(obs_discovery, "collect_local_processes", return_value=""), \
          patch.object(obs_discovery, "collect_kubernetes_services", return_value=services), \
+         patch.object(obs_discovery, "_host_resolves", return_value=True), \
          patch.object(obs_check, "check_endpoint", return_value={
              "reachable": True, "query_ok": True, "requests": 1,
          }) as endpoint:
@@ -1271,6 +1327,7 @@ def test_source_label_does_not_count_a_deduplicated_url_alias(monkeypatch):
     )
     values = {}
     with patch.object(obs_discovery, "discover", return_value=discovery), \
+         patch.object(obs_discovery, "_host_resolves", return_value=True), \
          patch.object(obs_check, "check_endpoint", return_value={
              "reachable": True, "query_ok": True, "requests": 1,
          }) as endpoint:

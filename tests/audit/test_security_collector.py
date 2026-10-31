@@ -268,7 +268,7 @@ WORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.6
             '    payload=$(cat)\n'
             '    if grep -q WORKER_CONTAINER_HOSTNAME <<< "$payload"; then\n'
             f"      printf '%b' {container_evidence!r}\n"
-            '    elif grep -q "DEVICE=%s" <<< "$payload"; then\n'
+            '    elif grep -q "PATH=%s" <<< "$payload"; then\n'
             '      grep -q \'timeout 5 "$path" mc info\' <<< "$payload" || exit 96\n'
             '      grep -q \'timeout 5 "$path" chassis status\' <<< "$payload" || exit 96\n'
             "      printf '%s\\n' 'DEVICE=true' 'PATH=/usr/bin/ipmitool' "

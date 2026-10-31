@@ -408,6 +408,19 @@ class UbuntuKernelCveTests(TempDirMixin):
             self.grade(table, "24.04", "6.8.0-140-generic"), ("unknown", "[]", "[]")
         )
 
+    def test_release_without_tracked_cve_rows_is_unknown(self) -> None:
+        """A release whose table lists no CVE row cannot be graded.
+
+        Every tracked group is unverifiable, so the status is unknown rather
+        than a pass the table cannot support.
+        """
+        table = minimum_table()
+        table["components"]["ubuntuNoble"]["packages"] = {}
+        self.assertEqual(
+            self.grade(table, "24.04", "6.8.0-140-generic"),
+            ("unknown", "[]", "[]"),
+        )
+
     def test_shipped_table_grades_sctp_sendall(self) -> None:
         shipped = json.loads((WORKLOAD / "minimum-versions.json").read_text())
         for component, release, below, fixed in (

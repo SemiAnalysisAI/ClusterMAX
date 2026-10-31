@@ -237,6 +237,58 @@ def test_each_upstream_branch_boundary(minimum):
     assert pwnescape.grade(facts(newer))["status"] == "pass"
 
 
+VENDOR_KERNEL = {
+    "WORKER_GUEST_KERNEL_RUNNING": "6.17.0-1021-nvidia-64k",
+    "WORKER_VIRT_GUEST": "false",
+    "WORKER_VIRT_TYPE": "none",
+    "WORKER_PWNESCAPE_LIVEPATCH": "none",
+    "WORKER_KERNEL_DISTRIBUTION": "ubuntu 24.04",
+    "WORKER_KERNEL_VERSION_SIGNATURE": "Ubuntu 6.17.0-1021.21-nvidia-64k 6.17.13",
+    "WORKER_KERNEL_SOURCE_PACKAGE": "linux-signed-nvidia-6.17 6.17.0-1021.21",
+}
+
+
+@pytest.mark.parametrize(
+    "kernel",
+    [
+        VENDOR_KERNEL,
+        # The same vendor kernel without the version-signature fact.
+        facts(
+            version="6.17.0-1021-nvidia-64k",
+            WORKER_KERNEL_DISTRIBUTION="ubuntu 24.04",
+            WORKER_KERNEL_SOURCE_PACKAGE="linux-signed-nvidia-6.17 6.17.0-1021.21",
+        ),
+    ],
+)
+def test_vendor_kernel_asks_for_evidence_instead_of_guessing_a_verdict(kernel):
+    value = pwnescape.grade(kernel)
+    assert value["status"] == "unknown"
+    assert value["exploitTested"] is False
+    # The report must name the exact facts a provider has to send: it must not
+    # imply a pass, and it must not imply that the kernel lacks the fix.
+    assert "neither a pass nor a fail" in value["reason"]
+    assert "unverified" in value["reason"]
+    assert "not unpatched" in value["reason"]
+    for expected in (
+        "6.17.0-1021-nvidia-64k", "nvidia-64k", "1021",
+        "linux-signed-nvidia-6.17 6.17.0-1021.21", pwnescape.FIX_COMMIT, "livepatch",
+    ):
+        assert expected in value["reason"]
+    assert value["kernelDistribution"] == "ubuntu 24.04"
+    assert value["kernelFlavor"] == "nvidia-64k"
+    assert value["kernelAbi"] == "1021"
+    assert value["kernelSourcePackage"] == "linux-signed-nvidia-6.17 6.17.0-1021.21"
+    assert value["minimum"] == "unknown"
+    for evidence in ("distribution", "kernel flavor", "kernel ABI", "source package version", "fix commit", "livepatch"):
+        assert any(evidence in item for item in value["providerEvidence"])
+
+
+def test_generic_kernel_does_not_request_vendor_evidence():
+    value = pwnescape.grade(facts("6.8.0-147-generic"))
+    assert "kernelFlavor" not in value
+    assert "providerEvidence" not in value
+
+
 @pytest.mark.parametrize(
     "version",
     [
@@ -452,9 +504,54 @@ CONTROL_FOUND = {"discovered": True, "detail": "found"}
 
 
 def test_host_fact_script_shares_the_host_check_collector():
-    assert bashtest.extract_function(
-        WORKLOAD / "pwnescape-host-facts.sh", "collect_pwnescape_facts"
-    ) == bashtest.extract_function(WORKLOAD / "host-check.sh", "collect_pwnescape_facts")
+    for name in ("collect_pwnescape_facts", "collect_kernel_identity_facts"):
+        assert bashtest.extract_function(
+            WORKLOAD / "pwnescape-host-facts.sh", name
+        ) == bashtest.extract_function(WORKLOAD / "host-check.sh", name)
+
+
+def test_kernel_identity_collector_reads_the_vendor_build_record(tmp_path):
+    (tmp_path / "etc").mkdir()
+    (tmp_path / "etc/os-release").write_text('ID="ubuntu"\nVERSION_ID="24.04"\n')
+    (tmp_path / "proc").mkdir()
+    (tmp_path / "proc/version_signature").write_text(
+        "Ubuntu 6.17.0-1021.21-nvidia-64k 6.17.13\n"
+    )
+    function = bashtest.extract_function(
+        WORKLOAD / "pwnescape-host-facts.sh", "collect_kernel_identity_facts"
+    )
+    run = bashtest.run_bash(
+        function + "\ncollect_kernel_identity_facts",
+        stubs={
+            "uname": '[[ "$1" == "-r" ]] && echo 6.17.0-1021-nvidia-64k',
+            "dpkg-query": 'echo "linux-signed-nvidia-6.17 6.17.0-1021.21"',
+        },
+        env={"CLUSTERMAX_AUDIT_ROOT": str(tmp_path)},
+    )
+    assert run.returncode == 0, run.stderr
+    collected = dict(line.split("=", 1) for line in run.stdout.splitlines())
+    assert collected["WORKER_KERNEL_DISTRIBUTION"] == "ubuntu 24.04"
+    assert collected["WORKER_KERNEL_VERSION_SIGNATURE"] == (
+        "Ubuntu 6.17.0-1021.21-nvidia-64k 6.17.13"
+    )
+    assert collected["WORKER_KERNEL_FLAVOR"] == "nvidia-64k"
+    assert collected["WORKER_KERNEL_ABI"] == "1021"
+    assert collected["WORKER_KERNEL_SOURCE_PACKAGE"] == (
+        "linux-signed-nvidia-6.17 6.17.0-1021.21"
+    )
+
+
+def test_guest_kernel_unknown_inventory_names_the_missing_evidence():
+    grade, observed, assessment = security._guest_kernel(
+        {"security": {"guestKernel": {
+            "running": "6.17.0-1021-nvidia-64k",
+            "newestInstalled": "unknown",
+        }}}
+    )
+    assert grade == security.WARNING
+    assert "nvidia-64k" in assessment and "ABI 1021" in assessment
+    assert "dpkg-query" in assessment
+    assert "/proc/version_signature" in assessment
 
 
 @pytest.mark.parametrize(
@@ -543,6 +640,28 @@ def test_distribution_kernels_across_a_complete_fleet_need_vendor_evidence():
     assert value["status"] == "unknown"
     assert value["runningKernels"] == ["6.12.113", "6.8.0-106-generic"]
     assert "gpu-1" in value["reason"]
+
+
+def test_vendor_kernel_reaches_the_common_report_observation():
+    raw = "\n".join(
+        f"{key}={item}"
+        for key, item in facts(
+            version="6.17.0-1021-nvidia-64k",
+            WORKER_KERNEL_DISTRIBUTION="ubuntu 24.04",
+            WORKER_KERNEL_SOURCE_PACKAGE="linux-signed-nvidia-6.17 6.17.0-1021.21",
+        ).items()
+    )
+    fragment = subprocess.check_output(
+        ["bash", "-c",
+         'source "$1/audit-common.sh"; build_security_advisory_json --host-facts "$2"',
+         "bash", str(WORKLOAD), raw],
+        text=True,
+    )
+    audit = {"security": json.loads("{" + fragment + '"sentinel": null}')}
+    check = next(c for c in security.evaluate_security(audit) if c.id == "pwnescape")
+    assert check.status == security.WARNING
+    for expected in ("flavor=nvidia-64k", "abi=1021", "linux-signed-nvidia-6.17"):
+        assert expected in check.observed
 
 
 def test_fleet_cli_reads_the_collector_document():

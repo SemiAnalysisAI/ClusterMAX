@@ -8,6 +8,7 @@ which platforms get reported, and which evidence is deliberately not checked.
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from cmax import obs_discovery
 
@@ -339,6 +340,66 @@ class DiscoverOrderingTests(unittest.TestCase):
         self.assertEqual(result.source_label(), "audit")
         self.assertEqual(len(result.urls()), 2)
         self.assertIn("grafana", result.platforms)
+
+
+class InClusterVantageTests(unittest.TestCase):
+    def test_a_service_name_this_host_cannot_resolve_is_set_aside(self) -> None:
+        # A security audit for a k8s cluster runs on the operator host, and an
+        # in-cluster Service name resolves only through cluster DNS. Checking it
+        # there made every request fail, so the report called a healthy backend
+        # unreachable.
+        endpoints = [
+            obs_discovery.Endpoint(
+                "http://prometheus-operated.monitoring.svc.cluster.local:9090",
+                "prometheus",
+                "k8s-services",
+            ),
+            obs_discovery.Endpoint(
+                "http://grafana.monitoring.svc.cluster.local:3000",
+                "grafana",
+                "k8s-services",
+            ),
+        ]
+        with mock.patch.object(
+            obs_discovery, "_host_resolves", return_value=False
+        ):
+            kept, unassessed = obs_discovery.split_unassessed(endpoints)
+
+        self.assertEqual(kept, [])
+        self.assertEqual(len(unassessed), 2)
+        self.assertEqual(
+            unassessed[0].reason,
+            "Kubernetes Service name did not resolve from the operator host",
+        )
+
+    def test_an_address_that_resolves_is_still_checked(self) -> None:
+        endpoints = [
+            obs_discovery.Endpoint(
+                "http://prometheus-operated.monitoring.svc.cluster.local:9090",
+                "prometheus",
+                "k8s-services",
+            ),
+            obs_discovery.Endpoint("http://127.0.0.1:3000", "grafana", "sockets"),
+        ]
+        lookups: list[str] = []
+
+        def resolver(host: str) -> bool:
+            lookups.append(host)
+            return True
+
+        with mock.patch.object(obs_discovery, "_host_resolves", side_effect=resolver):
+            kept, unassessed = obs_discovery.split_unassessed(
+                [endpoints[0], endpoints[0], endpoints[1]]
+            )
+        self.assertEqual(
+            [endpoint.url for endpoint in kept],
+            [endpoints[0].url, endpoints[0].url, endpoints[1].url],
+        )
+        self.assertEqual(unassessed, [])
+        # Each distinct Service host is resolved only once.
+        self.assertEqual(
+            lookups, ["prometheus-operated.monitoring.svc.cluster.local"]
+        )
 
 
 if __name__ == "__main__":

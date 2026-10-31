@@ -76,6 +76,29 @@ class PortAttrsTests(unittest.TestCase):
                 self.assertEqual(nic.parse_port_attrs(raw), expected)
 
 
+class FabricFactsTests(unittest.TestCase):
+    def test_pkey_table_keeps_only_populated_slots(self) -> None:
+        self.assertEqual(
+            nic.parse_pkey_table(["0x9002", "0x7fff", "0x0000", ""]),
+            ["0x9002", "0x7fff"],
+        )
+
+    def test_fabric_facts_carry_sm_lid_and_pkeys(self) -> None:
+        self.assertEqual(
+            nic.parse_fabric_facts("0x705", "0x1", ["0x9002", "0x7fff"]),
+            {"lid": "0x705", "smLid": "0x1", "pkeys": ["0x9002", "0x7fff"]},
+        )
+
+    def test_fabric_facts_absent_sysfs_returns_empty(self) -> None:
+        self.assertEqual(nic.parse_fabric_facts("", "", []), {})
+
+    def test_pkey_table_normalizes_unprefixed_hex(self) -> None:
+        self.assertEqual(
+            nic.parse_pkey_table(["7fff", "ffff", "0x9002", "0x0000"]),
+            ["0x7fff", "0xffff", "0x9002"],
+        )
+
+
 class ParserTests(unittest.TestCase):
     def test_ibnetdiscover_matches_guid_or_exact_hostname(self) -> None:
         for guid, host, text, matched in [
@@ -368,6 +391,7 @@ class PayloadTests(unittest.TestCase):
                 "@@TOPO_END@@",
                 "@@HCA@@\tmlx5_ib0\t800 Gb/sec (4X XDR)\tInfiniBand\t4: ACTIVE",
                 "@@PLANEGUID@@\tmlx5_ib0\t0000:0000:0000:00a1",
+                "@@PORT@@\tmlx5_ib0\t0x705\t0x1\t0x9002,0x7fff",
                 "@@PLANE@@ mlx5_ib0 mlxconfig MISSING",
                 "@@PLANE@@ mlx5_ib0 mlxlink MISSING",
                 "@@PLANE@@ mlx5_ib0 ibnetdiscover MISSING",
@@ -390,6 +414,10 @@ class PayloadTests(unittest.TestCase):
         self.assertEqual(len(evidence), 1)
         self.assertEqual(evidence[0]["ibdev"], "mlx5_ib0")
         self.assertEqual(evidence[0]["port"], {"rate_gbps": 800, "width": "4X", "speed": "XDR"})
+        self.assertEqual(
+            evidence[0]["fabric"],
+            {"lid": "0x705", "smLid": "0x1", "pkeys": ["0x9002", "0x7fff"]},
+        )
         self.assertEqual(evidence[0]["mlxconfig"], {"status": "not determined", "reason": "tool not installed"})
         self.assertEqual(evidence[0]["presentation"]["status"], "not determined")
 
@@ -458,6 +486,32 @@ def test_local_collector_retains_down_ib_candidates_but_not_active_storage():
     for record in evidence:
         assert record["mlxconfig"] == {"status": "not determined", "reason": "tool not installed"}
         assert record["presentation"]["status"] == "not determined"
+
+
+def test_local_collector_reads_fabric_facts_from_sysfs(tmp_path):
+    base = tmp_path / "mlx5_ib0" / "ports" / "1"
+    (base / "pkeys").mkdir(parents=True)
+    (base / "rate").write_text("800 Gb/sec (4X XDR)")
+    (base / "lid").write_text("0x705")
+    (base / "sm_lid").write_text("0x1")
+    (base / "pkeys" / "0").write_text("0x9002")
+    (base / "pkeys" / "1").write_text("0x7fff")
+    (base / "pkeys" / "2").write_text("0x0000")
+    (tmp_path / "mlx5_ib0" / "node_guid").write_text("b8ce:f603:002f:d0ee")
+
+    def runner(command: Any, **_: Any):
+        raise FileNotFoundError(command[0])
+
+    out = nic.collect_plane_evidence(
+        [{"name": "mlx5_ib0", "role": "fabric", "layer": "InfiniBand"}],
+        runner=runner,
+        sysfs_root=str(tmp_path),
+    )
+
+    assert out[0]["fabric"] == {
+        "lid": "0x705", "smLid": "0x1", "pkeys": ["0x9002", "0x7fff"]
+    }
+
 
 def test_local_worker_collects_down_port_evidence_before_peer_recovery(monkeypatch):
     monkeypatch.setenv("NODE_NAME", "synthetic-down")

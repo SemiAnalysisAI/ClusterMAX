@@ -100,6 +100,69 @@ def _ubuntu_grade(facts: dict[str, str], running: str) -> tuple[str, str, str, s
     return unknown
 
 
+# A distribution kernel release is <upstream>-<ABI>-<flavor>, for example
+# 6.17.0-1021-nvidia-64k. The generic flavors belong to the distribution ABI
+# ladder. Every other flavor is a vendor kernel, and its backport state cannot
+# be read from the upstream base version alone.
+DISTRIBUTION_RELEASE = re.compile(
+    r"^(?P<upstream>\d+\.\d+\.\d+)-(?P<abi>\d+)-(?P<flavor>[a-z0-9][a-z0-9-]*)$"
+)
+GENERIC_FLAVORS = {"generic", "generic-64k"}
+
+
+def _vendor_kernel(facts: dict[str, str]) -> dict[str, str] | None:
+    """Return the vendor kernel identity, or None for an upstream or generic release."""
+    running = facts.get("WORKER_GUEST_KERNEL_RUNNING", "unknown")
+    match = DISTRIBUTION_RELEASE.fullmatch(running)
+    if match is None or match.group("flavor") in GENERIC_FLAVORS:
+        return None
+    return {
+        "running": running,
+        "distribution": facts.get("WORKER_KERNEL_DISTRIBUTION", "unknown"),
+        "flavor": match.group("flavor"),
+        "abi": match.group("abi"),
+        "sourcePackage": facts.get("WORKER_KERNEL_SOURCE_PACKAGE", "unknown"),
+        "livepatch": facts.get("WORKER_PWNESCAPE_LIVEPATCH", "unknown"),
+    }
+
+
+def _vendor_reason(identity: dict[str, str]) -> str:
+    """Name the evidence the provider must send for a vendor kernel."""
+    source = identity["sourcePackage"]
+    if source in {"", "unknown"}:
+        source_phrase = "the source package version that built the kernel"
+    else:
+        source_phrase = f"the source package version that built the kernel ({source})"
+    distribution = identity["distribution"]
+    origin = (
+        f"the {distribution} vendor kernel"
+        if distribution not in {"", "unknown"}
+        else "a vendor kernel"
+    )
+    return (
+        f"The running kernel {identity['running']} is {origin} with flavor "
+        f"{identity['flavor']} and ABI {identity['abi']}. The audit grades the "
+        "generic distribution ABI ladder, so this release establishes neither a "
+        f"pass nor a fail. Request from the provider: {source_phrase}, "
+        f"confirmation that upstream commit {FIX_COMMIT} is in that source, and "
+        "the livepatch state (the audit reads "
+        f"{identity['livepatch']}). Until the provider answers, {CVE} is "
+        "unverified for this kernel, not unpatched."
+    )
+
+
+def _vendor_evidence(identity: dict[str, str]) -> list[str]:
+    """List the requested provider evidence in the order a reviewer needs it."""
+    return [
+        f"distribution ({identity['distribution']})",
+        f"kernel flavor ({identity['flavor']})",
+        f"kernel ABI ({identity['abi']})",
+        f"source package version ({identity['sourcePackage']})",
+        f"fix commit ({FIX_COMMIT}) present in that source",
+        f"livepatch state ({identity['livepatch']})",
+    ]
+
+
 def grade(facts: dict[str, str]) -> dict:
     """Keep the observed worker kernel separate from a hidden outer host."""
     running = facts.get("WORKER_GUEST_KERNEL_RUNNING", "unknown")
@@ -150,6 +213,22 @@ def grade(facts: dict[str, str]) -> dict:
             "CVE-specific evidence for the running kernel is required."
         )
 
+    vendor = _vendor_kernel(facts)
+    vendor_fields = {}
+    if vendor is not None:
+        # The upstream base version cannot settle a vendor kernel, because the
+        # vendor backports into its own release. Keep the verdict at unknown and
+        # ask for the exact facts that settle it instead.
+        if local_status == "unknown":
+            reason = _vendor_reason(vendor)
+        vendor_fields = {
+            "kernelDistribution": vendor["distribution"],
+            "kernelFlavor": vendor["flavor"],
+            "kernelAbi": vendor["abi"],
+            "kernelSourcePackage": vendor["sourcePackage"],
+            "providerEvidence": _vendor_evidence(vendor),
+        }
+
     status = local_status
     # The existing detector classifies containers as guests too. A container
     # can share the visible kernel, but cannot establish the outer host model.
@@ -187,6 +266,7 @@ def grade(facts: dict[str, str]) -> dict:
         "virtioNetObserved": facts.get("WORKER_PWNESCAPE_VIRTIO_NET", "unknown"),
         "maxUserNamespaces": facts.get("WORKER_PWNESCAPE_USERNS_MAX", "unknown"),
         "exploitTested": False,
+        **vendor_fields,
     }
 
 
@@ -237,6 +317,15 @@ def _host_entry(host: dict) -> dict:
         livepatch=value["livepatch"],
         reason=value["reason"],
     )
+    for field in (
+        "kernelDistribution",
+        "kernelFlavor",
+        "kernelAbi",
+        "kernelSourcePackage",
+        "providerEvidence",
+    ):
+        if field in value:
+            entry[field] = value[field]
     return entry
 
 
@@ -307,6 +396,10 @@ def grade_fleet(hosts: list[dict], control_plane: dict) -> dict:
         "scope": "fleet",
         "runningKernel": worst.get("runningKernel", "unknown"),
         "runningKernels": sorted({entry["runningKernel"] for entry in checked}),
+        "kernelDistribution": worst.get("kernelDistribution", "unknown"),
+        "kernelFlavor": worst.get("kernelFlavor", "unknown"),
+        "kernelAbi": worst.get("kernelAbi", "unknown"),
+        "kernelSourcePackage": worst.get("kernelSourcePackage", "unknown"),
         "localKernelStatus": worst.get("localKernelStatus", "unknown"),
         "minimum": worst.get("minimum", "unknown"),
         "vendorStatus": worst.get("vendorStatus", "unknown"),
@@ -318,6 +411,10 @@ def grade_fleet(hosts: list[dict], control_plane: dict) -> dict:
         "coverageComplete": coverage_complete,
         "failingNodes": [entry["node"] for entry in failing],
         "unassessedNodes": [entry["node"] for entry in unassessed],
+        "providerEvidence": next(
+            (entry["providerEvidence"] for entry in checked if "providerEvidence" in entry),
+            [],
+        ),
         "roles": roles,
         "controlPlane": {
             "discovered": control_discovered,

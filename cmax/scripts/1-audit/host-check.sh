@@ -767,6 +767,54 @@ collect_pwnescape_facts() {
 }
 collect_pwnescape_facts
 
+# Kernel identity facts that a vendor kernel needs for a CVE verdict. The
+# upstream base version of a vendor kernel does not decide a CVE, because the
+# vendor backports the fix into its own release. Record the distribution, the
+# flavor, the ABI, and the source package so the grader can name the exact
+# evidence that a provider must send. Every read here is passive.
+#
+# Keep this function identical to the copy in pwnescape-host-facts.sh.
+# tests/audit/test_pwnescape.py compares the two definitions.
+collect_kernel_identity_facts() {
+    local root="${CLUSTERMAX_AUDIT_ROOT:-}"
+    local running flavor="" abi="" distribution=unknown signature=unknown
+    local source_package=unknown image_package row=""
+    running=$(uname -r 2>/dev/null) || running=unknown
+    [[ -n "$running" ]] || running=unknown
+    if [[ "$running" =~ ^[0-9]+(\.[0-9]+)*\-([0-9]+)\-(.+)$ ]]; then
+        abi="${BASH_REMATCH[2]}"
+        flavor="${BASH_REMATCH[3]}"
+    fi
+    if [[ -r "${root}/etc/os-release" ]]; then
+        distribution=$(
+            awk -F= '
+                $1 == "ID" { id = $2 }
+                $1 == "VERSION_ID" { version = $2 }
+                END {
+                    gsub(/"/, "", id); gsub(/"/, "", version)
+                    if (id == "" && version == "") print "unknown"
+                    else print id " " version
+                }
+            ' "${root}/etc/os-release" 2>/dev/null
+        ) || distribution=unknown
+        [[ -n "$distribution" ]] || distribution=unknown
+    fi
+    if [[ -r "${root}/proc/version_signature" ]]; then
+        signature=$(cat "${root}/proc/version_signature" 2>/dev/null) || signature=unknown
+    fi
+    [[ -n "$signature" ]] || signature=unknown
+    image_package="linux-image-${running}"
+    if command -v dpkg-query >/dev/null 2>&1; then
+        row=$(dpkg-query -W -f='${Source} ${Version}' "$image_package" 2>/dev/null) || row=""
+    fi
+    [[ -n "$row" ]] && source_package="$row"
+    printf 'WORKER_KERNEL_DISTRIBUTION=%s\n' "$distribution"
+    printf 'WORKER_KERNEL_VERSION_SIGNATURE=%s\n' "$signature"
+    printf 'WORKER_KERNEL_FLAVOR=%s\n' "${flavor:-unknown}"
+    printf 'WORKER_KERNEL_ABI=%s\n' "${abi:-unknown}"
+    printf 'WORKER_KERNEL_SOURCE_PACKAGE=%s\n' "$source_package"
+}
+collect_kernel_identity_facts
 
 # --- GPU ---
 if command -v nvidia-smi &>/dev/null; then
@@ -787,8 +835,8 @@ else
     echo "WORKER_GPU_COUNT=0"
 fi
 
-# NVIDIA May 2026 bulletin minimum fixed releases. This is a version check only;
-# vGPU Manager patch state must be checked on the physical host.
+# NVIDIA driver patch state from the driver version alone. This is a version
+# check only; vGPU Manager patch state must be checked on the physical host.
 WORKER_NVIDIA_MAY_2026_PATCHED=unknown
 # This is tenant-visible topology evidence, not a claim about the hidden host
 # fabric.  NVBleed demonstrated leakage over a physical NVLink joining GPUs in
@@ -798,22 +846,38 @@ WORKER_NVLINK_EXPOSED=unknown
 WORKER_NVLINK_TOPOLOGY_CHECKED=false
 if command -v nvidia-smi >/dev/null 2>&1; then
     nvidia_driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
-    nvidia_min=""
-    case "$nvidia_driver" in
-        595.*) nvidia_min=595.71.05 ;;
-        580.*) nvidia_min=580.159.03 ;;
-        535.*) nvidia_min=535.309.01 ;;
-    esac
-    if [[ -n "$nvidia_min" ]]; then
-        if [[ "$(printf '%s\n%s\n' "$nvidia_min" "$nvidia_driver" | sort -V | head -1)" == "$nvidia_min" ]]; then
-            WORKER_NVIDIA_MAY_2026_PATCHED=true
-        else
-            WORKER_NVIDIA_MAY_2026_PATCHED=false
-        fi
-    else
-        branch=${nvidia_driver%%.*}
-        if [[ "$branch" =~ ^[0-9]+$ ]] && [ "$branch" -gt 595 ]; then
-            WORKER_NVIDIA_MAY_2026_PATCHED=true   # branch newer than the newest in the May 2026 bulletin
+    # The NVIDIA driver branch floors come from the published minimum version
+    # table, injected through the environment by the collector because this
+    # script cannot read the checkout. The comparison mirrors the report-side
+    # grader: the reading is reduced to its numeric prefix and both sides are
+    # normalized to four numeric components, so a decorated value such as a
+    # release candidate compares on its numbers and a floor published with
+    # more or fewer components still compares by tuple. A reading with no
+    # numeric version, a branch the table does not list, or an unreadable
+    # policy stays unknown instead of being assumed fixed.
+    if [[ "$nvidia_driver" =~ ([0-9]+(\.[0-9]+){0,3}) && -n "${CLUSTERMAX_NVIDIA_BRANCH_FLOORS:-}" ]]; then
+        nvidia_version_numbers=${BASH_REMATCH[1]}
+        branch=${nvidia_version_numbers%%.*}
+        nvidia_min=""
+        for entry in $CLUSTERMAX_NVIDIA_BRANCH_FLOORS; do
+            if [[ "${entry%%=*}" == "$branch" ]]; then
+                nvidia_min=${entry#*=}
+            fi
+        done
+        if [[ -n "$nvidia_min" ]]; then
+            version_tuple() {
+                local comp
+                local IFS="."
+                comp=($1)
+                printf "%d.%d.%d.%d\n" "$((10#${comp[0]:-0}))" "$((10#${comp[1]:-0}))" "$((10#${comp[2]:-0}))" "$((10#${comp[3]:-0}))"
+            }
+            nvidia_min_tuple=$(version_tuple "$nvidia_min")
+            nvidia_version_tuple=$(version_tuple "$nvidia_version_numbers")
+            if [[ "$(printf '%s\n%s\n' "$nvidia_min_tuple" "$nvidia_version_tuple" | sort -V | head -1)" == "$nvidia_min_tuple" ]]; then
+                WORKER_NVIDIA_MAY_2026_PATCHED=true
+            else
+                WORKER_NVIDIA_MAY_2026_PATCHED=false
+            fi
         fi
     fi
     # A step that sees no GPU still prints the NIC matrix, which proves nothing
