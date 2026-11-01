@@ -72,6 +72,7 @@ class CriteriaParityTests(unittest.TestCase):
             "observability-isolation",
             "bmc-ipmi",
             "kubernetes-nodes-proxy",
+            "ingress-nginx-cve-2025-1974",
             "nvlink-boundary",
             "pcie-passthrough",
             "ufm-profile",
