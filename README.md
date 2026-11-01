@@ -1,5 +1,11 @@
 # ClusterMAX
 
+<div align="center">
+
+**English** | [中文](README_zh.md)
+
+</div>
+
 This repo is for `cmax`, a CLI tool that we use to audit GPU clusters and standalone machines during research for ClusterMAX. 
 
 The initial release is a small subset of our full test suite. It supports our recent article on neocloud security that precedes ClusterMAX 3.0.
