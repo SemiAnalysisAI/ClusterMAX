@@ -107,7 +107,7 @@ def test_role_summary_names_the_evidence() -> None:
     )
 
     assert role.summary == (
-        "Slurm compute node (SLURMD_NODENAME=gpu-001; slurmd is running)"
+        "Slurm compute node (SLURMD_NODENAME is set; slurmd is running)"
     )
     assert host_role.HostRole(host_role.UNKNOWN).summary == ""
 
@@ -242,19 +242,20 @@ def test_standalone_on_a_compute_node_stops_without_a_terminal() -> None:
     assert "--allow-cluster-node" in str(error.value)
 
 
-def test_yes_does_not_skip_the_second_confirmation() -> None:
+def test_yes_accepts_the_mismatch_without_a_terminal() -> None:
     output = io.StringIO()
     with mock.patch.object(security, "local_environment", return_value="bare-metal"):
-        with pytest.raises(target_selection.TargetSelectionError):
-            target_selection.prepare_audit_target(
-                STANDALONE,
-                command="cmax audit --standalone",
-                assume_yes=True,
-                stream=output,
-                environ={},
-                interactive=False,
-                host_role=COMPUTE,
-            )
+        selected = target_selection.prepare_audit_target(
+            STANDALONE,
+            command="cmax audit --standalone",
+            assume_yes=True,
+            stream=output,
+            environ={},
+            interactive=False,
+            host_role=COMPUTE,
+        )
+    assert selected == STANDALONE
+    assert "Host role check: accepted with --yes" in output.getvalue()
 
 
 def test_allow_cluster_node_overrides_the_guard() -> None:
@@ -265,30 +266,30 @@ def test_allow_cluster_node_overrides_the_guard() -> None:
 
 
 def test_interactive_run_asks_twice() -> None:
-    reader = answers("y", "y")
+    reader = answers("c", "y")
 
     selected, _text = prepare(interactive=True, reader=reader)
 
     assert selected == STANDALONE
     assert reader.prompts == [
-        "Run this audit? [y]es, [c]hange target or access, [N]o: ",
+        "Host role mismatch: [Enter] cancel, [c] continue here, [r] detection looks wrong: ",
         "Run a standalone audit on this compute node anyway? [y/N]: ",
     ]
 
 
 def test_interactive_second_confirmation_defaults_to_no() -> None:
     with pytest.raises(target_selection.TargetSelectionCancelled):
-        prepare(interactive=True, reader=answers("y", ""))
+        prepare(interactive=True, reader=answers("c", ""))
 
 
-def test_interactive_yes_still_asks_the_second_confirmation() -> None:
-    reader = answers("y")
+def test_interactive_yes_skips_the_mismatch_questions() -> None:
+    reader = answers()
 
-    prepare(interactive=True, reader=reader, assume_yes=True)
+    selected, text = prepare(interactive=True, reader=reader, assume_yes=True)
 
-    assert reader.prompts == [
-        "Run a standalone audit on this compute node anyway? [y/N]: ",
-    ]
+    assert selected == STANDALONE
+    assert reader.prompts == []
+    assert "Host role check: accepted with --yes" in text
 
 
 def test_slurm_audit_from_a_compute_node_is_guarded() -> None:
@@ -468,7 +469,7 @@ def test_guard_messages_name_the_command_and_its_work() -> None:
         "standalone", COMPUTE, noun="benchmark", command="cmax bench"
     )
 
-    assert found.reason.startswith("This host is a Slurm compute node. A standalone benchmark")
+    assert found.reason.startswith("This host looks like a Slurm compute node. A standalone benchmark")
     assert found.instead == "From a Slurm login node, run: cmax bench --slurm"
     assert "standalone benchmark" in found.prompt
 

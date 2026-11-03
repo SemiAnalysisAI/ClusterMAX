@@ -17,7 +17,8 @@ This repository contains the ClusterMAX command-line interface.
 
 Every command that runs against a cluster or host target gets the host role
 guard (`cmax/host_role.py`). The guard stops a standalone run on a cluster
-node and a Slurm run from a compute node, and `--allow-cluster-node` skips it.
+node and a Slurm run from a compute node, and `--yes` or `--allow-cluster-node`
+skips it.
 
 - Add the target options with `_add_target_confirmation_options(parser, noun=...)`
   in `cmax/cli.py`. `noun` names the work in the messages, for example `"benchmark"`.

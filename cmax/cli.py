@@ -109,7 +109,10 @@ def _add_target_confirmation_options(
         action="store_true",
         default=default,
         dest="assume_yes",
-        help="Accept the reported audit target without an interactive confirmation.",
+        help=(
+            "Accept the reported target and every confirmation, including the "
+            "host role and interface checks, without a prompt."
+        ),
     )
     parser.add_argument(
         "--allow-cluster-node",

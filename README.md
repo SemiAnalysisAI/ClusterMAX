@@ -1,5 +1,11 @@
 # ClusterMAX
 
+<div align="center">
+
+**English** | [中文](README_zh.md)
+
+</div>
+
 This repo is for `cmax`, a CLI tool that we use to audit GPU clusters and standalone machines during research for ClusterMAX. 
 
 The initial release is a small subset of our full test suite. It supports our recent article on neocloud security that precedes ClusterMAX 3.0.
@@ -112,6 +118,21 @@ matches more than one row is also unknown. riscv64 kernels have no row of
 their own, because their `generic` flavor name cannot be told apart from the
 amd64 and arm64 kernels. The two CVEs above check only the GA kernel, so they
 do not make other kernels unknown.
+
+The daily refresh also discovers Ubuntu kernel CVEs before a fix exists. It
+reads the Ubuntu CVE search for `linux` CVEs published since 2026-10-01 and
+within the last 30 days. It adds each CVE that Ubuntu rates `critical`, or
+`high` with a CVSS v3 score of 9.0 or more, and that the tracker lists for the
+GA `linux` package on 22.04, 24.04, or 26.04. A discovered CVE gets the same
+per-kernel rows as the CVEs above, under the key `linuxCve<year>_<number>`, and
+each row carries `"discovered": true`. The audit reads the kernel CVE groups
+from the minimum table, so it grades a discovered CVE without a client change.
+A discovered CVE stays in the table after it leaves the 30-day window, so a
+later fix is still graded. A `needs-triage` row of a discovered CVE makes that
+kernel unknown. The refresh pull request lists each new discovered CVE for
+review. A fetched table that lacks a kernel CVE group of the installed table
+is rejected, and the client keeps its installed table. The refresh fails if
+the table grows above 3 MiB, so it stays below the 4 MiB client fetch limit.
 
 An absent host Docker installation or an absent CUDA Toolkit in the inspected
 scope remains not applicable. This differs from an unreadable tool or failed
@@ -257,7 +278,15 @@ logo, prayer, and progress display.
 
 The command detects Slurm, Kubernetes, containers, virtual machines, macOS, and standalone hosts automatically, and confirms the selection interactively with the user. To skip this confirmation and force the CLI to use a certain approach, use `--local`, `--slurm`, `--k8s`, `--container`, `--vm`, or `--standalone`. Use `--kubeconfig PATH` to select Kubernetes credentials. An explicit target option confirms the target in a non-interactive run. Use `--yes` to accept an auto-detected target without a prompt.
 
-Run Slurm audits from a login node and Kubernetes audits from a machine with `kubectl` access. When a standalone audit starts on a Slurm or Kubernetes node, or a Slurm audit starts on a Slurm compute node, the CLI shows the detected host role and the command to run instead, and asks a second time. `--yes` does not skip this question. Use `--allow-cluster-node` to run there anyway. If the host role is wrong, [open an issue](https://github.com/SemiAnalysisAI/ClusterMAX/issues/new) with the `Host role` line.
+Run Slurm audits from a login node and Kubernetes audits from a machine with `kubectl` access. When a standalone command starts on a cluster node, or a Slurm command starts on a compute node, the CLI shows the evidence, scope, and recommended command before work starts.
+
+The mismatch menu defaults to cancel. Select `c` and then confirm with `y` to continue on this host. Select `r` to review sanitized detection details and the [public issue form](https://github.com/SemiAnalysisAI/ClusterMAX/issues/new). The CLI does not upload anything. Review the preview before sharing it, and do not attach credentials, cluster names, hostnames, or raw logs.
+
+`--yes` or `--allow-cluster-node` skips the mismatch menu and runs the selected target on this host. Without a terminal, a mismatched run stops unless one of them is present.
+
+For Slurm on Kubernetes, including Slinky, the CLI shows the Slurm role separately from the runtime context. When auto-detection finds both interfaces reachable, it asks which interface to use. `--yes` keeps the auto-detected interface, and `--slurm` or `--k8s` selects one. Without a terminal, the run stops unless one of these is present. An explicit interface skips this choice, but a Slurm run from a compute node still requires `--yes`, `--allow-cluster-node`, or interactive confirmation.
+
+The regression tests use synthetic signals to cover cancellation, reporting, overrides, mixed interfaces, and failed access checks. They do not establish live cluster qualification.
 
 Users can run the command multiple times. Each run writes timestamped artifacts
 under `~/.clustermax/audit/` by default.

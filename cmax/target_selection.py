@@ -211,6 +211,8 @@ def target_details(
     selection = "operator-selected" if target.explicit else "auto-detected"
     if role is not None and role.summary:
         details = (*details, ("Host role", role.summary))
+    if role is not None and role.context:
+        details = (*details, ("Runtime context", ", ".join(role.context)))
     return (*details, ("Selection", selection))
 
 
@@ -436,8 +438,6 @@ def prepare_target(
     roles: dict[str, host_roles.HostRole] = {}
 
     def role_for(harness: str) -> host_roles.HostRole | None:
-        if harness not in {"standalone", "slurm"}:
-            return None
         if host_role is not None:
             return host_role
         if "detected" not in roles:
@@ -455,6 +455,7 @@ def prepare_target(
                 stream=output,
                 terminal=terminal,
                 allow_cluster_node=allow_cluster_node,
+                assume_yes=assume_yes,
             )
         except host_roles.HostRoleRefused as exc:
             raise TargetSelectionError(str(exc)) from exc
@@ -464,6 +465,41 @@ def prepare_target(
 
     selected = target
     try:
+        role = role_for(selected.harness)
+        mixed = host_roles.may_have_both_interfaces(role)
+        if not selected.explicit and selected.harness in {"slurm", "k8s"} and mixed:
+            available = []
+            for harness, probe in (("slurm", _slurm_details), ("k8s", _kubernetes_details)):
+                try:
+                    probe(target_environ)
+                except TargetSelectionError:
+                    continue
+                available.append(harness)
+            if len(available) == 2:
+                print("Both Slurm and Kubernetes are reachable from this shell.", file=output)
+                if assume_yes:
+                    print(
+                        f"  Interface: auto-detected {selected.harness}, accepted with --yes."
+                        " Pass --slurm or --k8s to choose.",
+                        file=output,
+                    )
+                elif not terminal:
+                    raise TargetSelectionError(
+                        "both Slurm and Kubernetes are reachable. "
+                        "Select --slurm or --k8s, or pass --yes to keep the "
+                        f"auto-detected {selected.harness}."
+                    )
+            if len(available) == 2 and not assume_yes:
+                print(f"Select the interface for this {noun}. This does not move execution to a login node.", file=output)
+                while True:
+                    answer = _read(ask, "Cluster interface: [s] Slurm, [k] Kubernetes, [Enter] cancel: ").lower()
+                    if answer in {"s", "slurm", "k", "k8s", "kubernetes"}:
+                        harness = "slurm" if answer in {"s", "slurm"} else "k8s"
+                        selected = security.SecurityTarget(harness, harness, True)
+                        break
+                    if answer in {"", "n", "no", "q", "quit"}:
+                        raise TargetSelectionCancelled(f"{noun} canceled")
+                    print("Enter s or k, or press Enter to cancel.", file=output)
         while True:
             try:
                 details = target_details(
@@ -488,6 +524,13 @@ def prepare_target(
                 continue
 
             _print_target(command, details, stream=output, noun=noun)
+            current_role = role_for(selected.harness)
+            if current_role is not None and host_roles.guard(
+                selected.harness, current_role, noun=noun, command=command
+            ) is not None and not (allow_cluster_node or assume_yes):
+                # The mismatch menu and its final question replace the usual
+                # target question, so the operator confirms exactly twice.
+                return accept(selected)
             if assume_yes:
                 print("  Confirmation: accepted with --yes", file=output)
                 return accept(selected)

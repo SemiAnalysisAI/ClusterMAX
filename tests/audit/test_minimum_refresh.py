@@ -9,9 +9,11 @@ import os
 import re
 import subprocess
 import tempfile
+import sys
 import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -118,6 +120,11 @@ class StubFetcher(fr.Fetcher):
         self.json_by_url[
             fr.ubuntu_notices_query_url("qemu", fr.UBUNTU_RELEASE)
         ] = fixture("ubuntu-notices-qemu.json")
+        # The Ubuntu kernel CVE search finds nothing unless a test adds pages.
+        for priority in fr.UBUNTU_KERNEL_DISCOVERY_MIN_CVSS:
+            self.json_by_url[fr.ubuntu_cve_search_url(priority, 0)] = {
+                "cves": [], "offset": 0, "limit": 20, "total_results": 0,
+            }
         self.osv = fixture("osv-runc.json")
         for version, release in self.osv.get("_releases", {}).items():
             self.json_by_url[
@@ -544,6 +551,8 @@ class ExtractorTest(unittest.TestCase):
             package_policy=(), fetch=self.stub,
         )
         self.assertEqual(resolute["release"], "resolute")
+        self.assertEqual(resolute["releaseVersion"], "26.04")
+        self.assertEqual(jammy["releaseVersion"], "22.04")
         bad_epoll = resolute["packages"]["linuxBadEpoll"]
         self.assertEqual(bad_epoll["fixed"], "7.0.0-28.28")
         self.assertEqual(bad_epoll["package"], "linux")
@@ -734,6 +743,230 @@ class ExtractorTest(unittest.TestCase):
                     if entry.get("kernelGroup") == "linuxIpv4InetOptUaf"
                 ]
                 self.assertGreater(len(group), 1)
+
+    # Ubuntu kernel CVE discovery. CVE-2026-12345 is a made-up CVE that no
+    # named spec covers, so the refresh can only find it by discovery.
+    DISCOVERY_NOW = datetime(2026, 10, 28, tzinfo=timezone.utc)
+
+    @staticmethod
+    def search_record(
+        cve: str,
+        priority: str,
+        cvss3: float | None,
+        published: str,
+        linux: dict[str, str],
+        status: str = "active",
+    ) -> dict:
+        return {
+            "id": cve,
+            "priority": priority,
+            "cvss3": cvss3,
+            "published": f"{published}T00:00:00",
+            "status": status,
+            "packages": [{
+                "name": "linux",
+                "statuses": [
+                    {"release_codename": codename, "status": state, "description": ""}
+                    for codename, state in linux.items()
+                ],
+            }],
+        }
+
+    def add_search_pages(self, priority: str, *pages: list[dict]) -> None:
+        total = sum(len(page) for page in pages)
+        for index, page in enumerate(pages):
+            offset = index * fr.UBUNTU_CVE_SEARCH_PAGE_SIZE
+            self.stub.json_by_url[fr.ubuntu_cve_search_url(priority, offset)] = {
+                "cves": page, "offset": offset, "limit": 20, "total_results": total,
+            }
+
+    def add_unseen_kernel_cve(self) -> None:
+        self.add_search_pages("critical", [self.search_record(
+            "CVE-2026-12345", "critical", None, "2026-10-20",
+            {"jammy": "DNE", "noble": "needed", "resolute": "pending"},
+        )])
+        self.stub.json_by_url[f"{fr.UBUNTU_CVE_URL}CVE-2026-12345.json"] = {
+            "id": "CVE-2026-12345",
+            "priority": "critical",
+            "notices": [],
+            "packages": [
+                {"name": "linux", "statuses": [
+                    {"release_codename": "jammy", "status": "DNE", "description": ""},
+                    {"release_codename": "noble", "status": "needed", "description": ""},
+                    {"release_codename": "resolute", "status": "pending",
+                     "description": "7.0.0-43.43"},
+                ]},
+                {"name": "linux-nvidia", "statuses": [
+                    {"release_codename": "noble", "status": "needs-triage",
+                     "description": ""},
+                    {"release_codename": "resolute", "status": "needed",
+                     "description": ""},
+                ]},
+                {"name": "linux-hwe-6.17", "statuses": [
+                    {"release_codename": "noble", "status": "not-affected",
+                     "description": ""},
+                ]},
+            ],
+        }
+
+    def test_kernel_cve_discovery_policy(self) -> None:
+        listed = {"jammy": "needed", "noble": "pending"}
+        cases = (
+            (self.search_record("CVE-2026-1", "critical", None, "2026-10-20", listed), True),
+            (self.search_record("CVE-2026-2", "high", 9.8, "2026-10-20", listed), True),
+            (self.search_record("CVE-2026-3", "high", 9.0, "2026-10-20", listed), True),
+            (self.search_record("CVE-2026-4", "high", 8.8, "2026-10-20", listed), False),
+            (self.search_record("CVE-2026-5", "high", None, "2026-10-20", listed), False),
+            (self.search_record("CVE-2026-6", "medium", 9.8, "2026-10-20", listed), False),
+            # Not on a graded release, or not affected there.
+            (self.search_record("CVE-2026-7", "critical", 9.8, "2026-10-20",
+                                {"jammy": "DNE", "noble": "not-affected",
+                                 "focal": "needed"}), False),
+            (self.search_record("CVE-2026-8", "critical", 9.8, "2026-10-20",
+                                listed, status="rejected"), False),
+        )
+        for record, selected in cases:
+            with self.subTest(cve=record["id"]):
+                self.assertIs(fr.ubuntu_kernel_cve_selected(record), selected)
+
+    def test_kernel_cve_discovery_pages_back_to_the_floor(self) -> None:
+        # The floor is the later of UBUNTU_KERNEL_DISCOVERY_SINCE and the
+        # 30-day window before the run.
+        self.assertEqual(fr.ubuntu_discovery_floor(self.DISCOVERY_NOW), "2026-10-01")
+        self.assertEqual(
+            fr.ubuntu_discovery_floor(datetime(2026, 12, 15, tzinfo=timezone.utc)),
+            "2026-11-15",
+        )
+        listed = {"noble": "needed"}
+        first = [
+            self.search_record(f"CVE-2026-{900 + n}", "high", 7.8, "2026-10-25", listed)
+            for n in range(19)
+        ] + [self.search_record("CVE-2026-950", "high", 9.8, "2026-10-21", listed)]
+        second = [
+            self.search_record("CVE-2026-951", "high", 9.1, "2026-10-02", listed),
+            self.search_record("CVE-2026-800", "high", 9.8, "2026-09-30", listed),
+        ]
+        self.add_search_pages("high", first, second, [])
+        self.add_search_pages("critical", [
+            self.search_record("CVE-2026-12345", "critical", None, "2026-10-20", listed),
+        ])
+        found = fr.discover_ubuntu_kernel_cves(fetch=self.stub, now=self.DISCOVERY_NOW)
+        self.assertEqual(found, ["CVE-2026-950", "CVE-2026-951", "CVE-2026-12345"])
+        # The second high page reached the floor, so the third is never read.
+        self.assertNotIn(fr.ubuntu_cve_search_url("high", 40), self.stub.calls)
+
+    def test_kernel_cve_discovery_fails_closed(self) -> None:
+        del self.stub.json_by_url[fr.ubuntu_cve_search_url("high", 0)]
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "priority=high"):
+            fr.discover_ubuntu_kernel_cves(fetch=self.stub, now=self.DISCOVERY_NOW)
+        page = [
+            self.search_record(f"CVE-2026-{n}", "high", 7.8, "2026-10-25", {})
+            for n in range(20)
+        ]
+        self.add_search_pages("high", page, page)
+        with mock.patch.object(fr, "UBUNTU_CVE_SEARCH_MAX_PAGES", 1), \
+                self.assertRaisesRegex(fr.MinimumRefreshError, "did not reach 2026-10-01"):
+            fr.discover_ubuntu_kernel_cves(fetch=self.stub, now=self.DISCOVERY_NOW)
+
+    def test_kernel_cve_discovery_skips_named_cves(self) -> None:
+        self.add_search_pages("high", [self.search_record(
+            "CVE-2026-98432", "high", 9.8, "2026-10-15", {"noble": "pending"},
+        )])
+        specs = fr.ubuntu_discovered_kernel_specs({}, fetch=self.stub, now=self.DISCOVERY_NOW)
+        self.assertEqual(specs, ())
+
+    def test_an_unseen_kernel_cve_reaches_the_table_and_fails_the_audit(self) -> None:
+        self.add_unseen_kernel_cve()
+        table = fr.build_minimums(
+            generated=GENERATED, existing=baseline(), fetch=self.stub,
+            now=self.DISCOVERY_NOW,
+        )
+        components = table["components"]
+        noble = components["ubuntuNoble"]["packages"]
+        resolute = components["ubuntuResolute"]["packages"]
+        # The tracker lists no GA linux package on jammy, so jammy gets no group.
+        self.assertFalse(
+            [k for k in components["ubuntuJammy"]["packages"] if k.startswith("linuxCve")]
+        )
+        self.assertEqual(
+            {k: v["status"] for k, v in noble.items() if k.startswith("linuxCve2026_12345")},
+            {"linuxCve2026_12345": "needed", "linuxCve2026_12345Nvidia": "needs-triage",
+             "linuxCve2026_12345Hwe6_17": "not-affected"},
+        )
+        self.assertEqual(
+            {k: v["status"] for k, v in resolute.items()
+             if k.startswith("linuxCve2026_12345")},
+            {"linuxCve2026_12345": "pending", "linuxCve2026_12345Nvidia": "needed"},
+        )
+        for entry in (*noble.values(), *resolute.values()):
+            if entry.get("kernelGroup") == "linuxCve2026_12345":
+                self.assertIs(entry["discovered"], True)
+                self.assertEqual(entry["cve"], "CVE-2026-12345")
+                self.assertEqual(entry["fixed"], "")
+
+        # The audit grades the new CVE from the table with no client change.
+        script = Path(fr.__file__).resolve().parent / "scripts/1-audit/ubuntu_kernel_cves.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "minimum-versions.json"
+            path.write_text(fr.serialize(table))
+            env = {**os.environ, "CLUSTERMAX_MINIMUM_VERSIONS": str(path)}
+            for release, kernel, status, expected in (
+                ("24.04", "6.8.0-999-generic", "fail", "CVE-2026-12345"),
+                ("26.04", "7.0.0-999-generic", "fail", "CVE-2026-12345"),
+                ("26.04", "7.0.0-9999-nvidia", "fail", "CVE-2026-12345"),
+            ):
+                with self.subTest(kernel=kernel):
+                    run = subprocess.run(
+                        [sys.executable, str(script), "ubuntu", release, kernel],
+                        capture_output=True, text=True, env=env, check=True,
+                    )
+                    lines = run.stdout.splitlines()
+                    self.assertEqual(lines[0], status)
+                    self.assertIn(expected, json.loads(lines[1]))
+
+    def test_a_discovered_kernel_cve_stays_after_it_leaves_the_scan(self) -> None:
+        self.add_unseen_kernel_cve()
+        first = fr.build_minimums(
+            generated=GENERATED, existing=baseline(), fetch=self.stub,
+            now=self.DISCOVERY_NOW,
+        )
+        # A later scan no longer lists the CVE (out of the window, or a lower
+        # priority). The rebuild keeps the group from the existing table.
+        self.add_search_pages("critical", [])
+        later = datetime(2026, 12, 15, tzinfo=timezone.utc)
+        second = fr.build_minimums(
+            generated=GENERATED, existing=first, fetch=self.stub, now=later
+        )
+        self.assertIn("linuxCve2026_12345", second["components"]["ubuntuNoble"]["packages"])
+        # If the GA row of a discovered group would vanish, the refresh fails.
+        dropped = copy.deepcopy(first)
+        del dropped["components"]["ubuntuNoble"]["packages"]["linuxCve2026_12345"]
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "CVE-2026-12345 disappeared"):
+            fr.verify(dropped, first)
+
+    def test_the_table_stays_below_the_client_fetch_limit(self) -> None:
+        from cmax import minimum_sync
+
+        self.assertLess(fr.TABLE_SIZE_LIMIT, minimum_sync.MAX_BYTES)
+        shipped = (Path(fr.__file__).resolve().parent / fr.DEFAULT_RELATIVE_PATH).read_bytes()
+        self.assertLess(len(shipped), fr.TABLE_SIZE_LIMIT)
+        old = baseline()
+        with mock.patch.object(fr, "TABLE_SIZE_LIMIT", 1000), \
+                self.assertRaisesRegex(fr.MinimumRefreshError, "client fetch limit"):
+            fr.verify(baseline(), old)
+
+    def test_named_kernel_cve_rows_still_reject_needs_triage(self) -> None:
+        old = baseline()
+        data = baseline()
+        data["components"]["ubuntuNoble"]["packages"]["linuxCve2026_12345Nvidia"] = {
+            "cve": "CVE-2026-12345", "package": "linux-nvidia", "status": "needs-triage",
+            "fixed": "", "allowUnfixed": True, "kernelGroup": "linuxCve2026_12345",
+            "kernelFamily": "6.8", "kernelFlavors": ["nvidia"], "discovered": True,
+        }
+        fr.verify(data, old)
+        del data["components"]["ubuntuNoble"]["packages"]["linuxCve2026_12345Nvidia"]["discovered"]
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "needs-triage"):
+            fr.verify(data, old)
 
     def test_kernel_identity_skips_riscv_and_names_flavors(self) -> None:
         cases = {

@@ -250,6 +250,39 @@ class SecurityIntegrationTests(MinimumSyncTestCase):
         self.assertIn("minimum fetch:", output)
         self.assertIn("minimum table in use:", output)
 
+    def test_a_fetched_table_must_keep_every_ubuntu_kernel_cve_group(self) -> None:
+        # The audit reads the kernel CVE groups from the table, so a fetched
+        # table that drops one would stop grading that CVE.
+        def with_groups(generated: datetime, *groups: str) -> dict:
+            data = table(generated)
+            data["components"]["ubuntuNoble"] = {"kind": "packages", "packages": {
+                group: {
+                    "cve": "CVE-2026-12345", "package": "linux", "status": "needed",
+                    "fixed": "", "allowUnfixed": True, "kernelGroup": group,
+                    "discovered": True,
+                }
+                for group in groups
+            }}
+            return data
+
+        installed = Path(self.tmp.name) / "installed" / "minimum-versions.json"
+        installed.parent.mkdir(parents=True, exist_ok=True)
+        installed.write_text(json.dumps(
+            with_groups(NOW - timedelta(days=20), "linuxCve2026_12345")
+        ))
+        with mock.patch.object(security, "minimum_table_path", return_value=installed):
+            changed, output = self._sync(FakeResponse(body(with_groups(NOW))))
+        self.assertFalse(changed)
+        self.assertIn("lacks mappings required", output)
+        self.assertIn("components.ubuntuNoble.packages.linuxCve2026_12345", output)
+
+        os.environ.pop(_MINIMUM_ENV, None)
+        with mock.patch.object(security, "minimum_table_path", return_value=installed):
+            changed, _ = self._sync(FakeResponse(body(
+                with_groups(NOW, "linuxCve2026_12345", "linuxCve2026_12346")
+            )))
+        self.assertTrue(changed)
+
     def test_a_failed_fetch_leaves_the_installed_table_in_place(self) -> None:
         installed = self._installed(NOW)
         with mock.patch.object(security, "minimum_table_path", return_value=installed):
