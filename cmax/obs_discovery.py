@@ -29,9 +29,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import socket
 import subprocess
 import urllib.parse
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import NamedTuple
 
 # Default query/user-interface ports of multi-tenant metrics backends. A port
@@ -145,6 +146,58 @@ class Endpoint(NamedTuple):
     url: str
     platform: str
     source: str
+    reason: str | None = None
+
+
+def _host_resolves(host: str) -> bool:
+    """True when getaddrinfo can resolve the host from this vantage.
+
+    A Service name such as `dcgm-exporter.default.svc.cluster.local` resolves only
+    inside the cluster network. A short name or an operator-host vantage may
+    never resolve it. The question is reachability of the name, not the service.
+    """
+    try:
+        socket.getaddrinfo(host, None)
+    except (OSError, UnicodeError):
+        return False
+    return True
+
+
+def split_unassessed(
+    endpoints: Iterable[Endpoint],
+    resolver: Callable[[str], bool] | None = None,
+) -> tuple[list[Endpoint], list[Endpoint]]:
+    """Split discovered endpoints into checkable and unassessable from here.
+
+    A Service name that the current host cannot resolve was never measured.
+    It is not a pass, and it is not unreachable, so it is reported separately.
+    Each distinct host is resolved at most once, because a failed lookup costs
+    seconds and the same Service can appear more than once.
+    """
+    if resolver is None:
+        resolver = _host_resolves
+    checkable: list[Endpoint] = []
+    unassessed: list[Endpoint] = []
+    resolved: dict[str, bool] = {}
+    for endpoint in endpoints:
+        if endpoint.source != "k8s-services":
+            checkable.append(endpoint)
+            continue
+        host = urllib.parse.urlsplit(endpoint.url).hostname or ""
+        if host not in resolved:
+            resolved[host] = bool(resolver(host))
+        if resolved[host]:
+            checkable.append(endpoint)
+        else:
+            unassessed.append(
+                endpoint._replace(
+                    reason=(
+                        "Kubernetes Service name did not resolve from the "
+                        "operator host"
+                    )
+                )
+            )
+    return checkable, unassessed
 
 
 class Discovery(NamedTuple):

@@ -871,6 +871,13 @@ RULES: tuple[Rule, ...] = (
     # --- Hypervisor security bulletins ----------------------------------
     Rule(
         "security.januscape.status",
+        "Nested virtualization exposes Januscape prerequisites on a fleet host",
+        VERSION,
+        _status_is("fail"),
+        cves=("CVE-2026-53359",),
+    ),
+    Rule(
+        "security.januscape.status",
         "Nested virtualization exposes Januscape prerequisites",
         CONFIG,
         _status_is("host-patch-required"),
@@ -881,6 +888,13 @@ RULES: tuple[Rule, ...] = (
         "Januscape exposure could not be verified",
         CONFIG,
         _status_is("unknown"),
+        cves=("CVE-2026-53359",),
+    ),
+    Rule(
+        "security.januscape.status",
+        "Fleet coverage is incomplete for the Januscape exposure check",
+        CONFIG,
+        _status_is("coverage-incomplete"),
         cves=("CVE-2026-53359",),
     ),
     Rule(
@@ -912,6 +926,13 @@ RULES: tuple[Rule, ...] = (
         "Running kernel is exposed to Fragnesia and Dirty Frag",
         VERSION,
         _status_is("fail"),
+        cves=("CVE-2026-46300", "CVE-2026-43284", "CVE-2026-43500"),
+    ),
+    Rule(
+        "security.fragnesia.status",
+        "Fleet coverage is incomplete for the Fragnesia / Dirty Frag check",
+        CONFIG,
+        _status_is("coverage-incomplete"),
         cves=("CVE-2026-46300", "CVE-2026-43284", "CVE-2026-43500"),
     ),
     Rule(
@@ -1845,9 +1866,15 @@ def _finding_guidance(
     component_name = _COMPONENT_NAMES.get(component, component)
     if (
         rule.key == "security.januscape.status"
-        and str(value).strip().lower() == "host-patch-required"
+        and str(value).strip().lower() in {"host-patch-required", "fail"}
     ):
-        detected = "Nested virtualization prerequisites are exposed"
+        payload = nested_get(audit, "security", "januscape", default={})
+        reason = str(payload.get("reason") or "").strip()
+        detected = (
+            reason
+            if str(value).strip().lower() == "fail" and reason
+            else "Nested virtualization prerequisites are exposed"
+        )
         recommendation = (
             "Disable nested virtualization and remove guest access to /dev/kvm "
             "until the provider confirms the physical-host patch."
@@ -2060,6 +2087,19 @@ def _finding_guidance(
             "host that the audit could not read, including managed "
             "control-plane hosts."
         )
+    elif rule.key == "security.pwnescape.status":
+        block = nested_get(audit, "security", "pwnescape", default={})
+        reason = block.get("reason") if isinstance(block, dict) else None
+        detected = str(value).replace("_", " ").capitalize()
+        recommendation = str(reason) if reason else ""
+        if "source package version" not in recommendation.lower():
+            recommendation = (
+                (recommendation + " " if recommendation else "")
+                + "Ask the provider for the distribution, kernel flavor and "
+                "ABI, the source package version that built the kernel, the "
+                "CVE fix, and the livepatch state, because the upstream "
+                "version alone does not settle a vendor kernel."
+            )
     else:
         detected = str(value).replace("_", " ").capitalize()
         if "reboot required" in rule.title.lower():

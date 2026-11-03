@@ -84,6 +84,13 @@ def _references(*items: tuple[str, str]) -> tuple[SecurityReference, ...]:
     return tuple(SecurityReference(label, url) for label, url in items)
 
 
+_CONNECTX_REMEDIATION = (
+    "Apply the fixed NVIDIA firmware release for every detected ConnectX or "
+    "BlueField device. Check the active firmware on each device after vendor-required "
+    "activation. Request provider evidence for devices hidden from the tenant."
+)
+
+
 _GUEST_KERNEL_UBUNTU_TITLE = "Active kernel version and Ubuntu CVE status"
 _GUEST_KERNEL_UBUNTU_IMPORTANCE = (
     "Installed kernel fixes provide no protection until the fixed kernel is running, "
@@ -539,7 +546,8 @@ def _connectx_firmware(audit: dict[str, Any]) -> tuple[str, str, str]:
         return (
             CRITICAL,
             observed,
-            "The named devices are below the published firmware minimum version.",
+            "The named devices are below the published firmware minimum version. "
+            "Version evidence does not establish VF command-interface access or exploitation.",
         )
     if status == "pass":
         grace_active, grace_note = _grace_details(verdict)
@@ -634,6 +642,14 @@ def _status_evaluator(
     return evaluate
 
 
+def _kernel_flavor_abi(running: str) -> tuple[str, str]:
+    """Return the kernel flavor and ABI, or unknown when the release has neither."""
+    match = re.fullmatch(r"\d+\.\d+\.\d+-(\d+)-([a-z0-9][a-z0-9-]*)", running)
+    if match is None:
+        return "unknown", "unknown"
+    return match.group(2), match.group(1)
+
+
 def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
     kernel = _get(audit, "security.guestKernel")
     if not isinstance(kernel, dict):
@@ -680,10 +696,20 @@ def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
         str(running_value or "").strip().lower() in unknown_values
         or str(newest_value or "").strip().lower() in unknown_values
     ):
+        flavor, abi = _kernel_flavor_abi(running)
+        target = (
+            f"the {flavor} kernel at ABI {abi}"
+            if flavor != "unknown"
+            else "the running kernel"
+        )
         return (
             WARNING,
             observed,
-            "The installed kernel inventory was unavailable, so a pending security reboot cannot be ruled out.",
+            f"The audit could not list the installed kernel packages for {target}, "
+            "so it cannot rule out a pending security reboot. Ask the provider to "
+            "send the output of dpkg-query -W 'linux-image-*' or rpm -q kernel on "
+            "this host, with the package version and the source build record from "
+            "/proc/version_signature.",
         )
     if newer is False or str(newer).lower() == "false":
         if ubuntu_cve_status == "unknown":
@@ -702,7 +728,9 @@ def _guest_kernel(audit: dict[str, Any]) -> tuple[str, str, str]:
     return (
         WARNING,
         observed,
-        "The installed kernel inventory was unavailable, so a pending security reboot cannot be ruled out.",
+        "The installed kernel inventory was unreadable, so a pending security "
+        "reboot cannot be ruled out. Ask the provider to send the output of "
+        "dpkg-query -W 'linux-image-*' or rpm -q kernel on this host.",
     )
 
 
@@ -728,6 +756,35 @@ def pwnescape_fleet_coverage(value: dict[str, Any]) -> str:
     return text
 
 
+def _vendor_evidence_note(value: dict[str, Any]) -> str:
+    """Return the evidence a provider must send for a vendor-kernel CVE."""
+    evidence = value.get("providerEvidence")
+    if isinstance(evidence, list) and evidence:
+        return " Provider evidence required: " + "; ".join(
+            str(item) for item in evidence
+        ) + "."
+    return (
+        " Ask the provider for the distribution, kernel flavor and ABI, the "
+        "source package version that built the kernel, the CVE fix, and the "
+        "livepatch state."
+    )
+
+
+def _kernel_identity_observation(value: dict[str, Any]) -> str:
+    """Name the vendor kernel facts that the provider evidence must settle."""
+    parts = []
+    for label, key in (
+        ("distribution", "kernelDistribution"),
+        ("flavor", "kernelFlavor"),
+        ("abi", "kernelAbi"),
+        ("source package", "kernelSourcePackage"),
+    ):
+        item = str(value.get(key) or "").strip()
+        if item and item.lower() not in {"unknown", "not collected"}:
+            parts.append(f"{label}={item}")
+    return "; ".join(parts)
+
+
 def _pwnescape(audit: dict[str, Any]) -> tuple[str, str, str]:
     value = _get(audit, "security.pwnescape")
     if not isinstance(value, dict):
@@ -743,7 +800,13 @@ def _pwnescape(audit: dict[str, Any]) -> tuple[str, str, str]:
         observed += "; " + pwnescape_fleet_coverage(value)
     if value.get("vendorStatus", "unknown") != "unknown":
         observed += f"; vendor={value['vendorStatus']}; package={value.get('sourcePackage', 'unknown')}"
-    return status, observed, str(value.get("reason") or "Host patch evidence is required.")
+    identity = _kernel_identity_observation(value)
+    if identity:
+        observed += "; " + identity
+    reason = str(value.get("reason") or "Host patch evidence is required.")
+    if status == WARNING and "Request from the provider" not in reason:
+        reason += _vendor_evidence_note(value)
+    return status, observed, reason
 
 
 
@@ -842,6 +905,50 @@ def _januscape(audit: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
+def _ufm_observed(status: str, value: dict[str, Any]) -> str:
+    """Render the IB fabric facts collected for the otherwise manual row."""
+    observed = f"status {status}"
+    evidence = value.get("fabricEvidence")
+    if not isinstance(evidence, dict):
+        return observed
+    facts: list[str] = []
+    sm_lids = [str(item) for item in evidence.get("smLids") or []]
+    if sm_lids:
+        facts.append("SM LID " + ",".join(sm_lids))
+    ports = [port for port in evidence.get("ports") or [] if isinstance(port, dict)]
+    if ports:
+        hosts = evidence.get("hostCount") or len({port.get("host") for port in ports})
+        port_count = evidence.get("portCount") or len(ports)
+        links: list[str] = []
+        for port in ports:
+            detail = " ".join(
+                part
+                for part in (
+                    str(port.get("state") or ""),
+                    f"{port['rate_gbps']} Gb/s" if port.get("rate_gbps") else "",
+                    f"{port.get('width', '')} {port.get('speed', '')}".strip(),
+                )
+                if part
+            )
+            if detail and detail not in links:
+                links.append(detail)
+        summary = f"{hosts} host(s), {port_count} fabric port(s)"
+        if links:
+            summary += " " + ", ".join(links)
+        facts.append(summary)
+    pkeys = [str(item) for item in evidence.get("pkeys") or []]
+    if pkeys:
+        detail = "pkeys " + ",".join(pkeys)
+        if evidence.get("defaultFullPkeyPresent") is False:
+            detail += " (full-membership default PKey 0xffff absent)"
+        facts.append(detail)
+        limited = [str(item) for item in evidence.get("limitedMembershipPkeys") or []]
+        facts.append("default limited-membership PKey " + (",".join(limited) if limited else "none"))
+    if not facts:
+        return observed
+    return observed + "; " + "; ".join(facts)
+
+
 def _ufm(audit: dict[str, Any]) -> tuple[str, str, str]:
     value = _get(audit, "security.ufmSecuredBareMetalCloud")
     if not isinstance(value, dict):
@@ -860,7 +967,7 @@ def _ufm(audit: dict[str, Any]) -> tuple[str, str, str]:
             "No native InfiniBand fabric requiring this UFM profile was detected.",
         )
     status = str(value.get("status") or "unknown").lower()
-    observed = f"status {status}"
+    observed = _ufm_observed(status, value)
     if value.get("probeComplete") is False:
         return WARNING, observed, "The UFM probe did not complete; profile isolation is unverified."
     controls = value.get("controls")
@@ -892,7 +999,10 @@ def _ufm(audit: dict[str, Any]) -> tuple[str, str, str]:
     return (
         WARNING,
         observed,
-        "The UFM security profile requires provider-side verification.",
+        "The UFM security profile requires provider-side verification. The "
+        "tenant reads the SM LID, port state, link width and speed, and the "
+        "PKey table from fabric sysfs, so the provider only needs to confirm "
+        "the UFM-managed MAD keys, GUID access list, and rate limits.",
     )
 
 
@@ -1556,6 +1666,34 @@ def minimum_freshness(
     return state
 
 
+def _unassessed_count(obs: dict[str, Any]) -> int:
+    """Count the in-cluster endpoints that this vantage could not measure."""
+    listed = obs.get("unassessed_targets")
+    return len(listed) if isinstance(listed, list) else 0
+
+
+def _unassessed_observed(
+    unassessed: int,
+    answered: int,
+    reachable: int,
+    skipped: int,
+) -> str:
+    """Describe a partially assessed run without losing the evidence it did gather.
+
+    A measured backend that answered stays visible, and so does a truncated
+    check, because the single sentence has to carry everything the operator needs
+    to separate "this backend passed", "this backend was cut short", and "this
+    backend was never reachable from here".
+    """
+    parts: list[str] = []
+    if answered:
+        parts.append(f"{answered} of {reachable} assessed backend(s) answered a query")
+    parts.append(f"{unassessed} in-cluster endpoint(s) not assessed from this vantage")
+    if skipped:
+        parts.append(f"{skipped} endpoint(s) not fully checked; check limit reached")
+    return "; ".join(parts)
+
+
 def _observability_context(obs: dict[str, Any]) -> str:
     """Render the backend product, guard, and discovery vantage for the report.
 
@@ -1635,6 +1773,22 @@ def _observability(audit: dict[str, Any]) -> tuple[str, str, str]:
         return (CRITICAL, "; ".join(flags) + context, assessment)
     answered = int(obs.get("queries_answered") or 0)
     skipped = int(obs.get("targets_skipped") or 0)
+    unassessed = _unassessed_count(obs)
+    if unassessed:
+        # An in-cluster Service name that the operator host cannot resolve was
+        # never measured, so it must not be graded. It is not a PASS, because no
+        # query reached the backend, and it is not "unreachable", because the
+        # cluster never had a chance to answer this host.
+        return (
+            WARNING,
+            _unassessed_observed(unassessed, answered, reachable, skipped) + context,
+            "The Kubernetes Service address resolves only inside the cluster, so "
+            "the operator host could not reach those backends and they were not "
+            "measured. This is a limit of the vantage, not a finding about the "
+            "cluster. Run the check from a node that shares the cluster DNS, or "
+            "set CLUSTERMAX_OBS_TARGETS to an address this host can reach, to "
+            "assess them.",
+        )
     if skipped:
         # An incomplete run must never read as clean. Bounding the check is
         # correct; hiding what the bound dropped is not. Two bounds can drop a
@@ -1809,13 +1963,30 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
     CheckSpec(
         "connectx-firmware",
         "ConnectX and BlueField firmware minimum version",
-        "NIC firmware handles direct memory access and fabric traffic at a privileged hardware boundary.",
-        "Apply the fixed NVIDIA firmware release for every detected ConnectX or BlueField device.",
+        (
+            "NVIDIA describes CVE-2025-23350 and CVE-2025-23351 as an out-of-bounds "
+            "write that can enable device code execution on affected hardware. "
+            "Both require a local user with virtual function (VF) access. "
+            "NVIDIA assigns CVSS v3.1 9.0 "
+            "(CVSS:3.1/AV:A/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H). "
+            "The score reflects adjacent access, low complexity, low privileges, "
+            "no user interaction, changed scope, and high confidentiality/integrity/availability impact. "
+            "This audit does not prove host takeover, persistence, or cross-tenant compromise."
+        ),
+        _CONNECTX_REMEDIATION,
         # The bulletin link comes from the minimum table (see MINIMUM_BOUND_CHECKS),
         # so it follows the train table a refresh rebuilds.
         _references(
             ("CVE-2025-23350", "https://nvd.nist.gov/vuln/detail/CVE-2025-23350"),
             ("CVE-2025-23351", "https://nvd.nist.gov/vuln/detail/CVE-2025-23351"),
+            (
+                "NVIDIA VF command-interface CVE details",
+                "https://github.com/NVIDIA/product-security/tree/main/2026/5699",
+            ),
+            (
+                "CVSS v3.1 scoring definitions",
+                "https://www.first.org/cvss/v3.1/specification-document",
+            ),
         ),
         _connectx_firmware,
     ),
@@ -2069,8 +2240,7 @@ MINIMUM_BOUND_CHECKS: dict[str, tuple[str, str, str]] = {
     "connectx-firmware": (
         "connectxFirmware",
         # Per firmware train, so no single minimum to name.
-        "Apply the fixed NVIDIA firmware release for every detected ConnectX "
-        "or BlueField device.",
+        _CONNECTX_REMEDIATION,
         "NVIDIA networking security bulletin",
     ),
     "virtio-net-bluefield": (
@@ -2151,6 +2321,7 @@ def _inject_observability(
     raw = os.environ.get("CLUSTERMAX_OBS_TARGETS", "").strip()
     targets = _canonical_targets(re.split(r"[,\s]+", raw) if raw else [])
     discovery = None
+    unassessed: list = []
     if targets:
         discovery_label = "operator"
         platforms: list[str] = []
@@ -2171,11 +2342,21 @@ def _inject_observability(
             # sockets, processes, and loopback addresses are not the cluster's.
             local_vantage=not remote_k8s,
         )
-        targets = _canonical_targets(discovery.urls())
+        # A Kubernetes Service address is in-cluster DNS, which the operator host
+        # cannot resolve. Set such a target aside before the check, so it is
+        # reported as unassessed from this vantage instead of unreachable.
+        checkable, unassessed = obs_discovery.split_unassessed(discovery.endpoints)
+        if unassessed:
+            emit(
+                f"  discovery: {len(unassessed)} in-cluster target(s) set aside; "
+                "the Service name did not resolve from this host"
+            )
+        targets = _canonical_targets(endpoint.url for endpoint in checkable)
         discovery_label = discovery.source_label()
         platforms = list(discovery.platforms)
-        emit(f"  discovery: found {len(targets)} target(s) via {discovery_label}")
-    if not targets:
+        emit(f"  discovery: found {len(checkable) + len(unassessed)} target(s) via "
+             f"{discovery_label}; {len(targets)} checkable from this host")
+    if not targets and not unassessed:
         emit("  backend check: no targets found; nothing to check")
         return
 
@@ -2191,27 +2372,38 @@ def _inject_observability(
             )
         sources = dict.fromkeys(endpoint_sources[url] for url in selected_targets)
         discovery_label = "+".join(sources) or "none"
-    emit(
-        f"  backend check: {len(selected_targets)} target(s); "
-        f"{obs_check.REQUEST_TIMEOUT_S:g}s per request; "
-        f"up to {obs_check.MAX_UNANSWERED_PER_TARGET_MS // 1000}s unanswered "
-        "time per target"
-    )
     check_options: dict[str, Any] = {}
     if progress:
         check_options["progress"] = lambda message: emit(f"  {message}")
-    summary = obs_check.check(
-        targets,
-        own_namespace=own_ns,
-        **check_options,
-    )
-    emit(
-        "  backend check: complete; "
-        f"{summary.get('request_count', 0)} request(s), "
-        f"{summary.get('backends_reachable', 0)}/{len(selected_targets)} reachable"
-    )
+    if targets:
+        emit(
+            f"  backend check: {len(selected_targets)} target(s); "
+            f"{obs_check.REQUEST_TIMEOUT_S:g}s per request; "
+            f"up to {obs_check.MAX_UNANSWERED_PER_TARGET_MS // 1000}s unanswered "
+            "time per target"
+        )
+        summary = obs_check.check(
+            targets,
+            own_namespace=own_ns,
+            **check_options,
+        )
+        emit(
+            "  backend check: complete; "
+            f"{summary.get('request_count', 0)} request(s), "
+            f"{summary.get('backends_reachable', 0)}/{len(selected_targets)} reachable"
+        )
+    else:
+        emit("  backend check: no target is reachable from this host; nothing to check")
+        summary = obs_check.check([], own_namespace=own_ns, **check_options)
     summary["discovery"] = discovery_label
-    summary["targets_found"] = len(targets)
+    summary["targets_found"] = len(targets) + len(unassessed)
+    if unassessed:
+        # URLs and platform names only. The check stays counts-only, and these are
+        # the same identifiers discovery already reports.
+        summary["unassessed_targets"] = [
+            {"url": item.url, "platform": item.platform, "reason": item.reason}
+            for item in unassessed
+        ]
     if platforms:
         # Platforms seen by discovery, including a backend the check could not
         # reach. "Grafana is running but did not answer" must stay visible.
@@ -2223,6 +2415,33 @@ def _inject_observability(
     if not isinstance(security, dict):
         security = audit["security"] = {}
     security["observability"] = summary
+
+def _vf_interface_summary(audit: dict[str, Any]) -> str:
+    """Describe passive evidence without promoting it to an exploit verdict."""
+    evidence = audit.get("vf_interface_exposure")
+    if not isinstance(evidence, dict):
+        return (
+            "VF/interface exposure: unknown (no collection evidence); "
+            "command access unverified"
+        )
+    records = evidence.get("records")
+    records = [r for r in records if isinstance(r, dict)] if isinstance(records, list) else []
+    vf_count = 0
+    for record in records:
+        devices = record.get("devices")
+        if isinstance(devices, list):
+            vf_count += sum(
+                1 for device in devices if isinstance(device, dict)
+                and device.get("function_type") == "vf"
+            )
+    scope = evidence.get("scope")
+    coverage = scope.get("coverage", "unknown") if isinstance(scope, dict) else "unknown"
+    return (
+        f"VF/interface exposure: {evidence.get('status', 'unknown')}; "
+        f"{len(records)} process views, {vf_count} VF mappings; "
+        f"scope={coverage}; command access unverified"
+    )
+
 
 def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
     audit = (
@@ -2244,6 +2463,8 @@ def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
     }
     for spec in CHECK_SPECS:
         status, observed, assessment = spec.evaluate(audit)
+        if spec.id == "connectx-firmware":
+            observed = f"{observed}; {_vf_interface_summary(audit)}"
         title = spec.title
         importance = spec.importance
         remediation, references = _minimum_bound_details(spec)

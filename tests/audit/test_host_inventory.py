@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 from pathlib import Path
 import pytest
 
@@ -470,13 +471,14 @@ def test_k8s_gpu_check_records_the_assigned_devices() -> None:
         + """
 K8S_AUDIT_CHECK_NS=clustermax-audit
 K8S_AUDIT_GPU_CHECK_IMAGE=cuda-image
+nvidia_driver_floors() { :; }
 apply_gpu_check_pod() { echo gpu-check-pod; }
 cleanup_audit_check_pod() { :; }
 check_deadline() { shift; "$@"; }
 run_gpu_smi_check worker-0
 """,
         stubs={
-            "kubectl": bashtest.exec_from("bash"),
+            "kubectl": bashtest.exec_from("env"),
             "nvidia-smi": """
 case "$*" in
   *--query-gpu=driver_version*) echo 590.48.01 ;;
@@ -495,3 +497,147 @@ esac
     assert run.returncode == 0, run.stderr
     assert "WORKER_CUDA_VISIBLE_DEVICES=GPU-a" in run.stdout
     assert "WORKER_NVIDIA_VISIBLE_DEVICES=GPU-a" in run.stdout
+
+
+def run_gpu_smi_check_with_policy(driver: str, policy: str) -> bashtest.BashRun:
+    """Run the real k8s GPU check with a controlled driver-floor policy.
+
+    The nvidia-smi stub reports the given driver, the collector stub resolves
+    the given policy, and the kubectl stub runs the pod payload in-process
+    with the policy environment applied, exactly as the remote command does.
+    """
+    function = bashtest.extract_function(K8S_COLLECTOR, "run_gpu_smi_check")
+    return bashtest.run_bash(
+        function
+        + f"""
+K8S_AUDIT_CHECK_NS=clustermax-audit
+K8S_AUDIT_GPU_CHECK_IMAGE=cuda-image
+nvidia_driver_floors() {{ printf '%s\\n' '{policy}'; }}
+apply_gpu_check_pod() {{ echo gpu-check-pod; }}
+cleanup_audit_check_pod() {{ :; }}
+check_deadline() {{ shift; "$@"; }}
+run_gpu_smi_check worker-0
+""",
+        stubs={
+            "kubectl": bashtest.exec_from("env"),
+            "nvidia-smi": f"""
+case "$*" in
+  *--query-gpu=driver_version*) echo {driver} ;;
+  *--query-gpu=name*) echo "NVIDIA H100" ;;
+  *--query-gpu=memory.total*) echo 81559 ;;
+  *) echo "CUDA Version: 13.0" ;;
+esac
+""",
+        },
+    )
+
+
+def gpu_smi_patched(driver: str, policy: str) -> tuple[str, list[list[str]]]:
+    run = run_gpu_smi_check_with_policy(driver, policy)
+    assert run.returncode == 0, run.stderr
+    facts = dict(
+        line.split("=", 1)
+        for line in run.stdout.splitlines()
+        if line.startswith("WORKER_")
+    )
+    return (
+        facts["WORKER_NVIDIA_MAY_2026_PATCHED"],
+        run.calls("kubectl"),
+    )
+
+
+DEFAULT_FLOORS = "580=580.178.04 615=615.71.09"
+
+
+@pytest.mark.parametrize(
+    ("driver", "floors", "expected"),
+    [
+        ("580.126.09", DEFAULT_FLOORS, "false"),  # below the floor
+        ("580.178.04", DEFAULT_FLOORS, "true"),  # exactly at the floor
+        ("580.178.05", DEFAULT_FLOORS, "true"),  # above the floor
+        ("615.71.09", DEFAULT_FLOORS, "true"),  # a different listed branch
+        ("615.71.08", DEFAULT_FLOORS, "false"),  # a different listed branch, below floor
+        # A release candidate compares on its numeric prefix, like the
+        # report-side grader's version parser.
+        ("580.178.04-rc1", DEFAULT_FLOORS, "true"),
+        ("580.178.05-rc2", DEFAULT_FLOORS, "true"),
+        # A reading whose numeric prefix is below the floor fails; a reading
+        # with no numeric version stays unknown.
+        ("580.not-a-version", DEFAULT_FLOORS, "false"),
+        ("not-a-version", DEFAULT_FLOORS, "unknown"),
+        # Both sides are compared as normalized numeric tuples, so a floor
+        # published with more components and a reading without the zero
+        # padding still compare equal, like the report-side grader.
+        ("580.178.04", "580=580.178.04.0", "true"),
+        ("580.178.4", DEFAULT_FLOORS, "true"),
+    ],
+)
+def test_k8s_gpu_check_grades_the_driver_against_the_injected_floor(
+    driver: str, floors: str, expected: str
+) -> None:
+    patched, _ = gpu_smi_patched(driver, floors)
+    assert patched == expected
+
+
+def test_k8s_gpu_check_grades_a_branch_the_old_case_did_not_list() -> None:
+    # 570 and 590 are published by the table but were missing from the
+    # hardcoded branch list this check used to carry; the injected policy
+    # grades them like any other branch.
+    patched, _ = gpu_smi_patched("570.100.00", "570=570.211.01 580=580.178.04")
+    assert patched == "false"
+    patched, _ = gpu_smi_patched("590.48.01", "590=590.48.01")
+    assert patched == "true"
+
+
+def test_k8s_gpu_check_floor_change_regrades_without_shell_edits() -> None:
+    # A refreshed bulletin only moves the table; the same driver flips
+    # verdicts when the injected floor moves across it.
+    patched, _ = gpu_smi_patched("580.173.02", "580=580.170.00")
+    assert patched == "true"
+    patched, _ = gpu_smi_patched("580.173.02", "580=580.180.00")
+    assert patched == "false"
+
+
+def test_k8s_gpu_check_without_a_policy_stays_unknown() -> None:
+    patched, _ = gpu_smi_patched("580.178.04", "")
+    assert patched == "unknown"
+
+
+@pytest.mark.parametrize("driver", ["620.05.00", "600.10.00", "560.127.09"])
+def test_k8s_gpu_check_unlisted_branch_stays_unknown(driver: str) -> None:
+    # A branch the table does not list is never assumed fixed; the
+    # collect-side fact matches the report-side grader's unknown verdict.
+    patched, _ = gpu_smi_patched(driver, "580=580.178.04 615=615.71.09")
+    assert patched == "unknown"
+
+
+def test_k8s_gpu_check_sends_the_policy_to_the_pod() -> None:
+    # The remote command itself must carry the policy, not just the extracted
+    # script block: the pod environment is the only channel by which the
+    # table reaches code that cannot see the checkout.
+    _, calls = gpu_smi_patched("580.178.04", "580=580.178.04 615=615.71.09")
+    assert calls, "kubectl was never invoked"
+    argv = calls[0]
+    assert "env" in argv
+    assert "CLUSTERMAX_NVIDIA_BRANCH_FLOORS=580=580.178.04 615=615.71.09" in argv
+
+
+def test_host_check_stdin_delivers_the_whole_policy_to_the_payload() -> None:
+    # The host check is delivered as a script piped to `bash -s`, so the
+    # prepended policy assignment must survive word splitting: the whole
+    # multi-branch value has to reach the payload, not just the first entry.
+    function = bashtest.extract_function(K8S_COLLECTOR, "host_check_stdin")
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "host-check.sh").write_text(
+            'printf "policy=[%s]\\n" "${CLUSTERMAX_NVIDIA_BRANCH_FLOORS:-}"\n'
+        )
+        run = bashtest.run_bash(
+            function
+            + f"""
+WORKLOAD_DIR="{tmp}"
+nvidia_driver_floors() {{ printf '%s\\n' '580=580.178.04 615=615.71.09'; }}
+host_check_stdin | bash -s
+"""
+        )
+    assert run.returncode == 0, run.stderr
+    assert "policy=[580=580.178.04 615=615.71.09]" in run.stdout

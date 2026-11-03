@@ -66,6 +66,11 @@ Every reachable worker and control-plane host is graded. An affected host fails
 the fleet; an unreadable host or undiscovered control plane blocks a fleet pass.
 Each host record retains its Ubuntu identity evidence and vendor state.
 
+The same passive host-facts collection also feeds the fleet-scope Fragnesia
+and Januscape rows: the collector adds no device opens and no probe traffic,
+and `host_fleet.py` grades those host-kernel checks across every host it
+reached, including the login host and every control-plane host.
+
 This check is advisory-based version evidence, not cryptographic verification
 of the running binary. A provider with a private backport must supply
 CVE-specific evidence. Device absence and disabled user namespaces do not prove
