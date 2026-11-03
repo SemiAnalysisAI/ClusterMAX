@@ -615,6 +615,88 @@ class SecurityReportTests(unittest.TestCase):
                 if excluded is not None:
                     self.assertNotIn(excluded, check.observed)
 
+    def test_connectx_report_separates_version_evidence_from_exploit_proof(self) -> None:
+        # Synthetic inventory exercises report semantics without hardware access.
+        values = security_values()
+        values["audit_data"]["securityVersions"]["connectxFirmware"] = {
+            "status": "fail",
+            "minimum": "GA 46.3008",
+            "advisory": FIXTURE_ADVISORIES["connectxFirmware"],
+            "devices": [
+                {"device": "mlx5_0", "version": "32.44.1000", "status": "fail"},
+            ],
+        }
+        checks = [
+            check
+            for check in security.evaluate_security(values)
+            if check.id == "connectx-firmware"
+        ]
+        target = security.SecurityTarget("standalone", "vm")
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            security.write_reports(checks, target, directory)
+            full = (directory / "security-report.log").read_text()
+            structured = json.loads((directory / "security-report.json").read_text())
+        connectx = checks[0]
+        self.assertEqual(connectx.status, security.CRITICAL)
+        self.assertIn(
+            "does not establish VF command-interface access or exploitation",
+            connectx.assessment,
+        )
+        self.assertNotIn("CVSS:3.1/", connectx.observed)
+        self.assertNotIn("CVSS:3.1/", connectx.assessment)
+        for text in (
+            "CVE-2025-23350",
+            "CVE-2025-23351",
+            "out-of-bounds write",
+            "local user with virtual function (VF) access",
+            "device code execution",
+            "9.0",
+            "CVSS:3.1/AV:A/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+            "This audit does not prove host takeover",
+            "Check the active firmware",
+        ):
+            with self.subTest(text=text):
+                self.assertIn(text, full)
+        entry = next(
+            item for item in structured["checks"] if item["id"] == "connectx-firmware"
+        )
+        self.assertEqual(entry["status"], security.CRITICAL)
+        self.assertIn("VF", entry["assessment"])
+        # The report body prints only the canonical reference, so the detected
+        # advisory reaches the operator through the structured payload.
+        self.assertIn(
+            FIXTURE_ADVISORIES["connectxFirmware"],
+            [reference["url"] for reference in entry["references"]],
+        )
+
+    def test_vf_interface_metadata_does_not_change_firmware_grading(self) -> None:
+        for state in ("pass", "fail", "unknown", "not_applicable"):
+            with self.subTest(state=state):
+                values = security_values()
+                values["audit_data"]["securityVersions"]["connectxFirmware"] = {
+                    "status": state, "devices": [], "minimum": "synthetic minimum",
+                }
+                before = security.evaluate_security(values)
+                values["audit_data"]["vf_interface_exposure"] = {
+                    "status": "observed", "scope": {"coverage": "selected_container_only"},
+                    "records": [{"host": "synthetic-worker", "devices": [
+                        {"pci_address": "0000:03:00.1", "function_type": "vf"},
+                    ], "visible_interfaces": [{"path": "/dev/infiniband/uverbs0"}]}],
+                }
+                after = security.evaluate_security(values)
+                self.assertEqual(security.counts(before), security.counts(after))
+                check = next(c for c in after if c.id == "connectx-firmware")
+                self.assertIn("VF/interface exposure", check.observed)
+                self.assertIn("selected_container_only", check.observed)
+                self.assertIn("1 VF", check.observed)
+                self.assertIn("command access unverified", check.observed)
+        missing = next(
+            c for c in security.evaluate_security(security_values())
+            if c.id == "connectx-firmware"
+        )
+        self.assertIn("VF/interface exposure: unknown (no collection evidence)", missing.observed)
+
     def test_ubuntu_tracker_vulnerability_fails_the_active_kernel_check(self) -> None:
         values = security_values()
         guest_kernel = values["audit_data"]["security"]["guestKernel"]
@@ -765,7 +847,8 @@ class SecurityReportTests(unittest.TestCase):
                     if check.id == "guest-kernel"
                 )
                 self.assertEqual(check.status, security.WARNING)
-                self.assertIn("inventory was unavailable", check.assessment)
+                self.assertIn("could not list the installed kernel packages", check.assessment)
+                self.assertIn("dpkg-query", check.assessment)
 
     def test_default_report_shows_every_check_and_observed_versions(self) -> None:
         values = security_values()

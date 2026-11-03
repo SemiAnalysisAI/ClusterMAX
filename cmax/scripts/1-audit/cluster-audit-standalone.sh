@@ -264,6 +264,7 @@ if true; then
     chmod +x "$WORKER_CHECK_TMPFILE"
 
     WORKER_CHECK_OUTPUT=$(CLUSTERMAX_AUDIT_HARNESS=standalone \
+        CLUSTERMAX_NVIDIA_BRANCH_FLOORS="$(nvidia_driver_floors)" \
         bash "$WORKER_CHECK_TMPFILE" 2>/dev/null || echo "CHECK_FAILED")
 
     rm -f "$WORKER_CHECK_TMPFILE"

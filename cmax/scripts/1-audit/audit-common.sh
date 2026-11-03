@@ -133,6 +133,50 @@ minimum_version_grace() {
     fi
 }
 
+# nvidia_driver_floors - print the NVIDIA driver branch floors that the
+# minimum version table publishes, as "branch=floor" entries ordered by
+# branch.
+#
+# The streamed host and pod checks cannot read the table, so the collector
+# resolves the floors once and injects them into the check (the same delivery
+# host_check_stdin uses for the kernel ABI minimums). An empty output means the
+# policy could not be read, and the check must report an unknown verdict rather
+# than grade against a guessed floor. Any malformed branch or floor fails the
+# whole read: a partially valid table would grade its listed branches while
+# silently dropping the rest, so the policy is all or nothing.
+nvidia_driver_floors() {
+    local branches=""
+    if [[ -f "$MINIMUM_VERSIONS_READER" ]] && command -v python3 >/dev/null 2>&1; then
+        branches=$(python3 "$MINIMUM_VERSIONS_READER" --get components.nvidiaDriver.branches 2>/dev/null) || branches=""
+    fi
+    [[ -n "$branches" ]] || return 0
+    printf '%s\n' "$branches" | python3 -c '
+import json
+import sys
+
+try:
+    doc = json.load(sys.stdin)
+except ValueError:
+    sys.exit(1)
+if not isinstance(doc, dict) or not doc:
+    sys.exit(1)
+floors = {}
+for branch, floor in doc.items():
+    text_branch = str(branch)
+    text_floor = str(floor)
+    parts = text_floor.split(".")
+    if (
+        not text_branch.isdigit()
+        or len(parts) < 2
+        or not all(part.isdigit() for part in parts)
+        or parts[0] != text_branch
+    ):
+        sys.exit(1)
+    floors[int(text_branch)] = text_floor
+print(" ".join(f"{branch}={floors[branch]}" for branch in sorted(floors)))
+' 2>/dev/null || return 0
+}
+
 # grade_ubuntu_kernel_cves - grade the running Ubuntu kernel against the exact
 # tracker state for each container-relevant CVE that the minimum table
 # publishes. ubuntu_kernel_cves.py selects the table row whose kernel family and
