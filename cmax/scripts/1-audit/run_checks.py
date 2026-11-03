@@ -33,6 +33,7 @@ CHECK_PROFILES = {
     "system/arm-smmu-virtualization-check.py": frozenset({"hardware"}),
     "system/hbm_memory_exposure.py": frozenset({"hardware", "orchestration"}),
     "system/kubernetes_nodes_proxy.py": frozenset({"security", "isolation"}),
+    "system/ingress_nginx_cve_2025_1974.py": frozenset({"security", "isolation"}),
     "system/vm-iommu-check.py": frozenset({"hardware"}),
 }
 CHECK_HARNESSES = {
@@ -53,6 +54,7 @@ CHECK_HARNESSES = {
     ),
     "system/hbm_memory_exposure.py": frozenset({"standalone", "slurm", "k8s"}),
     "system/kubernetes_nodes_proxy.py": frozenset({"k8s"}),
+    "system/ingress_nginx_cve_2025_1974.py": frozenset({"k8s"}),
     "system/vm-iommu-check.py": frozenset({"standalone", "slurm", "k8s"}),
 }
 PLATFORM_CHECK_KEYS = {
@@ -186,6 +188,7 @@ STATUS_CHECK_KEYS = (
     "nccl_topo_file",
     "nccl_ib_qps",
     "kubernetes_nodes_proxy",
+    "ingress_nginx_cve_2025_1974",
 )
 
 

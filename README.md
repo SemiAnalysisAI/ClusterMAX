@@ -425,6 +425,22 @@ not connect to kubelets or execute commands in pods. See the
 [Kubernetes kubelet authorization documentation](https://kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/)
 and [Graham Helton's nodes/proxy writeup](https://grahamhelton.com/blog/nodes-proxy-rce).
 
+Kubernetes full, security, and isolation audits also check pod image tags for
+[ingress-nginx CVE-2025-1974](https://github.com/kubernetes/kubernetes/issues/131009).
+Affected upstream tags produce `FAIL`. Fixed tags start at v1.11.5 and v1.12.1.
+The check reads pods across all namespaces, including non-GPU nodes. It identifies
+controllers by image, command, or ingress-nginx labels and retains each result.
+Denied or incomplete inventory, digest-only images, custom builds, and prerelease
+tags produce `WARNING` when a fixed version cannot be established. An affected
+tag still produces `FAIL` when other evidence is missing.
+
+This check reads metadata only. It does not send admission requests, execute
+commands in pods, or read Secrets. A fixed tag does not verify binary identity
+or webhook isolation. Disabling admission does not turn an affected tag into
+a patched version. A complete inventory with no identified controller is
+`SKIPPED`; scaled-to-zero workloads and unrecognized custom builds remain outside
+its scope. Slurm and standalone audits do not run this collector.
+
 The standalone audit also omits scale-out network checks. It does not inspect
 InfiniBand, RoCE, RDMA, HCA naming, PKeys, UFM, SHARP, fabric topology, or
 GPUDirect RDMA. The report marks their criteria as `SKIPPED`. Slurm and

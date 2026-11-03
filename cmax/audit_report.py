@@ -32,6 +32,7 @@ _SECURITY_EXTENSION_IDS = frozenset(
         "pcie-passthrough",
         "nvlink-boundary",
         "kubernetes-nodes-proxy",
+        "ingress-nginx-cve-2025-1974",
         "observability-isolation",
         "qemu-virtio-serial",
         "vmscape",
@@ -40,6 +41,7 @@ _SECURITY_EXTENSION_IDS = frozenset(
 _SECURITY_EXTENSION_HARNESSES = {
     "ufm-profile": frozenset({"slurm", "k8s"}),
     "kubernetes-nodes-proxy": frozenset({"k8s"}),
+    "ingress-nginx-cve-2025-1974": frozenset({"k8s"}),
 }
 
 
@@ -431,6 +433,10 @@ _REPRODUCTION_COMMANDS = {
     "kubernetes-nodes-proxy": (
         "with the selected Kubernetes context: review ClusterRoles and "
         "ClusterRoleBindings that grant `get` on the core `nodes/proxy` resource"
+    ),
+    "ingress-nginx-cve-2025-1974": (
+        "with the selected Kubernetes context: `kubectl get pods --all-namespaces -o json`; "
+        "verify ingress-nginx controller versions and admission listener configuration"
     ),
 }
 

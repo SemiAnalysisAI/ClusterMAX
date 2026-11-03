@@ -1142,6 +1142,55 @@ def _bmc_ipmi(audit: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
+def _ingress_nginx_cve_2025_1974(audit: dict[str, Any]) -> tuple[str, str, str]:
+    value = _get(audit, "ingress_nginx_cve_2025_1974")
+    if not isinstance(value, dict):
+        return WARNING, "not collected", "The ingress-nginx pod image inventory is missing."
+    controllers = value.get("controllers")
+    errors = value.get("errors")
+    if not isinstance(controllers, list) or not isinstance(errors, list):
+        return WARNING, "incomplete evidence", "The ingress-nginx inventory is malformed."
+    valid = [
+        item for item in controllers
+        if isinstance(item, dict)
+        and all(
+            isinstance(item.get(key), str) and item[key]
+            for key in ("namespace", "pod", "container", "image", "version", "status")
+        )
+        and item["status"] in {"pass", "fail", "unknown"}
+    ]
+    observed = "; ".join(
+        f"{item['namespace']}/{item['pod']}:{item['container']} "
+        f"{item['image']} ({item['status']})" for item in valid[:10]
+    ) or str(value.get("message") or "incomplete evidence")
+    if len(valid) > 10:
+        observed += f"; {len(valid) - 10} additional controller(s) in saved evidence"
+    if errors:
+        observed += "; " + "; ".join(str(error) for error in errors[:3])
+    scope = (
+        "This checks declared pod image tags, not binary identity, webhook reachability, "
+        "or exploitation. Disabled admission webhooks do not establish a patched image."
+    )
+    if any(item["status"] == "fail" for item in valid):
+        return CRITICAL, observed, "An affected ingress-nginx image tag was found. " + scope
+    complete = (
+        value.get("inventoryComplete") is True
+        and not errors
+        and len(valid) == len(controllers)
+    )
+    if complete and value.get("status") == "not_applicable" and not controllers:
+        return NOT_APPLICABLE, observed, (
+            "No controller was identified by its image, command, or ingress-nginx labels. "
+            "Scaled-to-zero workloads and unrecognized custom builds are outside this pod inventory."
+        )
+    if (
+        complete and value.get("status") == "pass" and valid
+        and all(item["status"] == "pass" for item in valid)
+    ):
+        return PASS, observed, "The identified image tags meet this CVE's fixed versions. " + scope
+    return WARNING, observed, "Complete pod inventory and identifiable upstream image versions are required. " + scope
+
+
 def _kubernetes_nodes_proxy(audit: dict[str, Any]) -> tuple[str, str, str]:
     value = _get(audit, "kubernetes_nodes_proxy")
     if not isinstance(value, dict):
@@ -2099,6 +2148,18 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
             ),
         ),
         _kubernetes_nodes_proxy,
+    ),
+    CheckSpec(
+        "ingress-nginx-cve-2025-1974",
+        "ingress-nginx CVE-2025-1974",
+        "An unauthenticated attacker with pod-network access can execute code in an affected ingress-nginx admission controller.",
+        "Upgrade ingress-nginx to v1.11.5, v1.12.1, or a later fixed release. "
+        "Until then, disable its validating admission controller as described in the Kubernetes advisory.",
+        _references(
+            ("Kubernetes CVE-2025-1974 advisory", "https://github.com/kubernetes/kubernetes/issues/131009"),
+            ("ingress-nginx affected versions", "https://github.com/advisories/ghsa-mgvx-rpfc-9mpv"),
+        ),
+        _ingress_nginx_cve_2025_1974,
     ),
     CheckSpec(
         "ufm-profile",

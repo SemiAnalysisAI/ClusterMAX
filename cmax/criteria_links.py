@@ -146,6 +146,7 @@ _CHECK_ANCHORS = {
     "slurm.accounting.sacctAvailable": _MONITORING_SACCT,
     "bmc-ipmi": _SECURITY_ISOLATION,
     "kubernetes-nodes-proxy": _SECURITY_ISOLATION,
+    "ingress-nginx-cve-2025-1974": _SECURITY_ISOLATION,
     "ufm-profile": _SECURITY_UFM,
     "pcie-passthrough": _SECURITY_ISOLATION,
     "nvlink-boundary": _SECURITY_ISOLATION,

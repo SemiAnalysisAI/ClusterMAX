@@ -1695,6 +1695,8 @@ CHECK_CRITERIA: dict[str, str | None] = {
     # Security extension checks merged by audit_report._security_extension_checks.
     "bmc-ipmi": "security-bmc-ipmi",
     "kubernetes-nodes-proxy": None,
+    # CVE-specific pod inventory, not complete ingress-controller criteria coverage.
+    "ingress-nginx-cve-2025-1974": None,
     "ufm-profile": "ufm-secured-bare-metal-cloud",
     "pcie-passthrough": "security-pcie-passthrough",
     "nvlink-boundary": "security-nvlink-boundary",
