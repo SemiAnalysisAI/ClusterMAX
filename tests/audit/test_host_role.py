@@ -493,3 +493,37 @@ def test_prepare_target_guards_any_command() -> None:
     assert "From a Slurm login node, run: cmax bench --slurm" in text
     assert "--standalone --slurm" not in text
     assert "--allow-cluster-node" in str(error.value)
+
+
+def test_kubelet_process_alone_suggests_yes_for_a_local_cluster() -> None:
+    # kind, minikube, and k3d show a kubelet process with no kubelet files.
+    role = host_role.classify(facts(processes=frozenset({"kubelet"})))
+    found = host_role.guard("standalone", role, noun="benchmark", command="cmax run nccl")
+
+    assert found is not None
+    assert "local kind, minikube, or k3d cluster" in found.note
+    assert "--yes" in found.note
+    with pytest.raises(host_role.HostRoleRefused, match="local kind, minikube, or k3d"):
+        host_role.confirm(
+            "standalone", role, noun="benchmark", command="cmax run nccl",
+            reader=lambda _: "", stream=io.StringIO(), terminal=False,
+            allow_cluster_node=False,
+        )
+
+
+@pytest.mark.parametrize(
+    "observed",
+    [
+        facts(
+            processes=frozenset({"kubelet"}),
+            paths=frozenset({"/var/lib/kubelet/config.yaml"}),
+        ),
+        facts(processes=frozenset({"k3s-agent"})),
+        facts(paths=frozenset({"/etc/kubernetes/kubelet.conf"})),
+    ],
+)
+def test_real_node_evidence_gets_no_local_cluster_hint(observed) -> None:
+    found = host_role.guard("standalone", host_role.classify(observed))
+
+    assert found is not None
+    assert found.note == ""

@@ -108,6 +108,7 @@ class Guard:
     reason: str
     instead: str
     prompt: str
+    note: str = ""
 
 
 def _classify(facts: HostFacts) -> HostRole:
@@ -283,7 +284,15 @@ def guard(
             )
         if role.kind in {K8S_NODE, K8S_POD}:
             where = "node" if role.kind == K8S_NODE else "pod"
+            # kind, minikube, and k3d run their kubelet in a container, so the
+            # host sees the kubelet process but none of the kubelet files.
+            local_cluster = role.kind == K8S_NODE and role.evidence == ("kubelet is running",)
             return Guard(
+                note=(
+                    "If this kubelet belongs to a local kind, minikube, or k3d "
+                    "cluster on this host, pass --yes to run here."
+                    if local_cluster else ""
+                ),
                 reason=(
                     f"This host looks like a Kubernetes {where}. A standalone {noun} "
                     f"covers only this {where} and skips the cluster checks."
@@ -355,6 +364,8 @@ def confirm(
     if role is not None and role.evidence:
         print(f"  Evidence: {'; '.join(role.evidence)}", file=stream)
     print(f"  {found.instead}", file=stream)
+    if found.note:
+        print(f"  {found.note}", file=stream)
     print(
         f"  If the detection is wrong, review sanitized details before filing: {ISSUE_URL}",
         file=stream,
@@ -368,7 +379,8 @@ def confirm(
     if not terminal:
         raise HostRoleRefused(
             f"{found.reason} {found.instead}. "
-            "To run here anyway, pass --yes or --allow-cluster-node."
+            + (f"{found.note} " if found.note else "")
+            + "To run here anyway, pass --yes or --allow-cluster-node."
         )
     print("  To skip this question, pass --yes or --allow-cluster-node.", file=stream)
     while True:
