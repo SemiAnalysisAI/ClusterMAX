@@ -269,3 +269,36 @@ def test_security_profile_returns_two_when_the_standard_report_fails(
         "harness": "standalone",
         "environment": "vm",
     }
+
+
+@pytest.mark.parametrize(
+    "harness,job_id,shown",
+    [("slurm", None, True), ("slurm", " ", True), ("slurm", "2798", False), ("standalone", None, False), ("k8s", None, False)],
+)
+def test_runner_prints_the_allocation_hint_for_slurm_outside_a_job(tmp_path, capsys, harness, job_id, shown):
+    runtime = tmp_path / "runtime"
+    runner = runtime_paths.audit_runner(runtime)
+    runner.parent.mkdir(parents=True)
+    runner.write_text("#!/bin/sh\n")
+
+    def finish_audit(*args, **kwargs):
+        (Path(kwargs["env"]["RUN_RESULTS_DIR"]) / "audit.values.json").write_text("{}")
+        return 0, "collector output"
+
+    env = {"CLUSTERMAX_RUNS_ROOT": str(tmp_path / "results"), "CLUSTER_SLUG": "fixture"}
+    if job_id is not None:
+        env["SLURM_JOB_ID"] = job_id
+    with (
+        mock.patch.object(security, "find_runtime_root", return_value=runtime),
+        mock.patch.object(audit_runner.progress, "run_with_progress", side_effect=finish_audit),
+        mock.patch.object(audit_runner.audit_report, "render", return_value="report"),
+        mock.patch.dict(audit_runner.os.environ, env),
+    ):
+        if job_id is None:
+            audit_runner.os.environ.pop("SLURM_JOB_ID", None)
+        assert audit_runner.run(category="hardware", resolved_target=security.SecurityTarget(harness, "bare-metal", True)) == 0
+
+    out = capsys.readouterr().out
+    assert ("salloc -N2 --gres=gpu:1 cmax audit" in out) == shown
+    if shown:
+        assert out.index("report") < out.index("SLURM_JOB_ID is not set")

@@ -8,7 +8,14 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from cmax import audit_report, progress, runtime_paths, security
+from cmax import audit_report, progress, report_style, runtime_paths, security
+
+# The Slurm collector prints this too, but the progress display hides
+# collector output, so the runner repeats it after the report.
+SLURM_ALLOCATION_HINT = (
+    "SLURM_JOB_ID is not set, so worker fan-out checks report unknown. "
+    "Run the audit inside an allocation, for example: salloc -N2 --gres=gpu:1 cmax audit"
+)
 
 
 class AuditError(RuntimeError):
@@ -108,6 +115,8 @@ def run(
         environment=selected_target.environment,
     )
     print(report)
+    if selected_target.harness == "slurm" and not os.environ.get("SLURM_JOB_ID", "").strip():
+        print(report_style.paint(SLURM_ALLOCATION_HINT, "yellow", color=sys.stdout.isatty()))
     if exit_on_fail:
         values = json.loads(values_path.read_text())
         checks = audit_report.evaluate(
