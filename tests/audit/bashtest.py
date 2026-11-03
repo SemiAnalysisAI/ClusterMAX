@@ -31,9 +31,11 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 # Field and record separators for the stub call logs. Unit separator between
@@ -68,6 +70,45 @@ def exec_from(command: str) -> str:
         f'[[ $# -gt 0 ]] || {{ echo "exec_from: {command} not in argv" >&2; exit 127; }}\n'
         'exec "$@"\n'
     )
+
+
+# Every process a run starts inherits this variable, so the harness can find
+# the ones that left its process group: followers started with setsid and
+# commands under timeout, which moves itself into a new process group.
+_RUN_MARKER = "BASHTEST_RUN"
+
+
+def _stop_run_processes(run_id: str) -> None:
+    """Kill every process still carrying this run's marker.
+
+    A survivor can keep appending to a stub call log while the temp dir is
+    removed, which fails the cleanup with "Directory not empty". Linux only;
+    without /proc there is nothing to scan.
+    """
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return
+    marker = f"{_RUN_MARKER}={run_id}".encode()
+    for _attempt in range(100):
+        survivors = []
+        for entry in proc.iterdir():
+            if not entry.name.isdigit() or int(entry.name) == os.getpid():
+                continue
+            try:
+                # A zombie has an empty environ, so reaped-later processes
+                # that can no longer write do not match.
+                if marker in (entry / "environ").read_bytes().split(b"\0"):
+                    survivors.append(int(entry.name))
+            except OSError:
+                continue
+        if not survivors:
+            return
+        for pid in survivors:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        time.sleep(0.02)
 
 
 class BashRun:
@@ -152,19 +193,23 @@ def run_bash(
                 str(stub_dir) if path_only
                 else f"{stub_dir}{os.pathsep}{os.environ.get('PATH', '')}"
             ),
+            _RUN_MARKER: tmp,
         }
         # The outer interpreter is resolved from the parent environment, not
         # the merged child PATH: execvpe would otherwise find a stub named
         # bash and hand it the whole snippet instead of the dispatch line the
         # test means to intercept.
-        result = subprocess.run(
-            [shutil.which("bash") or "/bin/bash", "-c", snippet],
-            capture_output=True,
-            text=True,
-            env=merged_env,
-            cwd=str(cwd) if cwd is not None else None,
-            timeout=timeout,
-        )
+        try:
+            result = subprocess.run(
+                [shutil.which("bash") or "/bin/bash", "-c", snippet],
+                capture_output=True,
+                text=True,
+                env=merged_env,
+                cwd=str(cwd) if cwd is not None else None,
+                timeout=timeout,
+            )
+        finally:
+            _stop_run_processes(tmp)
         return BashRun(result, calls_dir)
 
 
