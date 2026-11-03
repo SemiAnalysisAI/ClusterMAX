@@ -63,6 +63,7 @@ EXTRA_SOURCES = (
     ".github/scripts/minimum_pages.py",
     "tools/check_public_data.py",
     ".github/scripts/select_tests.py",
+    "tests/audit/bashtest.py",
 )
 
 
