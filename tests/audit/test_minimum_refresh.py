@@ -66,6 +66,7 @@ class StubFetcher(fr.Fetcher):
             fr.bulletin_url(2026, 5861): fixture("nvidia-driver-5861.json"),
             fr.bulletin_url(2026, 9999): fixture("nvidia-driver-lexical-trap.json"),
             fr.bulletin_url(2026, 5699): fixture("nvidia-connectx-5699.json"),
+            fr.bulletin_url(2026, 5744): fixture("nvidia-snap4-5744.json"),
             fr.bulletin_url(2026, 5847): fixture("nvidia-connectx-5847.json"),
             fr.bulletin_url(2026, 5755): fixture("nvidia-cuda-5755.json"),
             fr.bulletin_url(2026, 5850): fixture(toolkit),
@@ -398,6 +399,88 @@ class ExtractorTest(unittest.TestCase):
             [item["aId"] for item in blocks["cudaToolkit"]["sources"]],
             [5755, 5904],
         )
+
+    def test_unbranded_cuda_update_bulletin_resolves_to_its_nvcc_version(self) -> None:
+        # 5910 shape: "CUDA Toolkit" without the brand, an "All" platform
+        # branch, a fixed "13.4 U1" update release, and an unrelated NVJPEG line.
+        doc = {
+            "document": {
+                "title": "Security Bulletin: NVIDIA CUDA Toolkit - November 2026",
+                "tracking": {
+                    "id": "5910",
+                    "initial_release_date": "2026-11-03T00:00:00Z",
+                    "current_release_date": "2026-11-03T00:00:00Z",
+                },
+            },
+            "product_tree": {"branches": [{"category": "vendor", "name": "NVIDIA", "branches": [
+                {"category": "architecture", "name": "All", "branches": [
+                    {"category": "product_version", "name": "CUDA Toolkit",
+                     "product": {"name": "0 to 13.4.1", "product_id": "a"}},
+                    {"category": "product_version", "name": "CUDA Toolkit",
+                     "product": {"name": "13.4 U1", "product_id": "b"}},
+                ]},
+                {"category": "architecture", "name": "Linux x86_64, Windows", "branches": [
+                    {"category": "product_version", "name": "NVJPEG",
+                     "product": {"name": "26.07", "product_id": "c"}},
+                ]},
+            ]}]},
+            "vulnerabilities": [{"cve": "CVE-2026-65160"}],
+        }
+        self.stub.text_by_url[fr.CUDA_REDIST_INDEX] = "".join(
+            f"<a href='redistrib_{v}.json'>redistrib_{v}.json</a>\n"
+            for v in ("13.3.1", "13.4.1", "13.4.2", "13.4.3", "13.5.0")
+        )
+        self.stub.json_by_url[fr.CUDA_REDIST_MANIFEST.format(release="13.4.2")] = {
+            "cuda_nvcc": {"version": "13.4.92"}
+        }
+        original = self.stub.json_by_url[fr.bulletin_url(2026, 5755)]
+        blocks = fr.nvidia_simple_product_minimums(
+            [({"year": 2026, "aId": 5755}, original), ({"year": 2026, "aId": 5910}, doc)],
+            fetch=self.stub,
+        )
+        cuda = blocks["cudaToolkit"]
+        # "13.4 U1" is 13.4.1, which the same bulletin also lists as affected
+        # ("0 to 13.4.1"). The later release, 13.4.2, becomes the floor.
+        self.assertEqual(cuda["minimum"], "13.4.92")
+        self.assertEqual(cuda["fixAvailability"]["toolkitRelease"], "13.4.2")
+        self.assertEqual(cuda["source"]["aId"], 5910)
+        self.assertEqual([item["aId"] for item in cuda["sources"]], [5755, 5910])
+        self.assertIn("5910", fr.known_bulletin_ids({"components": blocks}))
+        # Without the manifest the toolkit number is not published.
+        del self.stub.json_by_url[fr.CUDA_REDIST_MANIFEST.format(release="13.4.2")]
+        with self.assertRaises(fr.MinimumRefreshError):
+            fr.nvidia_simple_product_minimums(
+                [({"year": 2026, "aId": 5910}, doc)], fetch=self.stub
+            )
+
+    def test_a_consistent_cuda_update_release_maps_to_its_own_nvcc(self) -> None:
+        doc = copy.deepcopy(self.stub.json_by_url[fr.bulletin_url(2026, 5755)])
+        for _arch, kids in fr.csaf_arch_branches(doc):
+            for kid in kids:
+                name = kid["product"]["name"]
+                kid["product"]["name"] = (
+                    "All versions prior to CUDA Toolkit 13.4 Update 1"
+                    if "prior" in name else "CUDA Toolkit 13.4 Update 1"
+                )
+        self.stub.json_by_url[fr.CUDA_REDIST_MANIFEST.format(release="13.4.1")] = {
+            "cuda_nvcc": {"version": "13.4.59"}
+        }
+        blocks = fr.nvidia_simple_product_minimums(
+            [({"year": 2026, "aId": 5910}, doc)], fetch=self.stub
+        )
+        self.assertEqual(blocks["cudaToolkit"]["minimum"], "13.4.59")
+
+    def test_snap4_keeps_one_floor_per_train(self) -> None:
+        documents = fr.nvidia_csaf_documents(fetch=self.stub)
+        block = fr.nvidia_snap4_minimums(documents)
+        self.assertEqual(block["kind"], "releaseLines")
+        self.assertEqual(
+            block["lines"], {"4.5": {"fixed": "4.5.5"}, "4.9": {"fixed": "4.9.1"}}
+        )
+        self.assertEqual(block["cves"], ["CVE-2025-33215", "CVE-2025-33216"])
+        self.assertEqual(block["source"]["aId"], 5744)
+        self.assertEqual(block["floorAvailability"]["4.5"]["version"], "4.5.5")
+        self.assertEqual(fr.nvidia_snap4_minimums([]), {})
 
     def test_applicable_cuda_document_with_unknown_grammar_fails_closed(self) -> None:
         doc = copy.deepcopy(self.stub.json_by_url[fr.bulletin_url(2026, 5755)])
@@ -980,6 +1063,7 @@ class ExtractorTest(unittest.TestCase):
         self.stub.json_by_url.pop(f"{fr.UBUNTU_CVE_URL}{cve}.json", None)
         doc = fr.ubuntu_cve_doc(cve, fetch=self.stub)
         self.assertEqual(fr._linux_states(doc)["noble"], "pending")
+        # The notice list is unreachable here too, so the record has no USNs.
         self.assertEqual(doc["notices"], [])
         # Every later reader shares the one result; the API is not retried.
         self.assertTrue(fr.ubuntu_kernel_cve_listed(cve, "noble", fetch=self.stub))
@@ -1019,6 +1103,34 @@ class ExtractorTest(unittest.TestCase):
                 clone.cleanup()
             with self.assertRaisesRegex(fr.MinimumRefreshError, "git clone exited"):
                 fr.Fetcher().grep_git_files((Path(tmp) / "none").as_uri(), "x", ("active",))
+
+    def test_the_tracker_fallback_dates_fixes_from_the_cve_notice_list(self) -> None:
+        cve = "CVE-2026-12346"
+        self.add_tracker_cve(cve, "critical", None, "2026-10-20",
+                             {"noble": "released (6.8.0-999.999)"})
+
+        def page(offset: int, notices: list) -> None:
+            url = fr.UBUNTU_NOTICES_URL + "?" + fr.urllib.parse.urlencode(
+                {"cve_id": cve, "limit": fr.UBUNTU_NOTICE_PAGE_LIMIT, "offset": offset}
+            )
+            self.stub.json_by_url[url] = {"notices": notices, "total_results": 21}
+
+        first = [{"id": f"USN-9{n:03d}-1", "published": f"2026-10-{n % 28 + 1:02d}T00:00:00",
+                  "cves_ids": [cve]} for n in range(20)]
+        # A notice that does not list the CVE is dropped.
+        page(0, first[:19] + [{"id": "USN-1-1", "published": "2026-10-01T00:00:00",
+                               "cves_ids": ["CVE-2026-1"]}])
+        page(20, [{"id": "USN-8999-1", "published": "2026-09-30T00:00:00",
+                   "cves": [{"id": cve}]}])
+        doc = fr.ubuntu_cve_doc(cve, fetch=self.stub)
+        ids = [notice["id"] for notice in doc["notices"]]
+        self.assertEqual(len(ids), 20)
+        self.assertEqual(ids[0], "USN-8999-1")
+        self.assertNotIn("USN-1-1", ids)
+        # A short list fails closed.
+        page(20, [])
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "incomplete notice list"):
+            fr.ubuntu_cve_notices(cve, fetch=self.stub)
 
     def test_cvss3_base_scores(self) -> None:
         for score, vector in self.CVSS3_VECTORS.items():
@@ -2246,21 +2358,21 @@ class DetectNewBulletinsTest(unittest.TestCase):
             [item for item in found if item["product"] == "Docker Engine"]
         )
 
-    def test_an_untracked_docker_major_is_reported_as_new(self) -> None:
+    def test_a_new_docker_major_is_tracked_without_a_code_change(self) -> None:
         stub = StubFetcher()
         stub.json_by_url[fr.DOCKER_DOCS_CONTENTS] = fixture(
             "docker-docs-release-notes-listing.json"
         ) + [{"name": "30.md", "type": "file"}]
-        docker = [
-            item
-            for item in self.scan(fetch=stub)
-            if item["product"] == "Docker Engine"
-        ]
-        self.assertEqual([item["id"] for item in docker], [30])
-        self.assertEqual(docker[0]["status"], "new")
-        self.assertEqual(
-            docker[0]["url"], "https://docs.docker.com/engine/release-notes/30/"
+        self.assertEqual(fr.docker_engine_majors(fetch=stub), (29, 30))
+        self.assertEqual(fr.untracked_docker_majors(fetch=stub), [])
+        self.assertFalse(
+            [item for item in self.scan(fetch=stub) if item["product"] == "Docker Engine"]
         )
+
+    def test_an_unreadable_listing_keeps_the_pinned_docker_majors(self) -> None:
+        stub = StubFetcher()
+        del stub.json_by_url[fr.DOCKER_DOCS_CONTENTS]
+        self.assertEqual(fr.docker_engine_majors(fetch=stub), fr.DOCKER_ENGINE_MAJORS)
 
     def test_an_unreadable_docker_listing_does_not_crash_the_scan(self) -> None:
         stub = StubFetcher()
@@ -2269,32 +2381,16 @@ class DetectNewBulletinsTest(unittest.TestCase):
         new = [item for item in self.scan(fetch=stub) if item["status"] == "new"]
         self.assertEqual([item["id"] for item in new], [5871])
 
-    def test_cli_exit_three_tells_the_operator_where_to_track_a_docker_major(
-        self,
-    ) -> None:
-        stub = StubFetcher()
-        stub.json_by_url[fr.DOCKER_DOCS_CONTENTS] = fixture(
-            "docker-docs-release-notes-listing.json"
-        ) + [{"name": "30.md", "type": "file"}]
-        code, out, err = self.detect_cli(stub)
-        self.assertEqual(code, 3)
-        self.assertIn("Docker Engine 30 release notes", out)
-        self.assertIn("DOCKER_ENGINE_MAJORS", err)
-
     def test_cli_exits_three_when_a_new_bulletin_exists(self) -> None:
         code, out, err = self.detect_cli()
         self.assertEqual(code, 3)
         self.assertIn("5871", out)
-        self.assertIn("5744", out)
-        self.assertIn("DEFERRED_BULLETINS", err)
+        self.assertNotIn("5744", out)
+        self.assertIn("generator gap", err)
 
-    def test_5744_is_deferred_and_is_not_reported_as_untracked(self) -> None:
-        self.assertIn("5744", fr.DEFERRED_BULLETINS)
-        found = self.scan()
-        snap4 = next(item for item in found if item["id"] == 5744)
-        self.assertEqual(snap4["status"], "deferred")
-        self.assertIn("4.5.5 LTS train", snap4["reason"])
-        self.assertNotIn(5744, [item["id"] for item in found if item["status"] == "new"])
+    def test_5744_is_tracked_and_not_reported(self) -> None:
+        self.assertNotIn("5744", fr.DEFERRED_BULLETINS)
+        self.assertNotIn(5744, [item["id"] for item in self.scan()])
 
     def test_5847_is_not_applicable_to_supported_networking_products(self) -> None:
         found = self.scan()
@@ -2308,8 +2404,8 @@ class DetectNewBulletinsTest(unittest.TestCase):
             code, out, err = self.detect_cli()
         self.assertEqual(code, 0)
         self.assertIn("Deferred bulletins", out)
-        self.assertIn("5744", out)
-        self.assertIn("drops the 4.5.5 LTS train", out)
+        self.assertIn("5871", out)
+        self.assertIn("parser work pending", out)
         self.assertIn("no unknown bulletins", out)
         self.assertEqual(err, "")
 
@@ -2443,7 +2539,7 @@ class PullRequestBodyTest(unittest.TestCase):
 
     def test_an_untracked_bulletin_is_still_reported(self) -> None:
         body = self.body(found="true", report="  5744  Networking SNAP4: title")
-        self.assertIn("relevant bulletins that the table does not track", body)
+        self.assertIn("the generator could not add them", body)
         self.assertIn("5744  Networking SNAP4: title", body)
         self.assertNotIn("failed on every attempt", body)
 
