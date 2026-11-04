@@ -1268,7 +1268,7 @@ def decide(record: dict[str, Any]) -> tuple[str, str]:
         if "is not installed" in str(record.get("modeError") or ""):
             # A missing tool is not a privilege problem. Saying sudo was
             # refused here would send an operator after the wrong fix.
-            privilege = "install mlxconfig (NVIDIA MFT) or mstconfig to read it"
+            privilege = "install NVIDIA MFT, which provides mlxconfig, to read it"
         return (
             STATE_INCOMPLETE,
             "BlueField-3 is present but its mode could not be read "

@@ -530,7 +530,7 @@ class ScopeStateTests(CheckHarness):
 
         self.assertEqual(record["state"], "incomplete")
         self.assertIn("mlxconfig is not installed", record["reason"])
-        self.assertIn("install mlxconfig", record["reason"])
+        self.assertIn("install NVIDIA MFT", record["reason"])
         self.assertNotIn("sudo", record["reason"])
 
 class EscalationPathTests(unittest.TestCase):
