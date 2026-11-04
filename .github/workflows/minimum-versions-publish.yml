@@ -102,6 +102,11 @@ jobs:
         id: refreshed
         env:
           GH_TOKEN: ${{ github.token }}
+          # A run started by a successful refresh carries that refresh's own
+          # finish time. The runs listing can lag that event by seconds, so
+          # a lookup alone can return the previous success.
+          EVENT_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          EVENT_STAMP: ${{ github.event.workflow_run.updated_at }}
         # The latest successful `minimum-versions-refresh` run is the last time
         # the feeds were read end to end. A run that opened a pull request and a
         # run that found nothing both count; a failed run does not, so a broken
@@ -114,6 +119,10 @@ jobs:
           stamp="$(gh api \
             "repos/${GITHUB_REPOSITORY}/actions/workflows/${REFRESH_WORKFLOW}/runs?status=success&per_page=1" \
             --jq '.workflow_runs[0].updated_at // empty')"
+          if [ "${EVENT_CONCLUSION:-}" = "success" ] && [ -n "${EVENT_STAMP:-}" ] \
+            && { [ -z "$stamp" ] || [[ "$EVENT_STAMP" > "$stamp" ]]; }; then
+            stamp="$EVENT_STAMP"
+          fi
           echo "the upstream feeds were last checked at ${stamp:-an unknown time}"
           echo "stamp=$stamp" >> "$GITHUB_OUTPUT"
 
@@ -156,10 +165,25 @@ jobs:
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}minimum-versions.json
+      url: ${{ steps.deploy.outputs.page_url || steps.retry.outputs.page_url }}minimum-versions.json
     steps:
+      # Pages accepts one deployment at a time and answers 400 "due to in
+      # progress deployment" while the previous one is still being processed
+      # on its side, even after that run's job has finished. Two publishes a
+      # few minutes apart (a merge push and a refresh) hit this. Wait for the
+      # previous deployment and try once more instead of failing the publish.
       - name: Deploy to GitHub Pages
         id: deploy
+        continue-on-error: true
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+      - name: Wait for the previous Pages deployment
+        if: steps.deploy.outcome == 'failure'
+        run: sleep 120
+
+      - name: Deploy to GitHub Pages again
+        id: retry
+        if: steps.deploy.outcome == 'failure'
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
       - name: Check the public address
