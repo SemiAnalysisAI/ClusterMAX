@@ -61,7 +61,9 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -301,16 +303,22 @@ UBUNTU_KERNEL_EXCLUDED = re.compile(r"linux-riscv(?:-\d+\.\d+)?")
 # A discovered CVE gets the `allKernels` rows of a named spec, under the key
 # `linuxCve<year>_<number>`, and every row carries `"discovered": true`.
 #
-# The scan reads the tracker search, newest publication first, back to the
-# later of UBUNTU_KERNEL_DISCOVERY_SINCE and UBUNTU_KERNEL_DISCOVERY_WINDOW_DAYS
-# before the run. A CVE that the existing table already carries as discovered
+# The scan reads the Ubuntu CVE tracker's own data, the ubuntu-cve-tracker git
+# repository, back to the later of UBUNTU_KERNEL_DISCOVERY_SINCE and
+# UBUNTU_KERNEL_DISCOVERY_WINDOW_DAYS before the run. The tracker search API
+# (`ubuntu.com/security/cves.json`) serves the same records but times out for
+# days at a time, so it is no longer read. The tracker files carry the
+# priority, the public date, and the `linux` state per release. They do not
+# carry the NVD CVSS v3 score that the policy needs for a `high` CVE, so that
+# score is read from Canonical's OSV record of the CVE.
+# A CVE that the existing table already carries as discovered
 # stays in the table after it leaves the window or the selection (for example,
 # a lowered priority), so a released fix and its grace record cannot vanish.
 # Published CVEs from before UBUNTU_KERNEL_DISCOVERY_SINCE are not backfilled;
 # a reviewer adds such a CVE as a named spec.
-UBUNTU_CVE_SEARCH_URL = "https://ubuntu.com/security/cves.json"
-UBUNTU_CVE_SEARCH_PAGE_SIZE = 20  # the API maximum
-UBUNTU_CVE_SEARCH_MAX_PAGES = 60
+UBUNTU_CVE_TRACKER_GIT = "https://git.launchpad.net/ubuntu-cve-tracker"
+# Tracker directories that hold CVE files: open, closed, and ignored CVEs.
+UBUNTU_CVE_TRACKER_DIRS = ("active", "retired", "ignored")
 UBUNTU_KERNEL_DISCOVERY_SINCE = "2026-10-01"
 UBUNTU_KERNEL_DISCOVERY_WINDOW_DAYS = 30
 # Ubuntu priority -> lowest CVSS v3 base score that selects the CVE. A critical
@@ -512,6 +520,66 @@ class Fetcher:
                 return json.load(response)
         except (urllib.error.URLError, OSError, ValueError) as exc:
             raise MinimumRefreshError(f"cannot query {url}: {exc}") from exc
+
+    git_timeout: int = 900
+
+    def grep_git_files(
+        self, url: str, pattern: str, paths: Sequence[str]
+    ) -> dict[str, str]:
+        """Return {path: text} for the files under `paths` whose text matches
+        the extended regular expression `pattern`, at the head of a git
+        repository.
+
+        The repository is cloned shallow into a temporary directory and read
+        without a checkout. Any git failure stops the refresh, because a
+        partial read would drop a file without a trace.
+        """
+        logger = logging.getLogger(__name__)
+        started = time.monotonic()
+        logger.info("git clone --depth 1 %s", url)
+
+        def git(*args: str, cwd: str | None = None, data: bytes | None = None) -> bytes:
+            try:
+                done = subprocess.run(
+                    ["git", *args], cwd=cwd, input=data, capture_output=True,
+                    timeout=self.git_timeout, check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise MinimumRefreshError(f"cannot read {url}: git {args[0]}: {exc}") from exc
+            # git grep exits 1 when nothing matches.
+            if done.returncode != 0 and not (args[0] == "grep" and done.returncode == 1):
+                detail = done.stderr.decode("utf-8", "replace").strip().splitlines()
+                raise MinimumRefreshError(
+                    f"cannot read {url}: git {args[0]} exited {done.returncode}: "
+                    f"{detail[-1] if detail else ''}"
+                )
+            return done.stdout
+
+        with tempfile.TemporaryDirectory(prefix="cmax-git-") as tmp:
+            git("clone", "--quiet", "--depth", "1", "--no-checkout", url, tmp)
+            listed = git(
+                "grep", "-l", "-I", "-E", pattern, "HEAD", "--", *paths, cwd=tmp
+            ).decode("utf-8", "replace").split()
+            names = [name.split(":", 1)[1] for name in listed if ":" in name]
+            texts: dict[str, str] = {}
+            if names:
+                out = git(
+                    "cat-file", "--batch", cwd=tmp,
+                    data="".join(f"HEAD:{name}\n" for name in names).encode(),
+                )
+                pos = 0
+                for name in names:
+                    end = out.index(b"\n", pos)
+                    header = out[pos:end].split()
+                    if len(header) != 3:
+                        raise MinimumRefreshError(f"cannot read {url}: git cat-file {name}")
+                    size = int(header[2])
+                    texts[name] = out[end + 1:end + 1 + size].decode("utf-8", "replace")
+                    pos = end + 1 + size + 1
+        logger.info(
+            "finished %s after %.1fs (%d files)", url, time.monotonic() - started, len(texts)
+        )
+        return texts
 
     def get_text_head(self, url: str, max_bytes: int = 1200) -> str | None:
         """Return the first bytes of a text file, or None when it is unreadable.
@@ -2145,12 +2213,93 @@ def ubuntu_discovery_floor(now: datetime | None = None) -> str:
     return max(window, UBUNTU_KERNEL_DISCOVERY_SINCE)
 
 
-def ubuntu_cve_search_url(priority: str, offset: int) -> str:
-    """One page of `linux` CVEs of one priority, newest publication first."""
-    return (
-        f"{UBUNTU_CVE_SEARCH_URL}?package=linux&priority={priority}"
-        f"&limit={UBUNTU_CVE_SEARCH_PAGE_SIZE}&offset={offset}"
+_CVSS3_WEIGHTS: dict[str, dict[str, float]] = {
+    "AV": {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.2},
+    "AC": {"L": 0.77, "H": 0.44},
+    "UI": {"N": 0.85, "R": 0.62},
+    "C": {"H": 0.56, "L": 0.22, "N": 0.0},
+    "I": {"H": 0.56, "L": 0.22, "N": 0.0},
+    "A": {"H": 0.56, "L": 0.22, "N": 0.0},
+}
+
+
+def cvss3_base_score(vector: str) -> float | None:
+    """CVSS v3.x base score of a vector string, or None when it is not v3."""
+    parts = str(vector or "").split("/")
+    if not re.fullmatch(r"CVSS:3\.[01]", parts[0]):
+        return None
+    try:
+        metric = dict(part.split(":", 1) for part in parts[1:])
+        changed = {"U": False, "C": True}[metric["S"]]
+        privileges = {"N": 0.85, "L": 0.68 if changed else 0.62,
+                      "H": 0.5 if changed else 0.27}[metric["PR"]]
+        weight = {key: _CVSS3_WEIGHTS[key][metric[key]] for key in _CVSS3_WEIGHTS}
+    except (KeyError, ValueError):
+        return None
+    base = 1 - (1 - weight["C"]) * (1 - weight["I"]) * (1 - weight["A"])
+    impact = (
+        7.52 * (base - 0.029) - 3.25 * (base - 0.02) ** 15 if changed else 6.42 * base
     )
+    if impact <= 0:
+        return 0.0
+    exploitability = 8.22 * weight["AV"] * weight["AC"] * privileges * weight["UI"]
+    total = min((1.08 if changed else 1.0) * (impact + exploitability), 10.0)
+    # The specification's Roundup: the smallest one-decimal number >= total.
+    scaled = round(total * 100000)
+    if scaled % 10000 == 0:
+        return scaled / 100000.0
+    return (scaled // 10000 + 1) / 10.0
+
+
+def ubuntu_osv_cvss3(cve: str, fetch: Fetcher | None = None) -> float | None:
+    """The CVSS v3 base score in Canonical's OSV record of a CVE.
+
+    None when Canonical has not published the record yet, or the record has
+    no CVSS v3 vector. Any other read failure stops the refresh.
+    """
+    year = cve.split("-")[1]
+    doc = _fetcher(fetch).get_optional_json(f"{UBUNTU_OSV_RAW_URL}{year}/UBUNTU-{cve}.json")
+    severities = doc.get("severity") if isinstance(doc, dict) else None
+    for severity in severities if isinstance(severities, list) else []:
+        if isinstance(severity, dict) and severity.get("type") == "CVSS_V3":
+            return cvss3_base_score(str(severity.get("score")))
+    return None
+
+
+def ubuntu_tracker_record(text: str) -> dict | None:
+    """Parse one ubuntu-cve-tracker CVE file into the tracker API record shape.
+
+    Returns the id, priority, publication date, status, and the `linux`
+    package state per release codename, or None when the file names no CVE.
+    """
+    fields: dict[str, str] = {}
+    states: dict[str, str] = {}
+    for line in text.splitlines():
+        match = re.match(r"(Candidate|PublicDate|Priority):[ \t]*(.*?)\s*$", line)
+        if match and match.group(1) not in fields:
+            fields[match.group(1)] = match.group(2)
+            continue
+        match = re.match(r"([a-z][a-z0-9.+-]*)_linux:[ \t]*([A-Za-z-]+)", line)
+        if match:
+            states[match.group(1)] = match.group(2)
+    cve = fields.get("Candidate", "")
+    if not re.fullmatch(r"CVE-\d{4}-\d+", cve):
+        return None
+    published = fields.get("PublicDate", "")
+    return {
+        "id": cve,
+        "priority": fields.get("Priority", ""),
+        "published": published[:10] if re.match(r"\d{4}-\d{2}-\d{2}", published) else "",
+        "status": "rejected" if "** REJECT **" in text else "active",
+        "cvss3": None,
+        "packages": [{
+            "name": "linux",
+            "statuses": [
+                {"release_codename": codename, "status": state}
+                for codename, state in states.items()
+            ],
+        }],
+    }
 
 
 def discover_ubuntu_kernel_cves(
@@ -2158,47 +2307,47 @@ def discover_ubuntu_kernel_cves(
 ) -> list[str]:
     """Return the tracker CVEs that meet the kernel discovery policy.
 
-    The search lists `linux` CVEs of each discovery priority, newest first, 20
-    per page. Paging stops at the first page that reaches past the floor date.
-    A failed page stops the refresh, because a partial scan would drop a CVE
-    without a trace. A scan that does not reach the floor within
-    UBUNTU_CVE_SEARCH_MAX_PAGES also stops it.
+    The ubuntu-cve-tracker repository is read at its head for CVE files of a
+    discovery priority published on or after the floor date. A `high` CVE
+    also needs its CVSS v3 score, read from Canonical's OSV record. A failed
+    read stops the refresh, because a partial scan would drop a CVE without a
+    trace.
     """
     client = _fetcher(fetch)
     floor = ubuntu_discovery_floor(now)
-
-    def scan(priority: str) -> set[str]:
-        found: set[str] = set()
-        for page in range(UBUNTU_CVE_SEARCH_MAX_PAGES):
-            offset = page * UBUNTU_CVE_SEARCH_PAGE_SIZE
-            doc = client.get_json(ubuntu_cve_search_url(priority, offset))
-            records = doc.get("cves") if isinstance(doc, dict) else None
-            if not isinstance(records, list):
-                raise MinimumRefreshError(
-                    f"ubuntu: the CVE search for {priority} linux CVEs returned no list"
-                )
-            reached_floor = not records
-            for record in records:
-                published = (
-                    str(record.get("published") or "")[:10] if isinstance(record, dict) else ""
-                )
-                if not published or published < floor:
-                    reached_floor = True
-                    continue
-                if ubuntu_kernel_cve_selected(record):
-                    found.add(str(record["id"]))
-            total = doc.get("total_results")
-            if reached_floor or (isinstance(total, int) and offset + len(records) >= total):
-                return found
+    priorities = sorted(UBUNTU_KERNEL_DISCOVERY_MIN_CVSS)
+    files = client.grep_git_files(
+        UBUNTU_CVE_TRACKER_GIT,
+        rf"^Priority:[[:space:]]*({'|'.join(priorities)})[[:space:]]*$",
+        UBUNTU_CVE_TRACKER_DIRS,
+    )
+    if not files:
         raise MinimumRefreshError(
-            f"ubuntu: the {priority} linux CVE search did not reach {floor} "
-            f"within {UBUNTU_CVE_SEARCH_MAX_PAGES} pages"
+            f"ubuntu: the CVE tracker lists no {' or '.join(priorities)} CVEs"
         )
+    candidates: list[dict] = []
+    for text in files.values():
+        record = ubuntu_tracker_record(text)
+        if record is None or not record["published"] or record["published"] < floor:
+            continue
+        if record["priority"] not in UBUNTU_KERNEL_DISCOVERY_MIN_CVSS:
+            continue
+        # The tracker file has no CVSS v3 score, so test the rest of the
+        # policy with the top score and read the real one only for these.
+        if ubuntu_kernel_cve_selected(dict(record, cvss3=10.0)):
+            candidates.append(record)
 
-    # Each search page is a few MB, so the priorities are read in parallel.
-    with ThreadPoolExecutor(max_workers=len(UBUNTU_KERNEL_DISCOVERY_MIN_CVSS)) as pool:
-        results = list(pool.map(scan, sorted(UBUNTU_KERNEL_DISCOVERY_MIN_CVSS)))
-    return sorted(set().union(*results), key=_cve_order)
+    def score(record: dict) -> dict:
+        if UBUNTU_KERNEL_DISCOVERY_MIN_CVSS[record["priority"]] > 0:
+            record = dict(record, cvss3=ubuntu_osv_cvss3(record["id"], fetch=client))
+        return record
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        scored = list(pool.map(score, candidates))
+    return sorted(
+        {record["id"] for record in scored if ubuntu_kernel_cve_selected(record)},
+        key=_cve_order,
+    )
 
 
 def _cve_order(cve: str) -> tuple[int, int]:

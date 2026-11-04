@@ -120,11 +120,14 @@ class StubFetcher(fr.Fetcher):
         self.json_by_url[
             fr.ubuntu_notices_query_url("qemu", fr.UBUNTU_RELEASE)
         ] = fixture("ubuntu-notices-qemu.json")
-        # The Ubuntu kernel CVE search finds nothing unless a test adds pages.
-        for priority in fr.UBUNTU_KERNEL_DISCOVERY_MIN_CVSS:
-            self.json_by_url[fr.ubuntu_cve_search_url(priority, 0)] = {
-                "cves": [], "offset": 0, "limit": 20, "total_results": 0,
-            }
+        # The Ubuntu CVE tracker repository lists one CVE from before the
+        # discovery floor unless a test adds files. None makes the read fail.
+        self.tracker_files: dict[str, str] | None = {
+            "retired/CVE-2020-0001": (
+                "Candidate: CVE-2020-0001\nPublicDate: 2020-01-01\n"
+                "Priority: high\nnoble_linux: released (6.8.0-1.1)\n"
+            ),
+        }
         self.osv = fixture("osv-runc.json")
         for version, release in self.osv.get("_releases", {}).items():
             self.json_by_url[
@@ -174,6 +177,16 @@ class StubFetcher(fr.Fetcher):
         self.calls.append(url)
         value = self.json_by_url.get(url)
         return copy.deepcopy(value) if value is not None else None
+
+    def grep_git_files(self, url: str, pattern: str, paths) -> dict[str, str]:
+        self.calls.append(f"git:{url}")
+        if self.tracker_files is None or url != fr.UBUNTU_CVE_TRACKER_GIT:
+            raise fr.MinimumRefreshError(f"cannot read {url}: git clone exited 128")
+        regex = re.compile(pattern.replace("[[:space:]]", r"\s"), re.M)
+        return {
+            path: text for path, text in self.tracker_files.items()
+            if path.split("/", 1)[0] in paths and regex.search(text)
+        }
 
     def post_json(self, url: str, body: dict):
         self.calls.append(url)
@@ -772,19 +785,50 @@ class ExtractorTest(unittest.TestCase):
             }],
         }
 
-    def add_search_pages(self, priority: str, *pages: list[dict]) -> None:
-        total = sum(len(page) for page in pages)
-        for index, page in enumerate(pages):
-            offset = index * fr.UBUNTU_CVE_SEARCH_PAGE_SIZE
-            self.stub.json_by_url[fr.ubuntu_cve_search_url(priority, offset)] = {
-                "cves": page, "offset": offset, "limit": 20, "total_results": total,
-            }
+    # A CVSS v3.1 vector per base score the tests use.
+    CVSS3_VECTORS = {
+        9.8: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        9.1: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+        9.0: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:H",
+        8.8: "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        7.8: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+    }
+
+    def add_tracker_cve(
+        self,
+        cve: str,
+        priority: str,
+        cvss3: float | None,
+        published: str,
+        linux: dict[str, str],
+        directory: str = "active",
+    ) -> None:
+        """Add an ubuntu-cve-tracker file and, with a score, its OSV record."""
+        assert self.stub.tracker_files is not None
+        self.stub.tracker_files[f"{directory}/{cve}"] = "".join((
+            f"PublicDateAtUSN: {published} 09:18:00 UTC\n",
+            f"Candidate: {cve}\n",
+            f"PublicDate: {published} 09:18:00 UTC\n",
+            "Description:\n A flaw in the kernel.\n",
+            f"Priority: {priority}\n",
+            "\nPatches_linux:\n",
+            "upstream_linux: released (7.3~rc4)\n",
+            *(f"{codename}_linux: {state}\n" for codename, state in linux.items()),
+        ))
+        if cvss3 is not None:
+            self.stub.json_by_url[
+                f"{fr.UBUNTU_OSV_RAW_URL}{cve.split('-')[1]}/UBUNTU-{cve}.json"
+            ] = {"id": f"UBUNTU-{cve}", "severity": [
+                {"type": "CVSS_V4", "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N"},
+                {"type": "CVSS_V3", "score": self.CVSS3_VECTORS[cvss3]},
+                {"type": "Ubuntu", "score": priority},
+            ]}
 
     def add_unseen_kernel_cve(self) -> None:
-        self.add_search_pages("critical", [self.search_record(
+        self.add_tracker_cve(
             "CVE-2026-12345", "critical", None, "2026-10-20",
-            {"jammy": "DNE", "noble": "needed", "resolute": "pending"},
-        )])
+            {"noble": "needed", "resolute": "pending"},
+        )
         self.stub.json_by_url[f"{fr.UBUNTU_CVE_URL}CVE-2026-12345.json"] = {
             "id": "CVE-2026-12345",
             "priority": "critical",
@@ -829,7 +873,7 @@ class ExtractorTest(unittest.TestCase):
             with self.subTest(cve=record["id"]):
                 self.assertIs(fr.ubuntu_kernel_cve_selected(record), selected)
 
-    def test_kernel_cve_discovery_pages_back_to_the_floor(self) -> None:
+    def test_kernel_cve_discovery_reads_the_tracker_back_to_the_floor(self) -> None:
         # The floor is the later of UBUNTU_KERNEL_DISCOVERY_SINCE and the
         # 30-day window before the run.
         self.assertEqual(fr.ubuntu_discovery_floor(self.DISCOVERY_NOW), "2026-10-01")
@@ -838,40 +882,98 @@ class ExtractorTest(unittest.TestCase):
             "2026-11-15",
         )
         listed = {"noble": "needed"}
-        first = [
-            self.search_record(f"CVE-2026-{900 + n}", "high", 7.8, "2026-10-25", listed)
-            for n in range(19)
-        ] + [self.search_record("CVE-2026-950", "high", 9.8, "2026-10-21", listed)]
-        second = [
-            self.search_record("CVE-2026-951", "high", 9.1, "2026-10-02", listed),
-            self.search_record("CVE-2026-800", "high", 9.8, "2026-09-30", listed),
-        ]
-        self.add_search_pages("high", first, second, [])
-        self.add_search_pages("critical", [
-            self.search_record("CVE-2026-12345", "critical", None, "2026-10-20", listed),
-        ])
+        for n in range(3):
+            self.add_tracker_cve(f"CVE-2026-{900 + n}", "high", 7.8, "2026-10-25", listed)
+        self.add_tracker_cve("CVE-2026-950", "high", 9.8, "2026-10-21", listed)
+        # A closed CVE in the window is still discovered.
+        self.add_tracker_cve(
+            "CVE-2026-951", "high", 9.1, "2026-10-02", {"noble": "released (6.8.0-9.9)"},
+            directory="retired",
+        )
+        self.add_tracker_cve("CVE-2026-800", "high", 9.8, "2026-09-30", listed)
+        # Canonical has not published the OSV record yet: no score, no pick.
+        self.add_tracker_cve("CVE-2026-952", "high", None, "2026-10-22", listed)
+        self.add_tracker_cve("CVE-2026-953", "medium", 9.8, "2026-10-22", listed)
+        self.add_tracker_cve(
+            "CVE-2026-954", "high", 9.8, "2026-10-22",
+            {"jammy": "DNE", "noble": "not-affected", "focal": "needed"},
+        )
+        self.add_tracker_cve("CVE-2026-12345", "critical", None, "2026-10-20", listed)
         found = fr.discover_ubuntu_kernel_cves(fetch=self.stub, now=self.DISCOVERY_NOW)
         self.assertEqual(found, ["CVE-2026-950", "CVE-2026-951", "CVE-2026-12345"])
-        # The second high page reached the floor, so the third is never read.
-        self.assertNotIn(fr.ubuntu_cve_search_url("high", 40), self.stub.calls)
+        # A score is read only for a high CVE that passes the rest of the policy.
+        osv = {url.rsplit("/", 1)[1] for url in self.stub.calls
+               if url.startswith(fr.UBUNTU_OSV_RAW_URL)}
+        self.assertEqual(osv, {
+            "UBUNTU-CVE-2026-900.json", "UBUNTU-CVE-2026-901.json",
+            "UBUNTU-CVE-2026-902.json", "UBUNTU-CVE-2026-950.json",
+            "UBUNTU-CVE-2026-951.json", "UBUNTU-CVE-2026-952.json",
+        })
+        # The tracker search API is no longer read.
+        self.assertFalse([url for url in self.stub.calls if "cves.json" in url])
+
+    def test_tracker_files_parse_into_tracker_records(self) -> None:
+        record = fr.ubuntu_tracker_record(
+            "PublicDateAtUSN: 2026-10-06 09:18:00 UTC\n"
+            "Candidate: CVE-2026-98365\n"
+            "PublicDate: 2026-10-06 09:18:00 UTC\n"
+            "Priority: critical\n"
+            "Priority_linux-aws: high\n"
+            "bionic_linux: ignored (end of standard support, was needed)\n"
+            "jammy_linux: needed\n"
+            "noble_linux: pending (6.8.0-148.148)\n"
+            "noble_linux-aws: needed\n"
+        )
+        self.assertEqual(record, {
+            "id": "CVE-2026-98365", "priority": "critical", "published": "2026-10-06",
+            "status": "active", "cvss3": None,
+            "packages": [{"name": "linux", "statuses": [
+                {"release_codename": "bionic", "status": "ignored"},
+                {"release_codename": "jammy", "status": "needed"},
+                {"release_codename": "noble", "status": "pending"},
+            ]}],
+        })
+        rejected = fr.ubuntu_tracker_record(
+            "Candidate: CVE-2026-7\nPublicDate: unknown\nDescription:\n ** REJECT **\n"
+        )
+        self.assertEqual((rejected["status"], rejected["published"]), ("rejected", ""))
+        self.assertIsNone(fr.ubuntu_tracker_record("Candidate: \nPriority: high\n"))
+
+    def test_cvss3_base_scores(self) -> None:
+        for score, vector in self.CVSS3_VECTORS.items():
+            with self.subTest(vector=vector):
+                self.assertEqual(fr.cvss3_base_score(vector), score)
+        self.assertEqual(
+            fr.cvss3_base_score("CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"), 9.9
+        )
+        self.assertEqual(
+            fr.cvss3_base_score("CVSS:3.0/AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:N/A:N"), 3.1
+        )
+        self.assertEqual(
+            fr.cvss3_base_score("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N"), 0.0
+        )
+        for vector in ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N", "CVSS:3.1/AV:N", ""):
+            self.assertIsNone(fr.cvss3_base_score(vector))
 
     def test_kernel_cve_discovery_fails_closed(self) -> None:
-        del self.stub.json_by_url[fr.ubuntu_cve_search_url("high", 0)]
-        with self.assertRaisesRegex(fr.MinimumRefreshError, "priority=high"):
+        self.stub.tracker_files = None
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "ubuntu-cve-tracker"):
             fr.discover_ubuntu_kernel_cves(fetch=self.stub, now=self.DISCOVERY_NOW)
-        page = [
-            self.search_record(f"CVE-2026-{n}", "high", 7.8, "2026-10-25", {})
-            for n in range(20)
-        ]
-        self.add_search_pages("high", page, page)
-        with mock.patch.object(fr, "UBUNTU_CVE_SEARCH_MAX_PAGES", 1), \
-                self.assertRaisesRegex(fr.MinimumRefreshError, "did not reach 2026-10-01"):
+        # A tracker read that lists nothing is a broken read, not "no CVEs".
+        self.stub.tracker_files = {}
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "lists no critical or high"):
+            fr.discover_ubuntu_kernel_cves(fetch=self.stub, now=self.DISCOVERY_NOW)
+        # A failed OSV read (other than a missing record) stops the scan.
+        self.stub.tracker_files = {}
+        self.add_tracker_cve("CVE-2026-950", "high", 9.8, "2026-10-21", {"noble": "needed"})
+        with mock.patch.object(
+            self.stub, "get_optional_json",
+            side_effect=fr.MinimumRefreshError("cannot fetch OSV: HTTP 500"),
+        ), self.assertRaisesRegex(fr.MinimumRefreshError, "HTTP 500"):
             fr.discover_ubuntu_kernel_cves(fetch=self.stub, now=self.DISCOVERY_NOW)
 
     def test_kernel_cve_discovery_skips_named_cves(self) -> None:
-        self.add_search_pages("high", [self.search_record(
-            "CVE-2026-98432", "high", 9.8, "2026-10-15", {"noble": "pending"},
-        )])
+        self.add_tracker_cve("CVE-2026-98432", "high", 9.8, "2026-10-15", {"noble": "pending"})
         specs = fr.ubuntu_discovered_kernel_specs({}, fetch=self.stub, now=self.DISCOVERY_NOW)
         self.assertEqual(specs, ())
 
@@ -932,7 +1034,8 @@ class ExtractorTest(unittest.TestCase):
         )
         # A later scan no longer lists the CVE (out of the window, or a lower
         # priority). The rebuild keeps the group from the existing table.
-        self.add_search_pages("critical", [])
+        assert self.stub.tracker_files is not None
+        del self.stub.tracker_files["active/CVE-2026-12345"]
         later = datetime(2026, 12, 15, tzinfo=timezone.utc)
         second = fr.build_minimums(
             generated=GENERATED, existing=first, fetch=self.stub, now=later
