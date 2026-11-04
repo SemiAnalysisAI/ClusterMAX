@@ -751,6 +751,22 @@ RULES: tuple[Rule, ...] = (
         CONFIG,
         _status_is("unknown"),
     ),
+    # SNAP-4 runs on the DPU Arm side, so it is graded only where the DPU is
+    # part of the audited fabric, the same scope as the virtio-net controller.
+    Rule(
+        "securityVersions.snap4Container.status",
+        "BlueField SNAP-4 container below security minimum",
+        VERSION,
+        _status_is("fail"),
+        harnesses=SCALE_OUT_HARNESSES,
+    ),
+    Rule(
+        "securityVersions.snap4Container.status",
+        "BlueField SNAP-4 container version requires provider attestation",
+        CONFIG,
+        _status_is("unknown"),
+        harnesses=SCALE_OUT_HARNESSES,
+    ),
     # --- BlueField DPU ----------------------------------------------------
     # The controller firmware check has four reportable states, not two. A
     # below-minimum controller in DPU mode is running and fails. The same firmware
@@ -1640,6 +1656,8 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "securityVersions.connectxFirmware.status": "security-connectx-firmware",
     "securityVersions.dcgm.status": None,
     "securityVersions.dcgmExporter.status": None,
+    # CLI-only until the criteria catalog has a SNAP-4 criterion.
+    "securityVersions.snap4Container.status": None,
     "securityVersions.virtioNetBluefield.status": "security-virtio-net-bluefield",
     "securityVersions.virtioNetBluefield.exposure": "security-virtio-net-bluefield",
     "securityVersions.dpuHostIsolation.status": "security-dpu-host-isolation",
@@ -1738,6 +1756,7 @@ _COMPONENT_NAMES = {
     "nvidiaContainerToolkit": "NVIDIA Container Toolkit",
     "nvidiaDriver": "NVIDIA driver",
     "runc": "runc",
+    "snap4Container": "BlueField SNAP-4 container",
     "virtioNetBluefield": "BlueField VIRTIO-Net controller",
 }
 

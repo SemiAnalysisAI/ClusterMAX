@@ -32,6 +32,7 @@ AUDIT_CATEGORIES = (
                 "securityVersions.dcgm.status",
                 "securityVersions.dcgmExporter.status",
                 "securityVersions.virtioNetBluefield.status",
+                "securityVersions.snap4Container.status",
             }
         ),
     ),
