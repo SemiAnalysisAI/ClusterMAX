@@ -1,0 +1,295 @@
+{
+    "document": {
+        "aggregate_severity": {
+            "namespace": "https://www.first.org/cvss/v4.0/specification-document#Qualitative-Severity-Rating-Scale",
+            "text": "MEDIUM"
+        },
+        "category": "csaf_security_advisory",
+        "csaf_version": "2.0",
+        "distribution": {
+            "text": "Copyright \u00a9 2025 NVIDIA Corporation. All rights reserved.",
+            "tlp": {
+                "label": "WHITE",
+                "url": "https://www.first.org/tlp/"
+            }
+        },
+        "lang": "en",
+        "notes": [
+            {
+                "category": "summary",
+                "text": "To protect your system, download and install the latest NVIDIA components from the links provided in this document.",
+                "title": "Summary"
+            },
+            {
+                "category": "legal_disclaimer",
+                "text": "ALL NVIDIA INFORMATION, DESIGN SPECIFICATIONS, REFERENCE BOARDS, FILES, DRAWINGS, DIAGNOSTICS, LISTS, AND OTHER DOCUMENTS (TOGETHER AND SEPARATELY, \"MATERIALS\") ARE BEING PROVIDED \"AS IS.\" NVIDIA MAKES NO WARRANTIES, EXPRESS, IMPLIED, STATUTORY, OR OTHERWISE WITH RESPECT TO THE MATERIALS, AND ALL EXPRESS OR IMPLIED CONDITIONS, REPRESENTATIONS AND WARRANTIES, INCLUDING ANY IMPLIED WARRANTY OR CONDITION OF TITLE, MERCHANTABILITY, SATISFACTORY QUALITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT, ARE HEREBY EXCLUDED TO THE MAXIMUM EXTENT PERMITTED BY LAW.\n\nInformation is believed to be accurate and reliable at the time it is furnished. However, NVIDIA Corporation assumes no responsibility for the consequences of use of such information or for any infringement of patents or other rights of third parties that may result from its use. No license is granted by implication or otherwise under any patent or patent rights of NVIDIA Corporation. Specifications mentioned in this publication are subject to change without notice. This publication supersedes and replaces all information previously supplied. NVIDIA Corporation products are not authorized for use as critical components in life support devices or systems without express written approval of NVIDIA Corporation.",
+                "title": "Terms of Use"
+            },
+            {
+                "category": "details",
+                "text": "Download Links<br><div>Product -&nbsp;<span style=\"background-color: rgb(17, 22, 30);\">Web Link<br></span></div><div>SNAP-4 -&nbsp;<span style=\"background-color: rgb(17, 22, 30);\"><a href=\"https://catalog.ngc.nvidia.com/orgs/nvidia/teams/doca/containers/doca_snap\">https://catalog.ngc.nvidia.com/orgs/nvidia/teams/doca/containers/doca_snap</a></span></div><div><span style=\"background-color: rgb(17, 22, 30);\">For other versions, please contact your account manager or CPM.<br></span></div><div><span style=\"background-color: rgb(17, 22, 30);\"><br></span></div><div><br></div>",
+                "title": "Bulletin Notes"
+            },
+            {
+                "category": "details",
+                "text": "TB-11307-008_v01",
+                "title": "Part Number"
+            },
+            {
+                "category": "details",
+                "text": "1145975",
+                "title": "Product Information Delivery"
+            },
+            {
+                "category": "details",
+                "text": "14:NBU",
+                "title": "Product Team"
+            },
+            {
+                "category": "details",
+                "text": "false",
+                "title": "Contains Firmware"
+            }
+        ],
+        "publisher": {
+            "category": "vendor",
+            "contact_details": "https://www.nvidia.com/security/report-vulnerability/",
+            "issuing_authority": "NVIDIA Product Security is responsible for vulnerability handling across all NVIDIA products and services.",
+            "name": "NVIDIA Product Security",
+            "namespace": "https://www.nvidia.com/security"
+        },
+        "title": "Security Bulletin: NVIDIA Networking SNAP4 - March 2026",
+        "tracking": {
+            "current_release_date": "2026-03-24T00:00:00Z",
+            "generator": {
+                "date": "2026-03-24T00:00:00Z",
+                "engine": {
+                    "name": "NVIDIA PSIRT",
+                    "version": "1.0.0"
+                }
+            },
+            "id": "5744",
+            "initial_release_date": "2026-03-24T00:00:00Z",
+            "revision_history": [
+                {
+                    "date": "2026-03-24T00:00:00Z",
+                    "number": "1.0.0",
+                    "summary": "Initial Release"
+                }
+            ],
+            "status": "final",
+            "version": "1.0.0"
+        }
+    },
+    "product_tree": {
+        "branches": [
+            {
+                "branches": [
+                    {
+                        "branches": [
+                            {
+                                "category": "product_name",
+                                "name": "SNAP-4 Container",
+                                "product": {
+                                    "name": "SNAP-4 Container",
+                                    "product_id": "bluefield3_snap4_container",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:snap4_container:*:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            }
+                        ],
+                        "category": "product_family",
+                        "name": "NVIDIA Product Family"
+                    },
+                    {
+                        "branches": [
+                            {
+                                "category": "product_version",
+                                "name": "SNAP-4 Container",
+                                "product": {
+                                    "name": "All versions prior to SNAP-4.9.1 and SNAP-4.5.5",
+                                    "product_id": "bluefield3_snap4_container_all_versions_prior_to_snap4_9_1_and_snap4_5_5",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:snap4_container:all_versions_prior_to_snap4_9_1_and_snap4_5_5:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_version",
+                                "name": "SNAP-4 Container",
+                                "product": {
+                                    "name": "SNAP-4.9.1, SNAP4 4.5.5 ",
+                                    "product_id": "bluefield3_snap4_container_snap4_9_1_snap4_4_5_5_",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:snap4_container:snap4_9_1_snap4_4_5_5_:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_version",
+                                "name": "SNAP-4 Container",
+                                "product": {
+                                    "name": "All versions prior to SNAP-4.9.0 and SNAP-4.5.5",
+                                    "product_id": "bluefield3_snap4_container_all_versions_prior_to_snap4_9_0_and_snap4_5_5",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:snap4_container:all_versions_prior_to_snap4_9_0_and_snap4_5_5:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_version",
+                                "name": "SNAP-4 Container",
+                                "product": {
+                                    "name": "SNAP-4.9.0, SNAP-4.9.1, SNAP-4.5.5 ",
+                                    "product_id": "bluefield3_snap4_container_snap4_9_0_snap4_9_1_snap4_5_5_",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:snap4_container:snap4_9_0_snap4_9_1_snap4_5_5_:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            }
+                        ],
+                        "category": "architecture",
+                        "name": "BlueField-3"
+                    }
+                ],
+                "category": "vendor",
+                "name": "NVIDIA"
+            }
+        ]
+    },
+    "vulnerabilities": [
+        {
+            "cve": "CVE-2025-33215",
+            "cwe": {
+                "id": "CWE-823",
+                "name": "Use of Out-of-range Pointer Offset"
+            },
+            "notes": [
+                {
+                    "category": "summary",
+                    "text": "NVIDIA SNAP-4 Container contains a vulnerability in the VIRTIO-BLK component where a malicious guest VM may cause use of out-of-range pointer offset by sending crafted messages. A successful exploit of this vulnerability may lead to a denial of service of the DPA and impact the availability of storage to other VMs.",
+                    "title": "Vulnerability description"
+                },
+                {
+                    "category": "details",
+                    "text": "Denial of service",
+                    "title": "Impacts"
+                },
+                {
+                    "category": "details",
+                    "text": "5641802",
+                    "title": "defect"
+                }
+            ],
+            "product_status": {
+                "fixed": [
+                    "bluefield3_snap4_container_snap4_9_1_snap4_4_5_5_"
+                ],
+                "known_affected": [
+                    "bluefield3_snap4_container_all_versions_prior_to_snap4_9_1_and_snap4_5_5"
+                ]
+            },
+            "references": [
+                {
+                    "category": "self",
+                    "summary": "NVD",
+                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-33215"
+                },
+                {
+                    "category": "self",
+                    "summary": "Mitre",
+                    "url": "https://www.cve.org/CVERecord?id=CVE-2025-33215"
+                }
+            ],
+            "release_date": "2025-03-24T00:00:00Z",
+            "scores": [
+                {
+                    "cvss_v3": {
+                        "attackComplexity": "LOW",
+                        "attackVector": "ADJACENT_NETWORK",
+                        "availabilityImpact": "HIGH",
+                        "baseScore": 6.8,
+                        "baseSeverity": "MEDIUM",
+                        "confidentialityImpact": "NONE",
+                        "integrityImpact": "NONE",
+                        "privilegesRequired": "LOW",
+                        "scope": "CHANGED",
+                        "userInteraction": "NONE",
+                        "vectorString": "CVSS:3.1/AV:A/AC:L/PR:L/UI:N/S:C/C:N/I:N/A:H",
+                        "version": "3.1"
+                    },
+                    "products": [
+                        "bluefield3_snap4_container_all_versions_prior_to_snap4_9_1_and_snap4_5_5"
+                    ]
+                }
+            ]
+        },
+        {
+            "cve": "CVE-2025-33216",
+            "cwe": {
+                "id": "CWE-131",
+                "name": "Incorrect Calculation of Buffer Size"
+            },
+            "notes": [
+                {
+                    "category": "summary",
+                    "text": "NVIDIA SNAP-4 Container contains a vulnerability in the configuration interface where an attacker on a VM may cause an incorrect calculation of buffer size by sending crafted configurations. A successful exploit of this vulnerability may lead to crash of the SNAP service, causing denial of service of the storage service to the host.",
+                    "title": "Vulnerability description"
+                },
+                {
+                    "category": "details",
+                    "text": "Denial of service",
+                    "title": "Impacts"
+                },
+                {
+                    "category": "details",
+                    "text": "5641829",
+                    "title": "defect"
+                }
+            ],
+            "product_status": {
+                "fixed": [
+                    "bluefield3_snap4_container_snap4_9_0_snap4_9_1_snap4_5_5_"
+                ],
+                "known_affected": [
+                    "bluefield3_snap4_container_all_versions_prior_to_snap4_9_0_and_snap4_5_5"
+                ]
+            },
+            "references": [
+                {
+                    "category": "self",
+                    "summary": "NVD",
+                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-33216"
+                },
+                {
+                    "category": "self",
+                    "summary": "Mitre",
+                    "url": "https://www.cve.org/CVERecord?id=CVE-2025-33216"
+                }
+            ],
+            "release_date": "2025-03-24T00:00:00Z",
+            "scores": [
+                {
+                    "cvss_v3": {
+                        "attackComplexity": "LOW",
+                        "attackVector": "ADJACENT_NETWORK",
+                        "availabilityImpact": "HIGH",
+                        "baseScore": 6.8,
+                        "baseSeverity": "MEDIUM",
+                        "confidentialityImpact": "NONE",
+                        "integrityImpact": "NONE",
+                        "privilegesRequired": "LOW",
+                        "scope": "CHANGED",
+                        "userInteraction": "NONE",
+                        "vectorString": "CVSS:3.1/AV:A/AC:L/PR:L/UI:N/S:C/C:N/I:N/A:H",
+                        "version": "3.1"
+                    },
+                    "products": [
+                        "bluefield3_snap4_container_all_versions_prior_to_snap4_9_0_and_snap4_5_5"
+                    ]
+                }
+            ]
+        }
+    ]
+}

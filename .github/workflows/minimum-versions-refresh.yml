@@ -490,14 +490,12 @@ jobs:
                   bulletin_text += "\n\n```\n" + report + "\n```"
           elif os.environ.get("NEW_BULLETINS") == "true":
               bulletin_text = (
-                  "The generator found relevant bulletins that the table does not "
-                  "track. A new bulletin is a human decision, so this job does not "
-                  "add it. Track each NVIDIA bulletin in BULLETINS in "
-                  "`cmax/minimum_refresh.py`, or record the reason to defer it in "
-                  "DEFERRED_BULLETINS. Track each Docker Engine major in "
-                  "DOCKER_ENGINE_MAJORS. Track each AMD GPU bulletin in "
-                  "AMD_BULLETINS, or record the reason to defer it in "
-                  "AMD_DEFERRED_BULLETINS. Do that in a separate pull request."
+                  "The refresh adds every NVIDIA CSAF bulletin that matches a "
+                  "graded product line and every new Docker Engine major on its "
+                  "own. The bulletins below matched a graded product line, but "
+                  "the generator could not add them. Each one is a generator "
+                  "gap: fix the product label or version grammar in "
+                  "`cmax/minimum_refresh.py` in a separate pull request."
                   "\n\n```\n" + report + "\n```"
               )
           elif "Deferred bulletins" in report:
@@ -674,9 +672,11 @@ jobs:
         # keeps a quiet day green, and the decision stays visible in the job log
         # and in the job summary above.
         #
-        # A new bulletin is a human decision, never an automatic edit. When a
-        # pull request is open, the description carries the list and the reviewer
-        # sees it there. When there is no diff, this step fails the run instead.
+        # The refresh adds every matching NVIDIA CSAF bulletin and every new
+        # Docker Engine major on its own, so a bulletin still reported here is
+        # one the generator could not parse. When a pull request is open, the
+        # description carries the list. When there is no diff, this step fails
+        # the run instead.
         #
         # Why a failed run and not a new issue: an issue needs `issues: write`,
         # which this job does not need for anything else, and it adds duplicate
@@ -688,7 +688,7 @@ jobs:
         run: |
           set -euo pipefail
           cat "$RUNNER_TEMP/new-bulletins.txt"
-          echo "::error::The generator found relevant bulletins that the minimum table does not track. No minimum moved, so there is no pull request. Track each NVIDIA bulletin in BULLETINS in cmax/minimum_refresh.py, or record the reason to defer it in DEFERRED_BULLETINS. Track each Docker Engine major in DOCKER_ENGINE_MAJORS. Track each AMD GPU bulletin in AMD_BULLETINS, or record the reason to defer it in AMD_DEFERRED_BULLETINS. A deferred bulletin is still reported every run, so the decision stays visible."
+          echo "::error::Bulletins match a graded product line, but the refresh could not add them to the minimum table. The refresh adds matching NVIDIA CSAF bulletins and new Docker Engine majors automatically, so each listed item is a generator gap: fix the product label or version grammar in cmax/minimum_refresh.py, or record a written reason in DEFERRED_BULLETINS."
           exit 1
 
       - name: Fail the run when the bulletin scan could not complete
