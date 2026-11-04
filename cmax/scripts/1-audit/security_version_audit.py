@@ -597,7 +597,11 @@ def snap4_container_result(summary: dict[str, Any] | None) -> dict[str, object]:
             "not_applicable",
             minimum_text,
             advisory,
-            "No BlueField-3 DPU is present in the completed scan, so SNAP-4 does not apply",
+            # The standalone harness says why it skipped the scan; a fleet
+            # scan that found no BlueField-3 says that instead.
+            "No BlueField-3 DPU is present in the completed scan, so SNAP-4 does not apply"
+            if not reason or reason.startswith("no BlueField-3")
+            else f"SNAP-4 does not apply: {reason}",
         )
     elif state == "not_installed":
         verdict = Verdict(

@@ -1162,6 +1162,7 @@ class VirtioNetRollupReachesTheVerdictTests(unittest.TestCase):
         "virtioNetWorstObservedHost": "--virtio-net-worst-host",
         "virtioNetObservedJson": "--virtio-net-observed-json",
         "dpuIsolationJson": "--dpu-isolation-json",
+        "snap4Json": "--snap4-json",
     }
 
     @classmethod
