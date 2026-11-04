@@ -64,6 +64,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -522,62 +523,119 @@ class Fetcher:
             raise MinimumRefreshError(f"cannot query {url}: {exc}") from exc
 
     git_timeout: int = 900
+    _shared_lock = threading.RLock()
+
+    def _state(self, name: str) -> dict:
+        """A per-instance cache, created on first use (Fetcher has no __init__)."""
+        with Fetcher._shared_lock:
+            if name not in self.__dict__:
+                self.__dict__[name] = {}
+            return self.__dict__[name]
+
+    def memo(self, key: str, compute) -> Any:
+        """Compute a value once per fetcher and key, one caller at a time.
+
+        For reads that every release and kernel row repeats and that can take
+        a long time to fail, such as the Ubuntu CVE record of an `allKernels`
+        CVE. Failures are not kept.
+        """
+        values, locks = self._state("_memo_values"), self._state("_memo_locks")
+        with Fetcher._shared_lock:
+            lock = locks.setdefault(key, threading.Lock())
+        with lock:
+            if key not in values:
+                values[key] = compute()
+            return copy.deepcopy(values[key])
+
+    def _git(self, url: str, *args: str, cwd: str | None = None,
+             data: bytes | None = None) -> bytes:
+        try:
+            done = subprocess.run(
+                ["git", *args], cwd=cwd, input=data, capture_output=True,
+                timeout=self.git_timeout, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise MinimumRefreshError(f"cannot read {url}: git {args[0]}: {exc}") from exc
+        # git grep exits 1 when nothing matches.
+        if done.returncode != 0 and not (args[0] == "grep" and done.returncode == 1):
+            detail = done.stderr.decode("utf-8", "replace").strip().splitlines()
+            raise MinimumRefreshError(
+                f"cannot read {url}: git {args[0]} exited {done.returncode}: "
+                f"{detail[-1] if detail else ''}"
+            )
+        return done.stdout
+
+    def _git_clone(self, url: str) -> str:
+        """Clone a repository shallow, once per fetcher, and return its path.
+
+        The clone has no checkout: files are read from HEAD. The directory is
+        removed when the fetcher is garbage collected or the process exits.
+        """
+        def clone() -> tempfile.TemporaryDirectory:
+            logger = logging.getLogger(__name__)
+            started = time.monotonic()
+            logger.info("git clone --depth 1 %s", url)
+            tmp = tempfile.TemporaryDirectory(prefix="cmax-git-")
+            try:
+                self._git(url, "clone", "--quiet", "--depth", "1", "--no-checkout", url, tmp.name)
+            except BaseException:
+                tmp.cleanup()
+                raise
+            logger.info("finished %s after %.1fs", url, time.monotonic() - started)
+            return tmp
+
+        clones, locks = self._state("_git_clones"), self._state("_git_clone_locks")
+        with Fetcher._shared_lock:
+            lock = locks.setdefault(url, threading.Lock())
+        with lock:
+            if url not in clones:
+                clones[url] = clone()
+            return clones[url].name
+
+    def read_git_files(self, url: str, paths: Sequence[str]) -> dict[str, str]:
+        """Return {path: text} for the files at HEAD of a git repository.
+
+        A path that HEAD does not have is left out.
+        """
+        repo = self._git_clone(url)
+        texts: dict[str, str] = {}
+        if not paths:
+            return texts
+        out = self._git(
+            url, "cat-file", "--batch", cwd=repo,
+            data="".join(f"HEAD:{path}\n" for path in paths).encode(),
+        )
+        pos = 0
+        for path in paths:
+            end = out.index(b"\n", pos)
+            header = out[pos:end].split()
+            if header[-1:] == [b"missing"]:
+                pos = end + 1
+                continue
+            if len(header) != 3:
+                raise MinimumRefreshError(f"cannot read {url}: git cat-file {path}")
+            size = int(header[2])
+            texts[path] = out[end + 1:end + 1 + size].decode("utf-8", "replace")
+            pos = end + 1 + size + 1
+        return texts
 
     def grep_git_files(
         self, url: str, pattern: str, paths: Sequence[str]
     ) -> dict[str, str]:
         """Return {path: text} for the files under `paths` whose text matches
-        the extended regular expression `pattern`, at the head of a git
-        repository.
+        the extended regular expression `pattern`, at HEAD of a git repository.
 
-        The repository is cloned shallow into a temporary directory and read
-        without a checkout. Any git failure stops the refresh, because a
-        partial read would drop a file without a trace.
+        Any git failure stops the refresh, because a partial read would drop a
+        file without a trace.
         """
-        logger = logging.getLogger(__name__)
-        started = time.monotonic()
-        logger.info("git clone --depth 1 %s", url)
-
-        def git(*args: str, cwd: str | None = None, data: bytes | None = None) -> bytes:
-            try:
-                done = subprocess.run(
-                    ["git", *args], cwd=cwd, input=data, capture_output=True,
-                    timeout=self.git_timeout, check=False,
-                )
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                raise MinimumRefreshError(f"cannot read {url}: git {args[0]}: {exc}") from exc
-            # git grep exits 1 when nothing matches.
-            if done.returncode != 0 and not (args[0] == "grep" and done.returncode == 1):
-                detail = done.stderr.decode("utf-8", "replace").strip().splitlines()
-                raise MinimumRefreshError(
-                    f"cannot read {url}: git {args[0]} exited {done.returncode}: "
-                    f"{detail[-1] if detail else ''}"
-                )
-            return done.stdout
-
-        with tempfile.TemporaryDirectory(prefix="cmax-git-") as tmp:
-            git("clone", "--quiet", "--depth", "1", "--no-checkout", url, tmp)
-            listed = git(
-                "grep", "-l", "-I", "-E", pattern, "HEAD", "--", *paths, cwd=tmp
-            ).decode("utf-8", "replace").split()
-            names = [name.split(":", 1)[1] for name in listed if ":" in name]
-            texts: dict[str, str] = {}
-            if names:
-                out = git(
-                    "cat-file", "--batch", cwd=tmp,
-                    data="".join(f"HEAD:{name}\n" for name in names).encode(),
-                )
-                pos = 0
-                for name in names:
-                    end = out.index(b"\n", pos)
-                    header = out[pos:end].split()
-                    if len(header) != 3:
-                        raise MinimumRefreshError(f"cannot read {url}: git cat-file {name}")
-                    size = int(header[2])
-                    texts[name] = out[end + 1:end + 1 + size].decode("utf-8", "replace")
-                    pos = end + 1 + size + 1
-        logger.info(
-            "finished %s after %.1fs (%d files)", url, time.monotonic() - started, len(texts)
+        repo = self._git_clone(url)
+        listed = self._git(
+            url, "grep", "-l", "-I", "-E", pattern, "HEAD", "--", *paths, cwd=repo
+        ).decode("utf-8", "replace").split()
+        names = [name.split(":", 1)[1] for name in listed if ":" in name]
+        texts = self.read_git_files(url, names)
+        logging.getLogger(__name__).info(
+            "git grep %s: %d files", url, len(texts)
         )
         return texts
 
@@ -1944,7 +2002,7 @@ def ubuntu_osv_fix_notices(
 
 def _ubuntu_api_entry(cve: str, package: str, codename: str, fetch: Fetcher | None) -> tuple[dict, list]:
     """Read one package status from the Ubuntu security API (last resort)."""
-    doc = _fetcher(fetch).get_json(f"{UBUNTU_CVE_URL}{cve}.json")
+    doc = ubuntu_cve_doc(cve, fetch=fetch)
     entry = {
         "cve": cve,
         "package": package,
@@ -2120,7 +2178,7 @@ def ubuntu_kernel_cve_rows(
     `trackerNote`. The GA `linux` row is required.
     """
     cve = spec["cve"]
-    doc = _fetcher(fetch).get_json(f"{UBUNTU_CVE_URL}{cve}.json")
+    doc = ubuntu_cve_doc(cve, fetch=fetch)
     listed: list[tuple[str, str, list[str]]] = []
     for candidate in doc.get("packages", []) if isinstance(doc, dict) else []:
         name = candidate.get("name") if isinstance(candidate, dict) else None
@@ -2266,22 +2324,42 @@ def ubuntu_osv_cvss3(cve: str, fetch: Fetcher | None = None) -> float | None:
     return None
 
 
+# Tracker subprojects whose `<subproject>/<release>_<package>` lines the Ubuntu
+# security API does not publish. Every other subproject line (for example
+# `fips-updates/` or `realtime/`) overrides the plain release line, as the API
+# does for the Ubuntu Pro kernels.
+UBUNTU_TRACKER_UNPUBLISHED_SUBPROJECTS = frozenset({"bluefield", "fips-preview"})
+
+
 def ubuntu_tracker_record(text: str) -> dict | None:
     """Parse one ubuntu-cve-tracker CVE file into the tracker API record shape.
 
-    Returns the id, priority, publication date, status, and the `linux`
-    package state per release codename, or None when the file names no CVE.
+    Returns the id, priority, publication date, status, and each package's
+    state and note per release codename, or None when the file names no CVE.
+    The tracker file has no CVSS v3 score and no USN list.
     """
     fields: dict[str, str] = {}
-    states: dict[str, str] = {}
+    states: dict[str, dict[str, dict]] = {}
     for line in text.splitlines():
         match = re.match(r"(Candidate|PublicDate|Priority):[ \t]*(.*?)\s*$", line)
         if match and match.group(1) not in fields:
             fields[match.group(1)] = match.group(2)
             continue
-        match = re.match(r"([a-z][a-z0-9.+-]*)_linux:[ \t]*([A-Za-z-]+)", line)
-        if match:
-            states[match.group(1)] = match.group(2)
+        match = re.match(
+            r"(?:([a-z0-9-]+)/)?([a-z]+)_([a-z0-9][a-z0-9.+-]*):[ \t]*([A-Za-z-]+)"
+            r"(?:[ \t]*\((.*)\))?\s*$",
+            line,
+        )
+        if not match or match.group(1) in UBUNTU_TRACKER_UNPUBLISHED_SUBPROJECTS:
+            continue
+        subproject, codename, package, state, note = match.groups()
+        if codename in ("upstream", "devel", "product", "snap"):
+            continue
+        current = states.setdefault(package, {})
+        # A subproject line overrides the plain one, never the reverse.
+        if subproject is None and codename in current and current[codename]["sub"]:
+            continue
+        current[codename] = {"status": state, "description": note or "", "sub": subproject}
     cve = fields.get("Candidate", "")
     if not re.fullmatch(r"CVE-\d{4}-\d+", cve):
         return None
@@ -2292,14 +2370,55 @@ def ubuntu_tracker_record(text: str) -> dict | None:
         "published": published[:10] if re.match(r"\d{4}-\d{2}-\d{2}", published) else "",
         "status": "rejected" if "** REJECT **" in text else "active",
         "cvss3": None,
-        "packages": [{
-            "name": "linux",
-            "statuses": [
-                {"release_codename": codename, "status": state}
-                for codename, state in states.items()
-            ],
-        }],
+        "notices": [],
+        "packages": [
+            {
+                "name": package,
+                "statuses": [
+                    {"release_codename": codename, "status": item["status"],
+                     "description": item["description"]}
+                    for codename, item in by_release.items()
+                ],
+            }
+            for package, by_release in states.items()
+        ],
     }
+
+
+def ubuntu_tracker_file(cve: str, fetch: Fetcher | None = None) -> str | None:
+    """The ubuntu-cve-tracker file of one CVE, or None when it has none."""
+    files = _fetcher(fetch).read_git_files(
+        UBUNTU_CVE_TRACKER_GIT, [f"{d}/{cve}" for d in UBUNTU_CVE_TRACKER_DIRS]
+    )
+    return next(iter(files.values()), None)
+
+
+def ubuntu_cve_doc(cve: str, fetch: Fetcher | None = None) -> dict:
+    """The Ubuntu tracker record of one CVE, read once per refresh.
+
+    The Ubuntu security API is the primary source because it also lists the
+    USNs of a CVE. It times out (HTTP 504) on CVEs with a long package list,
+    sometimes for days, so the tracker file in the ubuntu-cve-tracker
+    repository is the fallback. That record has no USN list, so a fix it
+    reports stays unconfirmed until the API answers again.
+    """
+    client = _fetcher(fetch)
+
+    def read() -> dict:
+        try:
+            doc = client.get_json(f"{UBUNTU_CVE_URL}{cve}.json")
+        except MinimumRefreshError as exc:
+            text = ubuntu_tracker_file(cve, fetch=client)
+            record = ubuntu_tracker_record(text) if text else None
+            if record is None or record["id"] != cve:
+                raise
+            logging.getLogger(__name__).warning(
+                "ubuntu: %s; using the ubuntu-cve-tracker file of %s", exc, cve
+            )
+            return record
+        return doc if isinstance(doc, dict) else {}
+
+    return client.memo(f"ubuntu-cve:{cve}", read)
 
 
 def discover_ubuntu_kernel_cves(
@@ -2404,7 +2523,7 @@ def ubuntu_discovered_kernel_specs(
 
 def ubuntu_kernel_cve_listed(cve: str, codename: str, fetch: Fetcher | None = None) -> bool:
     """True when the tracker lists the GA `linux` package of a CVE on a release."""
-    doc = _fetcher(fetch).get_json(f"{UBUNTU_CVE_URL}{cve}.json")
+    doc = ubuntu_cve_doc(cve, fetch=fetch)
     state = _linux_states(doc if isinstance(doc, dict) else {}).get(codename)
     return state not in (None, "", "DNE")
 

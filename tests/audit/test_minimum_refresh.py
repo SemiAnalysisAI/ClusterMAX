@@ -178,6 +178,12 @@ class StubFetcher(fr.Fetcher):
         value = self.json_by_url.get(url)
         return copy.deepcopy(value) if value is not None else None
 
+    def read_git_files(self, url: str, paths) -> dict[str, str]:
+        self.calls.append(f"git:{url}")
+        if self.tracker_files is None or url != fr.UBUNTU_CVE_TRACKER_GIT:
+            raise fr.MinimumRefreshError(f"cannot read {url}: git clone exited 128")
+        return {path: self.tracker_files[path] for path in paths if path in self.tracker_files}
+
     def grep_git_files(self, url: str, pattern: str, paths) -> dict[str, str]:
         self.calls.append(f"git:{url}")
         if self.tracker_files is None or url != fr.UBUNTU_CVE_TRACKER_GIT:
@@ -919,25 +925,100 @@ class ExtractorTest(unittest.TestCase):
             "PublicDate: 2026-10-06 09:18:00 UTC\n"
             "Priority: critical\n"
             "Priority_linux-aws: high\n"
+            "\nPatches_linux:\n"
+            "upstream_linux: released (7.3~rc4)\n"
             "bionic_linux: ignored (end of standard support, was needed)\n"
             "jammy_linux: needed\n"
             "noble_linux: pending (6.8.0-148.148)\n"
-            "noble_linux-aws: needed\n"
+            "\nPatches_linux-fips:\n"
+            "noble_linux-fips: DNE\n"
+            "fips-updates/noble_linux-fips: pending (6.8.0-148.148+fips1)\n"
+            "fips-preview/noble_linux-fips: needed\n"
+            "noble_linux-realtime: ignored (superseded by Ubuntu Pro ppa version)\n"
+            "realtime/noble_linux-realtime: pending (6.8.1-1063.64)\n"
+            "noble_linux-bluefield: DNE\n"
+            "bluefield/noble_linux-bluefield: pending (6.8.0-1035.40)\n"
         )
         self.assertEqual(record, {
             "id": "CVE-2026-98365", "priority": "critical", "published": "2026-10-06",
-            "status": "active", "cvss3": None,
-            "packages": [{"name": "linux", "statuses": [
-                {"release_codename": "bionic", "status": "ignored"},
-                {"release_codename": "jammy", "status": "needed"},
-                {"release_codename": "noble", "status": "pending"},
-            ]}],
+            "status": "active", "cvss3": None, "notices": [],
+            "packages": [
+                {"name": "linux", "statuses": [
+                    {"release_codename": "bionic", "status": "ignored",
+                     "description": "end of standard support, was needed"},
+                    {"release_codename": "jammy", "status": "needed", "description": ""},
+                    {"release_codename": "noble", "status": "pending",
+                     "description": "6.8.0-148.148"},
+                ]},
+                # A published subproject line (Ubuntu Pro FIPS, realtime)
+                # overrides the plain release line; bluefield and fips-preview
+                # lines are not published by the Ubuntu security API.
+                {"name": "linux-fips", "statuses": [
+                    {"release_codename": "noble", "status": "pending",
+                     "description": "6.8.0-148.148+fips1"},
+                ]},
+                {"name": "linux-realtime", "statuses": [
+                    {"release_codename": "noble", "status": "pending",
+                     "description": "6.8.1-1063.64"},
+                ]},
+                {"name": "linux-bluefield", "statuses": [
+                    {"release_codename": "noble", "status": "DNE", "description": ""},
+                ]},
+            ],
         })
         rejected = fr.ubuntu_tracker_record(
             "Candidate: CVE-2026-7\nPublicDate: unknown\nDescription:\n ** REJECT **\n"
         )
         self.assertEqual((rejected["status"], rejected["published"]), ("rejected", ""))
         self.assertIsNone(fr.ubuntu_tracker_record("Candidate: \nPriority: high\n"))
+
+    def test_a_timed_out_cve_record_falls_back_to_the_tracker_file(self) -> None:
+        cve = "CVE-2026-12345"
+        self.add_tracker_cve(cve, "critical", None, "2026-10-20",
+                             {"noble": "pending (6.8.0-999.999)"})
+        # No API fixture: the API read fails, as with an HTTP 504.
+        self.stub.json_by_url.pop(f"{fr.UBUNTU_CVE_URL}{cve}.json", None)
+        doc = fr.ubuntu_cve_doc(cve, fetch=self.stub)
+        self.assertEqual(fr._linux_states(doc)["noble"], "pending")
+        self.assertEqual(doc["notices"], [])
+        # Every later reader shares the one result; the API is not retried.
+        self.assertTrue(fr.ubuntu_kernel_cve_listed(cve, "noble", fetch=self.stub))
+        entry, notices = fr._ubuntu_api_entry(cve, "linux", "noble", self.stub)
+        self.assertEqual((entry["status"], entry["fixed"], notices),
+                         ("pending", "6.8.0-999.999", []))
+        self.assertEqual(self.stub.calls.count(f"{fr.UBUNTU_CVE_URL}{cve}.json"), 1)
+        # Without a tracker file the API error stands.
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "CVE-2026-777"):
+            fr.ubuntu_cve_doc("CVE-2026-777", fetch=self.stub)
+
+    def test_the_fetcher_reads_git_files_from_one_shallow_clone(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "uct"
+            (repo / "active").mkdir(parents=True)
+            (repo / "retired").mkdir()
+            (repo / "active/CVE-2026-1").write_text("Candidate: CVE-2026-1\nPriority: high\n")
+            (repo / "active/CVE-2026-2").write_text("Candidate: CVE-2026-2\nPriority: low\n")
+            (repo / "retired/CVE-2026-3").write_text("Candidate: CVE-2026-3\nPriority: critical\n")
+            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                   "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+            for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "x"]):
+                subprocess.run(["git", *args], cwd=repo, env=env, check=True)
+            url = repo.as_uri()
+            fetch = fr.Fetcher()
+            found = fetch.grep_git_files(
+                url, "^Priority:[[:space:]]*(critical|high)[[:space:]]*$", ("active", "retired")
+            )
+            self.assertEqual(sorted(found), ["active/CVE-2026-1", "retired/CVE-2026-3"])
+            self.assertEqual(
+                fetch.read_git_files(url, ["retired/CVE-2026-1", "active/CVE-2026-2"]),
+                {"active/CVE-2026-2": "Candidate: CVE-2026-2\nPriority: low\n"},
+            )
+            # One clone serves every read of the run.
+            self.assertEqual(len(fetch.__dict__["_git_clones"]), 1)
+            for clone in fetch.__dict__["_git_clones"].values():
+                clone.cleanup()
+            with self.assertRaisesRegex(fr.MinimumRefreshError, "git clone exited"):
+                fr.Fetcher().grep_git_files((Path(tmp) / "none").as_uri(), "x", ("active",))
 
     def test_cvss3_base_scores(self) -> None:
         for score, vector in self.CVSS3_VECTORS.items():
@@ -1161,7 +1242,8 @@ class ExtractorTest(unittest.TestCase):
         api_calls = [url for url in self.stub.calls if url.startswith(fr.UBUNTU_CVE_URL)]
         self.assertCountEqual(api_calls, [
             f"{fr.UBUNTU_CVE_URL}CVE-2026-99999.json",
-            f"{fr.UBUNTU_CVE_URL}CVE-2026-46242.json",
+            # Each CVE record is read once per refresh, however many entries
+            # use it.
             f"{fr.UBUNTU_CVE_URL}CVE-2026-46242.json",
             f"{fr.UBUNTU_CVE_URL}CVE-2026-46300.json",
             f"{fr.UBUNTU_CVE_URL}CVE-2026-53359.json",
