@@ -66,6 +66,7 @@ class StubFetcher(fr.Fetcher):
             fr.bulletin_url(2026, 5861): fixture("nvidia-driver-5861.json"),
             fr.bulletin_url(2026, 9999): fixture("nvidia-driver-lexical-trap.json"),
             fr.bulletin_url(2026, 5699): fixture("nvidia-connectx-5699.json"),
+            fr.bulletin_url(2026, 5744): fixture("nvidia-snap4-5744.json"),
             fr.bulletin_url(2026, 5847): fixture("nvidia-connectx-5847.json"),
             fr.bulletin_url(2026, 5755): fixture("nvidia-cuda-5755.json"),
             fr.bulletin_url(2026, 5850): fixture(toolkit),
@@ -425,8 +426,12 @@ class ExtractorTest(unittest.TestCase):
             ]}]},
             "vulnerabilities": [{"cve": "CVE-2026-65160"}],
         }
-        self.stub.json_by_url[fr.CUDA_REDIST_MANIFEST.format(release="13.4.1")] = {
-            "cuda_nvcc": {"version": "13.4.59"}
+        self.stub.text_by_url[fr.CUDA_REDIST_INDEX] = "".join(
+            f"<a href='redistrib_{v}.json'>redistrib_{v}.json</a>\n"
+            for v in ("13.3.1", "13.4.1", "13.4.2", "13.4.3", "13.5.0")
+        )
+        self.stub.json_by_url[fr.CUDA_REDIST_MANIFEST.format(release="13.4.2")] = {
+            "cuda_nvcc": {"version": "13.4.92"}
         }
         original = self.stub.json_by_url[fr.bulletin_url(2026, 5755)]
         blocks = fr.nvidia_simple_product_minimums(
@@ -434,17 +439,48 @@ class ExtractorTest(unittest.TestCase):
             fetch=self.stub,
         )
         cuda = blocks["cudaToolkit"]
-        self.assertEqual(cuda["minimum"], "13.4.59")
-        self.assertEqual(cuda["fixAvailability"]["toolkitRelease"], "13.4.1")
+        # "13.4 U1" is 13.4.1, which the same bulletin also lists as affected
+        # ("0 to 13.4.1"). The later release, 13.4.2, becomes the floor.
+        self.assertEqual(cuda["minimum"], "13.4.92")
+        self.assertEqual(cuda["fixAvailability"]["toolkitRelease"], "13.4.2")
         self.assertEqual(cuda["source"]["aId"], 5910)
         self.assertEqual([item["aId"] for item in cuda["sources"]], [5755, 5910])
         self.assertIn("5910", fr.known_bulletin_ids({"components": blocks}))
         # Without the manifest the toolkit number is not published.
-        del self.stub.json_by_url[fr.CUDA_REDIST_MANIFEST.format(release="13.4.1")]
+        del self.stub.json_by_url[fr.CUDA_REDIST_MANIFEST.format(release="13.4.2")]
         with self.assertRaises(fr.MinimumRefreshError):
             fr.nvidia_simple_product_minimums(
                 [({"year": 2026, "aId": 5910}, doc)], fetch=self.stub
             )
+
+    def test_a_consistent_cuda_update_release_maps_to_its_own_nvcc(self) -> None:
+        doc = copy.deepcopy(self.stub.json_by_url[fr.bulletin_url(2026, 5755)])
+        for _arch, kids in fr.csaf_arch_branches(doc):
+            for kid in kids:
+                name = kid["product"]["name"]
+                kid["product"]["name"] = (
+                    "All versions prior to CUDA Toolkit 13.4 Update 1"
+                    if "prior" in name else "CUDA Toolkit 13.4 Update 1"
+                )
+        self.stub.json_by_url[fr.CUDA_REDIST_MANIFEST.format(release="13.4.1")] = {
+            "cuda_nvcc": {"version": "13.4.59"}
+        }
+        blocks = fr.nvidia_simple_product_minimums(
+            [({"year": 2026, "aId": 5910}, doc)], fetch=self.stub
+        )
+        self.assertEqual(blocks["cudaToolkit"]["minimum"], "13.4.59")
+
+    def test_snap4_keeps_one_floor_per_train(self) -> None:
+        documents = fr.nvidia_csaf_documents(fetch=self.stub)
+        block = fr.nvidia_snap4_minimums(documents)
+        self.assertEqual(block["kind"], "releaseLines")
+        self.assertEqual(
+            block["lines"], {"4.5": {"fixed": "4.5.5"}, "4.9": {"fixed": "4.9.1"}}
+        )
+        self.assertEqual(block["cves"], ["CVE-2025-33215", "CVE-2025-33216"])
+        self.assertEqual(block["source"]["aId"], 5744)
+        self.assertEqual(block["floorAvailability"]["4.5"]["version"], "4.5.5")
+        self.assertEqual(fr.nvidia_snap4_minimums([]), {})
 
     def test_applicable_cuda_document_with_unknown_grammar_fails_closed(self) -> None:
         doc = copy.deepcopy(self.stub.json_by_url[fr.bulletin_url(2026, 5755)])
@@ -2349,16 +2385,12 @@ class DetectNewBulletinsTest(unittest.TestCase):
         code, out, err = self.detect_cli()
         self.assertEqual(code, 3)
         self.assertIn("5871", out)
-        self.assertIn("5744", out)
+        self.assertNotIn("5744", out)
         self.assertIn("generator gap", err)
 
-    def test_5744_is_deferred_and_is_not_reported_as_untracked(self) -> None:
-        self.assertIn("5744", fr.DEFERRED_BULLETINS)
-        found = self.scan()
-        snap4 = next(item for item in found if item["id"] == 5744)
-        self.assertEqual(snap4["status"], "deferred")
-        self.assertIn("4.5.5 LTS train", snap4["reason"])
-        self.assertNotIn(5744, [item["id"] for item in found if item["status"] == "new"])
+    def test_5744_is_tracked_and_not_reported(self) -> None:
+        self.assertNotIn("5744", fr.DEFERRED_BULLETINS)
+        self.assertNotIn(5744, [item["id"] for item in self.scan()])
 
     def test_5847_is_not_applicable_to_supported_networking_products(self) -> None:
         found = self.scan()
@@ -2372,8 +2404,8 @@ class DetectNewBulletinsTest(unittest.TestCase):
             code, out, err = self.detect_cli()
         self.assertEqual(code, 0)
         self.assertIn("Deferred bulletins", out)
-        self.assertIn("5744", out)
-        self.assertIn("drops the 4.5.5 LTS train", out)
+        self.assertIn("5871", out)
+        self.assertIn("parser work pending", out)
         self.assertIn("no unknown bulletins", out)
         self.assertEqual(err, "")
 

@@ -144,14 +144,7 @@ NVHPC_RELEASE_RE = re.compile(r"\bHPC SDK\s+([0-9]{2}\.[0-9]{1,2})\b", re.IGNORE
 # this list records a decision, and it must never become a quiet place to bury
 # a bulletin nobody wants to deal with. Removing an entry puts the bulletin
 # straight back on the untracked list.
-DEFERRED_BULLETINS: dict[str, str] = {
-    "5744": (
-        "Networking SNAP4 publishes two fixed trains in one phrase, such as "
-        "'SNAP-4.9.1, SNAP4 4.5.5'. The current single-version grammar keeps "
-        "4.9.1 and drops the 4.5.5 LTS train, so tracking it needs parser work "
-        "first."
-    ),
-}
+DEFERRED_BULLETINS: dict[str, str] = {}
 
 
 def validate_bulletin_lists() -> None:
@@ -202,6 +195,12 @@ NVIDIA_SIMPLE_PRODUCT_ALIASES: dict[str, tuple[str, ...]] = {
 CUDA_REDIST_MANIFEST = (
     "https://developer.download.nvidia.com/compute/cuda/redist/redistrib_{release}.json"
 )
+CUDA_REDIST_INDEX = "https://developer.download.nvidia.com/compute/cuda/redist/"
+CUDA_REDIST_RELEASE = re.compile(r"redistrib_(\d+\.\d+\.\d+)\.json")
+# NVIDIA Networking SNAP-4 Container, a BlueField-3 storage service with
+# several supported trains (4.9, 4.5 LTS). One fixed phrase can name a version
+# per train, "SNAP-4.9.1, SNAP4 4.5.5", so each train keeps its own floor.
+NVIDIA_SNAP4_PRODUCT = "SNAP-4 Container"
 CUDA_UPDATE_RELEASE = re.compile(r"\b(\d+\.\d+)\s*U(?:pdate)?\s*(\d+)\b", re.IGNORECASE)
 NVIDIA_VIRTIO_PRODUCT_PREFIX = "VIRTIO-Net"
 
@@ -1322,6 +1321,7 @@ def _simple_product_minimum_from_document(
     fetch: Fetcher | None = None,
 ) -> dict:
     best: str | None = None
+    affected_through: str | None = None
     labels = NVIDIA_SIMPLE_PRODUCT_ALIASES.get(product, (product,))
     for arch, kids in csaf_arch_branches(doc):
         # "All" covers Linux too (5910 lists CUDA Toolkit under "All").
@@ -1331,8 +1331,29 @@ def _simple_product_minimum_from_document(
             fixed = resolve_fixed(kids, product_filter=label)
             if fixed and (best is None or version_key(fixed) > version_key(best)):
                 best = fixed
+            for kid in kids:
+                if kid.get("name") != label:
+                    continue
+                bound = inclusive_affected_bound(kid.get("product", {}).get("name"))
+                if bound and (
+                    affected_through is None
+                    or version_key(bound) > version_key(affected_through)
+                ):
+                    affected_through = bound
     source = nvidia_source(a_id, year, doc)
     toolkit_release: str | None = None
+    if best and affected_through and version_key(best) <= version_key(affected_through):
+        # The bulletin contradicts itself: its fixed version is inside its own
+        # affected range (5910: affected "0 to 13.4.1", fixed "13.4 U1"). Take
+        # the later reading, the first release published after the affected
+        # range, so the floor never admits a version the bulletin calls
+        # affected.
+        if product != "NVIDIA CUDA Toolkit":
+            raise MinimumRefreshError(
+                f"NVIDIA CSAF {a_id}: {product} fixed version {best} is inside "
+                f"its own affected range through {affected_through}"
+            )
+        best = cuda_release_after(affected_through, fetch=fetch)
     if best and product == "NVIDIA CUDA Toolkit" and best.count(".") == 2:
         toolkit_release = best
         best = cuda_nvcc_version(toolkit_release, fetch=fetch)
@@ -1355,6 +1376,39 @@ def _simple_product_minimum_from_document(
         "advisory": NVIDIA_ADVISORY.format(a_id=a_id),
         "source": source,
     }
+
+
+def inclusive_affected_bound(phrase: str | None) -> str | None:
+    """Return the last affected version of an inclusive range phrase.
+
+    "0 to 13.4.1" and "All versions up to and including 13.4.1" both name
+    13.4.1 as affected. "All versions prior to X" is exclusive and yields None.
+    """
+    text = CUDA_UPDATE_RELEASE.sub(r"\1.\2", (phrase or "").strip())
+    if not re.search(r"\bto\b", text, re.IGNORECASE) or re.search(
+        r"prior\s+to", text, re.IGNORECASE
+    ):
+        return None
+    versions = VERSION.findall(text)
+    return versions[-1] if versions else None
+
+
+def cuda_release_after(release: str, fetch: Fetcher | None = None) -> str:
+    """Return the first CUDA Toolkit release NVIDIA published after `release`."""
+    text = _fetcher(fetch).get_text(CUDA_REDIST_INDEX)
+    later = sorted(
+        {
+            found
+            for found in CUDA_REDIST_RELEASE.findall(text)
+            if version_key(found) > version_key(release)
+        },
+        key=version_key,
+    )
+    if not later:
+        raise MinimumRefreshError(
+            f"cudaToolkit: {CUDA_REDIST_INDEX} lists no release after {release}"
+        )
+    return later[0]
 
 
 def cuda_nvcc_version(release: str, fetch: Fetcher | None = None) -> str:
@@ -1425,6 +1479,89 @@ def nvidia_simple_product_minimums(
             result["sources"] = sorted(sources, key=lambda item: item["aId"])
         results[key] = result
     return results
+
+
+def _snap4_minimums_from_document(year: int, a_id: int, doc: dict) -> dict:
+    """SNAP-4 Container trains from one bulletin.
+
+    Every version in a fixed phrase is a fix for its own major.minor train:
+    "SNAP-4.9.1, SNAP4 4.5.5" gives 4.9 -> 4.9.1 and 4.5 -> 4.5.5. Each train
+    keeps the highest fixed version any CVE in the bulletin needs.
+    """
+    lines: dict[str, dict[str, str]] = {}
+    for _arch, kids in csaf_arch_branches(doc):
+        for kid in kids:
+            if kid.get("name") != NVIDIA_SNAP4_PRODUCT:
+                continue
+            phrase = str(kid.get("product", {}).get("name") or "")
+            if AFFECTED_PHRASE.match(phrase.strip()) or re.search(
+                r"prior\s+to|up\s+to", phrase, re.IGNORECASE
+            ):
+                continue
+            for version in VERSION.findall(phrase):
+                if version.count(".") != 2:
+                    continue
+                train = ".".join(version.split(".")[:2])
+                current = lines.get(train)
+                if current is None or version_key(version) > version_key(current["fixed"]):
+                    lines[train] = {"fixed": version}
+    availability = nvidia_csaf_fix_availability(a_id, year, doc)
+    return {
+        "kind": "releaseLines",
+        "lines": dict(sorted(lines.items(), key=lambda kv: version_key(kv[0]))),
+        "floorAvailability": {
+            train: {**availability, "version": entry["fixed"]}
+            for train, entry in lines.items()
+        },
+        "cves": [item["cve"] for item in doc.get("vulnerabilities", []) if item.get("cve")],
+        "advisory": NVIDIA_ADVISORY.format(a_id=a_id),
+        "source": nvidia_source(a_id, year, doc),
+    }
+
+
+def nvidia_snap4_minimums(documents: Sequence[tuple[dict[str, int], dict]]) -> dict:
+    """Merge every catalog document that declares the SNAP-4 Container."""
+
+    lines: dict[str, dict[str, str]] = {}
+    availability: dict[str, dict[str, Any]] = {}
+    cves: set[str] = set()
+    sources: list[dict] = []
+    for ref, doc in documents:
+        if not csaf_has_product(doc, NVIDIA_SNAP4_PRODUCT):
+            continue
+        block = _snap4_minimums_from_document(ref["year"], ref["aId"], doc)
+        if not block["lines"]:
+            raise MinimumRefreshError(
+                f"snap4Container: NVIDIA CSAF {ref['aId']} declares "
+                f"{NVIDIA_SNAP4_PRODUCT} but yields no fixed train"
+            )
+        sources.append(block["source"])
+        cves.update(block["cves"])
+        for train, entry in block["lines"].items():
+            current = lines.get(train)
+            if current is not None and version_key(entry["fixed"]) <= version_key(
+                current["fixed"]
+            ):
+                continue
+            lines[train] = entry
+            availability[train] = block["floorAvailability"][train]
+    if not sources:
+        return {}
+    sources.sort(key=lambda item: (str(item["released"])[:10], item["aId"]))
+    newest = sources[-1]
+    result = {
+        "kind": "releaseLines",
+        "lines": dict(sorted(lines.items(), key=lambda kv: version_key(kv[0]))),
+        "floorAvailability": dict(
+            sorted(availability.items(), key=lambda kv: version_key(kv[0]))
+        ),
+        "cves": sorted(cves),
+        "advisory": NVIDIA_ADVISORY.format(a_id=newest["aId"]),
+        "source": newest,
+    }
+    if len(sources) > 1:
+        result["sources"] = sources
+    return result
 
 
 def _bulletin_product_minimums_from_document(
@@ -3469,6 +3606,7 @@ def build_minimums(
     connectx = connectx_minimums(fetch=fetch, documents=nvidia_documents)
     simple_products = nvidia_simple_product_minimums(nvidia_documents, fetch=fetch)
     dcgm = nvidia_dcgm_minimums(nvidia_documents, fetch=fetch)
+    snap4 = nvidia_snap4_minimums(nvidia_documents)
     discovered = ubuntu_discovered_kernel_specs(existing, fetch=fetch, now=now)
     doc = {
         "schemaVersion": SCHEMA_VERSION,
@@ -3483,6 +3621,7 @@ def build_minimums(
             "cudaToolkit": simple_products.get("cudaToolkit", {}),
             "connectxFirmware": connectx,
             "virtioNetBluefield": nvidia_virtio_net_minimums(nvidia_documents),
+            **({"snap4Container": snap4} if snap4 else {}),
             "runc": runc_ladder(fetch=fetch),
             "docker": docker_minimums(fetch=fetch),
             "rocm": amd_rocm_minimums(fetch=fetch),
