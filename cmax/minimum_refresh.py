@@ -2393,6 +2393,49 @@ def ubuntu_tracker_file(cve: str, fetch: Fetcher | None = None) -> str | None:
     return next(iter(files.values()), None)
 
 
+UBUNTU_CVE_NOTICES_MAX_PAGES = 50
+
+
+def ubuntu_cve_notices(cve: str, fetch: Fetcher | None = None) -> list[dict]:
+    """The {"id", "published"} USNs that list one CVE, from notices.json.
+
+    The notice list stays reachable when the CVE record times out. Any failed
+    or incomplete page fails the whole read, so a caller never dates a fix
+    from part of the list.
+    """
+    client = _fetcher(fetch)
+    found: dict[str, str] = {}
+    offset, total = 0, None
+    for _ in range(UBUNTU_CVE_NOTICES_MAX_PAGES):
+        url = UBUNTU_NOTICES_URL + "?" + urllib.parse.urlencode(
+            {"cve_id": cve, "limit": UBUNTU_NOTICE_PAGE_LIMIT, "offset": offset}
+        )
+        page = client.get_json(url)
+        notices = page.get("notices") if isinstance(page, dict) else None
+        total = page.get("total_results") if isinstance(page, dict) else None
+        if not isinstance(notices, list) or not isinstance(total, int):
+            raise MinimumRefreshError(f"ubuntu: malformed notice list for {cve}: {url}")
+        for notice in notices:
+            if not isinstance(notice, dict):
+                continue
+            notice_id, published = notice.get("id"), notice.get("published")
+            cves = notice.get("cves_ids") or notice.get("cves") or []
+            listed = cve in cves or any(
+                isinstance(item, dict) and item.get("id") == cve for item in cves
+            )
+            if isinstance(notice_id, str) and isinstance(published, str) and listed:
+                found[notice_id] = published
+        offset += len(notices)
+        if not notices or offset >= total:
+            break
+    else:
+        raise MinimumRefreshError(f"ubuntu: the notice list for {cve} did not end")
+    if total is not None and offset < total:
+        raise MinimumRefreshError(f"ubuntu: incomplete notice list for {cve}")
+    return [{"id": notice_id, "published": published}
+            for notice_id, published in sorted(found.items(), key=lambda item: item[1])]
+
+
 def ubuntu_cve_doc(cve: str, fetch: Fetcher | None = None) -> dict:
     """The Ubuntu tracker record of one CVE, read once per refresh.
 
@@ -2412,9 +2455,14 @@ def ubuntu_cve_doc(cve: str, fetch: Fetcher | None = None) -> dict:
             record = ubuntu_tracker_record(text) if text else None
             if record is None or record["id"] != cve:
                 raise
-            logging.getLogger(__name__).warning(
-                "ubuntu: %s; using the ubuntu-cve-tracker file of %s", exc, cve
-            )
+            logger = logging.getLogger(__name__)
+            logger.warning("ubuntu: %s; using the ubuntu-cve-tracker file of %s", exc, cve)
+            # The notice list still dates each fix from its USN. Without it a
+            # fix stays unconfirmed, which is safe but loses the grace start.
+            try:
+                record["notices"] = ubuntu_cve_notices(cve, fetch=client)
+            except MinimumRefreshError as notice_exc:
+                logger.warning("ubuntu: %s", notice_exc)
             return record
         return doc if isinstance(doc, dict) else {}
 

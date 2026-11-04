@@ -980,6 +980,7 @@ class ExtractorTest(unittest.TestCase):
         self.stub.json_by_url.pop(f"{fr.UBUNTU_CVE_URL}{cve}.json", None)
         doc = fr.ubuntu_cve_doc(cve, fetch=self.stub)
         self.assertEqual(fr._linux_states(doc)["noble"], "pending")
+        # The notice list is unreachable here too, so the record has no USNs.
         self.assertEqual(doc["notices"], [])
         # Every later reader shares the one result; the API is not retried.
         self.assertTrue(fr.ubuntu_kernel_cve_listed(cve, "noble", fetch=self.stub))
@@ -1019,6 +1020,34 @@ class ExtractorTest(unittest.TestCase):
                 clone.cleanup()
             with self.assertRaisesRegex(fr.MinimumRefreshError, "git clone exited"):
                 fr.Fetcher().grep_git_files((Path(tmp) / "none").as_uri(), "x", ("active",))
+
+    def test_the_tracker_fallback_dates_fixes_from_the_cve_notice_list(self) -> None:
+        cve = "CVE-2026-12346"
+        self.add_tracker_cve(cve, "critical", None, "2026-10-20",
+                             {"noble": "released (6.8.0-999.999)"})
+
+        def page(offset: int, notices: list) -> None:
+            url = fr.UBUNTU_NOTICES_URL + "?" + fr.urllib.parse.urlencode(
+                {"cve_id": cve, "limit": fr.UBUNTU_NOTICE_PAGE_LIMIT, "offset": offset}
+            )
+            self.stub.json_by_url[url] = {"notices": notices, "total_results": 21}
+
+        first = [{"id": f"USN-9{n:03d}-1", "published": f"2026-10-{n % 28 + 1:02d}T00:00:00",
+                  "cves_ids": [cve]} for n in range(20)]
+        # A notice that does not list the CVE is dropped.
+        page(0, first[:19] + [{"id": "USN-1-1", "published": "2026-10-01T00:00:00",
+                               "cves_ids": ["CVE-2026-1"]}])
+        page(20, [{"id": "USN-8999-1", "published": "2026-09-30T00:00:00",
+                   "cves": [{"id": cve}]}])
+        doc = fr.ubuntu_cve_doc(cve, fetch=self.stub)
+        ids = [notice["id"] for notice in doc["notices"]]
+        self.assertEqual(len(ids), 20)
+        self.assertEqual(ids[0], "USN-8999-1")
+        self.assertNotIn("USN-1-1", ids)
+        # A short list fails closed.
+        page(20, [])
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "incomplete notice list"):
+            fr.ubuntu_cve_notices(cve, fetch=self.stub)
 
     def test_cvss3_base_scores(self) -> None:
         for score, vector in self.CVSS3_VECTORS.items():
