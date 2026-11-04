@@ -476,10 +476,49 @@ def pci_scan_result(
     }
 
 
+def sysfs_pci_listing(env: dict[str, str] = os.environ) -> tuple[str, str | None]:
+    """Synthesize an `lspci -Dn` style listing from ``/sys/bus/pci/devices``.
+
+    Container images used as compute nodes (Slurm-on-Kubernetes slurmd pods,
+    for example) often ship without pciutils while the host's sysfs is still
+    mounted. The kernel's own vendor/device/class files answer the same
+    question lspci would, so they are read when lspci cannot run. Any entry
+    whose IDs cannot be read makes the listing partial: the devices that were
+    read still count as positive evidence, but absence is not claimed.
+    """
+    root = Path(env.get("CLUSTERMAX_AUDIT_ROOT", "") + "/sys/bus/pci/devices")
+    try:
+        entries = sorted(root.iterdir())
+    except OSError as exc:
+        return "", f"sysfs PCI tree unreadable: {exc.strerror or exc}"
+    lines: list[str] = []
+    unreadable = 0
+    for entry in entries:
+        try:
+            vendor = (entry / "vendor").read_text().strip().lower().removeprefix("0x")
+            device = (entry / "device").read_text().strip().lower().removeprefix("0x")
+            pci_class = (entry / "class").read_text().strip().lower().removeprefix("0x")
+        except OSError:
+            unreadable += 1
+            continue
+        lines.append(f"{entry.name} {pci_class[:4]}: {vendor}:{device}")
+    if unreadable:
+        return "\n".join(lines), f"sysfs could not read {unreadable} PCI device(s)"
+    return "\n".join(lines), None
+
+
 def collect_pci(
     *, runner: Runner = subprocess.run, env: dict[str, str] = os.environ
 ) -> dict[str, Any]:
     text, error = run_tool(["lspci", "-Dnn"], runner=runner)
+    if error is not None:
+        sys_text, sys_error = sysfs_pci_listing(env)
+        if sys_text:
+            result = pci_scan_result(sys_text, sys_error)
+            result["pciSource"] = "sysfs"
+            if not result["scanComplete"]:
+                result["scanError"] = f"{error}; {sys_error}"
+            return result
     return pci_scan_result(
         text, error, empty_bus_confirmed=sysfs_pci_bus_empty(env)
     )
@@ -1267,6 +1306,7 @@ def gather(
         "host": env.get("NODE_NAME") or socket.gethostname(),
         "scanComplete": pci["scanComplete"],
         "scanError": pci["scanError"],
+        "pciSource": pci.get("pciSource", "lspci"),
         "bluefield3Present": bool(devices) if pci["scanComplete"] else None,
         "bluefieldDevices": devices,
         "virtioPciDevices": pci["virtioPciDevices"],

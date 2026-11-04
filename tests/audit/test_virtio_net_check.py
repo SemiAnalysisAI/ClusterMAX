@@ -357,6 +357,65 @@ class ScopeStateTests(CheckHarness):
         self.assertFalse(record["scanComplete"])
         self.assertIsNone(record["bluefield3Present"])
 
+    def sysfs_device(self, slot: str, vendor: str, device: str, pci_class: str) -> Path:
+        path = self.root / "sys" / "bus" / "pci" / "devices" / slot
+        path.mkdir(parents=True)
+        (path / "vendor").write_text(f"0x{vendor}\n")
+        (path / "device").write_text(f"0x{device}\n")
+        (path / "class").write_text(f"0x{pci_class}\n")
+        return path
+
+    def test_missing_lspci_falls_back_to_sysfs_and_finds_a_bluefield(self) -> None:
+        # Slurm-on-Kubernetes slurmd images ship without pciutils but still
+        # mount the host's sysfs, which names the same devices.
+        self.stub_missing("lspci")
+        self.stub_missing("mlxconfig")
+        self.sysfs_device("0000:9a:00.0", "15b3", "a2dc", "020000")
+        self.sysfs_device("0000:17:00.0", "15b3", "1021", "020700")
+
+        record = self.host_record()
+
+        self.assertTrue(record["scanComplete"])
+        self.assertEqual(record["pciSource"], "sysfs")
+        self.assertTrue(record["bluefield3Present"])
+        self.assertEqual(record["bluefieldDevices"][0]["slot"], "0000:9a:00.0")
+        self.assertEqual(record["state"], "incomplete")
+
+    def test_missing_lspci_with_a_bluefield_free_sysfs_is_not_applicable(self) -> None:
+        self.stub_missing("lspci")
+        self.sysfs_device("0000:17:00.0", "15b3", "1021", "020700")
+        self.sysfs_device("0000:00:04.0", "1af4", "1001", "010000")
+
+        record = self.host_record()
+
+        self.assertTrue(record["scanComplete"])
+        self.assertEqual(record["pciSource"], "sysfs")
+        self.assertFalse(record["bluefield3Present"])
+        self.assertEqual(record["virtioPciDevices"], 1)
+        self.assertEqual(record["state"], "not_applicable")
+
+    def test_an_unreadable_sysfs_entry_keeps_the_fallback_incomplete(self) -> None:
+        self.stub_missing("lspci")
+        self.sysfs_device("0000:17:00.0", "15b3", "1021", "020700")
+        broken = self.root / "sys" / "bus" / "pci" / "devices" / "0000:18:00.0"
+        broken.mkdir(parents=True)
+
+        record = self.host_record()
+
+        self.assertFalse(record["scanComplete"])
+        self.assertIsNone(record["bluefield3Present"])
+        self.assertIn("sysfs could not read 1", record["scanError"])
+        self.assertEqual(record["state"], "incomplete")
+
+    def test_lspci_stays_the_source_when_it_runs(self) -> None:
+        self.stub_output("lspci", NO_BLUEFIELD_LSPCI)
+        self.sysfs_device("0000:9a:00.0", "15b3", "a2dc", "020000")
+
+        record = self.host_record()
+
+        self.assertEqual(record["pciSource"], "lspci")
+        self.assertFalse(record["bluefield3Present"])
+
     def test_mlxconfig_without_root_is_incomplete_not_not_applicable(self) -> None:
 
         self.stub_output("lspci", BLUEFIELD3_LSPCI)
