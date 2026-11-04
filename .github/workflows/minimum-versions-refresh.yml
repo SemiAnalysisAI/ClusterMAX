@@ -17,9 +17,9 @@ name: minimum-versions-refresh
 #   - Upstream advisory text changes over time. A parser break must show here as
 #     a red job, not as a wrong verdict on a live cluster.
 #
-# The generator is stdlib only. It needs outbound HTTPS to
-# raw.githubusercontent.com, api.github.com, api.osv.dev, ubuntu.com, and
-# www.amd.com.
+# The generator is stdlib only, plus git for one shallow clone. It needs
+# outbound HTTPS to raw.githubusercontent.com, api.github.com, api.osv.dev,
+# ubuntu.com, git.launchpad.net, and www.amd.com.
 
 on:
   schedule:
@@ -98,9 +98,10 @@ jobs:
         run: cp "$MINIMUMS_PATH" "$RUNNER_TEMP/minimums-before.json"
 
       - name: Refresh the minimum table
-        # The Ubuntu kernel CVE discovery reads several multi-MB search pages
-        # and one tracker record per discovered CVE.
-        timeout-minutes: 10
+        # The Ubuntu kernel CVE discovery clones the ubuntu-cve-tracker
+        # repository (about 250 MB, up to 2 minutes per attempt) and reads one
+        # tracker record per discovered CVE.
+        timeout-minutes: 20
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

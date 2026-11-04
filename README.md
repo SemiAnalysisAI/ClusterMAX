@@ -120,8 +120,10 @@ amd64 and arm64 kernels. The two CVEs above check only the GA kernel, so they
 do not make other kernels unknown.
 
 The daily refresh also discovers Ubuntu kernel CVEs before a fix exists. It
-reads the Ubuntu CVE search for `linux` CVEs published since 2026-10-01 and
-within the last 30 days. It adds each CVE that Ubuntu rates `critical`, or
+reads the Ubuntu CVE tracker repository
+([ubuntu-cve-tracker](https://git.launchpad.net/ubuntu-cve-tracker)) for
+`linux` CVEs published since 2026-10-01 and within the last 30 days, and
+reads the CVSS v3 score from Canonical's OSV record of each CVE. It adds each CVE that Ubuntu rates `critical`, or
 `high` with a CVSS v3 score of 9.0 or more, and that the tracker lists for the
 GA `linux` package on 22.04, 24.04, or 26.04. A discovered CVE gets the same
 per-kernel rows as the CVEs above, under the key `linuxCve<year>_<number>`, and
