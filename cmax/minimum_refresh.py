@@ -183,11 +183,26 @@ NVIDIA_DCGM_PRODUCT_ID_PATTERNS: dict[str, re.Pattern[str]] = {
 
 # Explicit policy labels for graded Nvidia products. Bulletin IDs and floors
 # are deliberately absent: every matching CSAF document in the catalog enters
-# the reducer automatically.
+# the reducer automatically. The first label is the canonical one. NVIDIA
+# writes the same product with and without its brand prefix (5755 says "NVIDIA
+# CUDA Toolkit", 5910 says "CUDA Toolkit"), so each product accepts both.
 NVIDIA_SIMPLE_PRODUCTS: tuple[tuple[str, str], ...] = (
     ("cudaToolkit", "NVIDIA CUDA Toolkit"),
     ("nvidiaContainerToolkit", "NVIDIA Container Toolkit"),
 )
+NVIDIA_SIMPLE_PRODUCT_ALIASES: dict[str, tuple[str, ...]] = {
+    "NVIDIA CUDA Toolkit": ("NVIDIA CUDA Toolkit", "CUDA Toolkit"),
+    "NVIDIA Container Toolkit": ("NVIDIA Container Toolkit",),
+}
+# The audit reads the CUDA Toolkit version from `nvcc --version`, whose build
+# number does not follow the toolkit update number: toolkit 13.4 Update 1
+# (13.4.1) ships nvcc 13.4.59. A bulletin that names an update release is
+# therefore resolved to that release's nvcc version through NVIDIA's official
+# redistributable manifest, so a 13.4 GA host cannot pass a 13.4.1 floor.
+CUDA_REDIST_MANIFEST = (
+    "https://developer.download.nvidia.com/compute/cuda/redist/redistrib_{release}.json"
+)
+CUDA_UPDATE_RELEASE = re.compile(r"\b(\d+\.\d+)\s*U(?:pdate)?\s*(\d+)\b", re.IGNORECASE)
 NVIDIA_VIRTIO_PRODUCT_PREFIX = "VIRTIO-Net"
 
 # Product lines the audit grades. A new bulletin whose title matches one of
@@ -350,9 +365,9 @@ UBUNTU_RESOLUTE_PACKAGES: tuple[dict[str, Any], ...] = (
 # Docker Engine majors whose release-note pages feed the Docker minimum. Docker
 # ships no CSAF feed that maps advisories onto Engine release numbers (the
 # moby Go module uses 2.0.0-beta numbering), so the generator reads the
-# release-note markdown that Docker authors in the docker/docs repository. A
-# new major gets a new page there, so `--detect-new-bulletins` reports one and
-# an operator extends this tuple.
+# release-note markdown that Docker authors in the docker/docs repository.
+# This tuple is the floor of the set: a newer major that gets a page there is
+# added automatically by `docker_engine_majors`.
 DOCKER_ENGINE_MAJORS: tuple[int, ...] = (29,)
 
 # One release on a Docker release-note page: a `## X.Y.Z` heading, a
@@ -920,7 +935,8 @@ def classify_phrase(phrase: str | None) -> tuple[str | None, str | None]:
     string, so decoration such as the trailing comma in "24.10.50 or newer,"
     stays out of the result.
     """
-    text = (phrase or "").strip()
+    # "13.4 U1" and "13.4 Update 1" name the update release 13.4.1.
+    text = CUDA_UPDATE_RELEASE.sub(r"\1.\2", (phrase or "").strip())
     match = VERSION.search(text)
     if not match:
         return None, None
@@ -1306,13 +1322,20 @@ def _simple_product_minimum_from_document(
     fetch: Fetcher | None = None,
 ) -> dict:
     best: str | None = None
+    labels = NVIDIA_SIMPLE_PRODUCT_ALIASES.get(product, (product,))
     for arch, kids in csaf_arch_branches(doc):
-        if "linux" not in arch.lower():
+        # "All" covers Linux too (5910 lists CUDA Toolkit under "All").
+        if "linux" not in arch.lower() and arch.strip().casefold() != "all":
             continue
-        fixed = resolve_fixed(kids, product_filter=product)
-        if fixed and (best is None or version_key(fixed) > version_key(best)):
-            best = fixed
+        for label in labels:
+            fixed = resolve_fixed(kids, product_filter=label)
+            if fixed and (best is None or version_key(fixed) > version_key(best)):
+                best = fixed
     source = nvidia_source(a_id, year, doc)
+    toolkit_release: str | None = None
+    if best and product == "NVIDIA CUDA Toolkit" and best.count(".") == 2:
+        toolkit_release = best
+        best = cuda_nvcc_version(toolkit_release, fetch=fetch)
     if best and product == "NVIDIA Container Toolkit":
         availability = github_release_availability(
             NVIDIA_CONTAINER_TOOLKIT_RELEASE_REPO, f"v{best}", best, fetch=fetch
@@ -1322,6 +1345,8 @@ def _simple_product_minimum_from_document(
         availability = nvidia_csaf_fix_availability(a_id, year, doc)
         if best:
             availability["version"] = best
+        if toolkit_release:
+            availability["toolkitRelease"] = toolkit_release
     return {
         "kind": "minimum",
         "minimum": best,
@@ -1330,6 +1355,30 @@ def _simple_product_minimum_from_document(
         "advisory": NVIDIA_ADVISORY.format(a_id=a_id),
         "source": source,
     }
+
+
+def cuda_nvcc_version(release: str, fetch: Fetcher | None = None) -> str:
+    """Return the nvcc version that CUDA Toolkit `release` (X.Y.Z) ships.
+
+    The manifest is NVIDIA's own release record. A missing manifest or nvcc
+    entry stops the refresh instead of publishing a toolkit number that the
+    audit would compare against an nvcc build number.
+    """
+    url = CUDA_REDIST_MANIFEST.format(release=release)
+    manifest = _fetcher(fetch).get_json(url)
+    version = ((manifest or {}).get("cuda_nvcc") or {}).get("version")
+    if not isinstance(version, str) or not VERSION.fullmatch(version.strip()):
+        raise MinimumRefreshError(
+            f"cudaToolkit: {url} names no cuda_nvcc version for toolkit {release}"
+        )
+    return version.strip()
+
+
+def csaf_has_simple_product(doc: dict, label: str) -> bool:
+    return any(
+        csaf_has_product(doc, alias)
+        for alias in NVIDIA_SIMPLE_PRODUCT_ALIASES.get(label, (label,))
+    )
 
 
 def simple_product_minimum(
@@ -1355,7 +1404,7 @@ def nvidia_simple_product_minimums(
         cves: set[str] = set()
         sources: list[dict] = []
         for ref, doc in documents:
-            if not csaf_has_product(doc, label):
+            if not csaf_has_simple_product(doc, label):
                 continue
             block = _simple_product_minimum_from_document(
                 ref["year"], ref["aId"], doc, product=label, fetch=fetch
@@ -2734,7 +2783,7 @@ def docker_minimums(
     del existing
     client = _fetcher(fetch)
     if majors is None:
-        majors = DOCKER_ENGINE_MAJORS
+        majors = docker_engine_majors(fetch=fetch)
     candidates: list[tuple[tuple, int, dict]] = []
     hardening_only: list[str] = []
     for major in majors:
@@ -3791,6 +3840,27 @@ def known_bulletin_ids(existing: dict | None = None) -> set[str]:
     return known
 
 
+def docker_engine_majors(fetch: Fetcher | None = None) -> tuple[int, ...]:
+    """DOCKER_ENGINE_MAJORS plus every newer major with a release-note page.
+
+    A listing that cannot be read leaves the pinned majors only. That cannot
+    lower the minimum, because `verify()` rejects a lowered minimum.
+    """
+    client = _fetcher(fetch)
+    found = set(DOCKER_ENGINE_MAJORS)
+    try:
+        listing = client.get_json(DOCKER_DOCS_CONTENTS)
+    except MinimumRefreshError:
+        return tuple(sorted(found))
+    tracked = max(DOCKER_ENGINE_MAJORS)
+    for entry in listing if isinstance(listing, list) else []:
+        stem, _, suffix = str(entry.get("name", "")).partition(".")
+        if entry.get("type") == "file" and suffix == "md" and stem.isdigit():
+            if int(stem) > tracked:
+                found.add(int(stem))
+    return tuple(sorted(found))
+
+
 def untracked_docker_majors(
     majors: Sequence[int] | None = None,
     fetch: Fetcher | None = None,
@@ -3804,7 +3874,7 @@ def untracked_docker_majors(
     """
     client = _fetcher(fetch)
     if majors is None:
-        majors = DOCKER_ENGINE_MAJORS
+        majors = docker_engine_majors(fetch=fetch)
     try:
         listing = client.get_json(DOCKER_DOCS_CONTENTS)
     except MinimumRefreshError:
@@ -4023,11 +4093,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                         f"  {item['id']}  {item['product']}: {item['title']}  {item['url']}"
                     )
                 print(
-                    f"{len(new)} unknown bulletin(s) match a graded product line. "
-                    "Add or repair the CSAF product policy for each applicable "
-                    "NVIDIA bulletin, or record the reason to defer it in "
-                    "DEFERRED_BULLETINS. Track each Docker Engine major in "
-                    "DOCKER_ENGINE_MAJORS.",
+                    f"{len(new)} bulletin(s) match a graded product line, but the "
+                    "refresh could not add them. The refresh adds every matching "
+                    "NVIDIA CSAF bulletin and every new Docker Engine major on its "
+                    "own, so each item above is a generator gap: fix the product "
+                    "label or version grammar the reducer does not recognize.",
                     file=sys.stderr,
                 )
                 return 3
