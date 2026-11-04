@@ -520,6 +520,19 @@ class ScopeStateTests(CheckHarness):
         self.assertEqual(record["state"], "incomplete")
         self.assertIn("mlxconfig", record["reason"])
 
+    def test_missing_mlxconfig_is_not_blamed_on_sudo(self) -> None:
+        # Seen on CoreWeave SUNK: sudo -n works, mlxconfig is simply absent.
+        self.stub_output("lspci", BLUEFIELD3_LSPCI)
+        self.stub_missing("mlxconfig")
+        self.stub_sudo()
+
+        record = self.host_record()
+
+        self.assertEqual(record["state"], "incomplete")
+        self.assertIn("mlxconfig is not installed", record["reason"])
+        self.assertIn("install mlxconfig", record["reason"])
+        self.assertNotIn("sudo", record["reason"])
+
 class EscalationPathTests(unittest.TestCase):
 
     def setUp(self) -> None:
