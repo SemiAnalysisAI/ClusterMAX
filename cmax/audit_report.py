@@ -302,6 +302,7 @@ def _title(key: str) -> str:
         "Rdma": "RDMA",
         "Hca": "HCA",
         "Dpu": "DPU",
+        "Snap4": "SNAP-4",
         "Dcgm": "DCGM",
         "Smmu": "SMMU",
         "Iommu": "IOMMU",
