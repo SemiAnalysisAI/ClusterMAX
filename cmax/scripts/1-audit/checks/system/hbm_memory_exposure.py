@@ -589,7 +589,7 @@ def run_slurm_check(harness: str, *, worker_source: str | None = None) -> tuple[
     if proc.returncode != 0:
         errors.append(f"srun host check exited {proc.returncode}; parsing any completed host output")
 
-    for line in proc.stdout.splitlines():
+    for line in fanout.join_srun_labeled_output(proc.stdout).splitlines():
         line = line.strip()
         if not line.startswith("{"):
             continue

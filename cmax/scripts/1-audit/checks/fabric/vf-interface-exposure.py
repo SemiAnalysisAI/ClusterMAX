@@ -284,7 +284,10 @@ def build_payload(
             if result.returncode:
                 errors.append(f"Collector exit {result.returncode}: {result.stderr[:512].strip()}")
             seen = set()
-            for line in result.stdout.splitlines():
+            stdout = result.stdout
+            if harness == "slurm":
+                stdout = _fanout.join_srun_labeled_output(stdout)
+            for line in stdout.splitlines():
                 if not line.strip().startswith("{"):
                     continue
                 try:
