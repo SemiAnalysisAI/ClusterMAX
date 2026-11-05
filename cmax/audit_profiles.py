@@ -44,6 +44,7 @@ AUDIT_CATEGORIES = (
             {
                 "bmc-ipmi",
                 "kubernetes-nodes-proxy",
+                "ingress-nginx-cve-2025-1974",
                 "nvlink-boundary",
                 "observability-isolation",
                 "qemu-virtio-serial",

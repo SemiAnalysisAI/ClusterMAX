@@ -66,6 +66,7 @@ class StubFetcher(fr.Fetcher):
             fr.bulletin_url(2026, 5861): fixture("nvidia-driver-5861.json"),
             fr.bulletin_url(2026, 9999): fixture("nvidia-driver-lexical-trap.json"),
             fr.bulletin_url(2026, 5699): fixture("nvidia-connectx-5699.json"),
+            fr.bulletin_url(2026, 5744): fixture("nvidia-snap4-5744.json"),
             fr.bulletin_url(2026, 5847): fixture("nvidia-connectx-5847.json"),
             fr.bulletin_url(2026, 5755): fixture("nvidia-cuda-5755.json"),
             fr.bulletin_url(2026, 5850): fixture(toolkit),
@@ -120,11 +121,14 @@ class StubFetcher(fr.Fetcher):
         self.json_by_url[
             fr.ubuntu_notices_query_url("qemu", fr.UBUNTU_RELEASE)
         ] = fixture("ubuntu-notices-qemu.json")
-        # The Ubuntu kernel CVE search finds nothing unless a test adds pages.
-        for priority in fr.UBUNTU_KERNEL_DISCOVERY_MIN_CVSS:
-            self.json_by_url[fr.ubuntu_cve_search_url(priority, 0)] = {
-                "cves": [], "offset": 0, "limit": 20, "total_results": 0,
-            }
+        # The Ubuntu CVE tracker repository lists one CVE from before the
+        # discovery floor unless a test adds files. None makes the read fail.
+        self.tracker_files: dict[str, str] | None = {
+            "retired/CVE-2020-0001": (
+                "Candidate: CVE-2020-0001\nPublicDate: 2020-01-01\n"
+                "Priority: high\nnoble_linux: released (6.8.0-1.1)\n"
+            ),
+        }
         self.osv = fixture("osv-runc.json")
         for version, release in self.osv.get("_releases", {}).items():
             self.json_by_url[
@@ -174,6 +178,22 @@ class StubFetcher(fr.Fetcher):
         self.calls.append(url)
         value = self.json_by_url.get(url)
         return copy.deepcopy(value) if value is not None else None
+
+    def read_git_files(self, url: str, paths) -> dict[str, str]:
+        self.calls.append(f"git:{url}")
+        if self.tracker_files is None or url != fr.UBUNTU_CVE_TRACKER_GIT:
+            raise fr.MinimumRefreshError(f"cannot read {url}: git clone exited 128")
+        return {path: self.tracker_files[path] for path in paths if path in self.tracker_files}
+
+    def grep_git_files(self, url: str, pattern: str, paths) -> dict[str, str]:
+        self.calls.append(f"git:{url}")
+        if self.tracker_files is None or url != fr.UBUNTU_CVE_TRACKER_GIT:
+            raise fr.MinimumRefreshError(f"cannot read {url}: git clone exited 128")
+        regex = re.compile(pattern.replace("[[:space:]]", r"\s"), re.M)
+        return {
+            path: text for path, text in self.tracker_files.items()
+            if path.split("/", 1)[0] in paths and regex.search(text)
+        }
 
     def post_json(self, url: str, body: dict):
         self.calls.append(url)
@@ -379,6 +399,88 @@ class ExtractorTest(unittest.TestCase):
             [item["aId"] for item in blocks["cudaToolkit"]["sources"]],
             [5755, 5904],
         )
+
+    def test_unbranded_cuda_update_bulletin_resolves_to_its_nvcc_version(self) -> None:
+        # 5910 shape: "CUDA Toolkit" without the brand, an "All" platform
+        # branch, a fixed "13.4 U1" update release, and an unrelated NVJPEG line.
+        doc = {
+            "document": {
+                "title": "Security Bulletin: NVIDIA CUDA Toolkit - November 2026",
+                "tracking": {
+                    "id": "5910",
+                    "initial_release_date": "2026-11-03T00:00:00Z",
+                    "current_release_date": "2026-11-03T00:00:00Z",
+                },
+            },
+            "product_tree": {"branches": [{"category": "vendor", "name": "NVIDIA", "branches": [
+                {"category": "architecture", "name": "All", "branches": [
+                    {"category": "product_version", "name": "CUDA Toolkit",
+                     "product": {"name": "0 to 13.4.1", "product_id": "a"}},
+                    {"category": "product_version", "name": "CUDA Toolkit",
+                     "product": {"name": "13.4 U1", "product_id": "b"}},
+                ]},
+                {"category": "architecture", "name": "Linux x86_64, Windows", "branches": [
+                    {"category": "product_version", "name": "NVJPEG",
+                     "product": {"name": "26.07", "product_id": "c"}},
+                ]},
+            ]}]},
+            "vulnerabilities": [{"cve": "CVE-2026-65160"}],
+        }
+        self.stub.text_by_url[fr.CUDA_REDIST_INDEX] = "".join(
+            f"<a href='redistrib_{v}.json'>redistrib_{v}.json</a>\n"
+            for v in ("13.3.1", "13.4.1", "13.4.2", "13.4.3", "13.5.0")
+        )
+        self.stub.json_by_url[fr.CUDA_REDIST_MANIFEST.format(release="13.4.2")] = {
+            "cuda_nvcc": {"version": "13.4.92"}
+        }
+        original = self.stub.json_by_url[fr.bulletin_url(2026, 5755)]
+        blocks = fr.nvidia_simple_product_minimums(
+            [({"year": 2026, "aId": 5755}, original), ({"year": 2026, "aId": 5910}, doc)],
+            fetch=self.stub,
+        )
+        cuda = blocks["cudaToolkit"]
+        # "13.4 U1" is 13.4.1, which the same bulletin also lists as affected
+        # ("0 to 13.4.1"). The later release, 13.4.2, becomes the floor.
+        self.assertEqual(cuda["minimum"], "13.4.92")
+        self.assertEqual(cuda["fixAvailability"]["toolkitRelease"], "13.4.2")
+        self.assertEqual(cuda["source"]["aId"], 5910)
+        self.assertEqual([item["aId"] for item in cuda["sources"]], [5755, 5910])
+        self.assertIn("5910", fr.known_bulletin_ids({"components": blocks}))
+        # Without the manifest the toolkit number is not published.
+        del self.stub.json_by_url[fr.CUDA_REDIST_MANIFEST.format(release="13.4.2")]
+        with self.assertRaises(fr.MinimumRefreshError):
+            fr.nvidia_simple_product_minimums(
+                [({"year": 2026, "aId": 5910}, doc)], fetch=self.stub
+            )
+
+    def test_a_consistent_cuda_update_release_maps_to_its_own_nvcc(self) -> None:
+        doc = copy.deepcopy(self.stub.json_by_url[fr.bulletin_url(2026, 5755)])
+        for _arch, kids in fr.csaf_arch_branches(doc):
+            for kid in kids:
+                name = kid["product"]["name"]
+                kid["product"]["name"] = (
+                    "All versions prior to CUDA Toolkit 13.4 Update 1"
+                    if "prior" in name else "CUDA Toolkit 13.4 Update 1"
+                )
+        self.stub.json_by_url[fr.CUDA_REDIST_MANIFEST.format(release="13.4.1")] = {
+            "cuda_nvcc": {"version": "13.4.59"}
+        }
+        blocks = fr.nvidia_simple_product_minimums(
+            [({"year": 2026, "aId": 5910}, doc)], fetch=self.stub
+        )
+        self.assertEqual(blocks["cudaToolkit"]["minimum"], "13.4.59")
+
+    def test_snap4_keeps_one_floor_per_train(self) -> None:
+        documents = fr.nvidia_csaf_documents(fetch=self.stub)
+        block = fr.nvidia_snap4_minimums(documents)
+        self.assertEqual(block["kind"], "releaseLines")
+        self.assertEqual(
+            block["lines"], {"4.5": {"fixed": "4.5.5"}, "4.9": {"fixed": "4.9.1"}}
+        )
+        self.assertEqual(block["cves"], ["CVE-2025-33215", "CVE-2025-33216"])
+        self.assertEqual(block["source"]["aId"], 5744)
+        self.assertEqual(block["floorAvailability"]["4.5"]["version"], "4.5.5")
+        self.assertEqual(fr.nvidia_snap4_minimums([]), {})
 
     def test_applicable_cuda_document_with_unknown_grammar_fails_closed(self) -> None:
         doc = copy.deepcopy(self.stub.json_by_url[fr.bulletin_url(2026, 5755)])
@@ -772,19 +874,50 @@ class ExtractorTest(unittest.TestCase):
             }],
         }
 
-    def add_search_pages(self, priority: str, *pages: list[dict]) -> None:
-        total = sum(len(page) for page in pages)
-        for index, page in enumerate(pages):
-            offset = index * fr.UBUNTU_CVE_SEARCH_PAGE_SIZE
-            self.stub.json_by_url[fr.ubuntu_cve_search_url(priority, offset)] = {
-                "cves": page, "offset": offset, "limit": 20, "total_results": total,
-            }
+    # A CVSS v3.1 vector per base score the tests use.
+    CVSS3_VECTORS = {
+        9.8: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        9.1: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+        9.0: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:H",
+        8.8: "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        7.8: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+    }
+
+    def add_tracker_cve(
+        self,
+        cve: str,
+        priority: str,
+        cvss3: float | None,
+        published: str,
+        linux: dict[str, str],
+        directory: str = "active",
+    ) -> None:
+        """Add an ubuntu-cve-tracker file and, with a score, its OSV record."""
+        assert self.stub.tracker_files is not None
+        self.stub.tracker_files[f"{directory}/{cve}"] = "".join((
+            f"PublicDateAtUSN: {published} 09:18:00 UTC\n",
+            f"Candidate: {cve}\n",
+            f"PublicDate: {published} 09:18:00 UTC\n",
+            "Description:\n A flaw in the kernel.\n",
+            f"Priority: {priority}\n",
+            "\nPatches_linux:\n",
+            "upstream_linux: released (7.3~rc4)\n",
+            *(f"{codename}_linux: {state}\n" for codename, state in linux.items()),
+        ))
+        if cvss3 is not None:
+            self.stub.json_by_url[
+                f"{fr.UBUNTU_OSV_RAW_URL}{cve.split('-')[1]}/UBUNTU-{cve}.json"
+            ] = {"id": f"UBUNTU-{cve}", "severity": [
+                {"type": "CVSS_V4", "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N"},
+                {"type": "CVSS_V3", "score": self.CVSS3_VECTORS[cvss3]},
+                {"type": "Ubuntu", "score": priority},
+            ]}
 
     def add_unseen_kernel_cve(self) -> None:
-        self.add_search_pages("critical", [self.search_record(
+        self.add_tracker_cve(
             "CVE-2026-12345", "critical", None, "2026-10-20",
-            {"jammy": "DNE", "noble": "needed", "resolute": "pending"},
-        )])
+            {"noble": "needed", "resolute": "pending"},
+        )
         self.stub.json_by_url[f"{fr.UBUNTU_CVE_URL}CVE-2026-12345.json"] = {
             "id": "CVE-2026-12345",
             "priority": "critical",
@@ -829,7 +962,7 @@ class ExtractorTest(unittest.TestCase):
             with self.subTest(cve=record["id"]):
                 self.assertIs(fr.ubuntu_kernel_cve_selected(record), selected)
 
-    def test_kernel_cve_discovery_pages_back_to_the_floor(self) -> None:
+    def test_kernel_cve_discovery_reads_the_tracker_back_to_the_floor(self) -> None:
         # The floor is the later of UBUNTU_KERNEL_DISCOVERY_SINCE and the
         # 30-day window before the run.
         self.assertEqual(fr.ubuntu_discovery_floor(self.DISCOVERY_NOW), "2026-10-01")
@@ -838,40 +971,202 @@ class ExtractorTest(unittest.TestCase):
             "2026-11-15",
         )
         listed = {"noble": "needed"}
-        first = [
-            self.search_record(f"CVE-2026-{900 + n}", "high", 7.8, "2026-10-25", listed)
-            for n in range(19)
-        ] + [self.search_record("CVE-2026-950", "high", 9.8, "2026-10-21", listed)]
-        second = [
-            self.search_record("CVE-2026-951", "high", 9.1, "2026-10-02", listed),
-            self.search_record("CVE-2026-800", "high", 9.8, "2026-09-30", listed),
-        ]
-        self.add_search_pages("high", first, second, [])
-        self.add_search_pages("critical", [
-            self.search_record("CVE-2026-12345", "critical", None, "2026-10-20", listed),
-        ])
+        for n in range(3):
+            self.add_tracker_cve(f"CVE-2026-{900 + n}", "high", 7.8, "2026-10-25", listed)
+        self.add_tracker_cve("CVE-2026-950", "high", 9.8, "2026-10-21", listed)
+        # A closed CVE in the window is still discovered.
+        self.add_tracker_cve(
+            "CVE-2026-951", "high", 9.1, "2026-10-02", {"noble": "released (6.8.0-9.9)"},
+            directory="retired",
+        )
+        self.add_tracker_cve("CVE-2026-800", "high", 9.8, "2026-09-30", listed)
+        # Canonical has not published the OSV record yet: no score, no pick.
+        self.add_tracker_cve("CVE-2026-952", "high", None, "2026-10-22", listed)
+        self.add_tracker_cve("CVE-2026-953", "medium", 9.8, "2026-10-22", listed)
+        self.add_tracker_cve(
+            "CVE-2026-954", "high", 9.8, "2026-10-22",
+            {"jammy": "DNE", "noble": "not-affected", "focal": "needed"},
+        )
+        self.add_tracker_cve("CVE-2026-12345", "critical", None, "2026-10-20", listed)
         found = fr.discover_ubuntu_kernel_cves(fetch=self.stub, now=self.DISCOVERY_NOW)
         self.assertEqual(found, ["CVE-2026-950", "CVE-2026-951", "CVE-2026-12345"])
-        # The second high page reached the floor, so the third is never read.
-        self.assertNotIn(fr.ubuntu_cve_search_url("high", 40), self.stub.calls)
+        # A score is read only for a high CVE that passes the rest of the policy.
+        osv = {url.rsplit("/", 1)[1] for url in self.stub.calls
+               if url.startswith(fr.UBUNTU_OSV_RAW_URL)}
+        self.assertEqual(osv, {
+            "UBUNTU-CVE-2026-900.json", "UBUNTU-CVE-2026-901.json",
+            "UBUNTU-CVE-2026-902.json", "UBUNTU-CVE-2026-950.json",
+            "UBUNTU-CVE-2026-951.json", "UBUNTU-CVE-2026-952.json",
+        })
+        # The tracker search API is no longer read.
+        self.assertFalse([url for url in self.stub.calls if "cves.json" in url])
+
+    def test_tracker_files_parse_into_tracker_records(self) -> None:
+        record = fr.ubuntu_tracker_record(
+            "PublicDateAtUSN: 2026-10-06 09:18:00 UTC\n"
+            "Candidate: CVE-2026-98365\n"
+            "PublicDate: 2026-10-06 09:18:00 UTC\n"
+            "Priority: critical\n"
+            "Priority_linux-aws: high\n"
+            "\nPatches_linux:\n"
+            "upstream_linux: released (7.3~rc4)\n"
+            "bionic_linux: ignored (end of standard support, was needed)\n"
+            "jammy_linux: needed\n"
+            "noble_linux: pending (6.8.0-148.148)\n"
+            "\nPatches_linux-fips:\n"
+            "noble_linux-fips: DNE\n"
+            "fips-updates/noble_linux-fips: pending (6.8.0-148.148+fips1)\n"
+            "fips-preview/noble_linux-fips: needed\n"
+            "noble_linux-realtime: ignored (superseded by Ubuntu Pro ppa version)\n"
+            "realtime/noble_linux-realtime: pending (6.8.1-1063.64)\n"
+            "noble_linux-bluefield: DNE\n"
+            "bluefield/noble_linux-bluefield: pending (6.8.0-1035.40)\n"
+        )
+        self.assertEqual(record, {
+            "id": "CVE-2026-98365", "priority": "critical", "published": "2026-10-06",
+            "status": "active", "cvss3": None, "notices": [],
+            "packages": [
+                {"name": "linux", "statuses": [
+                    {"release_codename": "bionic", "status": "ignored",
+                     "description": "end of standard support, was needed"},
+                    {"release_codename": "jammy", "status": "needed", "description": ""},
+                    {"release_codename": "noble", "status": "pending",
+                     "description": "6.8.0-148.148"},
+                ]},
+                # A published subproject line (Ubuntu Pro FIPS, realtime)
+                # overrides the plain release line; bluefield and fips-preview
+                # lines are not published by the Ubuntu security API.
+                {"name": "linux-fips", "statuses": [
+                    {"release_codename": "noble", "status": "pending",
+                     "description": "6.8.0-148.148+fips1"},
+                ]},
+                {"name": "linux-realtime", "statuses": [
+                    {"release_codename": "noble", "status": "pending",
+                     "description": "6.8.1-1063.64"},
+                ]},
+                {"name": "linux-bluefield", "statuses": [
+                    {"release_codename": "noble", "status": "DNE", "description": ""},
+                ]},
+            ],
+        })
+        rejected = fr.ubuntu_tracker_record(
+            "Candidate: CVE-2026-7\nPublicDate: unknown\nDescription:\n ** REJECT **\n"
+        )
+        self.assertEqual((rejected["status"], rejected["published"]), ("rejected", ""))
+        self.assertIsNone(fr.ubuntu_tracker_record("Candidate: \nPriority: high\n"))
+
+    def test_a_timed_out_cve_record_falls_back_to_the_tracker_file(self) -> None:
+        cve = "CVE-2026-12345"
+        self.add_tracker_cve(cve, "critical", None, "2026-10-20",
+                             {"noble": "pending (6.8.0-999.999)"})
+        # No API fixture: the API read fails, as with an HTTP 504.
+        self.stub.json_by_url.pop(f"{fr.UBUNTU_CVE_URL}{cve}.json", None)
+        doc = fr.ubuntu_cve_doc(cve, fetch=self.stub)
+        self.assertEqual(fr._linux_states(doc)["noble"], "pending")
+        # The notice list is unreachable here too, so the record has no USNs.
+        self.assertEqual(doc["notices"], [])
+        # Every later reader shares the one result; the API is not retried.
+        self.assertTrue(fr.ubuntu_kernel_cve_listed(cve, "noble", fetch=self.stub))
+        entry, notices = fr._ubuntu_api_entry(cve, "linux", "noble", self.stub)
+        self.assertEqual((entry["status"], entry["fixed"], notices),
+                         ("pending", "6.8.0-999.999", []))
+        self.assertEqual(self.stub.calls.count(f"{fr.UBUNTU_CVE_URL}{cve}.json"), 1)
+        # Without a tracker file the API error stands.
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "CVE-2026-777"):
+            fr.ubuntu_cve_doc("CVE-2026-777", fetch=self.stub)
+
+    def test_the_fetcher_reads_git_files_from_one_shallow_clone(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "uct"
+            (repo / "active").mkdir(parents=True)
+            (repo / "retired").mkdir()
+            (repo / "active/CVE-2026-1").write_text("Candidate: CVE-2026-1\nPriority: high\n")
+            (repo / "active/CVE-2026-2").write_text("Candidate: CVE-2026-2\nPriority: low\n")
+            (repo / "retired/CVE-2026-3").write_text("Candidate: CVE-2026-3\nPriority: critical\n")
+            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                   "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+            for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "x"]):
+                subprocess.run(["git", *args], cwd=repo, env=env, check=True)
+            url = repo.as_uri()
+            fetch = fr.Fetcher()
+            found = fetch.grep_git_files(
+                url, "^Priority:[[:space:]]*(critical|high)[[:space:]]*$", ("active", "retired")
+            )
+            self.assertEqual(sorted(found), ["active/CVE-2026-1", "retired/CVE-2026-3"])
+            self.assertEqual(
+                fetch.read_git_files(url, ["retired/CVE-2026-1", "active/CVE-2026-2"]),
+                {"active/CVE-2026-2": "Candidate: CVE-2026-2\nPriority: low\n"},
+            )
+            # One clone serves every read of the run.
+            self.assertEqual(len(fetch.__dict__["_git_clones"]), 1)
+            for clone in fetch.__dict__["_git_clones"].values():
+                clone.cleanup()
+            with self.assertRaisesRegex(fr.MinimumRefreshError, "git clone exited"):
+                fr.Fetcher().grep_git_files((Path(tmp) / "none").as_uri(), "x", ("active",))
+
+    def test_the_tracker_fallback_dates_fixes_from_the_cve_notice_list(self) -> None:
+        cve = "CVE-2026-12346"
+        self.add_tracker_cve(cve, "critical", None, "2026-10-20",
+                             {"noble": "released (6.8.0-999.999)"})
+
+        def page(offset: int, notices: list) -> None:
+            url = fr.UBUNTU_NOTICES_URL + "?" + fr.urllib.parse.urlencode(
+                {"cve_id": cve, "limit": fr.UBUNTU_NOTICE_PAGE_LIMIT, "offset": offset}
+            )
+            self.stub.json_by_url[url] = {"notices": notices, "total_results": 21}
+
+        first = [{"id": f"USN-9{n:03d}-1", "published": f"2026-10-{n % 28 + 1:02d}T00:00:00",
+                  "cves_ids": [cve]} for n in range(20)]
+        # A notice that does not list the CVE is dropped.
+        page(0, first[:19] + [{"id": "USN-1-1", "published": "2026-10-01T00:00:00",
+                               "cves_ids": ["CVE-2026-1"]}])
+        page(20, [{"id": "USN-8999-1", "published": "2026-09-30T00:00:00",
+                   "cves": [{"id": cve}]}])
+        doc = fr.ubuntu_cve_doc(cve, fetch=self.stub)
+        ids = [notice["id"] for notice in doc["notices"]]
+        self.assertEqual(len(ids), 20)
+        self.assertEqual(ids[0], "USN-8999-1")
+        self.assertNotIn("USN-1-1", ids)
+        # A short list fails closed.
+        page(20, [])
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "incomplete notice list"):
+            fr.ubuntu_cve_notices(cve, fetch=self.stub)
+
+    def test_cvss3_base_scores(self) -> None:
+        for score, vector in self.CVSS3_VECTORS.items():
+            with self.subTest(vector=vector):
+                self.assertEqual(fr.cvss3_base_score(vector), score)
+        self.assertEqual(
+            fr.cvss3_base_score("CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"), 9.9
+        )
+        self.assertEqual(
+            fr.cvss3_base_score("CVSS:3.0/AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:N/A:N"), 3.1
+        )
+        self.assertEqual(
+            fr.cvss3_base_score("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N"), 0.0
+        )
+        for vector in ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N", "CVSS:3.1/AV:N", ""):
+            self.assertIsNone(fr.cvss3_base_score(vector))
 
     def test_kernel_cve_discovery_fails_closed(self) -> None:
-        del self.stub.json_by_url[fr.ubuntu_cve_search_url("high", 0)]
-        with self.assertRaisesRegex(fr.MinimumRefreshError, "priority=high"):
+        self.stub.tracker_files = None
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "ubuntu-cve-tracker"):
             fr.discover_ubuntu_kernel_cves(fetch=self.stub, now=self.DISCOVERY_NOW)
-        page = [
-            self.search_record(f"CVE-2026-{n}", "high", 7.8, "2026-10-25", {})
-            for n in range(20)
-        ]
-        self.add_search_pages("high", page, page)
-        with mock.patch.object(fr, "UBUNTU_CVE_SEARCH_MAX_PAGES", 1), \
-                self.assertRaisesRegex(fr.MinimumRefreshError, "did not reach 2026-10-01"):
+        # A tracker read that lists nothing is a broken read, not "no CVEs".
+        self.stub.tracker_files = {}
+        with self.assertRaisesRegex(fr.MinimumRefreshError, "lists no critical or high"):
+            fr.discover_ubuntu_kernel_cves(fetch=self.stub, now=self.DISCOVERY_NOW)
+        # A failed OSV read (other than a missing record) stops the scan.
+        self.stub.tracker_files = {}
+        self.add_tracker_cve("CVE-2026-950", "high", 9.8, "2026-10-21", {"noble": "needed"})
+        with mock.patch.object(
+            self.stub, "get_optional_json",
+            side_effect=fr.MinimumRefreshError("cannot fetch OSV: HTTP 500"),
+        ), self.assertRaisesRegex(fr.MinimumRefreshError, "HTTP 500"):
             fr.discover_ubuntu_kernel_cves(fetch=self.stub, now=self.DISCOVERY_NOW)
 
     def test_kernel_cve_discovery_skips_named_cves(self) -> None:
-        self.add_search_pages("high", [self.search_record(
-            "CVE-2026-98432", "high", 9.8, "2026-10-15", {"noble": "pending"},
-        )])
+        self.add_tracker_cve("CVE-2026-98432", "high", 9.8, "2026-10-15", {"noble": "pending"})
         specs = fr.ubuntu_discovered_kernel_specs({}, fetch=self.stub, now=self.DISCOVERY_NOW)
         self.assertEqual(specs, ())
 
@@ -932,7 +1227,8 @@ class ExtractorTest(unittest.TestCase):
         )
         # A later scan no longer lists the CVE (out of the window, or a lower
         # priority). The rebuild keeps the group from the existing table.
-        self.add_search_pages("critical", [])
+        assert self.stub.tracker_files is not None
+        del self.stub.tracker_files["active/CVE-2026-12345"]
         later = datetime(2026, 12, 15, tzinfo=timezone.utc)
         second = fr.build_minimums(
             generated=GENERATED, existing=first, fetch=self.stub, now=later
@@ -1058,7 +1354,8 @@ class ExtractorTest(unittest.TestCase):
         api_calls = [url for url in self.stub.calls if url.startswith(fr.UBUNTU_CVE_URL)]
         self.assertCountEqual(api_calls, [
             f"{fr.UBUNTU_CVE_URL}CVE-2026-99999.json",
-            f"{fr.UBUNTU_CVE_URL}CVE-2026-46242.json",
+            # Each CVE record is read once per refresh, however many entries
+            # use it.
             f"{fr.UBUNTU_CVE_URL}CVE-2026-46242.json",
             f"{fr.UBUNTU_CVE_URL}CVE-2026-46300.json",
             f"{fr.UBUNTU_CVE_URL}CVE-2026-53359.json",
@@ -2061,21 +2358,21 @@ class DetectNewBulletinsTest(unittest.TestCase):
             [item for item in found if item["product"] == "Docker Engine"]
         )
 
-    def test_an_untracked_docker_major_is_reported_as_new(self) -> None:
+    def test_a_new_docker_major_is_tracked_without_a_code_change(self) -> None:
         stub = StubFetcher()
         stub.json_by_url[fr.DOCKER_DOCS_CONTENTS] = fixture(
             "docker-docs-release-notes-listing.json"
         ) + [{"name": "30.md", "type": "file"}]
-        docker = [
-            item
-            for item in self.scan(fetch=stub)
-            if item["product"] == "Docker Engine"
-        ]
-        self.assertEqual([item["id"] for item in docker], [30])
-        self.assertEqual(docker[0]["status"], "new")
-        self.assertEqual(
-            docker[0]["url"], "https://docs.docker.com/engine/release-notes/30/"
+        self.assertEqual(fr.docker_engine_majors(fetch=stub), (29, 30))
+        self.assertEqual(fr.untracked_docker_majors(fetch=stub), [])
+        self.assertFalse(
+            [item for item in self.scan(fetch=stub) if item["product"] == "Docker Engine"]
         )
+
+    def test_an_unreadable_listing_keeps_the_pinned_docker_majors(self) -> None:
+        stub = StubFetcher()
+        del stub.json_by_url[fr.DOCKER_DOCS_CONTENTS]
+        self.assertEqual(fr.docker_engine_majors(fetch=stub), fr.DOCKER_ENGINE_MAJORS)
 
     def test_an_unreadable_docker_listing_does_not_crash_the_scan(self) -> None:
         stub = StubFetcher()
@@ -2084,32 +2381,16 @@ class DetectNewBulletinsTest(unittest.TestCase):
         new = [item for item in self.scan(fetch=stub) if item["status"] == "new"]
         self.assertEqual([item["id"] for item in new], [5871])
 
-    def test_cli_exit_three_tells_the_operator_where_to_track_a_docker_major(
-        self,
-    ) -> None:
-        stub = StubFetcher()
-        stub.json_by_url[fr.DOCKER_DOCS_CONTENTS] = fixture(
-            "docker-docs-release-notes-listing.json"
-        ) + [{"name": "30.md", "type": "file"}]
-        code, out, err = self.detect_cli(stub)
-        self.assertEqual(code, 3)
-        self.assertIn("Docker Engine 30 release notes", out)
-        self.assertIn("DOCKER_ENGINE_MAJORS", err)
-
     def test_cli_exits_three_when_a_new_bulletin_exists(self) -> None:
         code, out, err = self.detect_cli()
         self.assertEqual(code, 3)
         self.assertIn("5871", out)
-        self.assertIn("5744", out)
-        self.assertIn("DEFERRED_BULLETINS", err)
+        self.assertNotIn("5744", out)
+        self.assertIn("generator gap", err)
 
-    def test_5744_is_deferred_and_is_not_reported_as_untracked(self) -> None:
-        self.assertIn("5744", fr.DEFERRED_BULLETINS)
-        found = self.scan()
-        snap4 = next(item for item in found if item["id"] == 5744)
-        self.assertEqual(snap4["status"], "deferred")
-        self.assertIn("4.5.5 LTS train", snap4["reason"])
-        self.assertNotIn(5744, [item["id"] for item in found if item["status"] == "new"])
+    def test_5744_is_tracked_and_not_reported(self) -> None:
+        self.assertNotIn("5744", fr.DEFERRED_BULLETINS)
+        self.assertNotIn(5744, [item["id"] for item in self.scan()])
 
     def test_5847_is_not_applicable_to_supported_networking_products(self) -> None:
         found = self.scan()
@@ -2123,8 +2404,8 @@ class DetectNewBulletinsTest(unittest.TestCase):
             code, out, err = self.detect_cli()
         self.assertEqual(code, 0)
         self.assertIn("Deferred bulletins", out)
-        self.assertIn("5744", out)
-        self.assertIn("drops the 4.5.5 LTS train", out)
+        self.assertIn("5871", out)
+        self.assertIn("parser work pending", out)
         self.assertIn("no unknown bulletins", out)
         self.assertEqual(err, "")
 
@@ -2258,7 +2539,7 @@ class PullRequestBodyTest(unittest.TestCase):
 
     def test_an_untracked_bulletin_is_still_reported(self) -> None:
         body = self.body(found="true", report="  5744  Networking SNAP4: title")
-        self.assertIn("relevant bulletins that the table does not track", body)
+        self.assertIn("the generator could not add them", body)
         self.assertIn("5744  Networking SNAP4: title", body)
         self.assertNotIn("failed on every attempt", body)
 

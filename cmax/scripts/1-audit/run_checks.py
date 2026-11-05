@@ -23,6 +23,9 @@ CHECK_PROFILES = {
     "fabric/nic-topology-check.py": frozenset(
         {"security", "versions", "isolation", "networking"}
     ),
+    "fabric/vf-interface-exposure.py": frozenset(
+        {"security", "isolation"}
+    ),
     "fabric/virtio-net-check.py": frozenset(
         {"security", "versions", "isolation"}
     ),
@@ -30,6 +33,7 @@ CHECK_PROFILES = {
     "system/arm-smmu-virtualization-check.py": frozenset({"hardware"}),
     "system/hbm_memory_exposure.py": frozenset({"hardware", "orchestration"}),
     "system/kubernetes_nodes_proxy.py": frozenset({"security", "isolation"}),
+    "system/ingress_nginx_cve_2025_1974.py": frozenset({"security", "isolation"}),
     "system/vm-iommu-check.py": frozenset({"hardware"}),
 }
 CHECK_HARNESSES = {
@@ -40,6 +44,9 @@ CHECK_HARNESSES = {
     "fabric/nccl-ib-qps-check.py": frozenset({"slurm", "k8s"}),
     "fabric/nccl-topology-file-check.py": frozenset({"slurm"}),
     "fabric/nic-topology-check.py": frozenset({"slurm", "k8s"}),
+    "fabric/vf-interface-exposure.py": frozenset(
+        {"standalone", "slurm", "k8s"}
+    ),
     "fabric/virtio-net-check.py": frozenset({"slurm", "k8s"}),
     "gpu/vboost.py": frozenset({"standalone", "slurm", "k8s"}),
     "system/arm-smmu-virtualization-check.py": frozenset(
@@ -47,6 +54,7 @@ CHECK_HARNESSES = {
     ),
     "system/hbm_memory_exposure.py": frozenset({"standalone", "slurm", "k8s"}),
     "system/kubernetes_nodes_proxy.py": frozenset({"k8s"}),
+    "system/ingress_nginx_cve_2025_1974.py": frozenset({"k8s"}),
     "system/vm-iommu-check.py": frozenset({"standalone", "slurm", "k8s"}),
 }
 PLATFORM_CHECK_KEYS = {
@@ -166,6 +174,7 @@ def discover_gpu_operator_namespace() -> str | None:
 # summary line, and a fail / warning also reaches stderr so it is visible in a
 # scrolling run log before audit_findings.py collects it at the end.
 STATUS_CHECK_KEYS = (
+    "vf_interface_exposure",
     "thp_madvise",
     "static_hugepages",
     "hugepage_allocation",
@@ -179,6 +188,7 @@ STATUS_CHECK_KEYS = (
     "nccl_topo_file",
     "nccl_ib_qps",
     "kubernetes_nodes_proxy",
+    "ingress_nginx_cve_2025_1974",
 )
 
 

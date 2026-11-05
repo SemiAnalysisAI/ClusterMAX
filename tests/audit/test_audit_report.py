@@ -115,6 +115,53 @@ class AuditReportTests(unittest.TestCase):
             check.assessment, "Nested virtualization prerequisites are exposed"
         )
 
+    def test_fleet_exposure_failure_renders_as_a_failure(self) -> None:
+        values = {
+            "audit_data": {
+                "security": {
+                    "januscape": {
+                        "status": "fail",
+                        "scope": "fleet",
+                        "exposed": True,
+                        "failingNodes": ["gpu-1"],
+                        "reason": "Nested virtualization prerequisites are exposed on gpu-1.",
+                    }
+                }
+            }
+        }
+
+        check = next(
+            check
+            for check in audit_report.evaluate(values, RUNTIME_ROOT)
+            if check.key == "security.januscape.status"
+        )
+
+        self.assertEqual(check.status, audit_report.FAIL)
+        self.assertIn("gpu-1", check.assessment)
+
+    def test_fleet_coverage_incomplete_never_renders_as_a_pass(self) -> None:
+        values = {
+            "audit_data": {
+                "security": {
+                    "fragnesia": {"status": "coverage-incomplete", "scope": "fleet"},
+                    "januscape": {"status": "coverage-incomplete", "scope": "fleet"},
+                    "pwnescape": {"status": "coverage-incomplete", "scope": "fleet"},
+                }
+            }
+        }
+
+        checks = audit_report.evaluate(values, RUNTIME_ROOT)
+
+        for key in (
+            "security.fragnesia.status",
+            "security.januscape.status",
+            "security.pwnescape.status",
+        ):
+            with self.subTest(key=key):
+                check = next(c for c in checks if c.key == key)
+                self.assertEqual(check.status, audit_report.WARNING)
+                self.assertIn("not a pass", check.assessment)
+
     def test_removed_checks_do_not_run_for_any_cluster(self) -> None:
         removed = {
             "containers.dockerVersionOk",
@@ -945,7 +992,7 @@ class AuditReportTests(unittest.TestCase):
             "Observed: observed version 580.126.09; minimum version 580.126.09",
             report,
         )
-        self.assertIn("1 failed, 9 warnings, 2 passed, 0 skipped", report)
+        self.assertIn("1 failed, 10 warnings, 2 passed, 0 skipped", report)
         self.assertIn("run 'cmax audit -vv'", report)
 
     def test_guarded_inconclusive_value_is_not_counted_as_pass(self) -> None:

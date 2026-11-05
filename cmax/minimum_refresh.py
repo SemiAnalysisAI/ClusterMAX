@@ -61,7 +61,10 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
+import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -141,14 +144,7 @@ NVHPC_RELEASE_RE = re.compile(r"\bHPC SDK\s+([0-9]{2}\.[0-9]{1,2})\b", re.IGNORE
 # this list records a decision, and it must never become a quiet place to bury
 # a bulletin nobody wants to deal with. Removing an entry puts the bulletin
 # straight back on the untracked list.
-DEFERRED_BULLETINS: dict[str, str] = {
-    "5744": (
-        "Networking SNAP4 publishes two fixed trains in one phrase, such as "
-        "'SNAP-4.9.1, SNAP4 4.5.5'. The current single-version grammar keeps "
-        "4.9.1 and drops the 4.5.5 LTS train, so tracking it needs parser work "
-        "first."
-    ),
-}
+DEFERRED_BULLETINS: dict[str, str] = {}
 
 
 def validate_bulletin_lists() -> None:
@@ -180,11 +176,32 @@ NVIDIA_DCGM_PRODUCT_ID_PATTERNS: dict[str, re.Pattern[str]] = {
 
 # Explicit policy labels for graded Nvidia products. Bulletin IDs and floors
 # are deliberately absent: every matching CSAF document in the catalog enters
-# the reducer automatically.
+# the reducer automatically. The first label is the canonical one. NVIDIA
+# writes the same product with and without its brand prefix (5755 says "NVIDIA
+# CUDA Toolkit", 5910 says "CUDA Toolkit"), so each product accepts both.
 NVIDIA_SIMPLE_PRODUCTS: tuple[tuple[str, str], ...] = (
     ("cudaToolkit", "NVIDIA CUDA Toolkit"),
     ("nvidiaContainerToolkit", "NVIDIA Container Toolkit"),
 )
+NVIDIA_SIMPLE_PRODUCT_ALIASES: dict[str, tuple[str, ...]] = {
+    "NVIDIA CUDA Toolkit": ("NVIDIA CUDA Toolkit", "CUDA Toolkit"),
+    "NVIDIA Container Toolkit": ("NVIDIA Container Toolkit",),
+}
+# The audit reads the CUDA Toolkit version from `nvcc --version`, whose build
+# number does not follow the toolkit update number: toolkit 13.4 Update 1
+# (13.4.1) ships nvcc 13.4.59. A bulletin that names an update release is
+# therefore resolved to that release's nvcc version through NVIDIA's official
+# redistributable manifest, so a 13.4 GA host cannot pass a 13.4.1 floor.
+CUDA_REDIST_MANIFEST = (
+    "https://developer.download.nvidia.com/compute/cuda/redist/redistrib_{release}.json"
+)
+CUDA_REDIST_INDEX = "https://developer.download.nvidia.com/compute/cuda/redist/"
+CUDA_REDIST_RELEASE = re.compile(r"redistrib_(\d+\.\d+\.\d+)\.json")
+# NVIDIA Networking SNAP-4 Container, a BlueField-3 storage service with
+# several supported trains (4.9, 4.5 LTS). One fixed phrase can name a version
+# per train, "SNAP-4.9.1, SNAP4 4.5.5", so each train keeps its own floor.
+NVIDIA_SNAP4_PRODUCT = "SNAP-4 Container"
+CUDA_UPDATE_RELEASE = re.compile(r"\b(\d+\.\d+)\s*U(?:pdate)?\s*(\d+)\b", re.IGNORECASE)
 NVIDIA_VIRTIO_PRODUCT_PREFIX = "VIRTIO-Net"
 
 # Product lines the audit grades. A new bulletin whose title matches one of
@@ -301,16 +318,22 @@ UBUNTU_KERNEL_EXCLUDED = re.compile(r"linux-riscv(?:-\d+\.\d+)?")
 # A discovered CVE gets the `allKernels` rows of a named spec, under the key
 # `linuxCve<year>_<number>`, and every row carries `"discovered": true`.
 #
-# The scan reads the tracker search, newest publication first, back to the
-# later of UBUNTU_KERNEL_DISCOVERY_SINCE and UBUNTU_KERNEL_DISCOVERY_WINDOW_DAYS
-# before the run. A CVE that the existing table already carries as discovered
+# The scan reads the Ubuntu CVE tracker's own data, the ubuntu-cve-tracker git
+# repository, back to the later of UBUNTU_KERNEL_DISCOVERY_SINCE and
+# UBUNTU_KERNEL_DISCOVERY_WINDOW_DAYS before the run. The tracker search API
+# (`ubuntu.com/security/cves.json`) serves the same records but times out for
+# days at a time, so it is no longer read. The tracker files carry the
+# priority, the public date, and the `linux` state per release. They do not
+# carry the NVD CVSS v3 score that the policy needs for a `high` CVE, so that
+# score is read from Canonical's OSV record of the CVE.
+# A CVE that the existing table already carries as discovered
 # stays in the table after it leaves the window or the selection (for example,
 # a lowered priority), so a released fix and its grace record cannot vanish.
 # Published CVEs from before UBUNTU_KERNEL_DISCOVERY_SINCE are not backfilled;
 # a reviewer adds such a CVE as a named spec.
-UBUNTU_CVE_SEARCH_URL = "https://ubuntu.com/security/cves.json"
-UBUNTU_CVE_SEARCH_PAGE_SIZE = 20  # the API maximum
-UBUNTU_CVE_SEARCH_MAX_PAGES = 60
+UBUNTU_CVE_TRACKER_GIT = "https://git.launchpad.net/ubuntu-cve-tracker"
+# Tracker directories that hold CVE files: open, closed, and ignored CVEs.
+UBUNTU_CVE_TRACKER_DIRS = ("active", "retired", "ignored")
 UBUNTU_KERNEL_DISCOVERY_SINCE = "2026-10-01"
 UBUNTU_KERNEL_DISCOVERY_WINDOW_DAYS = 30
 # Ubuntu priority -> lowest CVSS v3 base score that selects the CVE. A critical
@@ -341,9 +364,9 @@ UBUNTU_RESOLUTE_PACKAGES: tuple[dict[str, Any], ...] = (
 # Docker Engine majors whose release-note pages feed the Docker minimum. Docker
 # ships no CSAF feed that maps advisories onto Engine release numbers (the
 # moby Go module uses 2.0.0-beta numbering), so the generator reads the
-# release-note markdown that Docker authors in the docker/docs repository. A
-# new major gets a new page there, so `--detect-new-bulletins` reports one and
-# an operator extends this tuple.
+# release-note markdown that Docker authors in the docker/docs repository.
+# This tuple is the floor of the set: a newer major that gets a page there is
+# added automatically by `docker_engine_majors`.
 DOCKER_ENGINE_MAJORS: tuple[int, ...] = (29,)
 
 # One release on a Docker release-note page: a `## X.Y.Z` heading, a
@@ -512,6 +535,123 @@ class Fetcher:
                 return json.load(response)
         except (urllib.error.URLError, OSError, ValueError) as exc:
             raise MinimumRefreshError(f"cannot query {url}: {exc}") from exc
+
+    git_timeout: int = 900
+    _shared_lock = threading.RLock()
+
+    def _state(self, name: str) -> dict:
+        """A per-instance cache, created on first use (Fetcher has no __init__)."""
+        with Fetcher._shared_lock:
+            if name not in self.__dict__:
+                self.__dict__[name] = {}
+            return self.__dict__[name]
+
+    def memo(self, key: str, compute) -> Any:
+        """Compute a value once per fetcher and key, one caller at a time.
+
+        For reads that every release and kernel row repeats and that can take
+        a long time to fail, such as the Ubuntu CVE record of an `allKernels`
+        CVE. Failures are not kept.
+        """
+        values, locks = self._state("_memo_values"), self._state("_memo_locks")
+        with Fetcher._shared_lock:
+            lock = locks.setdefault(key, threading.Lock())
+        with lock:
+            if key not in values:
+                values[key] = compute()
+            return copy.deepcopy(values[key])
+
+    def _git(self, url: str, *args: str, cwd: str | None = None,
+             data: bytes | None = None) -> bytes:
+        try:
+            done = subprocess.run(
+                ["git", *args], cwd=cwd, input=data, capture_output=True,
+                timeout=self.git_timeout, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise MinimumRefreshError(f"cannot read {url}: git {args[0]}: {exc}") from exc
+        # git grep exits 1 when nothing matches.
+        if done.returncode != 0 and not (args[0] == "grep" and done.returncode == 1):
+            detail = done.stderr.decode("utf-8", "replace").strip().splitlines()
+            raise MinimumRefreshError(
+                f"cannot read {url}: git {args[0]} exited {done.returncode}: "
+                f"{detail[-1] if detail else ''}"
+            )
+        return done.stdout
+
+    def _git_clone(self, url: str) -> str:
+        """Clone a repository shallow, once per fetcher, and return its path.
+
+        The clone has no checkout: files are read from HEAD. The directory is
+        removed when the fetcher is garbage collected or the process exits.
+        """
+        def clone() -> tempfile.TemporaryDirectory:
+            logger = logging.getLogger(__name__)
+            started = time.monotonic()
+            logger.info("git clone --depth 1 %s", url)
+            tmp = tempfile.TemporaryDirectory(prefix="cmax-git-")
+            try:
+                self._git(url, "clone", "--quiet", "--depth", "1", "--no-checkout", url, tmp.name)
+            except BaseException:
+                tmp.cleanup()
+                raise
+            logger.info("finished %s after %.1fs", url, time.monotonic() - started)
+            return tmp
+
+        clones, locks = self._state("_git_clones"), self._state("_git_clone_locks")
+        with Fetcher._shared_lock:
+            lock = locks.setdefault(url, threading.Lock())
+        with lock:
+            if url not in clones:
+                clones[url] = clone()
+            return clones[url].name
+
+    def read_git_files(self, url: str, paths: Sequence[str]) -> dict[str, str]:
+        """Return {path: text} for the files at HEAD of a git repository.
+
+        A path that HEAD does not have is left out.
+        """
+        repo = self._git_clone(url)
+        texts: dict[str, str] = {}
+        if not paths:
+            return texts
+        out = self._git(
+            url, "cat-file", "--batch", cwd=repo,
+            data="".join(f"HEAD:{path}\n" for path in paths).encode(),
+        )
+        pos = 0
+        for path in paths:
+            end = out.index(b"\n", pos)
+            header = out[pos:end].split()
+            if header[-1:] == [b"missing"]:
+                pos = end + 1
+                continue
+            if len(header) != 3:
+                raise MinimumRefreshError(f"cannot read {url}: git cat-file {path}")
+            size = int(header[2])
+            texts[path] = out[end + 1:end + 1 + size].decode("utf-8", "replace")
+            pos = end + 1 + size + 1
+        return texts
+
+    def grep_git_files(
+        self, url: str, pattern: str, paths: Sequence[str]
+    ) -> dict[str, str]:
+        """Return {path: text} for the files under `paths` whose text matches
+        the extended regular expression `pattern`, at HEAD of a git repository.
+
+        Any git failure stops the refresh, because a partial read would drop a
+        file without a trace.
+        """
+        repo = self._git_clone(url)
+        listed = self._git(
+            url, "grep", "-l", "-I", "-E", pattern, "HEAD", "--", *paths, cwd=repo
+        ).decode("utf-8", "replace").split()
+        names = [name.split(":", 1)[1] for name in listed if ":" in name]
+        texts = self.read_git_files(url, names)
+        logging.getLogger(__name__).info(
+            "git grep %s: %d files", url, len(texts)
+        )
+        return texts
 
     def get_text_head(self, url: str, max_bytes: int = 1200) -> str | None:
         """Return the first bytes of a text file, or None when it is unreadable.
@@ -794,7 +934,8 @@ def classify_phrase(phrase: str | None) -> tuple[str | None, str | None]:
     string, so decoration such as the trailing comma in "24.10.50 or newer,"
     stays out of the result.
     """
-    text = (phrase or "").strip()
+    # "13.4 U1" and "13.4 Update 1" name the update release 13.4.1.
+    text = CUDA_UPDATE_RELEASE.sub(r"\1.\2", (phrase or "").strip())
     match = VERSION.search(text)
     if not match:
         return None, None
@@ -1180,13 +1321,42 @@ def _simple_product_minimum_from_document(
     fetch: Fetcher | None = None,
 ) -> dict:
     best: str | None = None
+    affected_through: str | None = None
+    labels = NVIDIA_SIMPLE_PRODUCT_ALIASES.get(product, (product,))
     for arch, kids in csaf_arch_branches(doc):
-        if "linux" not in arch.lower():
+        # "All" covers Linux too (5910 lists CUDA Toolkit under "All").
+        if "linux" not in arch.lower() and arch.strip().casefold() != "all":
             continue
-        fixed = resolve_fixed(kids, product_filter=product)
-        if fixed and (best is None or version_key(fixed) > version_key(best)):
-            best = fixed
+        for label in labels:
+            fixed = resolve_fixed(kids, product_filter=label)
+            if fixed and (best is None or version_key(fixed) > version_key(best)):
+                best = fixed
+            for kid in kids:
+                if kid.get("name") != label:
+                    continue
+                bound = inclusive_affected_bound(kid.get("product", {}).get("name"))
+                if bound and (
+                    affected_through is None
+                    or version_key(bound) > version_key(affected_through)
+                ):
+                    affected_through = bound
     source = nvidia_source(a_id, year, doc)
+    toolkit_release: str | None = None
+    if best and affected_through and version_key(best) <= version_key(affected_through):
+        # The bulletin contradicts itself: its fixed version is inside its own
+        # affected range (5910: affected "0 to 13.4.1", fixed "13.4 U1"). Take
+        # the later reading, the first release published after the affected
+        # range, so the floor never admits a version the bulletin calls
+        # affected.
+        if product != "NVIDIA CUDA Toolkit":
+            raise MinimumRefreshError(
+                f"NVIDIA CSAF {a_id}: {product} fixed version {best} is inside "
+                f"its own affected range through {affected_through}"
+            )
+        best = cuda_release_after(affected_through, fetch=fetch)
+    if best and product == "NVIDIA CUDA Toolkit" and best.count(".") == 2:
+        toolkit_release = best
+        best = cuda_nvcc_version(toolkit_release, fetch=fetch)
     if best and product == "NVIDIA Container Toolkit":
         availability = github_release_availability(
             NVIDIA_CONTAINER_TOOLKIT_RELEASE_REPO, f"v{best}", best, fetch=fetch
@@ -1196,6 +1366,8 @@ def _simple_product_minimum_from_document(
         availability = nvidia_csaf_fix_availability(a_id, year, doc)
         if best:
             availability["version"] = best
+        if toolkit_release:
+            availability["toolkitRelease"] = toolkit_release
     return {
         "kind": "minimum",
         "minimum": best,
@@ -1204,6 +1376,63 @@ def _simple_product_minimum_from_document(
         "advisory": NVIDIA_ADVISORY.format(a_id=a_id),
         "source": source,
     }
+
+
+def inclusive_affected_bound(phrase: str | None) -> str | None:
+    """Return the last affected version of an inclusive range phrase.
+
+    "0 to 13.4.1" and "All versions up to and including 13.4.1" both name
+    13.4.1 as affected. "All versions prior to X" is exclusive and yields None.
+    """
+    text = CUDA_UPDATE_RELEASE.sub(r"\1.\2", (phrase or "").strip())
+    if not re.search(r"\bto\b", text, re.IGNORECASE) or re.search(
+        r"prior\s+to", text, re.IGNORECASE
+    ):
+        return None
+    versions = VERSION.findall(text)
+    return versions[-1] if versions else None
+
+
+def cuda_release_after(release: str, fetch: Fetcher | None = None) -> str:
+    """Return the first CUDA Toolkit release NVIDIA published after `release`."""
+    text = _fetcher(fetch).get_text(CUDA_REDIST_INDEX)
+    later = sorted(
+        {
+            found
+            for found in CUDA_REDIST_RELEASE.findall(text)
+            if version_key(found) > version_key(release)
+        },
+        key=version_key,
+    )
+    if not later:
+        raise MinimumRefreshError(
+            f"cudaToolkit: {CUDA_REDIST_INDEX} lists no release after {release}"
+        )
+    return later[0]
+
+
+def cuda_nvcc_version(release: str, fetch: Fetcher | None = None) -> str:
+    """Return the nvcc version that CUDA Toolkit `release` (X.Y.Z) ships.
+
+    The manifest is NVIDIA's own release record. A missing manifest or nvcc
+    entry stops the refresh instead of publishing a toolkit number that the
+    audit would compare against an nvcc build number.
+    """
+    url = CUDA_REDIST_MANIFEST.format(release=release)
+    manifest = _fetcher(fetch).get_json(url)
+    version = ((manifest or {}).get("cuda_nvcc") or {}).get("version")
+    if not isinstance(version, str) or not VERSION.fullmatch(version.strip()):
+        raise MinimumRefreshError(
+            f"cudaToolkit: {url} names no cuda_nvcc version for toolkit {release}"
+        )
+    return version.strip()
+
+
+def csaf_has_simple_product(doc: dict, label: str) -> bool:
+    return any(
+        csaf_has_product(doc, alias)
+        for alias in NVIDIA_SIMPLE_PRODUCT_ALIASES.get(label, (label,))
+    )
 
 
 def simple_product_minimum(
@@ -1229,7 +1458,7 @@ def nvidia_simple_product_minimums(
         cves: set[str] = set()
         sources: list[dict] = []
         for ref, doc in documents:
-            if not csaf_has_product(doc, label):
+            if not csaf_has_simple_product(doc, label):
                 continue
             block = _simple_product_minimum_from_document(
                 ref["year"], ref["aId"], doc, product=label, fetch=fetch
@@ -1250,6 +1479,89 @@ def nvidia_simple_product_minimums(
             result["sources"] = sorted(sources, key=lambda item: item["aId"])
         results[key] = result
     return results
+
+
+def _snap4_minimums_from_document(year: int, a_id: int, doc: dict) -> dict:
+    """SNAP-4 Container trains from one bulletin.
+
+    Every version in a fixed phrase is a fix for its own major.minor train:
+    "SNAP-4.9.1, SNAP4 4.5.5" gives 4.9 -> 4.9.1 and 4.5 -> 4.5.5. Each train
+    keeps the highest fixed version any CVE in the bulletin needs.
+    """
+    lines: dict[str, dict[str, str]] = {}
+    for _arch, kids in csaf_arch_branches(doc):
+        for kid in kids:
+            if kid.get("name") != NVIDIA_SNAP4_PRODUCT:
+                continue
+            phrase = str(kid.get("product", {}).get("name") or "")
+            if AFFECTED_PHRASE.match(phrase.strip()) or re.search(
+                r"prior\s+to|up\s+to", phrase, re.IGNORECASE
+            ):
+                continue
+            for version in VERSION.findall(phrase):
+                if version.count(".") != 2:
+                    continue
+                train = ".".join(version.split(".")[:2])
+                current = lines.get(train)
+                if current is None or version_key(version) > version_key(current["fixed"]):
+                    lines[train] = {"fixed": version}
+    availability = nvidia_csaf_fix_availability(a_id, year, doc)
+    return {
+        "kind": "releaseLines",
+        "lines": dict(sorted(lines.items(), key=lambda kv: version_key(kv[0]))),
+        "floorAvailability": {
+            train: {**availability, "version": entry["fixed"]}
+            for train, entry in lines.items()
+        },
+        "cves": [item["cve"] for item in doc.get("vulnerabilities", []) if item.get("cve")],
+        "advisory": NVIDIA_ADVISORY.format(a_id=a_id),
+        "source": nvidia_source(a_id, year, doc),
+    }
+
+
+def nvidia_snap4_minimums(documents: Sequence[tuple[dict[str, int], dict]]) -> dict:
+    """Merge every catalog document that declares the SNAP-4 Container."""
+
+    lines: dict[str, dict[str, str]] = {}
+    availability: dict[str, dict[str, Any]] = {}
+    cves: set[str] = set()
+    sources: list[dict] = []
+    for ref, doc in documents:
+        if not csaf_has_product(doc, NVIDIA_SNAP4_PRODUCT):
+            continue
+        block = _snap4_minimums_from_document(ref["year"], ref["aId"], doc)
+        if not block["lines"]:
+            raise MinimumRefreshError(
+                f"snap4Container: NVIDIA CSAF {ref['aId']} declares "
+                f"{NVIDIA_SNAP4_PRODUCT} but yields no fixed train"
+            )
+        sources.append(block["source"])
+        cves.update(block["cves"])
+        for train, entry in block["lines"].items():
+            current = lines.get(train)
+            if current is not None and version_key(entry["fixed"]) <= version_key(
+                current["fixed"]
+            ):
+                continue
+            lines[train] = entry
+            availability[train] = block["floorAvailability"][train]
+    if not sources:
+        return {}
+    sources.sort(key=lambda item: (str(item["released"])[:10], item["aId"]))
+    newest = sources[-1]
+    result = {
+        "kind": "releaseLines",
+        "lines": dict(sorted(lines.items(), key=lambda kv: version_key(kv[0]))),
+        "floorAvailability": dict(
+            sorted(availability.items(), key=lambda kv: version_key(kv[0]))
+        ),
+        "cves": sorted(cves),
+        "advisory": NVIDIA_ADVISORY.format(a_id=newest["aId"]),
+        "source": newest,
+    }
+    if len(sources) > 1:
+        result["sources"] = sources
+    return result
 
 
 def _bulletin_product_minimums_from_document(
@@ -1876,7 +2188,7 @@ def ubuntu_osv_fix_notices(
 
 def _ubuntu_api_entry(cve: str, package: str, codename: str, fetch: Fetcher | None) -> tuple[dict, list]:
     """Read one package status from the Ubuntu security API (last resort)."""
-    doc = _fetcher(fetch).get_json(f"{UBUNTU_CVE_URL}{cve}.json")
+    doc = ubuntu_cve_doc(cve, fetch=fetch)
     entry = {
         "cve": cve,
         "package": package,
@@ -2052,7 +2364,7 @@ def ubuntu_kernel_cve_rows(
     `trackerNote`. The GA `linux` row is required.
     """
     cve = spec["cve"]
-    doc = _fetcher(fetch).get_json(f"{UBUNTU_CVE_URL}{cve}.json")
+    doc = ubuntu_cve_doc(cve, fetch=fetch)
     listed: list[tuple[str, str, list[str]]] = []
     for candidate in doc.get("packages", []) if isinstance(doc, dict) else []:
         name = candidate.get("name") if isinstance(candidate, dict) else None
@@ -2145,12 +2457,202 @@ def ubuntu_discovery_floor(now: datetime | None = None) -> str:
     return max(window, UBUNTU_KERNEL_DISCOVERY_SINCE)
 
 
-def ubuntu_cve_search_url(priority: str, offset: int) -> str:
-    """One page of `linux` CVEs of one priority, newest publication first."""
-    return (
-        f"{UBUNTU_CVE_SEARCH_URL}?package=linux&priority={priority}"
-        f"&limit={UBUNTU_CVE_SEARCH_PAGE_SIZE}&offset={offset}"
+_CVSS3_WEIGHTS: dict[str, dict[str, float]] = {
+    "AV": {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.2},
+    "AC": {"L": 0.77, "H": 0.44},
+    "UI": {"N": 0.85, "R": 0.62},
+    "C": {"H": 0.56, "L": 0.22, "N": 0.0},
+    "I": {"H": 0.56, "L": 0.22, "N": 0.0},
+    "A": {"H": 0.56, "L": 0.22, "N": 0.0},
+}
+
+
+def cvss3_base_score(vector: str) -> float | None:
+    """CVSS v3.x base score of a vector string, or None when it is not v3."""
+    parts = str(vector or "").split("/")
+    if not re.fullmatch(r"CVSS:3\.[01]", parts[0]):
+        return None
+    try:
+        metric = dict(part.split(":", 1) for part in parts[1:])
+        changed = {"U": False, "C": True}[metric["S"]]
+        privileges = {"N": 0.85, "L": 0.68 if changed else 0.62,
+                      "H": 0.5 if changed else 0.27}[metric["PR"]]
+        weight = {key: _CVSS3_WEIGHTS[key][metric[key]] for key in _CVSS3_WEIGHTS}
+    except (KeyError, ValueError):
+        return None
+    base = 1 - (1 - weight["C"]) * (1 - weight["I"]) * (1 - weight["A"])
+    impact = (
+        7.52 * (base - 0.029) - 3.25 * (base - 0.02) ** 15 if changed else 6.42 * base
     )
+    if impact <= 0:
+        return 0.0
+    exploitability = 8.22 * weight["AV"] * weight["AC"] * privileges * weight["UI"]
+    total = min((1.08 if changed else 1.0) * (impact + exploitability), 10.0)
+    # The specification's Roundup: the smallest one-decimal number >= total.
+    scaled = round(total * 100000)
+    if scaled % 10000 == 0:
+        return scaled / 100000.0
+    return (scaled // 10000 + 1) / 10.0
+
+
+def ubuntu_osv_cvss3(cve: str, fetch: Fetcher | None = None) -> float | None:
+    """The CVSS v3 base score in Canonical's OSV record of a CVE.
+
+    None when Canonical has not published the record yet, or the record has
+    no CVSS v3 vector. Any other read failure stops the refresh.
+    """
+    year = cve.split("-")[1]
+    doc = _fetcher(fetch).get_optional_json(f"{UBUNTU_OSV_RAW_URL}{year}/UBUNTU-{cve}.json")
+    severities = doc.get("severity") if isinstance(doc, dict) else None
+    for severity in severities if isinstance(severities, list) else []:
+        if isinstance(severity, dict) and severity.get("type") == "CVSS_V3":
+            return cvss3_base_score(str(severity.get("score")))
+    return None
+
+
+# Tracker subprojects whose `<subproject>/<release>_<package>` lines the Ubuntu
+# security API does not publish. Every other subproject line (for example
+# `fips-updates/` or `realtime/`) overrides the plain release line, as the API
+# does for the Ubuntu Pro kernels.
+UBUNTU_TRACKER_UNPUBLISHED_SUBPROJECTS = frozenset({"bluefield", "fips-preview"})
+
+
+def ubuntu_tracker_record(text: str) -> dict | None:
+    """Parse one ubuntu-cve-tracker CVE file into the tracker API record shape.
+
+    Returns the id, priority, publication date, status, and each package's
+    state and note per release codename, or None when the file names no CVE.
+    The tracker file has no CVSS v3 score and no USN list.
+    """
+    fields: dict[str, str] = {}
+    states: dict[str, dict[str, dict]] = {}
+    for line in text.splitlines():
+        match = re.match(r"(Candidate|PublicDate|Priority):[ \t]*(.*?)\s*$", line)
+        if match and match.group(1) not in fields:
+            fields[match.group(1)] = match.group(2)
+            continue
+        match = re.match(
+            r"(?:([a-z0-9-]+)/)?([a-z]+)_([a-z0-9][a-z0-9.+-]*):[ \t]*([A-Za-z-]+)"
+            r"(?:[ \t]*\((.*)\))?\s*$",
+            line,
+        )
+        if not match or match.group(1) in UBUNTU_TRACKER_UNPUBLISHED_SUBPROJECTS:
+            continue
+        subproject, codename, package, state, note = match.groups()
+        if codename in ("upstream", "devel", "product", "snap"):
+            continue
+        current = states.setdefault(package, {})
+        # A subproject line overrides the plain one, never the reverse.
+        if subproject is None and codename in current and current[codename]["sub"]:
+            continue
+        current[codename] = {"status": state, "description": note or "", "sub": subproject}
+    cve = fields.get("Candidate", "")
+    if not re.fullmatch(r"CVE-\d{4}-\d+", cve):
+        return None
+    published = fields.get("PublicDate", "")
+    return {
+        "id": cve,
+        "priority": fields.get("Priority", ""),
+        "published": published[:10] if re.match(r"\d{4}-\d{2}-\d{2}", published) else "",
+        "status": "rejected" if "** REJECT **" in text else "active",
+        "cvss3": None,
+        "notices": [],
+        "packages": [
+            {
+                "name": package,
+                "statuses": [
+                    {"release_codename": codename, "status": item["status"],
+                     "description": item["description"]}
+                    for codename, item in by_release.items()
+                ],
+            }
+            for package, by_release in states.items()
+        ],
+    }
+
+
+def ubuntu_tracker_file(cve: str, fetch: Fetcher | None = None) -> str | None:
+    """The ubuntu-cve-tracker file of one CVE, or None when it has none."""
+    files = _fetcher(fetch).read_git_files(
+        UBUNTU_CVE_TRACKER_GIT, [f"{d}/{cve}" for d in UBUNTU_CVE_TRACKER_DIRS]
+    )
+    return next(iter(files.values()), None)
+
+
+UBUNTU_CVE_NOTICES_MAX_PAGES = 50
+
+
+def ubuntu_cve_notices(cve: str, fetch: Fetcher | None = None) -> list[dict]:
+    """The {"id", "published"} USNs that list one CVE, from notices.json.
+
+    The notice list stays reachable when the CVE record times out. Any failed
+    or incomplete page fails the whole read, so a caller never dates a fix
+    from part of the list.
+    """
+    client = _fetcher(fetch)
+    found: dict[str, str] = {}
+    offset, total = 0, None
+    for _ in range(UBUNTU_CVE_NOTICES_MAX_PAGES):
+        url = UBUNTU_NOTICES_URL + "?" + urllib.parse.urlencode(
+            {"cve_id": cve, "limit": UBUNTU_NOTICE_PAGE_LIMIT, "offset": offset}
+        )
+        page = client.get_json(url)
+        notices = page.get("notices") if isinstance(page, dict) else None
+        total = page.get("total_results") if isinstance(page, dict) else None
+        if not isinstance(notices, list) or not isinstance(total, int):
+            raise MinimumRefreshError(f"ubuntu: malformed notice list for {cve}: {url}")
+        for notice in notices:
+            if not isinstance(notice, dict):
+                continue
+            notice_id, published = notice.get("id"), notice.get("published")
+            cves = notice.get("cves_ids") or notice.get("cves") or []
+            listed = cve in cves or any(
+                isinstance(item, dict) and item.get("id") == cve for item in cves
+            )
+            if isinstance(notice_id, str) and isinstance(published, str) and listed:
+                found[notice_id] = published
+        offset += len(notices)
+        if not notices or offset >= total:
+            break
+    else:
+        raise MinimumRefreshError(f"ubuntu: the notice list for {cve} did not end")
+    if total is not None and offset < total:
+        raise MinimumRefreshError(f"ubuntu: incomplete notice list for {cve}")
+    return [{"id": notice_id, "published": published}
+            for notice_id, published in sorted(found.items(), key=lambda item: item[1])]
+
+
+def ubuntu_cve_doc(cve: str, fetch: Fetcher | None = None) -> dict:
+    """The Ubuntu tracker record of one CVE, read once per refresh.
+
+    The Ubuntu security API is the primary source because it also lists the
+    USNs of a CVE. It times out (HTTP 504) on CVEs with a long package list,
+    sometimes for days, so the tracker file in the ubuntu-cve-tracker
+    repository is the fallback. That record has no USN list, so a fix it
+    reports stays unconfirmed until the API answers again.
+    """
+    client = _fetcher(fetch)
+
+    def read() -> dict:
+        try:
+            doc = client.get_json(f"{UBUNTU_CVE_URL}{cve}.json")
+        except MinimumRefreshError as exc:
+            text = ubuntu_tracker_file(cve, fetch=client)
+            record = ubuntu_tracker_record(text) if text else None
+            if record is None or record["id"] != cve:
+                raise
+            logger = logging.getLogger(__name__)
+            logger.warning("ubuntu: %s; using the ubuntu-cve-tracker file of %s", exc, cve)
+            # The notice list still dates each fix from its USN. Without it a
+            # fix stays unconfirmed, which is safe but loses the grace start.
+            try:
+                record["notices"] = ubuntu_cve_notices(cve, fetch=client)
+            except MinimumRefreshError as notice_exc:
+                logger.warning("ubuntu: %s", notice_exc)
+            return record
+        return doc if isinstance(doc, dict) else {}
+
+    return client.memo(f"ubuntu-cve:{cve}", read)
 
 
 def discover_ubuntu_kernel_cves(
@@ -2158,47 +2660,47 @@ def discover_ubuntu_kernel_cves(
 ) -> list[str]:
     """Return the tracker CVEs that meet the kernel discovery policy.
 
-    The search lists `linux` CVEs of each discovery priority, newest first, 20
-    per page. Paging stops at the first page that reaches past the floor date.
-    A failed page stops the refresh, because a partial scan would drop a CVE
-    without a trace. A scan that does not reach the floor within
-    UBUNTU_CVE_SEARCH_MAX_PAGES also stops it.
+    The ubuntu-cve-tracker repository is read at its head for CVE files of a
+    discovery priority published on or after the floor date. A `high` CVE
+    also needs its CVSS v3 score, read from Canonical's OSV record. A failed
+    read stops the refresh, because a partial scan would drop a CVE without a
+    trace.
     """
     client = _fetcher(fetch)
     floor = ubuntu_discovery_floor(now)
-
-    def scan(priority: str) -> set[str]:
-        found: set[str] = set()
-        for page in range(UBUNTU_CVE_SEARCH_MAX_PAGES):
-            offset = page * UBUNTU_CVE_SEARCH_PAGE_SIZE
-            doc = client.get_json(ubuntu_cve_search_url(priority, offset))
-            records = doc.get("cves") if isinstance(doc, dict) else None
-            if not isinstance(records, list):
-                raise MinimumRefreshError(
-                    f"ubuntu: the CVE search for {priority} linux CVEs returned no list"
-                )
-            reached_floor = not records
-            for record in records:
-                published = (
-                    str(record.get("published") or "")[:10] if isinstance(record, dict) else ""
-                )
-                if not published or published < floor:
-                    reached_floor = True
-                    continue
-                if ubuntu_kernel_cve_selected(record):
-                    found.add(str(record["id"]))
-            total = doc.get("total_results")
-            if reached_floor or (isinstance(total, int) and offset + len(records) >= total):
-                return found
+    priorities = sorted(UBUNTU_KERNEL_DISCOVERY_MIN_CVSS)
+    files = client.grep_git_files(
+        UBUNTU_CVE_TRACKER_GIT,
+        rf"^Priority:[[:space:]]*({'|'.join(priorities)})[[:space:]]*$",
+        UBUNTU_CVE_TRACKER_DIRS,
+    )
+    if not files:
         raise MinimumRefreshError(
-            f"ubuntu: the {priority} linux CVE search did not reach {floor} "
-            f"within {UBUNTU_CVE_SEARCH_MAX_PAGES} pages"
+            f"ubuntu: the CVE tracker lists no {' or '.join(priorities)} CVEs"
         )
+    candidates: list[dict] = []
+    for text in files.values():
+        record = ubuntu_tracker_record(text)
+        if record is None or not record["published"] or record["published"] < floor:
+            continue
+        if record["priority"] not in UBUNTU_KERNEL_DISCOVERY_MIN_CVSS:
+            continue
+        # The tracker file has no CVSS v3 score, so test the rest of the
+        # policy with the top score and read the real one only for these.
+        if ubuntu_kernel_cve_selected(dict(record, cvss3=10.0)):
+            candidates.append(record)
 
-    # Each search page is a few MB, so the priorities are read in parallel.
-    with ThreadPoolExecutor(max_workers=len(UBUNTU_KERNEL_DISCOVERY_MIN_CVSS)) as pool:
-        results = list(pool.map(scan, sorted(UBUNTU_KERNEL_DISCOVERY_MIN_CVSS)))
-    return sorted(set().union(*results), key=_cve_order)
+    def score(record: dict) -> dict:
+        if UBUNTU_KERNEL_DISCOVERY_MIN_CVSS[record["priority"]] > 0:
+            record = dict(record, cvss3=ubuntu_osv_cvss3(record["id"], fetch=client))
+        return record
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        scored = list(pool.map(score, candidates))
+    return sorted(
+        {record["id"] for record in scored if ubuntu_kernel_cve_selected(record)},
+        key=_cve_order,
+    )
 
 
 def _cve_order(cve: str) -> tuple[int, int]:
@@ -2255,7 +2757,7 @@ def ubuntu_discovered_kernel_specs(
 
 def ubuntu_kernel_cve_listed(cve: str, codename: str, fetch: Fetcher | None = None) -> bool:
     """True when the tracker lists the GA `linux` package of a CVE on a release."""
-    doc = _fetcher(fetch).get_json(f"{UBUNTU_CVE_URL}{cve}.json")
+    doc = ubuntu_cve_doc(cve, fetch=fetch)
     state = _linux_states(doc if isinstance(doc, dict) else {}).get(codename)
     return state not in (None, "", "DNE")
 
@@ -2418,7 +2920,7 @@ def docker_minimums(
     del existing
     client = _fetcher(fetch)
     if majors is None:
-        majors = DOCKER_ENGINE_MAJORS
+        majors = docker_engine_majors(fetch=fetch)
     candidates: list[tuple[tuple, int, dict]] = []
     hardening_only: list[str] = []
     for major in majors:
@@ -3104,6 +3606,7 @@ def build_minimums(
     connectx = connectx_minimums(fetch=fetch, documents=nvidia_documents)
     simple_products = nvidia_simple_product_minimums(nvidia_documents, fetch=fetch)
     dcgm = nvidia_dcgm_minimums(nvidia_documents, fetch=fetch)
+    snap4 = nvidia_snap4_minimums(nvidia_documents)
     discovered = ubuntu_discovered_kernel_specs(existing, fetch=fetch, now=now)
     doc = {
         "schemaVersion": SCHEMA_VERSION,
@@ -3118,6 +3621,7 @@ def build_minimums(
             "cudaToolkit": simple_products.get("cudaToolkit", {}),
             "connectxFirmware": connectx,
             "virtioNetBluefield": nvidia_virtio_net_minimums(nvidia_documents),
+            **({"snap4Container": snap4} if snap4 else {}),
             "runc": runc_ladder(fetch=fetch),
             "docker": docker_minimums(fetch=fetch),
             "rocm": amd_rocm_minimums(fetch=fetch),
@@ -3475,6 +3979,27 @@ def known_bulletin_ids(existing: dict | None = None) -> set[str]:
     return known
 
 
+def docker_engine_majors(fetch: Fetcher | None = None) -> tuple[int, ...]:
+    """DOCKER_ENGINE_MAJORS plus every newer major with a release-note page.
+
+    A listing that cannot be read leaves the pinned majors only. That cannot
+    lower the minimum, because `verify()` rejects a lowered minimum.
+    """
+    client = _fetcher(fetch)
+    found = set(DOCKER_ENGINE_MAJORS)
+    try:
+        listing = client.get_json(DOCKER_DOCS_CONTENTS)
+    except MinimumRefreshError:
+        return tuple(sorted(found))
+    tracked = max(DOCKER_ENGINE_MAJORS)
+    for entry in listing if isinstance(listing, list) else []:
+        stem, _, suffix = str(entry.get("name", "")).partition(".")
+        if entry.get("type") == "file" and suffix == "md" and stem.isdigit():
+            if int(stem) > tracked:
+                found.add(int(stem))
+    return tuple(sorted(found))
+
+
 def untracked_docker_majors(
     majors: Sequence[int] | None = None,
     fetch: Fetcher | None = None,
@@ -3488,7 +4013,7 @@ def untracked_docker_majors(
     """
     client = _fetcher(fetch)
     if majors is None:
-        majors = DOCKER_ENGINE_MAJORS
+        majors = docker_engine_majors(fetch=fetch)
     try:
         listing = client.get_json(DOCKER_DOCS_CONTENTS)
     except MinimumRefreshError:
@@ -3707,11 +4232,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                         f"  {item['id']}  {item['product']}: {item['title']}  {item['url']}"
                     )
                 print(
-                    f"{len(new)} unknown bulletin(s) match a graded product line. "
-                    "Add or repair the CSAF product policy for each applicable "
-                    "NVIDIA bulletin, or record the reason to defer it in "
-                    "DEFERRED_BULLETINS. Track each Docker Engine major in "
-                    "DOCKER_ENGINE_MAJORS.",
+                    f"{len(new)} bulletin(s) match a graded product line, but the "
+                    "refresh could not add them. The refresh adds every matching "
+                    "NVIDIA CSAF bulletin and every new Docker Engine major on its "
+                    "own, so each item above is a generator gap: fix the product "
+                    "label or version grammar the reducer does not recognize.",
                     file=sys.stderr,
                 )
                 return 3

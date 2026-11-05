@@ -2678,12 +2678,14 @@ host_check_kv() {
 # Prepend the Fragnesia kernel ABI minimum the collector already read from the
 # table. minimum_version() yields "unknown" when the reader or the table is
 # unavailable, and the check then reports an unknown Fragnesia state rather than
-# grading the worker against a guessed minimum.
+# grading the worker against a guessed minimum. The NVIDIA driver branch floors
+# are injected the same way.
 host_check_stdin() {
     printf 'CLUSTERMAX_FRAGNESIA_ABI_MINIMUM=%s\n' \
         "$(minimum_version components.ubuntuNoble.packages.linuxFragnesia.abi)"
     printf 'CLUSTERMAX_UBUNTU_KERNEL_ABI_MINIMUM=%s\n' \
         "$(minimum_version components.ubuntuNoble.packages.linux.abi)"
+    printf 'CLUSTERMAX_NVIDIA_BRANCH_FLOORS=%q\n' "$(nvidia_driver_floors)"
     cat "$WORKLOAD_DIR/host-check.sh"
 }
 
@@ -2762,23 +2764,39 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     echo "WORKER_CUDA_VERSION=$(nvidia-smi 2>/dev/null | grep -oP "CUDA Version: \K[0-9.]+" || echo unknown)"
     echo "WORKER_GPU_MODEL=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 | tr " " "-" || echo unknown)"
     echo "WORKER_GPU_MEMORY=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 || echo 0)"
-    minimum=""
-    case "$driver" in
-        595.*) minimum=595.71.05 ;;
-        580.*) minimum=580.159.03 ;;
-        535.*) minimum=535.309.01 ;;
-    esac
+    # The NVIDIA driver branch floors come from the published minimum version
+    # table, injected through the environment by the collector because this
+    # pod cannot see the checkout. The comparison mirrors the report-side
+    # grader: the reading is reduced to its numeric prefix and both sides are
+    # normalized to four numeric components, so a decorated value such as a
+    # release candidate compares on its numbers and a floor published with
+    # more or fewer components still compares by tuple. A reading with no
+    # numeric version, a branch the table does not list, or an unreadable
+    # policy stays unknown instead of being assumed fixed.
     patched=unknown
-    if [[ -n "$minimum" ]]; then
-        if [[ "$(printf "%s\n%s\n" "$minimum" "$driver" | sort -V | head -1)" == "$minimum" ]]; then
-            patched=true
-        else
-            patched=false
-        fi
-    else
-        branch=${driver%%.*}
-        if [[ "$branch" =~ ^[0-9]+$ ]] && [ "$branch" -gt 595 ]; then
-            patched=true   # branch newer than the newest in the May 2026 bulletin
+    if [[ "$driver" =~ ([0-9]+(\.[0-9]+){0,3}) && -n "${CLUSTERMAX_NVIDIA_BRANCH_FLOORS:-}" ]]; then
+        driver_numbers=${BASH_REMATCH[1]}
+        branch=${driver_numbers%%.*}
+        minimum=""
+        for entry in $CLUSTERMAX_NVIDIA_BRANCH_FLOORS; do
+            if [[ "${entry%%=*}" == "$branch" ]]; then
+                minimum=${entry#*=}
+            fi
+        done
+        if [[ -n "$minimum" ]]; then
+            version_tuple() {
+                local comp
+                local IFS="."
+                comp=($1)
+                printf "%d.%d.%d.%d\n" "$((10#${comp[0]:-0}))" "$((10#${comp[1]:-0}))" "$((10#${comp[2]:-0}))" "$((10#${comp[3]:-0}))"
+            }
+            minimum_tuple=$(version_tuple "$minimum")
+            driver_tuple=$(version_tuple "$driver_numbers")
+            if [[ "$(printf "%s\n%s\n" "$minimum_tuple" "$driver_tuple" | sort -V | head -1)" == "$minimum_tuple" ]]; then
+                patched=true
+            else
+                patched=false
+            fi
         fi
     fi
     echo "WORKER_NVIDIA_MAY_2026_PATCHED=$patched"
@@ -2792,7 +2810,16 @@ fi
     pod=$(apply_gpu_check_pod "$node" "$K8S_AUDIT_GPU_CHECK_IMAGE" || true)
     [[ -z "$pod" ]] && return 0
 
-    outcome=$(check_deadline 120 kubectl exec -n "$ns" "$pod" -- bash -c "$script" 2>/dev/null | grep '^WORKER_' || true)
+    # The GPU check pod cannot see this checkout, so the driver branch floors
+    # are resolved from the minimum version table here and passed through the
+    # pod environment. An unreadable table yields an empty policy and the
+    # check reports an unknown patched state.
+    local nvidia_branch_floors=""
+    nvidia_branch_floors=$(nvidia_driver_floors)
+
+    outcome=$(check_deadline 120 kubectl exec -n "$ns" "$pod" -- \
+        env "CLUSTERMAX_NVIDIA_BRANCH_FLOORS=$nvidia_branch_floors" \
+        bash -c "$script" 2>/dev/null | grep '^WORKER_' || true)
     cleanup_audit_check_pod "$ns" "$pod"
     printf '%s\n' "$outcome"
 }
