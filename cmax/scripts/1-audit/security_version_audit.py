@@ -1007,6 +1007,15 @@ MLXPRIVHOST_REMEDIATION = (
     "mlxprivhost -d <device> r --disable_rshim --disable_tracer "
     "--disable_counter_rd --disable_port_owner"
 )
+# NIC mode is host-trusted by design, and NVIDIA does not support the zero-trust
+# (mlxprivhost restricted) profile there: "Operating in NIC Mode with Zero Trust
+# (Restricted) configuration is not supported and may lead to undefined
+# behavior" (BlueField BSP 4.10). The supported NIC-mode restriction is the
+# INTERNAL_CPU_RSHIM firmware parameter, which takes effect after a power cycle.
+NIC_MODE_RSHIM_REMEDIATION = (
+    "mlxconfig -d <device> s INTERNAL_CPU_RSHIM=1, then a cold reboot "
+    "(power cycle) of the host"
+)
 DPU_ISOLATION_REQUIREMENT = (
     "RShim restricted (INTERNAL_CPU_RSHIM=1), no /dev/rshim0, no tmfifo_net0"
 )
@@ -1507,7 +1516,7 @@ def _isolation_coverage_caveat(verdict: Verdict, unassessed: Any) -> Verdict:
     the detail it got before.
     """
     names = [str(host).strip() for host in (unassessed or []) if str(host).strip()]
-    if verdict.status != "fail" or not names:
+    if verdict.status not in {"fail", "warn"} or not names:
         return verdict
     return _with_caveat(
         verdict,
@@ -1558,6 +1567,13 @@ def dpu_host_isolation_verdict(evidence: dict[str, Any] | None = None) -> Verdic
     # `restricted is False` is deliberately NOT part of that proof: it comes
     # from mlxconfig reading INTERNAL_CPU_RSHIM, which needs the device the scan
     # finds, so it cannot be trusted ahead of the scan. It keeps its place below.
+    nic_mode = str(facts.get("platformMode") or "").strip().lower() == "nic"
+    remedy = (
+        f"Restrict RShim with `{NIC_MODE_RSHIM_REMEDIATION}`; NVIDIA does not "
+        "support the zero-trust (mlxprivhost) profile in NIC mode."
+        if nic_mode
+        else f"Provider policy may require `{MLXPRIVHOST_REMEDIATION}`."
+    )
     if reachable:
         verdict = Verdict(
             observed,
@@ -1567,8 +1583,7 @@ def dpu_host_isolation_verdict(evidence: dict[str, Any] | None = None) -> Verdic
             f"The host exposes management interface paths ({', '.join(reachable)}), "
             f"which fails the zero-trust no-host-interface policy. This does not prove usable "
             f"RShim access or DPU login. Verify device permissions, SECURE_NIC_MODE, "
-            f"DROP_MODE and RShim ownership before remediation. Provider policy "
-            f"may require `{MLXPRIVHOST_REMEDIATION}`.",
+            f"DROP_MODE and RShim ownership before remediation. {remedy}",
         )
         if not scan_complete:
             # Name the gap without weakening the grade. The path is proven; what
@@ -1601,6 +1616,26 @@ def dpu_host_isolation_verdict(evidence: dict[str, Any] | None = None) -> Verdic
             "No BlueField DPU is present in the completed device scan",
         )
 
+    if restricted is False and nic_mode:
+        # Host-trusted by design and no interface path is open, so this is a
+        # hardening gap, not a failed zero-trust policy: a host root can still
+        # load the RShim driver and open the channel.
+        return _isolation_coverage_caveat(
+            Verdict(
+                observed,
+                "warn",
+                requirement,
+                advisory,
+                "The BlueField is in NIC mode with INTERNAL_CPU_RSHIM=0, so the "
+                "firmware lets the host open RShim. No /dev/rshim0 or tmfifo_net0 "
+                "is present, so no RShim driver has opened it, but a host root "
+                "can load one. NIC mode is host-trusted by design and NVIDIA does "
+                "not support the zero-trust (mlxprivhost) profile in it. Restrict "
+                f"RShim with `{NIC_MODE_RSHIM_REMEDIATION}`, and recheck this "
+                "before switching to DPU mode.",
+            ),
+            facts.get("unassessedHosts"),
+        )
     if restricted is False:
         return _isolation_coverage_caveat(
             Verdict(
@@ -1667,7 +1702,12 @@ def dpu_host_isolation_result(evidence: dict[str, Any] | None = None) -> dict[st
             for host in (facts.get("unassessedHosts") or [])
             if str(host).strip()
         ],
-        "remediation": MLXPRIVHOST_REMEDIATION,
+        "platformMode": facts.get("platformMode") or "unknown",
+        "remediation": (
+            NIC_MODE_RSHIM_REMEDIATION
+            if str(facts.get("platformMode") or "").strip().lower() == "nic"
+            else MLXPRIVHOST_REMEDIATION
+        ),
     }
 
 

@@ -1729,6 +1729,19 @@ def _isolation_proof_rung(record: dict[str, Any]) -> str:
     return ISO_REACHABLE if _isolation_reachable(record) else ISO_POSTURE_GAP
 
 
+def _isolation_platform_mode(records: list[dict[str, Any]]) -> str:
+    unrestricted = [
+        record
+        for record in records
+        if (record.get("rshimHostAccess") or {}).get("rshimRestricted") is False
+        or _isolation_path_reachable(record)
+    ]
+    if not unrestricted:
+        return "unknown"
+    modes = {str(record.get("mode") or "unknown").lower() for record in unrestricted}
+    return "nic" if modes == {"nic"} else ("dpu" if "dpu" in modes else "unknown")
+
+
 def isolation_evidence(records: list[dict[str, Any]]) -> dict[str, Any]:
     """The one host record the DPU host-isolation verdict is graded from.
 
@@ -1751,6 +1764,12 @@ def isolation_evidence(records: list[dict[str, Any]]) -> dict[str, Any]:
         "bluefield3Present": chosen.get("bluefield3Present"),
         "modeError": chosen.get("modeError"),
         "rshimHostAccess": chosen.get("rshimHostAccess") or {},
+        # NIC mode is host-trusted by design and NVIDIA does not support the
+        # zero-trust (mlxprivhost restricted) profile there, so the verdict
+        # grades an unrestricted RShim differently in NIC mode. It is "nic" only
+        # when every host whose RShim is unrestricted read NIC mode; one host in
+        # DPU mode, or one whose mode is unread, keeps the DPU-mode grade.
+        "platformMode": _isolation_platform_mode(records),
         "unassessedHosts": sorted(
             str(record.get("host") or "")
             for record in records

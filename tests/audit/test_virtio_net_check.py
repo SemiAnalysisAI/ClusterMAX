@@ -1680,3 +1680,35 @@ if __name__ == "__main__":
         _write_severity_matrix()
     else:
         unittest.main()
+
+
+class IsolationPlatformModeTests(unittest.TestCase):
+    """The isolation evidence says NIC only when every unrestricted host is NIC."""
+
+    @staticmethod
+    def record(host: str, mode: str, restricted: bool) -> dict:
+        return {
+            "host": host,
+            "mode": mode,
+            "scanComplete": True,
+            "bluefield3Present": True,
+            "rshimHostAccess": {
+                "rshimRestricted": restricted,
+                "rshimDeviceNode": False,
+                "tmfifoNet0": False,
+            },
+        }
+
+    def test_modes(self) -> None:
+        mod = load_check_module()
+        cases = {
+            "all nic": ([("a", "nic", False), ("b", "nic", False)], "nic"),
+            "one dpu": ([("a", "nic", False), ("b", "dpu", False)], "dpu"),
+            "one unread": ([("a", "nic", False), ("b", "unknown", False)], "unknown"),
+            "restricted dpu ignored": ([("a", "nic", False), ("b", "dpu", True)], "nic"),
+        }
+        for label, (rows, expected) in cases.items():
+            with self.subTest(case=label):
+                records = [self.record(*row) for row in rows]
+                self.assertEqual(mod.isolation_evidence(records)["platformMode"], expected)
+

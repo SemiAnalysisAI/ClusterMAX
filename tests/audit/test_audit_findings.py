@@ -1180,6 +1180,44 @@ class DpuAndDcgmFindingTests(unittest.TestCase):
         self.assertIn("mlxprivhost -d 03:00.0", finding.recommendation)
         self.assertIn("INTERNAL_CPU_RSHIM=1", finding.recommendation)
 
+    def test_nic_mode_rshim_warning_recommends_the_nic_mode_fix(self) -> None:
+        keyed = by_key(
+            self.detect(
+                {
+                    "dpuHostIsolation": {
+                        "status": "warn",
+                        "bluefieldPresent": True,
+                        "platformMode": "nic",
+                        "detail": "The BlueField is in NIC mode with INTERNAL_CPU_RSHIM=0.",
+                    }
+                }
+            )
+        )
+        finding = keyed["securityVersions.dpuHostIsolation.status"]
+        self.assertEqual(finding.severity, audit_findings.CONFIG)
+        self.assertIn("NIC mode", finding.title)
+        self.assertNotIn("mlxprivhost r", finding.title)
+        self.assertIn("INTERNAL_CPU_RSHIM=1", finding.recommendation)
+        self.assertIn("power-cycle", finding.recommendation)
+        self.assertIn("Do not apply the zero-trust", finding.recommendation)
+
+    def test_open_rshim_path_in_nic_mode_recommends_the_nic_mode_fix(self) -> None:
+        keyed = by_key(
+            self.detect(
+                {
+                    "dpuHostIsolation": {
+                        "status": "fail",
+                        "bluefieldPresent": True,
+                        "platformMode": "nic",
+                        "remediation": "mlxconfig -d <device> s INTERNAL_CPU_RSHIM=1",
+                    }
+                }
+            )
+        )
+        finding = keyed["securityVersions.dpuHostIsolation.status"]
+        self.assertIn("Restrict RShim", finding.recommendation)
+        self.assertIn("Do not apply the zero-trust", finding.recommendation)
+
     def test_perf_controls_name_values_and_persistent_actions(self) -> None:
         keyed = by_key(
             audit_findings.detect_findings(
