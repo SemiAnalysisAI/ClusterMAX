@@ -148,6 +148,9 @@ CHECK_CACHE_ENV = "CLUSTERMAX_VIRTIO_NET_CHECK_CACHE"
 # Per-command timeout for every local tool. SLURM_TIMEOUT_S below is derived
 # from it, so the two move together.
 TOOL_TIMEOUT_S = 15
+# The full mlxconfig dump, read only when firmware rejects a named parameter.
+# It took 22 s idle and about 60 s under contention on a GB300 BlueField-3.
+MLXCONFIG_FULL_TIMEOUT_S = 60
 # ssh gets ConnectTimeout=SSH_TIMEOUT_S and a wall-clock budget of twice that,
 # so a connection that opens and then stalls is still bounded.
 SSH_TIMEOUT_S = 8
@@ -159,20 +162,21 @@ SSH_TIMEOUT_S = 8
 # Worst case for one host, every command hanging until its own timeout:
 #
 #   lspci                                        1 x 15 =  15 s
-#   mlxconfig q, sudo -n mlxconfig q,
-#     sudo -n mst start, sudo -n mlxconfig q      4 x 15 =  60 s
+#   named mlxconfig q, sudo -n named q           2 x 15 =  30 s
+#   full mlxconfig q, only after a named read
+#     answered "Unknown Parameter"               1 x 60 =  60 s
 #   local `virtnet version` + `virtnet -v`        2 x 15 =  30 s
 #   RShim SSH: version, -v, list, mlnx-release    4 x 16 =  64 s
 #   SNAP-4 listing, one RShim SSH command         1 x 16 =  16 s
 #                                                         ------
-#                                                          185 s
+#                                                          215 s
 #
-# The local-virtnet-succeeded path and the RShim SSH path are mutually
-# exclusive (collect_version only reaches SSH when the local read produced no
-# version), and the succeeded path is cheaper: 15 + 60 + 15 + 2 x 15 + 15 =
-# 135 s. So 185 s is a true ceiling, not a sum of alternatives. Allow 60 s for
-# srun dispatch and worker startup, giving 245 s against a 300 s budget, about
-# 18% margin.
+# The full dump runs only after one of the named reads answered, so the mode
+# read is at most 15 + 15 + 60 = 90 s. The local-virtnet-succeeded path and the
+# RShim SSH path are mutually exclusive (collect_version only reaches SSH when
+# the local read produced no version), and the succeeded path is cheaper. So
+# 215 s is a true ceiling, not a sum of alternatives. Allow 60 s for srun
+# dispatch and worker startup, giving 275 s against a 300 s budget.
 #
 # Redo this arithmetic when changing TOOL_TIMEOUT_S or SSH_TIMEOUT_S, or when
 # adding a command to gather(). An overrun is no longer a false clean, because
@@ -571,6 +575,24 @@ def parse_mlxconfig(text: str) -> dict[str, str]:
     return values
 
 
+def mlxconfig_query(slot: str, *, named: bool = True) -> list[str]:
+    """The mode read: only the parameters the check grades.
+
+    The full `mlxconfig -e -d <dev> q` dump walks every parameter on the card.
+    On VP's GB300 BlueField-3 hosts it took 22 s on an idle host and about 60 s
+    with three reads in flight, past TOOL_TIMEOUT_S, so 14 of 16 hosts timed out
+    and graded the mode unreadable. Naming the three parameters answers in under
+    2 s. ``named=False`` is the fallback for firmware that rejects a name.
+    """
+    query = ["mlxconfig", "-e", "-d", slot, "q"]
+    return [*query, *_MLXCONFIG_KEYS] if named else query
+
+
+def _unknown_parameter(text: str) -> bool:
+    """mlxconfig rejected a named parameter, so the device did open."""
+    return "Unknown Parameter" in (text or "")
+
+
 def privileged_prefix(
     *,
     which: Which = shutil.which,
@@ -635,18 +657,34 @@ def collect_mode(
         return result
 
     slot = devices[0].get("slot") or ""
-    query = ["mlxconfig", "-e", "-d", slot, "q"]
+    query = mlxconfig_query(slot)
     prefix, escalation = privileged_prefix(which=which, euid=euid)
     result["escalation"] = escalation
     source = "mlxconfig"
     text, error = run_tool(query, runner=runner)
     values = parse_mlxconfig(text)
-    if not values and prefix:
+    answered: list[str] | None = [] if values or _unknown_parameter(text) else None
+    if not values and answered is None and prefix:
         text, sudo_error = run_tool([*prefix, *query], runner=runner)
         values = parse_mlxconfig(text)
         error = error or sudo_error
+        if values or _unknown_parameter(text):
+            answered = prefix
         if values:
             source = "sudo mlxconfig"
+    if not values and answered is not None and _unknown_parameter(text):
+        # Firmware that predates one of the named parameters rejects the whole
+        # named query. Only then is the full dump read, once, under the
+        # privilege that already opened the device, with its own longer budget.
+        text, full_error = run_tool(
+            [*answered, *mlxconfig_query(slot, named=False)],
+            runner=runner,
+            timeout=MLXCONFIG_FULL_TIMEOUT_S,
+        )
+        values = parse_mlxconfig(text)
+        error = full_error or error
+        if values:
+            source = "sudo mlxconfig" if answered else "mlxconfig"
     if not values:
         result["error"] = error or "mlxconfig returned no readable Current mode parameters"
         return result
@@ -1828,7 +1866,11 @@ if [ "$slot_count" -gt 1 ]; then
   printf '@@MODE_ERROR@@\t%s\n' "Multiple BlueField-3 PCI devices require per-device mode evidence"
 elif [ -n "$slot" ] && command -v mlxconfig >/dev/null 2>&1; then
   echo @@MLXCONFIG_BEGIN@@
-  mlxconfig -e -d "$slot" q 2>&1
+  mode_out=$(mlxconfig -e -d "$slot" q INTERNAL_CPU_MODEL INTERNAL_CPU_OFFLOAD_ENGINE INTERNAL_CPU_RSHIM 2>&1)
+  case "$mode_out" in
+    *"Unknown Parameter"*) mode_out=$(mlxconfig -e -d "$slot" q 2>&1) ;;
+  esac
+  printf '%s\n' "$mode_out"
   echo @@MLXCONFIG_END@@
 elif [ -n "$slot" ]; then
   printf '@@MODE_ERROR@@\t%s\n' "mlxconfig is not installed"

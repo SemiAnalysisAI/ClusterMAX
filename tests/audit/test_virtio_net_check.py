@@ -644,6 +644,66 @@ class PrivilegedModeReadTests(CheckHarness):
         self.assertFalse(self.calls_for("mst"))
         self.assertFalse(any(call.startswith("-n mst") for call in self.calls_for("sudo")))
 
+class NamedModeQueryTests(CheckHarness):
+    """The mode read names its three parameters instead of dumping the card.
+
+    On VP's GB300 BlueField-3 hosts the full dump took 22 s idle, past the 15 s
+    tool timeout, and 14 of 16 hosts graded the mode unreadable.
+    """
+
+    def test_the_mode_read_names_only_the_graded_parameters(self) -> None:
+        self.stub_output("lspci", BLUEFIELD3_LSPCI)
+        self.stub_output("mlxconfig", NIC_MODE_MLXCONFIG)
+
+        record = self.host_record()
+
+        self.assertEqual(record["mode"], "nic")
+        calls = self.calls_for("mlxconfig")
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(
+            calls[0].endswith(
+                "q INTERNAL_CPU_MODEL INTERNAL_CPU_OFFLOAD_ENGINE INTERNAL_CPU_RSHIM"
+            ),
+            calls[0],
+        )
+
+    def test_firmware_that_rejects_a_name_falls_back_to_the_full_dump(self) -> None:
+        self.stub_output("lspci", BLUEFIELD3_LSPCI)
+        data = self.tmp / "full.stdout"
+        data.write_text(NIC_MODE_MLXCONFIG)
+        self.stub(
+            "mlxconfig",
+            'if [ "${@: -1}" = "q" ]; then /bin/cat "%s"; exit 0; fi\n'
+            "echo 'Configurations:   Default   Current   Next Boot'\n"
+            "echo '-E- Unknown Parameter: INTERNAL_CPU_RSHIM'\n"
+            "exit 3" % data,
+        )
+        self.stub_sudo()
+
+        record = self.host_record()
+
+        self.assertEqual(record["mode"], "nic")
+        self.assertEqual(record["modeSource"], "mlxconfig")
+        calls = self.calls_for("mlxconfig")
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(calls[1].endswith(" q"), calls[1])
+        # The device opened unprivileged, so nothing escalates.
+        self.assertEqual(self.calls_for("sudo"), [])
+
+    def test_the_full_dump_is_never_read_after_a_failed_open(self) -> None:
+        self.stub_output("lspci", BLUEFIELD3_LSPCI)
+        self.stub(
+            "mlxconfig", 'echo "-E- Failed to open the device" >&2\nexit 1'
+        )
+        self.stub_sudo_denied()
+
+        record = self.host_record()
+
+        self.assertEqual(record["state"], "incomplete")
+        calls = self.calls_for("mlxconfig")
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(calls[0].endswith(" q"))
+
 class RshimEvidenceTests(CheckHarness):
 
     def test_rshim_reachability_is_recorded_as_evidence(self) -> None:
