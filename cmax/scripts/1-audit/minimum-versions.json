@@ -2970,7 +2970,8 @@
           "kernelGroup": "linuxCve2026_98464",
           "package": "linux-oracle-6.8",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1067.71~22.04.1"
         },
         "linuxCve2026_98464Raspi": {
           "allowUnfixed": true,
@@ -3925,7 +3926,8 @@
           "kernelGroup": "linuxCve2026_98490",
           "package": "linux-oracle-6.8",
           "priority": "high",
-          "status": "needed"
+          "status": "pending",
+          "trackerNote": "6.8.0-1067.71~22.04.1"
         },
         "linuxCve2026_98490Raspi": {
           "allowUnfixed": true,
@@ -24186,7 +24188,7 @@
       }
     }
   },
-  "generated": "2026-11-04T19:43:55Z",
+  "generated": "2026-11-05T07:20:26Z",
   "gracePeriodDays": 3,
   "maxAgeDays": 10,
   "schemaVersion": 1
