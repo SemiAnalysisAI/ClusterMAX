@@ -1511,7 +1511,7 @@ class DpuHostIsolationTests(unittest.TestCase):
                 self.assertIn("mlxprivhost", verdict.detail)
                 self.assertIn("--disable_rshim", verdict.detail)
 
-    def test_nic_mode_with_rshim_enabled_warns_with_the_nic_mode_fix(self) -> None:
+    def test_nic_mode_with_rshim_enabled_fails_with_the_nic_mode_fix(self) -> None:
         # NVIDIA does not support the zero-trust (mlxprivhost) profile in NIC
         # mode, so the finding must not tell the provider to apply it there.
         evidence = {
@@ -1519,7 +1519,8 @@ class DpuHostIsolationTests(unittest.TestCase):
             "platformMode": "nic",
         }
         verdict = security.dpu_host_isolation_verdict(evidence)
-        self.assertEqual(verdict.status, "warn")
+        # A host root can still load the RShim driver and open the channel.
+        self.assertEqual(verdict.status, "fail")
         self.assertIn("INTERNAL_CPU_RSHIM=1", verdict.detail)
         self.assertIn("power cycle", verdict.detail)
         self.assertIn("does not support the zero-trust", verdict.detail)
@@ -1549,14 +1550,14 @@ class DpuHostIsolationTests(unittest.TestCase):
                 self.assertEqual(verdict.status, "fail")
                 self.assertIn("mlxprivhost", verdict.detail)
 
-    def test_a_nic_mode_warning_names_unassessed_hosts(self) -> None:
+    def test_a_nic_mode_fail_names_unassessed_hosts(self) -> None:
         evidence = {
             **self.evidence(rshimRestricted=False, internalCpuRshim="0"),
             "platformMode": "nic",
             "unassessedHosts": ["worker-9"],
         }
         verdict = security.dpu_host_isolation_verdict(evidence)
-        self.assertEqual(verdict.status, "warn")
+        self.assertEqual(verdict.status, "fail")
         self.assertIn("worker-9", verdict.detail)
 
     def test_a_missing_pci_scan_cannot_erase_a_proven_rshim_path(self) -> None:

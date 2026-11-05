@@ -507,6 +507,12 @@ def _bluefield_observed(audit: dict[str, Any]) -> bool:
     )
 
 
+def _isolation_nic_mode(audit: dict[str, Any]) -> bool:
+    """True when every host with an unrestricted RShim read NIC mode."""
+    mode = nested_get(audit, "securityVersions", "dpuHostIsolation", "platformMode")
+    return str(mode or "").strip().lower() == "nic"
+
+
 def _bluefield_absence_proven(audit: dict[str, Any]) -> bool:
     """True only when a completed inventory found no BlueField device."""
     isolation = nested_get(audit, "securityVersions", "dpuHostIsolation")
@@ -873,15 +879,18 @@ RULES: tuple[Rule, ...] = (
         "--disable_counter_rd --disable_port_owner",
         CONFIG,
         _status_is("fail"),
+        guard=lambda audit: not _isolation_nic_mode(audit),
         harnesses=SCALE_OUT_HARNESSES,
     ),
     Rule(
         "securityVersions.dpuHostIsolation.status",
-        "BlueField in NIC mode leaves RShim open to the host "
-        "(INTERNAL_CPU_RSHIM=0); restrict it with mlxconfig "
-        "INTERNAL_CPU_RSHIM=1 and a power cycle",
+        "Host side can open RShim to the BlueField (NIC mode, "
+        "INTERNAL_CPU_RSHIM=0); restrict it with mlxconfig "
+        "INTERNAL_CPU_RSHIM=1 and a power cycle, not mlxprivhost, which "
+        "NVIDIA does not support in NIC mode",
         CONFIG,
-        _status_is("warn"),
+        _status_is("fail"),
+        guard=_isolation_nic_mode,
         harnesses=SCALE_OUT_HARNESSES,
     ),
     Rule(
@@ -1962,25 +1971,6 @@ def _finding_guidance(
                 f"`{remediation}`. Then verify that `INTERNAL_CPU_RSHIM=1`, "
                 "`/dev/rshim0` is absent, and `tmfifo_net0` is absent."
             )
-    elif (
-        rule.key == "securityVersions.dpuHostIsolation.status"
-        and str(value).strip().lower() == "warn"
-    ):
-        isolation = nested_get(
-            audit, "securityVersions", "dpuHostIsolation", default={}
-        )
-        detected = (
-            str(isolation.get("detail") or "").strip()
-            if isinstance(isolation, dict)
-            else ""
-        ) or "The BlueField is in NIC mode and RShim is not restricted."
-        recommendation = (
-            "Set `INTERNAL_CPU_RSHIM=1` on every BlueField with "
-            "`mlxconfig -d <device> s INTERNAL_CPU_RSHIM=1`, then power-cycle "
-            "the host so the firmware setting takes effect. Do not apply the "
-            "zero-trust mlxprivhost profile in NIC mode; NVIDIA does not support "
-            "it there. Recheck host isolation before switching any card to DPU mode."
-        )
     elif (
         rule.key == "securityVersions.dpuHostIsolation.status"
         and str(value).strip().lower() == "unknown"

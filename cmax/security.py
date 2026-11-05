@@ -1630,14 +1630,15 @@ def _dpu_host_isolation(audit: dict[str, Any]) -> tuple[str, str, str]:
             f"RShim restricted ({observed})",
             "The host cannot reach the DPU control plane over RShim.",
         )
-    if status == "warn":
-        # NIC mode is host-trusted by design and NVIDIA does not support the
-        # zero-trust mlxprivhost profile there, so the supported fix differs.
+    if status == "fail" and str(verdict.get("platformMode") or "").lower() == "nic":
+        # NVIDIA does not support the zero-trust mlxprivhost profile in NIC
+        # mode, so the fix is the INTERNAL_CPU_RSHIM firmware restriction.
         return (
-            WARNING,
-            f"NIC mode, RShim not restricted ({observed})",
+            CRITICAL,
+            f"RShim reachable from the host, NIC mode ({observed})",
             "The BlueField is in NIC mode and its firmware lets the host open "
-            "RShim, though no RShim driver has opened it. Set "
+            "RShim, so a tenant with host root can load the RShim driver and "
+            "reach the DPU boot and console interface. Set "
             "`mlxconfig -d <device> s INTERNAL_CPU_RSHIM=1` and power-cycle the "
             "host; do not apply mlxprivhost zero-trust in NIC mode.",
         )

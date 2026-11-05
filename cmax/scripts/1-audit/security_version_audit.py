@@ -1516,7 +1516,7 @@ def _isolation_coverage_caveat(verdict: Verdict, unassessed: Any) -> Verdict:
     the detail it got before.
     """
     names = [str(host).strip() for host in (unassessed or []) if str(host).strip()]
-    if verdict.status not in {"fail", "warn"} or not names:
+    if verdict.status != "fail" or not names:
         return verdict
     return _with_caveat(
         verdict,
@@ -1617,22 +1617,25 @@ def dpu_host_isolation_verdict(evidence: dict[str, Any] | None = None) -> Verdic
         )
 
     if restricted is False and nic_mode:
-        # Host-trusted by design and no interface path is open, so this is a
-        # hardening gap, not a failed zero-trust policy: a host root can still
-        # load the RShim driver and open the channel.
+        # NIC mode is host-trusted by design, but a tenant with host root can
+        # still load the RShim driver and open the channel: the RShim PCIe
+        # function is exposed and nothing in firmware blocks it. Through it the
+        # tenant can push a boot stream that outlives their tenancy, so this
+        # stays a fail. Only the fix differs, because NVIDIA does not support the
+        # zero-trust (mlxprivhost) profile in NIC mode.
         return _isolation_coverage_caveat(
             Verdict(
                 observed,
-                "warn",
+                "fail",
                 requirement,
                 advisory,
                 "The BlueField is in NIC mode with INTERNAL_CPU_RSHIM=0, so the "
                 "firmware lets the host open RShim. No /dev/rshim0 or tmfifo_net0 "
-                "is present, so no RShim driver has opened it, but a host root "
-                "can load one. NIC mode is host-trusted by design and NVIDIA does "
-                "not support the zero-trust (mlxprivhost) profile in it. Restrict "
-                f"RShim with `{NIC_MODE_RSHIM_REMEDIATION}`, and recheck this "
-                "before switching to DPU mode.",
+                "is present, so no RShim driver has opened it yet, but a host root "
+                "can load one and reach the DPU boot and console interface. No DPU "
+                "login or escape was attempted. NVIDIA does not support the "
+                "zero-trust (mlxprivhost) profile in NIC mode, so restrict RShim "
+                f"with `{NIC_MODE_RSHIM_REMEDIATION}`.",
             ),
             facts.get("unassessedHosts"),
         )
