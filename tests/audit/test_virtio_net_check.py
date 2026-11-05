@@ -690,6 +690,23 @@ class NamedModeQueryTests(CheckHarness):
         # The device opened unprivileged, so nothing escalates.
         self.assertEqual(self.calls_for("sudo"), [])
 
+    def test_a_parameter_the_firmware_lacks_also_falls_back(self) -> None:
+        self.stub_output("lspci", BLUEFIELD3_LSPCI)
+        data = self.tmp / "full.stdout"
+        data.write_text(NIC_MODE_MLXCONFIG)
+        self.stub(
+            "mlxconfig",
+            'if [ "${@: -1}" = "q" ]; then /bin/cat "%s"; exit 0; fi\n'
+            "echo 'Configurations:   Next Boot'\n"
+            "echo \"-E- The Device doesn't support INTERNAL_CPU_RSHIM parameter\"\n"
+            "exit 3" % data,
+        )
+
+        record = self.host_record()
+
+        self.assertEqual(record["mode"], "nic")
+        self.assertEqual(len(self.calls_for("mlxconfig")), 2)
+
     def test_the_full_dump_is_never_read_after_a_failed_open(self) -> None:
         self.stub_output("lspci", BLUEFIELD3_LSPCI)
         self.stub(

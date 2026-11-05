@@ -589,8 +589,14 @@ def mlxconfig_query(slot: str, *, named: bool = True) -> list[str]:
 
 
 def _unknown_parameter(text: str) -> bool:
-    """mlxconfig rejected a named parameter, so the device did open."""
-    return "Unknown Parameter" in (text or "")
+    """mlxconfig rejected a named parameter, so the device did open.
+
+    MFT words this two ways: ``-E- Unknown Parameter: X`` for a name it does not
+    know, and ``-E- The Device doesn't support X parameter`` (seen on a
+    ConnectX-8 with MFT 4.33) for one the firmware lacks.
+    """
+    text = text or ""
+    return "Unknown Parameter" in text or "doesn't support" in text
 
 
 def privileged_prefix(
@@ -1868,7 +1874,7 @@ elif [ -n "$slot" ] && command -v mlxconfig >/dev/null 2>&1; then
   echo @@MLXCONFIG_BEGIN@@
   mode_out=$(mlxconfig -e -d "$slot" q INTERNAL_CPU_MODEL INTERNAL_CPU_OFFLOAD_ENGINE INTERNAL_CPU_RSHIM 2>&1)
   case "$mode_out" in
-    *"Unknown Parameter"*) mode_out=$(mlxconfig -e -d "$slot" q 2>&1) ;;
+    *"Unknown Parameter"*|*"support INTERNAL_CPU"*) mode_out=$(mlxconfig -e -d "$slot" q 2>&1) ;;
   esac
   printf '%s\n' "$mode_out"
   echo @@MLXCONFIG_END@@
