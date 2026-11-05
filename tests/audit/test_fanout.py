@@ -55,6 +55,71 @@ class ParseJsonLinesTests(unittest.TestCase):
         self.assertEqual(fanout.parse_json_lines(stdout, require_host=True), [{"host": "gpu-a"}])
 
 
+def _srun_label(task: int, line: str, width: int = 2) -> list[str]:
+    """Render one task line the way ``srun --label`` delivers it: chunked."""
+    chunk = fanout.SRUN_IO_CHUNK
+    data = line.encode()
+    return [
+        f"{task:>{width}}: " + data[i : i + chunk].decode()
+        for i in range(0, max(len(data), 1), chunk)
+    ]
+
+
+class SrunLabeledOutputTests(unittest.TestCase):
+    def record(self, host: str, size: int) -> str:
+        return json.dumps({"host": host, "pad": "x" * size})
+
+    def test_reassembles_records_split_around_another_task(self) -> None:
+        # The VP GB300 shape: a 1120-byte record split at 1024 with a whole
+        # record from another node landing between its two chunks. Unlabeled,
+        # both records were lost (14 of 16 hosts).
+        a = _srun_label(9, self.record("worker-9", 1080))
+        b = _srun_label(14, self.record("worker-14", 1080))
+        c = _srun_label(3, self.record("worker-3", 40))
+        stdout = "\n".join([a[0], b[0], c[0], a[1], b[1]]) + "\n"
+
+        records = fanout.parse_json_lines(stdout, require_host=True)
+
+        self.assertEqual(
+            [r["host"] for r in records], ["worker-9", "worker-14", "worker-3"]
+        )
+        self.assertTrue(all(len(r["pad"]) in (1080, 40) for r in records))
+
+    def test_many_tasks_and_multi_chunk_records_all_survive(self) -> None:
+        streams = [_srun_label(t, self.record(f"n{t}", 3000)) for t in range(16)]
+        interleaved = []
+        for depth in range(max(len(s) for s in streams)):
+            for stream in reversed(streams) if depth % 2 else streams:
+                if depth < len(stream):
+                    interleaved.append(stream[depth])
+
+        records = fanout.parse_json_lines("\n".join(interleaved), require_host=True)
+
+        self.assertEqual(sorted(r["host"] for r in records), sorted(f"n{t}" for t in range(16)))
+
+    def test_a_line_of_exactly_one_chunk_is_not_merged_into_the_next(self) -> None:
+        exact = json.dumps({"host": "a", "pad": ""})
+        exact = json.dumps({"host": "a", "pad": "x" * (fanout.SRUN_IO_CHUNK - len(exact))})
+        self.assertEqual(len(exact.encode()), fanout.SRUN_IO_CHUNK)
+        stdout = "\n".join(_srun_label(0, exact) + _srun_label(0, self.record("b", 10)))
+
+        records = fanout.parse_json_lines(stdout, require_host=True)
+
+        self.assertEqual([r["host"] for r in records], ["a", "b"])
+
+    def test_unlabeled_output_is_left_alone(self) -> None:
+        stdout = 'srun: notice\n{"host":"gpu-a"}\n'
+        self.assertEqual(fanout.join_srun_labeled_output(stdout), stdout)
+
+    def test_labeled_noise_lines_pass_through(self) -> None:
+        stdout = "0: warning: something\n1: " + self.record("n1", 5) + "\n"
+        joined = fanout.join_srun_labeled_output(stdout)
+        self.assertIn("warning: something", joined.splitlines())
+        self.assertEqual(
+            [r["host"] for r in fanout.parse_json_lines(stdout, require_host=True)], ["n1"]
+        )
+
+
 class K8sGpuNodesTests(unittest.TestCase):
     def test_vendor_filter_keeps_mixed_cluster_checks_scoped(self) -> None:
         nodes = {"items": [
@@ -257,8 +322,8 @@ class SlurmGpusPerNodeTests(unittest.TestCase):
         command = fanout.slurm_python_command(
             node_count="1", worker_args=["--worker"], gpus_per_node=count,
         )
-        self.assertEqual(command[:7], [
-            "srun", "--overlap", "--input=all", "-N", "1",
+        self.assertEqual(command[:8], [
+            "srun", "--overlap", "--input=all", "--label", "-N", "1",
             "--ntasks-per-node=1", "--gres=gpu:8",
         ])
 

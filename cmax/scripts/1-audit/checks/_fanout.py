@@ -43,14 +43,77 @@ def _as_int(value: Any, default: int = 0) -> int:
         return default
 
 
+# srun forwards task output in chunks of this many bytes. A longer line
+# reaches the client as several chunks, and chunks from different tasks
+# interleave. With --label each chunk arrives as its own "<task>: " line.
+SRUN_IO_CHUNK = 1024
+_SRUN_LABEL = re.compile(r"^ *(\d+): ?(.*)$")
+
+
+def join_srun_labeled_output(stdout: str) -> str:
+    """Undo srun's chunking of ``srun --label`` output, one line per task line.
+
+    Measured on Slurm 26.05 with 16 tasks: a 1120-byte JSON line arrived as a
+    1024-byte chunk, then another task's whole line, then the remaining 96
+    bytes, which lost both records. Each label line carries one chunk, so a
+    chunk of exactly SRUN_IO_CHUNK bytes continues on that task's next chunk;
+    anything shorter ends the task's line. A full chunk that already parses
+    as JSON ends the line too, so a line of exactly one chunk is not merged
+    into the next one.
+
+    Input that is not entirely labeled (a k8s exec, a test stub, a single
+    task without --label) is returned unchanged.
+    """
+    lines = [line for line in stdout.splitlines() if line.strip()]
+    if not lines:
+        return stdout
+    matches = [_SRUN_LABEL.match(line) for line in lines]
+    if not all(matches):
+        return stdout
+    pending: dict[str, list[str]] = {}
+    order: list[tuple[int, str]] = []
+    finished: list[tuple[int, str]] = []
+
+    def complete(task: str, parts: list[str]) -> None:
+        start = next(i for i, owner in order if owner == task)
+        order.remove((start, task))
+        finished.append((start, "".join(parts)))
+
+    for index, match in enumerate(matches):
+        assert match is not None
+        task, payload = match.group(1), match.group(2)
+        if task not in pending:
+            pending[task] = []
+            order.append((index, task))
+        pending[task].append(payload)
+        if len(payload.encode()) < SRUN_IO_CHUNK or _parses_as_json("".join(pending[task])):
+            complete(task, pending.pop(task))
+    for task in list(pending):
+        complete(task, pending.pop(task))
+    finished.sort(key=lambda item: item[0])
+    return "\n".join(text for _, text in finished) + "\n"
+
+
+def _parses_as_json(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped.startswith("{"):
+        return False
+    try:
+        json.loads(stripped)
+    except json.JSONDecodeError:
+        return False
+    return True
+
+
 def parse_json_lines(stdout: str, *, require_host: bool = False) -> list[dict[str, Any]]:
     """Pull one JSON object per line that starts with ``{``.
 
+    ``srun --label`` output is reassembled first (join_srun_labeled_output).
     With ``require_host=True``, only objects carrying a ``host`` key are kept (the
     per-node worker contract for vboost and nic-topology).
     """
     records: list[dict[str, Any]] = []
-    for line in stdout.splitlines():
+    for line in join_srun_labeled_output(stdout).splitlines():
         line = line.strip()
         if not line.startswith("{"):
             continue
@@ -234,10 +297,14 @@ def slurm_python_command(
     the step can see them.
     """
     gres = [f"--gres=gpu:{gpus_per_node}"] if gpus_per_node and gpus_per_node > 0 else []
+    # --label lets join_srun_labeled_output put each task's chunks back in
+    # order. Without it, a record longer than one srun I/O chunk can arrive
+    # split around another node's record, and neither one parses.
     return [
         "srun",
         "--overlap",
         "--input=all",
+        "--label",
         "-N",
         node_count,
         "--ntasks-per-node=1",
