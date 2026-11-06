@@ -885,9 +885,9 @@ RULES: tuple[Rule, ...] = (
     Rule(
         "securityVersions.dpuHostIsolation.status",
         "Host side can open RShim to the BlueField (NIC mode, "
-        "INTERNAL_CPU_RSHIM=0); restrict it with mlxconfig "
-        "INTERNAL_CPU_RSHIM=1 and a power cycle, not mlxprivhost, which "
-        "NVIDIA does not support in NIC mode",
+        "INTERNAL_CPU_RSHIM=0); keep tenant host root off the card or "
+        "re-image it per tenant, not mlxprivhost, which NVIDIA does not "
+        "support in NIC mode",
         CONFIG,
         _status_is("fail"),
         guard=_isolation_nic_mode,
@@ -1959,9 +1959,15 @@ def _finding_guidance(
         if nic_mode:
             # NVIDIA does not support the zero-trust profile in NIC mode.
             recommendation = (
-                "Restrict RShim on every affected BlueField with "
-                f"`{remediation}`. Do not apply the zero-trust mlxprivhost "
-                "profile in NIC mode; NVIDIA does not support it there. Then "
+                "Two ways to make this real isolation, not just a setting a "
+                "tenant can undo. Either keep tenant host root off the "
+                "BlueField (sudo -M, mdev-coldplug, or an IOMMU/ACS isolation "
+                "of the PCI function), so only the provider can reach it. Or "
+                "accept that a tenant can own the card and re-image it from a "
+                "known-good BFB before each new tenant and after each one "
+                "leaves. `mlxconfig -d <device> s INTERNAL_CPU_RSHIM=1` plus a "
+                "power cycle is real only under the first path; NVIDIA does not "
+                "support the zero-trust mlxprivhost profile in NIC mode. Then "
                 "verify that `INTERNAL_CPU_RSHIM=1`, `/dev/rshim0` is absent, "
                 "and `tmfifo_net0` is absent."
             )

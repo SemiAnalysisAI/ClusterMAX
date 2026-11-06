@@ -1016,6 +1016,17 @@ NIC_MODE_RSHIM_REMEDIATION = (
     "mlxconfig -d <device> s INTERNAL_CPU_RSHIM=1, then a cold reboot "
     "(power cycle) of the host"
 )
+# INTERNAL_CPU_RSHIM is itself just a card setting, so a tenant with host root
+# can set it back. It is real isolation only when the host that gets sudo is the
+# only one that can reach the card. Where a tenant has that privilege, the two
+# real fixes are on the provider side: keep the tenant's host root off the
+# BlueField (sudo -M, mdev-coldplug or an IOMMU/ACS isolation of the PCI
+# function), or re-image the card from a known-good BFB before each new tenant
+# and after each one leaves.
+NIC_MODE_TENANT_SUDO_REMEDIATION = (
+    "Keep tenant host root off the BlueField, or re-image the card from a "
+    "known-good BFB before each new tenant and after each one leaves"
+)
 DPU_ISOLATION_REQUIREMENT = (
     "RShim restricted (INTERNAL_CPU_RSHIM=1), no /dev/rshim0, no tmfifo_net0"
 )
@@ -1635,7 +1646,11 @@ def dpu_host_isolation_verdict(evidence: dict[str, Any] | None = None) -> Verdic
                 "can load one and reach the DPU boot and console interface. No DPU "
                 "login or escape was attempted. NVIDIA does not support the "
                 "zero-trust (mlxprivhost) profile in NIC mode, so restrict RShim "
-                f"with `{NIC_MODE_RSHIM_REMEDIATION}`.",
+                f"with `{NIC_MODE_RSHIM_REMEDIATION}`. That only isolates the "
+                "card if a tenant's host root cannot re-open it: the setting is "
+                "card state, so a tenant with the same privilege can set it "
+                "back. Where tenants get host root, use "
+                f"`{NIC_MODE_TENANT_SUDO_REMEDIATION}` instead.",
             ),
             facts.get("unassessedHosts"),
         )

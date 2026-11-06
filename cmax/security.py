@@ -1638,9 +1638,11 @@ def _dpu_host_isolation(audit: dict[str, Any]) -> tuple[str, str, str]:
             f"RShim reachable from the host, NIC mode ({observed})",
             "The BlueField is in NIC mode and its firmware lets the host open "
             "RShim, so a tenant with host root can load the RShim driver and "
-            "reach the DPU boot and console interface. Set "
-            "`mlxconfig -d <device> s INTERNAL_CPU_RSHIM=1` and power-cycle the "
-            "host; do not apply mlxprivhost zero-trust in NIC mode.",
+            "reach the DPU boot and console interface. Keep tenant host root off "
+            "the BlueField, or re-image the card from a known-good BFB per "
+            "tenant; `mlxconfig -d <device> s INTERNAL_CPU_RSHIM=1` and a power "
+            "cycle is real only when a tenant cannot set it back. Do not apply "
+            "mlxprivhost zero-trust in NIC mode.",
         )
     if status == "fail":
         return (
