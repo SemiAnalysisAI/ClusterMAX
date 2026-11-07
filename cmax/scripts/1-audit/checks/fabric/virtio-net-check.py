@@ -148,6 +148,9 @@ CHECK_CACHE_ENV = "CLUSTERMAX_VIRTIO_NET_CHECK_CACHE"
 # Per-command timeout for every local tool. SLURM_TIMEOUT_S below is derived
 # from it, so the two move together.
 TOOL_TIMEOUT_S = 15
+# The full mlxconfig dump, read only when firmware rejects a named parameter.
+# It took 22 s idle and about 60 s under contention on a GB300 BlueField-3.
+MLXCONFIG_FULL_TIMEOUT_S = 60
 # ssh gets ConnectTimeout=SSH_TIMEOUT_S and a wall-clock budget of twice that,
 # so a connection that opens and then stalls is still bounded.
 SSH_TIMEOUT_S = 8
@@ -159,19 +162,21 @@ SSH_TIMEOUT_S = 8
 # Worst case for one host, every command hanging until its own timeout:
 #
 #   lspci                                        1 x 15 =  15 s
-#   mlxconfig q, sudo -n mlxconfig q,
-#     sudo -n mst start, sudo -n mlxconfig q      4 x 15 =  60 s
+#   named mlxconfig q, sudo -n named q           2 x 15 =  30 s
+#   full mlxconfig q, only after a named read
+#     answered "Unknown Parameter"               1 x 60 =  60 s
 #   local `virtnet version` + `virtnet -v`        2 x 15 =  30 s
 #   RShim SSH: version, -v, list, mlnx-release    4 x 16 =  64 s
+#   SNAP-4 listing, one RShim SSH command         1 x 16 =  16 s
 #                                                         ------
-#                                                          169 s
+#                                                          215 s
 #
-# The local-virtnet-succeeded path and the RShim SSH path are mutually
-# exclusive (collect_version only reaches SSH when the local read produced no
-# version), and the succeeded path is cheaper: 15 + 60 + 15 + 2 x 15 = 120 s.
-# So 169 s is a true ceiling, not a sum of alternatives. Allow 60 s for srun
-# dispatch and worker startup, giving 229 s against a 300 s budget, about 24%
-# margin.
+# The full dump runs only after one of the named reads answered, so the mode
+# read is at most 15 + 15 + 60 = 90 s. The local-virtnet-succeeded path and the
+# RShim SSH path are mutually exclusive (collect_version only reaches SSH when
+# the local read produced no version), and the succeeded path is cheaper. So
+# 215 s is a true ceiling, not a sum of alternatives. Allow 60 s for srun
+# dispatch and worker startup, giving 275 s against a 300 s budget.
 #
 # Redo this arithmetic when changing TOOL_TIMEOUT_S or SSH_TIMEOUT_S, or when
 # adding a command to gather(). An overrun is no longer a false clean, because
@@ -475,10 +480,49 @@ def pci_scan_result(
     }
 
 
+def sysfs_pci_listing(env: dict[str, str] = os.environ) -> tuple[str, str | None]:
+    """Synthesize an `lspci -Dn` style listing from ``/sys/bus/pci/devices``.
+
+    Container images used as compute nodes (Slurm-on-Kubernetes slurmd pods,
+    for example) often ship without pciutils while the host's sysfs is still
+    mounted. The kernel's own vendor/device/class files answer the same
+    question lspci would, so they are read when lspci cannot run. Any entry
+    whose IDs cannot be read makes the listing partial: the devices that were
+    read still count as positive evidence, but absence is not claimed.
+    """
+    root = Path(env.get("CLUSTERMAX_AUDIT_ROOT", "") + "/sys/bus/pci/devices")
+    try:
+        entries = sorted(root.iterdir())
+    except OSError as exc:
+        return "", f"sysfs PCI tree unreadable: {exc.strerror or exc}"
+    lines: list[str] = []
+    unreadable = 0
+    for entry in entries:
+        try:
+            vendor = (entry / "vendor").read_text().strip().lower().removeprefix("0x")
+            device = (entry / "device").read_text().strip().lower().removeprefix("0x")
+            pci_class = (entry / "class").read_text().strip().lower().removeprefix("0x")
+        except OSError:
+            unreadable += 1
+            continue
+        lines.append(f"{entry.name} {pci_class[:4]}: {vendor}:{device}")
+    if unreadable:
+        return "\n".join(lines), f"sysfs could not read {unreadable} PCI device(s)"
+    return "\n".join(lines), None
+
+
 def collect_pci(
     *, runner: Runner = subprocess.run, env: dict[str, str] = os.environ
 ) -> dict[str, Any]:
     text, error = run_tool(["lspci", "-Dnn"], runner=runner)
+    if error is not None:
+        sys_text, sys_error = sysfs_pci_listing(env)
+        if sys_text:
+            result = pci_scan_result(sys_text, sys_error)
+            result["pciSource"] = "sysfs"
+            if not result["scanComplete"]:
+                result["scanError"] = f"{error}; {sys_error}"
+            return result
     return pci_scan_result(
         text, error, empty_bus_confirmed=sysfs_pci_bus_empty(env)
     )
@@ -529,6 +573,30 @@ def parse_mlxconfig(text: str) -> dict[str, str]:
         if numeric in {"0", "1", "2"}:
             values[key] = numeric
     return values
+
+
+def mlxconfig_query(slot: str, *, named: bool = True) -> list[str]:
+    """The mode read: only the parameters the check grades.
+
+    The full `mlxconfig -e -d <dev> q` dump walks every parameter on the card.
+    On VP's GB300 BlueField-3 hosts it took 22 s on an idle host and about 60 s
+    with three reads in flight, past TOOL_TIMEOUT_S, so 14 of 16 hosts timed out
+    and graded the mode unreadable. Naming the three parameters answers in under
+    2 s. ``named=False`` is the fallback for firmware that rejects a name.
+    """
+    query = ["mlxconfig", "-e", "-d", slot, "q"]
+    return [*query, *_MLXCONFIG_KEYS] if named else query
+
+
+def _unknown_parameter(text: str) -> bool:
+    """mlxconfig rejected a named parameter, so the device did open.
+
+    MFT words this two ways: ``-E- Unknown Parameter: X`` for a name it does not
+    know, and ``-E- The Device doesn't support X parameter`` (seen on a
+    ConnectX-8 with MFT 4.33) for one the firmware lacks.
+    """
+    text = text or ""
+    return "Unknown Parameter" in text or "doesn't support" in text
 
 
 def privileged_prefix(
@@ -595,18 +663,34 @@ def collect_mode(
         return result
 
     slot = devices[0].get("slot") or ""
-    query = ["mlxconfig", "-e", "-d", slot, "q"]
+    query = mlxconfig_query(slot)
     prefix, escalation = privileged_prefix(which=which, euid=euid)
     result["escalation"] = escalation
     source = "mlxconfig"
     text, error = run_tool(query, runner=runner)
     values = parse_mlxconfig(text)
-    if not values and prefix:
+    answered: list[str] | None = [] if values or _unknown_parameter(text) else None
+    if not values and answered is None and prefix:
         text, sudo_error = run_tool([*prefix, *query], runner=runner)
         values = parse_mlxconfig(text)
         error = error or sudo_error
+        if values or _unknown_parameter(text):
+            answered = prefix
         if values:
             source = "sudo mlxconfig"
+    if not values and answered is not None and _unknown_parameter(text):
+        # Firmware that predates one of the named parameters rejects the whole
+        # named query. Only then is the full dump read, once, under the
+        # privilege that already opened the device, with its own longer budget.
+        text, full_error = run_tool(
+            [*answered, *mlxconfig_query(slot, named=False)],
+            runner=runner,
+            timeout=MLXCONFIG_FULL_TIMEOUT_S,
+        )
+        values = parse_mlxconfig(text)
+        error = full_error or error
+        if values:
+            source = "sudo mlxconfig" if answered else "mlxconfig"
     if not values:
         result["error"] = error or "mlxconfig returned no readable Current mode parameters"
         return result
@@ -813,6 +897,31 @@ def collect_line(
     return line, evidence
 
 
+def dpu_ssh_prefix(env: dict[str, str] = os.environ) -> list[str]:
+    """The RShim SSH argv every DPU-side read starts with.
+
+    BatchMode=yes cannot prompt for a password or a passphrase, so this either
+    works with an already-trusted key or fails immediately. Nothing is ever
+    written to the RShim console and no interactive session is opened.
+    UserKnownHostsFile=/dev/null keeps the read-only audit from leaving a host
+    key behind in the operator's known_hosts, which StrictHostKeyChecking=no
+    would otherwise write on the first run.
+    """
+    target = env.get("CLUSTERMAX_DPU_SSH_TARGET") or "ubuntu@192.168.100.2"
+    return [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "-o",
+        f"ConnectTimeout={SSH_TIMEOUT_S}",
+        target,
+    ]
+
+
 def collect_version(
     rshim: dict[str, Any],
     *,
@@ -849,26 +958,7 @@ def collect_version(
     if not (rshim.get("rshimDeviceNode") or rshim.get("tmfifoNet0")):
         return empty(local_cli)
 
-    target = env.get("CLUSTERMAX_DPU_SSH_TARGET") or "ubuntu@192.168.100.2"
-    # BatchMode=yes cannot prompt for a password or a passphrase, so this either
-    # works with an already-trusted key or fails immediately. Nothing is ever
-    # written to the RShim console and no interactive session is opened.
-    # UserKnownHostsFile=/dev/null keeps the read-only audit from leaving a host
-    # key behind in the operator's known_hosts, which StrictHostKeyChecking=no
-    # would otherwise write on the first run.
-    ssh = [
-        "ssh",
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "StrictHostKeyChecking=no",
-        "-o",
-        "UserKnownHostsFile=/dev/null",
-        "-o",
-        f"ConnectTimeout={SSH_TIMEOUT_S}",
-        target,
-        "virtnet",
-    ]
+    ssh = [*dpu_ssh_prefix(env), "virtnet"]
     remote = read_virtnet(ssh, runner=runner, timeout=SSH_TIMEOUT_S * 2)
     if remote is None:
         rshim["dpuReachedFromHost"] = False
@@ -884,6 +974,298 @@ def collect_version(
         "line": line,
         "lineEvidence": evidence,
         "cliVersion": remote["cliVersion"] or local_cli,
+    }
+
+
+# ---------------------------------------------------------------------------
+# SNAP-4 container (NVIDIA bulletin a_id 5744)
+# ---------------------------------------------------------------------------
+#
+# DOCA SNAP-4 runs as a container on the BlueField-3 Arm cores, started by the
+# DPU's kubelet from a static pod manifest in /etc/kubelet.d. Its version is the
+# image tag (nvcr.io/nvidia/doca/doca_snap:4.9.1-doca3.2.0). Nothing on the host
+# side carries it, so it is read on the same DPU access path as the virtio-net
+# controller: locally when this check already runs on the DPU, otherwise over
+# the RShim SSH link. One remote command does the whole read, so an unreachable
+# DPU costs one SSH timeout.
+#
+# The read only lists: it never pulls an image, starts or stops a container, or
+# execs into one. `crictl` needs root on a stock DPU image, so it is retried
+# under `sudo -n`, which never prompts.
+
+SNAP4_STATE_NOT_INSTALLED = "not_installed"
+
+# Running containers first, then the kubelet manifests. kubelet keeps a static
+# pod running for as long as its manifest exists, so a manifest is the version
+# that runs whenever the container is restarted.
+SNAP4_DPU_SCRIPT = r"""
+echo @@SNAP4-MANIFESTS@@
+for f in /etc/kubelet.d/*; do
+  [ -f "$f" ] && [ -r "$f" ] && grep -i 'image:.*doca_snap' "$f" 2>/dev/null
+done
+if ! command -v crictl >/dev/null 2>&1; then
+  echo @@SNAP4-NO-CRICTL@@
+  exit 0
+fi
+echo @@SNAP4-PS@@
+crictl ps -o json 2>/dev/null || sudo -n crictl ps -o json 2>/dev/null || echo @@SNAP4-PS-FAILED@@
+# The bare echoes keep a marker on its own line when the JSON has no trailing
+# newline.
+echo
+echo @@SNAP4-IMAGES@@
+crictl images -o json 2>/dev/null || sudo -n crictl images -o json 2>/dev/null
+echo
+echo @@SNAP4-END@@
+"""
+
+_SNAP4_IMAGE_RE = re.compile(r"doca_snap[^\s:@\"']*:v?(\d+\.\d+\.\d+)", re.IGNORECASE)
+
+
+def snap4_version_from_image(image: str) -> str | None:
+    match = _SNAP4_IMAGE_RE.search(image or "")
+    return match.group(1) if match else None
+
+
+def _snap4_sections(text: str) -> dict[str, str]:
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in (text or "").splitlines():
+        marker = line.strip()
+        if marker.startswith("@@SNAP4-") and marker.endswith("@@"):
+            current = marker[len("@@SNAP4-") : -2]
+            sections.setdefault(current, [])
+            continue
+        if current is not None:
+            sections[current].append(line)
+    return {name: "\n".join(lines) for name, lines in sections.items()}
+
+
+def _json_or_none(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def parse_snap4_listing(text: str) -> dict[str, Any]:
+    """Read the SNAP4_DPU_SCRIPT output.
+
+    ``reached`` says the script ran on the DPU at all. ``listed`` says crictl
+    answered, which is what makes "no SNAP-4 container here" a finding rather
+    than a guess. ``running`` and ``configured`` are the versions read off the
+    running containers and the kubelet manifests.
+    """
+    sections = _snap4_sections(text)
+    result: dict[str, Any] = {
+        "reached": "MANIFESTS" in sections,
+        "listed": False,
+        "running": [],
+        "runningWithoutVersion": False,
+        "configured": [],
+        "error": None,
+    }
+    if not result["reached"]:
+        result["error"] = "the DPU-side read produced no output"
+        return result
+    for line in sections.get("MANIFESTS", "").splitlines():
+        version = snap4_version_from_image(line)
+        if version and version not in result["configured"]:
+            result["configured"].append(version)
+    if "NO-CRICTL" in sections:
+        result["error"] = "crictl is not installed on the DPU"
+        return result
+    ps_text = sections.get("PS", "")
+    if "PS-FAILED" in sections:
+        result["error"] = "crictl ps did not answer, even under sudo -n"
+        return result
+    containers = (_json_or_none(ps_text) or {}).get("containers")
+    if not isinstance(containers, list):
+        result["error"] = "crictl ps returned no readable container list"
+        return result
+    result["listed"] = True
+    tags: dict[str, list[str]] = {}
+    images = (_json_or_none(sections.get("IMAGES", "")) or {}).get("images") or []
+    for image in images if isinstance(images, list) else []:
+        if not isinstance(image, dict):
+            continue
+        names = [str(tag) for tag in image.get("repoTags") or []]
+        for key in (image.get("id"), *(image.get("repoDigests") or [])):
+            if key:
+                tags[str(key)] = names
+    for container in containers:
+        if not isinstance(container, dict):
+            continue
+        image_field = container.get("image")
+        image_name = str(image_field.get("image") if isinstance(image_field, dict) else image_field or "")
+        names = [image_name, *tags.get(image_name, []), *tags.get(str(container.get("imageRef") or ""), [])]
+        container_name = str((container.get("metadata") or {}).get("name") or "")
+        is_snap = any("doca_snap" in name.lower() for name in names) or "snap" in container_name.lower()
+        if not is_snap:
+            continue
+        versions = [version for version in map(snap4_version_from_image, names) if version]
+        if versions:
+            if versions[0] not in result["running"]:
+                result["running"].append(versions[0])
+        else:
+            result["runningWithoutVersion"] = True
+    return result
+
+
+def collect_snap4(
+    rshim: dict[str, Any],
+    *,
+    on_dpu: bool,
+    env: dict[str, str] = os.environ,
+    runner: Runner = subprocess.run,
+) -> dict[str, Any]:
+    """Read the SNAP-4 container version on the DPU, if this host can reach it."""
+    if on_dpu:
+        command, via, timeout = ["sh", "-c", SNAP4_DPU_SCRIPT], "local", TOOL_TIMEOUT_S
+    elif env.get("CLUSTERMAX_DPU_SSH_DISABLE"):
+        return {"attempted": False, "via": None, "reason": "RShim SSH is disabled"}
+    elif not (rshim.get("rshimDeviceNode") or rshim.get("tmfifoNet0")):
+        return {"attempted": False, "via": None, "reason": "no RShim link to the DPU"}
+    else:
+        command, via, timeout = [*dpu_ssh_prefix(env), SNAP4_DPU_SCRIPT], "rshim-ssh", SSH_TIMEOUT_S * 2
+    text, error = run_tool(command, runner=runner, timeout=timeout)
+    listing = parse_snap4_listing(text)
+    listing["attempted"] = True
+    listing["via"] = via
+    if not listing["reached"]:
+        listing["error"] = error or listing["error"]
+    elif via == "rshim-ssh":
+        # The script ran on the DPU, so the host did reach it.
+        rshim["dpuReachedFromHost"] = True
+    return listing
+
+
+def decide_snap4(record: dict[str, Any], read: dict[str, Any]) -> dict[str, Any]:
+    """Per-host SNAP-4 state, from the host record and the DPU-side read."""
+    via = read.get("via")
+    if read.get("running"):
+        return {
+            "state": STATE_VERSION,
+            "versions": list(read["running"]),
+            "source": f"{via}/crictl",
+            "reason": "SNAP-4 image tag read from the running container",
+        }
+    if read.get("configured"):
+        return {
+            "state": STATE_VERSION,
+            "versions": list(read["configured"]),
+            "source": f"{via}/kubelet-manifest",
+            "reason": (
+                "SNAP-4 image tag read from the kubelet manifest; no running "
+                "container was listed, and kubelet starts this version on restart"
+            ),
+        }
+    base = {"versions": [], "source": None}
+    if read.get("runningWithoutVersion"):
+        return {
+            **base,
+            "state": STATE_UNKNOWN,
+            "reason": "a SNAP-4 container runs on the DPU but its image reference carries no version tag",
+        }
+    if not record.get("scanComplete"):
+        return {**base, "state": STATE_INCOMPLETE, "reason": str(record.get("scanError") or "PCI scan could not run")}
+    if not record.get("bluefield3Present"):
+        return {**base, "state": STATE_NOT_APPLICABLE, "reason": "no BlueField-3 device is present on this host"}
+    if record.get("mode") == "nic":
+        return {
+            **base,
+            "state": STATE_NOT_RUNNING,
+            "reason": (
+                "BlueField-3 is in NIC mode (INTERNAL_CPU_OFFLOAD_ENGINE=1), so the DPU "
+                "Arm cores that run SNAP-4 are off. A change back to DPU mode would "
+                "start any installed SNAP-4 container unchanged."
+            ),
+        }
+    if read.get("listed"):
+        return {
+            **base,
+            "state": SNAP4_STATE_NOT_INSTALLED,
+            "source": f"{via}/crictl",
+            "reason": "the DPU answered and runs no SNAP-4 container, and no kubelet manifest names one",
+        }
+    if record.get("mode") != "dpu":
+        return {
+            **base,
+            "state": STATE_INCOMPLETE,
+            "reason": "BlueField-3 is present but its mode could not be read, so SNAP-4 scope is unsettled",
+        }
+    if read.get("reached"):
+        detail = f"the DPU answered but {read.get('error') or 'listed nothing'}"
+    elif read.get("attempted"):
+        detail = f"the DPU did not answer over RShim ({read.get('error') or 'no output'})"
+    else:
+        detail = str(read.get("reason") or "the DPU was not reached")
+    return {
+        **base,
+        "state": STATE_UNKNOWN,
+        "reason": (
+            "BlueField-3 is in DPU mode and the SNAP-4 container is observable only "
+            f"on the DPU Arm side; {detail}. The provider must attest the SNAP-4 "
+            "version or confirm it is not deployed."
+        ),
+    }
+
+
+# Most severe first. not_running ranks above version for the same reason as on
+# the controller ladder: a NIC-mode host was not read, so a read peer must not
+# speak for it in the reported state. The evaluator grades the readings
+# themselves from `observed`, so this order never softens a fail.
+SNAP4_LADDER = (
+    STATE_UNKNOWN,
+    STATE_INCOMPLETE,
+    STATE_NOT_RUNNING,
+    STATE_VERSION,
+    SNAP4_STATE_NOT_INSTALLED,
+    STATE_NOT_APPLICABLE,
+)
+SNAP4_GAP_RUNG = STATE_INCOMPLETE
+
+
+def _snap4_rung(record: dict[str, Any]) -> str:
+    snap = record.get("snap4") if isinstance(record.get("snap4"), dict) else {}
+    state = str(snap.get("state") or STATE_INCOMPLETE)
+    return state if state in SNAP4_LADDER else STATE_INCOMPLETE
+
+
+def summarize_snap4(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Roll the per-host SNAP-4 states into the cluster answer.
+
+    ``observed`` carries every distinct version a host read, whatever the
+    rollup state, so a below-minimum DPU stays a finding beside an unread peer.
+    SNAP-4 is fixed per release train, so the readings are not ordered here; the
+    evaluator grades each one against its own train.
+    """
+    if not records:
+        return {
+            "state": STATE_INCOMPLETE,
+            "reason": "no host produced a SNAP-4 record",
+            "observed": [],
+            "hostsChecked": 0,
+        }
+    state = _snap4_rung(most_severe(records, ladder=SNAP4_LADDER, rung_of=_snap4_rung))
+    seen: dict[tuple[str, str], dict[str, Any]] = {}
+    for record in records:
+        snap = record.get("snap4") if isinstance(record.get("snap4"), dict) else {}
+        for version in snap.get("versions") or []:
+            key = (str(version), str(snap.get("source") or ""))
+            seen.setdefault(key, {"version": str(version), "host": record.get("host"), "source": snap.get("source")})
+    observed = sorted(seen.values(), key=lambda entry: (_version_key(entry["version"]), str(entry["host"] or "")))
+    reasons = sorted(
+        {
+            str((record.get("snap4") or {}).get("reason") or "")
+            for record in records
+            if _snap4_rung(record) == state
+        }
+    )
+    return {
+        "state": state,
+        "reason": "; ".join(reason for reason in reasons if reason),
+        "observed": observed,
+        "hostsChecked": len(records),
     }
 
 
@@ -927,6 +1309,10 @@ def decide(record: dict[str, Any]) -> tuple[str, str]:
             ),
             ESCALATION_ROOT: "mlxconfig ran with root rights and still reported no mode",
         }.get(str(record.get("modeEscalation")), "mlxconfig needs root")
+        if "is not installed" in str(record.get("modeError") or ""):
+            # A missing tool is not a privilege problem. Saying sudo was
+            # refused here would send an operator after the wrong fix.
+            privilege = "install NVIDIA MFT, which provides mlxconfig, to read it"
         return (
             STATE_INCOMPLETE,
             "BlueField-3 is present but its mode could not be read "
@@ -968,6 +1354,7 @@ def gather(
         "host": env.get("NODE_NAME") or socket.gethostname(),
         "scanComplete": pci["scanComplete"],
         "scanError": pci["scanError"],
+        "pciSource": pci.get("pciSource", "lspci"),
         "bluefield3Present": bool(devices) if pci["scanComplete"] else None,
         "bluefieldDevices": devices,
         "virtioPciDevices": pci["virtioPciDevices"],
@@ -985,6 +1372,13 @@ def gather(
         "lineEvidence": version.get("lineEvidence") or [],
     }
     record["state"], record["reason"] = decide(record)
+    on_dpu = bool(version.get("versionSource")) and not str(version["versionSource"]).startswith("rshim-ssh/")
+    if record["bluefield3Present"] and record["mode"] != "nic":
+        snap_read = collect_snap4(rshim, on_dpu=on_dpu, env=env, runner=runner)
+    else:
+        # No DPU, or its Arm cores are off: there is nothing to reach.
+        snap_read = {"attempted": False, "reason": "no DPU Arm side to read"}
+    record["snap4"] = decide_snap4(record, snap_read)
     return record
 
 
@@ -1117,6 +1511,7 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
                 "bluefield3Present": None,
                 "rshimHostAccess": {},
             },
+            "snap4": summarize_snap4(records),
         }
 
     observed = observed_controllers(records)
@@ -1170,6 +1565,7 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         "observedControllers": observed,
         "worstObserved": worst_observed(observed),
         "isolationEvidence": isolation_evidence(records),
+        "snap4": summarize_snap4(records),
     }
 
 
@@ -1229,6 +1625,16 @@ def apply_coverage_gap(summary: dict[str, Any], errors: list[str]) -> dict[str, 
         evidence["scanComplete"] = False
         evidence["scanError"] = f"the per-node scan did not reach every host ({gap})"
         summary["isolationEvidence"] = evidence
+
+    # SNAP-4 is per DPU too, so the same gap withdraws its clean claims. The
+    # readings in `observed` stay, so a below-minimum DPU is still a finding.
+    snap4 = dict(summary.get("snap4") or {})
+    if snap4 and gap_can_weaken(snap4.get("state"), ladder=SNAP4_LADDER, gap_rung=SNAP4_GAP_RUNG):
+        snap4["state"] = SNAP4_GAP_RUNG
+        prior_snap = str(snap4.get("reason") or "").strip().rstrip(";")
+        snap_note = f"the per-node scan did not reach every host ({gap})"
+        snap4["reason"] = f"{prior_snap}; {snap_note}" if prior_snap else snap_note
+        summary["snap4"] = snap4
     return summary
 
 
@@ -1323,6 +1729,19 @@ def _isolation_proof_rung(record: dict[str, Any]) -> str:
     return ISO_REACHABLE if _isolation_reachable(record) else ISO_POSTURE_GAP
 
 
+def _isolation_platform_mode(records: list[dict[str, Any]]) -> str:
+    unrestricted = [
+        record
+        for record in records
+        if (record.get("rshimHostAccess") or {}).get("rshimRestricted") is False
+        or _isolation_path_reachable(record)
+    ]
+    if not unrestricted:
+        return "unknown"
+    modes = {str(record.get("mode") or "unknown").lower() for record in unrestricted}
+    return "nic" if modes == {"nic"} else ("dpu" if "dpu" in modes else "unknown")
+
+
 def isolation_evidence(records: list[dict[str, Any]]) -> dict[str, Any]:
     """The one host record the DPU host-isolation verdict is graded from.
 
@@ -1345,6 +1764,12 @@ def isolation_evidence(records: list[dict[str, Any]]) -> dict[str, Any]:
         "bluefield3Present": chosen.get("bluefield3Present"),
         "modeError": chosen.get("modeError"),
         "rshimHostAccess": chosen.get("rshimHostAccess") or {},
+        # NIC mode is host-trusted by design and NVIDIA does not support the
+        # zero-trust (mlxprivhost restricted) profile there, so the verdict
+        # grades an unrestricted RShim differently in NIC mode. It is "nic" only
+        # when every host whose RShim is unrestricted read NIC mode; one host in
+        # DPU mode, or one whose mode is unread, keeps the DPU-mode grade.
+        "platformMode": _isolation_platform_mode(records),
         "unassessedHosts": sorted(
             str(record.get("host") or "")
             for record in records
@@ -1466,7 +1891,11 @@ if [ "$slot_count" -gt 1 ]; then
   printf '@@MODE_ERROR@@\t%s\n' "Multiple BlueField-3 PCI devices require per-device mode evidence"
 elif [ -n "$slot" ] && command -v mlxconfig >/dev/null 2>&1; then
   echo @@MLXCONFIG_BEGIN@@
-  mlxconfig -e -d "$slot" q 2>&1
+  mode_out=$(mlxconfig -e -d "$slot" q INTERNAL_CPU_MODEL INTERNAL_CPU_OFFLOAD_ENGINE INTERNAL_CPU_RSHIM 2>&1)
+  case "$mode_out" in
+    *"Unknown Parameter"*|*"support INTERNAL_CPU"*) mode_out=$(mlxconfig -e -d "$slot" q 2>&1) ;;
+  esac
+  printf '%s\n' "$mode_out"
   echo @@MLXCONFIG_END@@
 elif [ -n "$slot" ]; then
   printf '@@MODE_ERROR@@\t%s\n' "mlxconfig is not installed"
@@ -1572,6 +2001,11 @@ def record_from_k8s(node: str, parsed: dict[str, Any]) -> dict[str, Any]:
         "lineEvidence": [parsed["virtnet"]] if version else [],
     }
     record["state"], record["reason"] = decide(record)
+    # The driver pod reads the host, not the DPU, so SNAP-4 stays unread here.
+    record["snap4"] = decide_snap4(
+        record,
+        {"attempted": False, "reason": "the Kubernetes driver-pod read does not reach the DPU"},
+    )
     return record
 
 
@@ -1782,6 +2216,7 @@ def collector_summary(payload: dict[str, Any]) -> dict[str, Any]:
         "virtioNetWorstObservedHost": worst.get("host") or "",
         "virtioNetObservedJson": json.dumps(observed, sort_keys=True),
         "dpuIsolationJson": json.dumps(summary.get("isolationEvidence") or {}, sort_keys=True),
+        "snap4Json": json.dumps(summary.get("snap4") or {}, sort_keys=True),
         "state": state,
         "reason": summary.get("reason") or "",
     }

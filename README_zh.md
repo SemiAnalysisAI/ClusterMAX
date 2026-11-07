@@ -129,6 +129,7 @@ audit_profile:
   - securityVersions.connectxFirmware.status
   - securityVersions.dcgm.status
   - securityVersions.dcgmExporter.status
+  - securityVersions.snap4Container.status
   - securityVersions.virtioNetBluefield.status
   - securityVersions.virtioNetBluefield.exposure
   - securityVersions.dpuHostIsolation.status

@@ -1549,6 +1549,57 @@ def _virtio_net_bluefield(audit: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
+def _snap4_container(audit: dict[str, Any]) -> tuple[str, str, str]:
+    """Grade the BlueField SNAP-4 container against its release-train minimum.
+
+    SNAP-4 runs on the DPU Arm cores, so the audit reads it on the same DPU
+    path as the virtio-net controller. The audit already graded every reading
+    against its own train; this only words the result.
+    """
+    verdict = _get(audit, "securityVersions.snap4Container")
+    if not isinstance(verdict, dict):
+        return (
+            WARNING,
+            "not collected",
+            "The BlueField SNAP-4 read was unavailable, so exposure cannot be ruled out.",
+        )
+    status = str(verdict.get("status") or "unknown").lower()
+    version = _display(verdict.get("version"))
+    minimum = _display(verdict.get("minimum"))
+    detail = str(verdict.get("detail") or "").strip()
+    if status in {"not_applicable", "not-applicable"}:
+        state = str(verdict.get("state") or "")
+        observed = {
+            "not_installed": "no SNAP-4 container on any reached DPU",
+            "not_running": "no SNAP-4 running; card in NIC mode",
+        }.get(state, "no BlueField DPU present")
+        return NOT_APPLICABLE, observed, detail or "SNAP-4 does not apply to this cluster."
+    if status == "pass":
+        grace_active, grace_note = _grace_details(verdict)
+        if grace_active:
+            return (
+                PASS,
+                f"observed version {version}; minimum version {minimum} during vendor update window",
+                detail or grace_note,
+            )
+        return (
+            PASS,
+            f"observed version {version}; minimum version {minimum}",
+            "The SNAP-4 container is at or above the fix for its release train.",
+        )
+    if status == "fail":
+        return (
+            CRITICAL,
+            f"observed version {version}; minimum version {minimum}",
+            detail or "The SNAP-4 container is below the fix for its release train.",
+        )
+    return (
+        WARNING,
+        f"observed version {version}; minimum version {minimum}",
+        detail or "The BlueField SNAP-4 container version requires provider attestation.",
+    )
+
+
 def _dpu_host_isolation(audit: dict[str, Any]) -> tuple[str, str, str]:
     """Grade whether the host can reach the DPU control plane over RShim.
 
@@ -1578,6 +1629,20 @@ def _dpu_host_isolation(audit: dict[str, Any]) -> tuple[str, str, str]:
             PASS,
             f"RShim restricted ({observed})",
             "The host cannot reach the DPU control plane over RShim.",
+        )
+    if status == "fail" and str(verdict.get("platformMode") or "").lower() == "nic":
+        # NVIDIA does not support the zero-trust mlxprivhost profile in NIC
+        # mode, so the fix is the INTERNAL_CPU_RSHIM firmware restriction.
+        return (
+            CRITICAL,
+            f"RShim reachable from the host, NIC mode ({observed})",
+            "The BlueField is in NIC mode and its firmware lets the host open "
+            "RShim, so a tenant with host root can load the RShim driver and "
+            "reach the DPU boot and console interface. Keep tenant host root off "
+            "the BlueField, or re-image the card from a known-good BFB per "
+            "tenant; `mlxconfig -d <device> s INTERNAL_CPU_RSHIM=1` and a power "
+            "cycle is real only when a tenant cannot set it back. Do not apply "
+            "mlxprivhost zero-trust in NIC mode.",
         )
     if status == "fail":
         return (
@@ -2257,6 +2322,24 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
         ),
         _dpu_host_isolation,
     ),
+    CheckSpec(
+        "snap4-container",
+        "BlueField SNAP-4 container",
+        "A SNAP-4 container below the fix for its release train exposes the "
+        "DPU storage emulation service to the flaws in NVIDIA's SNAP-4 bulletin.",
+        "Update the SNAP-4 container to the fixed release for its train, or to "
+        "a newer train. A card in NIC mode is not running SNAP-4 now, and a "
+        "switch to DPU mode starts it.",
+        # The bulletin link and CVEs come from the minimum table (see
+        # MINIMUM_BOUND_CHECKS).
+        _references(
+            (
+                "NVIDIA product security",
+                "https://www.nvidia.com/en-us/security/",
+            ),
+        ),
+        _snap4_container,
+    ),
 )
 
 
@@ -2312,6 +2395,14 @@ MINIMUM_BOUND_CHECKS: dict[str, tuple[str, str, str]] = {
         "line. A card in NIC mode is not running the controller now, and a "
         "switch to DPU mode activates it.",
         "NVIDIA BlueField VIRTIO-Net bulletin",
+    ),
+    "snap4-container": (
+        "snap4Container",
+        # Per release train, so no single minimum to name.
+        "Update the SNAP-4 container to the fixed release for its train, or to "
+        "a newer train. A card in NIC mode is not running SNAP-4 now, and a "
+        "switch to DPU mode starts it.",
+        "NVIDIA Networking SNAP4 bulletin",
     ),
 }
 
@@ -2519,6 +2610,7 @@ def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
         "docker": "securityVersions.docker",
         "connectx-firmware": "securityVersions.connectxFirmware",
         "virtio-net-bluefield": "securityVersions.virtioNetBluefield",
+        "snap4-container": "securityVersions.snap4Container",
         "fragnesia": "security.fragnesia",
         "guest-kernel": "security.guestKernel.ubuntuCveGracePeriods",
     }

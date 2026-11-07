@@ -507,6 +507,12 @@ def _bluefield_observed(audit: dict[str, Any]) -> bool:
     )
 
 
+def _isolation_nic_mode(audit: dict[str, Any]) -> bool:
+    """True when every host with an unrestricted RShim read NIC mode."""
+    mode = nested_get(audit, "securityVersions", "dpuHostIsolation", "platformMode")
+    return str(mode or "").strip().lower() == "nic"
+
+
 def _bluefield_absence_proven(audit: dict[str, Any]) -> bool:
     """True only when a completed inventory found no BlueField device."""
     isolation = nested_get(audit, "securityVersions", "dpuHostIsolation")
@@ -751,6 +757,22 @@ RULES: tuple[Rule, ...] = (
         CONFIG,
         _status_is("unknown"),
     ),
+    # SNAP-4 runs on the DPU Arm side, so it is graded only where the DPU is
+    # part of the audited fabric, the same scope as the virtio-net controller.
+    Rule(
+        "securityVersions.snap4Container.status",
+        "BlueField SNAP-4 container below security minimum",
+        VERSION,
+        _status_is("fail"),
+        harnesses=SCALE_OUT_HARNESSES,
+    ),
+    Rule(
+        "securityVersions.snap4Container.status",
+        "BlueField SNAP-4 container version requires provider attestation",
+        CONFIG,
+        _status_is("unknown"),
+        harnesses=SCALE_OUT_HARNESSES,
+    ),
     # --- BlueField DPU ----------------------------------------------------
     # The controller firmware check has four reportable states, not two. A
     # below-minimum controller in DPU mode is running and fails. The same firmware
@@ -857,6 +879,18 @@ RULES: tuple[Rule, ...] = (
         "--disable_counter_rd --disable_port_owner",
         CONFIG,
         _status_is("fail"),
+        guard=lambda audit: not _isolation_nic_mode(audit),
+        harnesses=SCALE_OUT_HARNESSES,
+    ),
+    Rule(
+        "securityVersions.dpuHostIsolation.status",
+        "Host side can open RShim to the BlueField (NIC mode, "
+        "INTERNAL_CPU_RSHIM=0); keep tenant host root off the card or "
+        "re-image it per tenant, not mlxprivhost, which NVIDIA does not "
+        "support in NIC mode",
+        CONFIG,
+        _status_is("fail"),
+        guard=_isolation_nic_mode,
         harnesses=SCALE_OUT_HARNESSES,
     ),
     Rule(
@@ -1640,6 +1674,8 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "securityVersions.connectxFirmware.status": "security-connectx-firmware",
     "securityVersions.dcgm.status": None,
     "securityVersions.dcgmExporter.status": None,
+    # CLI-only until the criteria catalog has a SNAP-4 criterion.
+    "securityVersions.snap4Container.status": None,
     "securityVersions.virtioNetBluefield.status": "security-virtio-net-bluefield",
     "securityVersions.virtioNetBluefield.exposure": "security-virtio-net-bluefield",
     "securityVersions.dpuHostIsolation.status": "security-dpu-host-isolation",
@@ -1738,6 +1774,7 @@ _COMPONENT_NAMES = {
     "nvidiaContainerToolkit": "NVIDIA Container Toolkit",
     "nvidiaDriver": "NVIDIA driver",
     "runc": "runc",
+    "snap4Container": "BlueField SNAP-4 container",
     "virtioNetBluefield": "BlueField VIRTIO-Net controller",
 }
 
@@ -1915,11 +1952,31 @@ def _finding_guidance(
             "mlxprivhost -d <device> r --disable_rshim --disable_tracer "
             "--disable_counter_rd --disable_port_owner"
         )
-        recommendation = (
-            "Apply zero-trust mode on every affected BlueField with "
-            f"`{remediation}`. Then verify that `INTERNAL_CPU_RSHIM=1`, "
-            "`/dev/rshim0` is absent, and `tmfifo_net0` is absent."
+        nic_mode = (
+            isinstance(isolation, dict)
+            and str(isolation.get("platformMode") or "").strip().lower() == "nic"
         )
+        if nic_mode:
+            # NVIDIA does not support the zero-trust profile in NIC mode.
+            recommendation = (
+                "Two ways to make this real isolation, not just a setting a "
+                "tenant can undo. Either keep tenant host root off the "
+                "BlueField (sudo -M, mdev-coldplug, or an IOMMU/ACS isolation "
+                "of the PCI function), so only the provider can reach it. Or "
+                "accept that a tenant can own the card and re-image it from a "
+                "known-good BFB before each new tenant and after each one "
+                "leaves. `mlxconfig -d <device> s INTERNAL_CPU_RSHIM=1` plus a "
+                "power cycle is real only under the first path; NVIDIA does not "
+                "support the zero-trust mlxprivhost profile in NIC mode. Then "
+                "verify that `INTERNAL_CPU_RSHIM=1`, `/dev/rshim0` is absent, "
+                "and `tmfifo_net0` is absent."
+            )
+        else:
+            recommendation = (
+                "Apply zero-trust mode on every affected BlueField with "
+                f"`{remediation}`. Then verify that `INTERNAL_CPU_RSHIM=1`, "
+                "`/dev/rshim0` is absent, and `tmfifo_net0` is absent."
+            )
     elif (
         rule.key == "securityVersions.dpuHostIsolation.status"
         and str(value).strip().lower() == "unknown"

@@ -112,6 +112,9 @@ _PASS_ASSESSMENTS = {
     "securityVersions.virtioNetBluefield.status": (
         "The BlueField VIRTIO-Net controller meets the published security minimum."
     ),
+    "securityVersions.snap4Container.status": (
+        "The BlueField SNAP-4 container meets the published security minimum for its release train."
+    ),
     "securityVersions.dpuHostIsolation.status": (
         "The host cannot reach the BlueField DPU control plane through the checked interfaces."
     ),
@@ -299,6 +302,7 @@ def _title(key: str) -> str:
         "Rdma": "RDMA",
         "Hca": "HCA",
         "Dpu": "DPU",
+        "Snap4": "SNAP-4",
         "Dcgm": "DCGM",
         "Smmu": "SMMU",
         "Iommu": "IOMMU",
@@ -372,6 +376,11 @@ _REPRODUCTION_COMMANDS = {
         "from the Kubernetes control plane: `kubectl get pods -A -o "
         "custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,"
         "IMAGES:.spec.containers[*].image' | grep -i dcgm-exporter`"
+    ),
+    "securityVersions.snap4Container.status": (
+        "on each BlueField-3 DPU in DPU mode (locally or over RShim with "
+        "`ssh ubuntu@192.168.100.2`): `sudo crictl ps` and `sudo crictl images "
+        "| grep doca_snap`, or `grep -i 'image:.*doca_snap' /etc/kubelet.d/*`"
     ),
     "securityVersions.dpuHostIsolation.status": (
         "on every BlueField GPU worker: read `INTERNAL_CPU_RSHIM` with "

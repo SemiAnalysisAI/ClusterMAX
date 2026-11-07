@@ -453,7 +453,7 @@ version_meets_minimum() {
 # which grades as a warning, instead of "fail", which grades as critical: a
 # machine proven vulnerable would be softened because a different machine was
 # unreadable.
-VIRTIO_NET_SUMMARY_KEYS="virtioNet virtioNetLine virtioNetMode virtioNetSource virtioNetReason dpuIsolationJson state virtioNetWorstObserved virtioNetWorstObservedLine virtioNetWorstObservedMode virtioNetWorstObservedHost virtioNetObservedJson"
+VIRTIO_NET_SUMMARY_KEYS="virtioNet virtioNetLine virtioNetMode virtioNetSource virtioNetReason dpuIsolationJson state virtioNetWorstObserved virtioNetWorstObservedLine virtioNetWorstObservedMode virtioNetWorstObservedHost virtioNetObservedJson snap4Json"
 
 # virtio_net_check_facts - resolve the BlueField VIRTIO-Net controller state.
 #
@@ -464,6 +464,8 @@ VIRTIO_NET_SUMMARY_KEYS="virtioNet virtioNetLine virtioNetMode virtioNetSource v
 #   VIRTIO_NET_SOURCE         --virtio-net-source  (how the version was read)
 #   VIRTIO_NET_REASON         --virtio-net-reason  (why it was not read)
 #   VIRTIO_NET_ISOLATION_JSON --dpu-isolation-json (the RShim posture evidence)
+#   SNAP4_JSON                --snap4-json         (the SNAP-4 container rollup,
+#                                                   read on the same DPU path)
 # plus VIRTIO_NET_STATE for the operator log.
 #
 # The check self-dispatches per node, because a DPU is per node and a head-node
@@ -490,6 +492,7 @@ virtio_net_check_facts() {
     VIRTIO_NET_WORST_MODE=""
     VIRTIO_NET_WORST_HOST=""
     VIRTIO_NET_OBSERVED_JSON=""
+    SNAP4_JSON=""
 
     local check="${WORKLOAD_DIR:-$AUDIT_COMMON_DIR}/checks/fabric/virtio-net-check.py"
     [[ -f "$check" ]] || check="${AUDIT_COMMON_DIR}/checks/fabric/virtio-net-check.py"
@@ -542,6 +545,7 @@ for key in sys.argv[1:]:
             9) VIRTIO_NET_WORST_MODE="$line" ;;
             10) VIRTIO_NET_WORST_HOST="$line" ;;
             11) VIRTIO_NET_OBSERVED_JSON="$line" ;;
+            12) SNAP4_JSON="$line" ;;
         esac
         index=$((index + 1))
     done <<< "$parsed"
@@ -688,6 +692,7 @@ build_security_version_audit() {
         VIRTIO_NET_WORST_HOST=""
         VIRTIO_NET_OBSERVED_JSON=""
         VIRTIO_NET_ISOLATION_JSON=""
+        SNAP4_JSON='{"state":"not_applicable","reason":"scale-out checks do not apply to standalone","observed":[]}'
     else
         virtio_net_check_facts
     fi
@@ -713,9 +718,10 @@ build_security_version_audit() {
         && args+=(--virtio-net-observed-json "$VIRTIO_NET_OBSERVED_JSON")
     [[ -n "$VIRTIO_NET_ISOLATION_JSON" ]] \
         && args+=(--dpu-isolation-json "$VIRTIO_NET_ISOLATION_JSON")
+    [[ -n "$SNAP4_JSON" ]] && args+=(--snap4-json "$SNAP4_JSON")
 
     if [[ ! -f "$policy" ]] || ! command -v python3 >/dev/null 2>&1; then
-        printf '%s\n' '{"amdDriver":{"status":"unknown"},"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"}}'
+        printf '%s\n' '{"amdDriver":{"status":"unknown"},"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"},"snap4Container":{"status":"unknown"}}'
         return 0
     fi
 
@@ -760,7 +766,7 @@ build_security_version_audit() {
     done <<< "$check_output"
 
     python3 "$policy" "${args[@]}" 2>/dev/null \
-        || printf '%s\n' '{"amdDriver":{"status":"unknown"},"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"}}'
+        || printf '%s\n' '{"amdDriver":{"status":"unknown"},"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"},"snap4Container":{"status":"unknown"}}'
 }
 
 amd_gpu_check_present() {

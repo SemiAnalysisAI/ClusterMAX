@@ -437,6 +437,199 @@ def dcgm_exporter_verdict(version: str) -> Verdict:
     return _minimum_kind_verdict(version, "dcgmExporter", label="DCGM Exporter")
 
 
+# ---------------------------------------------------------------------------
+# SNAP-4 container (NVIDIA bulletin a_id 5744)
+# ---------------------------------------------------------------------------
+
+SNAP4_COMPONENT = "snap4Container"
+# Rollup states where every host was either read or cannot run SNAP-4 now, so a
+# set of passing readings speaks for the cluster.
+SNAP4_COMPLETE_STATES = frozenset({"version", "not_installed", "not_running", "not_applicable"})
+
+
+def _snap4_trains() -> tuple[dict[str, str], str, dict[str, Any]]:
+    """(train -> fixed version, minimum text, component block). Raises on a missing table."""
+    block = minimum_versions.component(SNAP4_COMPONENT)
+    lines = block.get("lines") if isinstance(block.get("lines"), dict) else {}
+    fixed = {
+        str(train): str(entry["fixed"])
+        for train, entry in lines.items()
+        if isinstance(entry, dict) and numeric_version(str(entry.get("fixed") or "")) is not None
+    }
+    ordered = sorted(fixed.items(), key=lambda item: numeric_version(item[1]) or ())
+    text = ", ".join(f"{version} ({train} train)" for train, version in ordered)
+    return fixed, text or MINIMUMS_UNAVAILABLE, block
+
+
+def _snap4_minimum_text() -> str:
+    try:
+        return _snap4_trains()[1]
+    except MinimumDataError:
+        return MINIMUMS_UNAVAILABLE
+
+
+def snap4_verdict(version: str) -> tuple[Verdict, str | None]:
+    """Grade one SNAP-4 version against the fixed version of its own train.
+
+    NVIDIA fixes SNAP-4 per major.minor train ("SNAP-4.9.1, SNAP4 4.5.5"), and
+    the bulletin marks everything below the newest fix as affected except the
+    fixed trains themselves. So a version on a listed train is held to that
+    train's fix, a version newer than every fix carries them all, and a version
+    between or below the trains has no fix of its own and must move to the next
+    fixed release above it. Returns the verdict and the train its minimum came
+    from, which selects the grace window.
+    """
+    try:
+        fixed, minimum_text, block = _snap4_trains()
+    except MinimumDataError as exc:
+        return _minimums_unavailable(version, exc), None
+    advisory = _advisory(block)
+    cited = _cve_detail(block, "SNAP-4 security bulletin minimum")
+    if not fixed:
+        return (
+            _unknown(version, MINIMUMS_UNAVAILABLE, advisory, "snap4Container lists no fixed release train"),
+            None,
+        )
+    observed = numeric_version(version, parts=3)
+    if observed is None:
+        return _unknown(version, minimum_text, advisory, f"SNAP-4 version {version!r} is unreadable"), None
+    train = f"{observed[0]}.{observed[1]}"
+    if train in fixed:
+        minimum = fixed[train]
+        passed = observed >= (numeric_version(minimum, parts=3) or ())
+        detail = (
+            f"Meets the {cited} for the SNAP-4 {train} train ({minimum})"
+            if passed
+            else f"Below the {cited} for the SNAP-4 {train} train ({minimum})"
+        )
+        return Verdict(version, "pass" if passed else "fail", minimum, advisory, detail), train
+    ordered = sorted(fixed.items(), key=lambda item: numeric_version(item[1], parts=3) or ())
+    highest_train, highest = ordered[-1]
+    if observed > (numeric_version(highest, parts=3) or ()):
+        return (
+            Verdict(
+                version,
+                "pass",
+                highest,
+                advisory,
+                f"Newer than every fixed SNAP-4 train in the {cited} (newest fix {highest}), "
+                "so it carries those fixes",
+            ),
+            highest_train,
+        )
+    above = next(
+        (item for item in ordered if (numeric_version(item[1], parts=3) or ()) > observed),
+        ordered[-1],
+    )
+    return (
+        Verdict(
+            version,
+            "fail",
+            above[1],
+            advisory,
+            f"Below the {cited}: the SNAP-4 {train} train has no fixed release, so the "
+            f"nearest fix is {above[1]} ({above[0]} train)",
+        ),
+        above[0],
+    )
+
+
+def snap4_container_result(summary: dict[str, Any] | None) -> dict[str, object]:
+    """Grade the SNAP-4 rollup the virtio-net check produced.
+
+    Every reading is graded on its own train and the worst one decides. A
+    below-minimum reading fails whatever the coverage, and a passing reading
+    clears the cluster only when every host was read or cannot run SNAP-4 now.
+    """
+    advisory = _component_advisory(SNAP4_COMPONENT)
+    minimum_text = _snap4_minimum_text()
+    if not isinstance(summary, dict) or not summary:
+        return asdict(
+            _unknown(
+                "unknown",
+                minimum_text,
+                advisory,
+                "The SNAP-4 container read did not run, so its version was not observed",
+            )
+        )
+    state = str(summary.get("state") or "incomplete")
+    reason = str(summary.get("reason") or "").strip()
+    observed = [entry for entry in summary.get("observed") or [] if isinstance(entry, dict) and entry.get("version")]
+    complete = state in SNAP4_COMPLETE_STATES
+
+    def finish(verdict: Verdict, selector: str | None, entry: dict[str, Any] | None) -> dict[str, object]:
+        record = _verdict_record(verdict, SNAP4_COMPONENT if selector else None, selector)
+        record["state"] = state
+        if entry:
+            record["host"] = entry.get("host")
+            record["source"] = entry.get("source")
+        if observed:
+            record["observed"] = observed
+        return record
+
+    graded = [(entry, *snap4_verdict(str(entry["version"]))) for entry in observed]
+    for status in ("fail", "unknown"):
+        hits = [item for item in graded if item[1].status == status]
+        if not hits:
+            continue
+        entry, verdict, selector = min(hits, key=lambda item: numeric_version(item[1].version, parts=3) or ())
+        detail = f"{verdict.detail}, read on {entry.get('host') or 'a host'} via {entry.get('source') or 'unknown'}"
+        if not complete and status == "fail":
+            detail += f". Not every DPU was read ({reason or state})"
+        return finish(replace(verdict, detail=detail), selector if status == "fail" else None, entry)
+    if graded:
+        entry, verdict, selector = min(graded, key=lambda item: numeric_version(item[1].version, parts=3) or ())
+        if complete:
+            return finish(verdict, selector, entry)
+        return finish(
+            _unknown(
+                verdict.version,
+                verdict.minimum,
+                verdict.advisory,
+                f"Every SNAP-4 version read meets its train's fix, but not every DPU was read: {reason or state}",
+            ),
+            None,
+            entry,
+        )
+    if state == "not_applicable":
+        verdict = Verdict(
+            "not-installed",
+            "not_applicable",
+            minimum_text,
+            advisory,
+            # The standalone harness says why it skipped the scan; a fleet
+            # scan that found no BlueField-3 says that instead.
+            "No BlueField-3 DPU is present in the completed scan, so SNAP-4 does not apply"
+            if not reason or reason.startswith("no BlueField-3")
+            else f"SNAP-4 does not apply: {reason}",
+        )
+    elif state == "not_installed":
+        verdict = Verdict(
+            "not-installed",
+            "not_applicable",
+            minimum_text,
+            advisory,
+            "Every reached BlueField-3 DPU runs no SNAP-4 container and no kubelet manifest names one",
+        )
+    elif state == "not_running":
+        verdict = Verdict(
+            "not-running",
+            "not_applicable",
+            minimum_text,
+            advisory,
+            "BlueField-3 is in NIC mode, so the DPU Arm cores that run SNAP-4 are off. "
+            "Recheck SNAP-4 before switching back to DPU mode.",
+        )
+    else:
+        verdict = _unknown(
+            "unknown",
+            minimum_text,
+            advisory,
+            reason or "No DPU reported a SNAP-4 container version",
+        )
+    return finish(verdict, None, None)
+
+
 def _meets_ladder_minimum(version: str, observed: tuple[int, ...], minimum_version: str) -> bool:
     """Compare one observed release against its branch minimum in the ladder.
 
@@ -813,6 +1006,26 @@ VERSION_REASON_NOT_OBSERVED = "not-observed"
 MLXPRIVHOST_REMEDIATION = (
     "mlxprivhost -d <device> r --disable_rshim --disable_tracer "
     "--disable_counter_rd --disable_port_owner"
+)
+# NIC mode is host-trusted by design, and NVIDIA does not support the zero-trust
+# (mlxprivhost restricted) profile there: "Operating in NIC Mode with Zero Trust
+# (Restricted) configuration is not supported and may lead to undefined
+# behavior" (BlueField BSP 4.10). The supported NIC-mode restriction is the
+# INTERNAL_CPU_RSHIM firmware parameter, which takes effect after a power cycle.
+NIC_MODE_RSHIM_REMEDIATION = (
+    "mlxconfig -d <device> s INTERNAL_CPU_RSHIM=1, then a cold reboot "
+    "(power cycle) of the host"
+)
+# INTERNAL_CPU_RSHIM is itself just a card setting, so a tenant with host root
+# can set it back. It is real isolation only when the host that gets sudo is the
+# only one that can reach the card. Where a tenant has that privilege, the two
+# real fixes are on the provider side: keep the tenant's host root off the
+# BlueField (sudo -M, mdev-coldplug or an IOMMU/ACS isolation of the PCI
+# function), or re-image the card from a known-good BFB before each new tenant
+# and after each one leaves.
+NIC_MODE_TENANT_SUDO_REMEDIATION = (
+    "Keep tenant host root off the BlueField, or re-image the card from a "
+    "known-good BFB before each new tenant and after each one leaves"
 )
 DPU_ISOLATION_REQUIREMENT = (
     "RShim restricted (INTERNAL_CPU_RSHIM=1), no /dev/rshim0, no tmfifo_net0"
@@ -1365,6 +1578,13 @@ def dpu_host_isolation_verdict(evidence: dict[str, Any] | None = None) -> Verdic
     # `restricted is False` is deliberately NOT part of that proof: it comes
     # from mlxconfig reading INTERNAL_CPU_RSHIM, which needs the device the scan
     # finds, so it cannot be trusted ahead of the scan. It keeps its place below.
+    nic_mode = str(facts.get("platformMode") or "").strip().lower() == "nic"
+    remedy = (
+        f"Restrict RShim with `{NIC_MODE_RSHIM_REMEDIATION}`; NVIDIA does not "
+        "support the zero-trust (mlxprivhost) profile in NIC mode."
+        if nic_mode
+        else f"Provider policy may require `{MLXPRIVHOST_REMEDIATION}`."
+    )
     if reachable:
         verdict = Verdict(
             observed,
@@ -1374,8 +1594,7 @@ def dpu_host_isolation_verdict(evidence: dict[str, Any] | None = None) -> Verdic
             f"The host exposes management interface paths ({', '.join(reachable)}), "
             f"which fails the zero-trust no-host-interface policy. This does not prove usable "
             f"RShim access or DPU login. Verify device permissions, SECURE_NIC_MODE, "
-            f"DROP_MODE and RShim ownership before remediation. Provider policy "
-            f"may require `{MLXPRIVHOST_REMEDIATION}`.",
+            f"DROP_MODE and RShim ownership before remediation. {remedy}",
         )
         if not scan_complete:
             # Name the gap without weakening the grade. The path is proven; what
@@ -1408,6 +1627,33 @@ def dpu_host_isolation_verdict(evidence: dict[str, Any] | None = None) -> Verdic
             "No BlueField DPU is present in the completed device scan",
         )
 
+    if restricted is False and nic_mode:
+        # NIC mode is host-trusted by design, but a tenant with host root can
+        # still load the RShim driver and open the channel: the RShim PCIe
+        # function is exposed and nothing in firmware blocks it. Through it the
+        # tenant can push a boot stream that outlives their tenancy, so this
+        # stays a fail. Only the fix differs, because NVIDIA does not support the
+        # zero-trust (mlxprivhost) profile in NIC mode.
+        return _isolation_coverage_caveat(
+            Verdict(
+                observed,
+                "fail",
+                requirement,
+                advisory,
+                "The BlueField is in NIC mode with INTERNAL_CPU_RSHIM=0, so the "
+                "firmware lets the host open RShim. No /dev/rshim0 or tmfifo_net0 "
+                "is present, so no RShim driver has opened it yet, but a host root "
+                "can load one and reach the DPU boot and console interface. No DPU "
+                "login or escape was attempted. NVIDIA does not support the "
+                "zero-trust (mlxprivhost) profile in NIC mode, so restrict RShim "
+                f"with `{NIC_MODE_RSHIM_REMEDIATION}`. That only isolates the "
+                "card if a tenant's host root cannot re-open it: the setting is "
+                "card state, so a tenant with the same privilege can set it "
+                "back. Where tenants get host root, use "
+                f"`{NIC_MODE_TENANT_SUDO_REMEDIATION}` instead.",
+            ),
+            facts.get("unassessedHosts"),
+        )
     if restricted is False:
         return _isolation_coverage_caveat(
             Verdict(
@@ -1474,7 +1720,12 @@ def dpu_host_isolation_result(evidence: dict[str, Any] | None = None) -> dict[st
             for host in (facts.get("unassessedHosts") or [])
             if str(host).strip()
         ],
-        "remediation": MLXPRIVHOST_REMEDIATION,
+        "platformMode": facts.get("platformMode") or "unknown",
+        "remediation": (
+            NIC_MODE_RSHIM_REMEDIATION
+            if str(facts.get("platformMode") or "").strip().lower() == "nic"
+            else MLXPRIVHOST_REMEDIATION
+        ),
     }
 
 
@@ -1739,6 +1990,7 @@ def evaluate(
     nvidia_gpu_present: bool | None = None,
     amd_model: str = "unknown",
     amd_driver_evidence: dict[str, Any] | None = None,
+    snap4: dict[str, Any] | None = None,
 ) -> dict[str, object]:
     if gpu_vendor.lower() == "nvidia":
         driver_result = nvidia_driver_verdict(driver)
@@ -1848,6 +2100,7 @@ def evaluate(
         "dcgmExporter": _verdict_record(
             dcgm_exporter_result, "dcgmExporter"
         ),
+        "snap4Container": snap4_container_result(snap4),
         "floorsMetadata": minimums_metadata(),
     }
 
@@ -1942,6 +2195,11 @@ def main() -> int:
         help="virtio-net check record JSON carrying scanComplete, bluefield3Present, "
         "and rshimHostAccess",
     )
+    parser.add_argument(
+        "--snap4-json",
+        default=None,
+        help="the virtio-net check's SNAP-4 rollup (state, reason, observed)",
+    )
     args = parser.parse_args()
     print(
         json.dumps(
@@ -1971,6 +2229,7 @@ def main() -> int:
                 nvidia_gpu_present=False if args.nvidia_gpu_absent else None,
                 dcgm=args.dcgm,
                 dcgm_exporter=args.dcgm_exporter,
+                snap4=_parse_isolation_json(args.snap4_json),
             ),
             sort_keys=True,
         )

@@ -21,6 +21,7 @@ _COMPONENT_ANCHORS = frozenset(
         "rocm",
         "dcgm",
         "dcgmExporter",
+        "snap4Container",
         "ubuntuNoble",
     }
 )
@@ -33,6 +34,7 @@ _SECURITY_CHECK_COMPONENTS = {
     "docker": "docker",
     "connectx-firmware": "connectxFirmware",
     "virtio-net-bluefield": "virtioNetBluefield",
+    "snap4-container": "snap4Container",
     "fragnesia": "ubuntuNoble",
 }
 
