@@ -3098,7 +3098,7 @@
           "kernelGroup": "linuxCve2026_98490",
           "package": "linux",
           "priority": "high",
-          "status": "needed"
+          "status": "pending"
         },
         "linuxCve2026_98490Allwinner5_19": {
           "allowUnfixed": true,
@@ -8567,7 +8567,7 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux",
           "priority": "critical",
-          "status": "needed"
+          "status": "pending"
         },
         "linuxCve2026_98805Allwinner5_19": {
           "allowUnfixed": true,
@@ -10478,7 +10478,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-21T10:01:10.996036",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -10498,7 +10498,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-allwinner-5.19",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of kernel support"
         },
@@ -10523,7 +10523,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-aws",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T08:14:28.777294",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -10543,7 +10543,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-aws-5.19",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-aws-6.2"
         },
@@ -10558,7 +10558,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-aws-6.2",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-aws-6.5"
         },
@@ -10573,7 +10573,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-aws-6.5",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-aws-6.8"
         },
@@ -10598,7 +10598,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-aws-6.8",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-28T07:25:50.734580",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -10628,7 +10628,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-aws-fips",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T08:14:28.777294",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -10658,7 +10658,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-24T10:30:08.689290",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -10678,7 +10678,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-5.19",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-azure-6.2"
         },
@@ -10693,7 +10693,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-6.2",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-azure-6.5"
         },
@@ -10708,7 +10708,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-6.5",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-azure-6.8"
         },
@@ -10733,7 +10733,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-6.8",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-24T10:17:16.315922",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -10763,7 +10763,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-fde",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-24T10:34:35.640009",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -10783,7 +10783,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-fde-5.19",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-azure-fde-6.2"
         },
@@ -10798,7 +10798,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-fde-6.2",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "replaced by linux-azure-6.5"
         },
@@ -10823,7 +10823,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-fde-6.8",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-24T10:26:03.905111",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -10853,7 +10853,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-fips",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-29T07:46:56.039756",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -10883,7 +10883,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-fips",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T08:14:28.777294",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -10913,7 +10913,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gcp",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-21T10:01:10.996036",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -10933,7 +10933,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gcp-5.19",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-gcp-6.2"
         },
@@ -10948,7 +10948,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gcp-6.2",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-gcp-6.5"
         },
@@ -10963,7 +10963,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gcp-6.5",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-gcp-6.8"
         },
@@ -10988,7 +10988,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gcp-6.8",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-20T15:36:35.152969",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11018,7 +11018,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gcp-fips",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-21T10:01:10.996036",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11048,7 +11048,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gke",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-21T10:01:10.996036",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11078,7 +11078,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gkeop",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-21T10:01:10.996036",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11098,7 +11098,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-hwe-5.19",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-hwe-6.2"
         },
@@ -11113,7 +11113,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-hwe-6.2",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-hwe-6.5"
         },
@@ -11128,7 +11128,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-hwe-6.5",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-hwe-6.8"
         },
@@ -11153,7 +11153,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-hwe-6.8",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-28T07:28:45.796332",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11183,7 +11183,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-ibm",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T08:14:28.777294",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11213,7 +11213,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-ibm-6.8",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-28T07:23:25.770240",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11243,7 +11243,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-intel-iot-realtime",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-31T09:40:09.826541",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11273,7 +11273,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-intel-iotg",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-31T15:00:56.127396",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11303,7 +11303,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-kvm",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-21T10:01:10.996036",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11333,7 +11333,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-lowlatency",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-21T10:01:10.996036",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11353,7 +11353,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-lowlatency-hwe-5.19",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-lowlatency-hwe-6.2"
         },
@@ -11368,7 +11368,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-lowlatency-hwe-6.2",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-lowlatency-hwe-6.5"
         },
@@ -11383,7 +11383,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-lowlatency-hwe-6.5",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-lowlatency-hwe-6.8"
         },
@@ -11408,7 +11408,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-lowlatency-hwe-6.8",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T07:48:36.072520",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11438,7 +11438,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-nvidia",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T08:14:28.777294",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11458,7 +11458,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-nvidia-6.2",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-nvidia-6.5"
         },
@@ -11473,7 +11473,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-nvidia-6.5",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-nvidia-6.8"
         },
@@ -11498,7 +11498,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-nvidia-6.8",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T08:06:00.045634",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11528,7 +11528,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-nvidia-tegra",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T08:22:07.499959",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11558,7 +11558,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-nvidia-tegra-igx",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T08:22:07.499959",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11578,7 +11578,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oem-5.17",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-oem-6.1"
         },
@@ -11593,7 +11593,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oem-6.0",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-oem-6.1"
         },
@@ -11608,7 +11608,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oem-6.1",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-oem-6.5"
         },
@@ -11623,7 +11623,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oem-6.5",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-oem-6.8"
         },
@@ -11648,7 +11648,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oracle",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-24T10:30:08.689290",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11668,7 +11668,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oracle-6.5",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-oracle-6.8"
         },
@@ -11693,7 +11693,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oracle-6.8",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T07:57:09.923125",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11723,7 +11723,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-raspi",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-09-21T13:04:55.864959",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11753,7 +11753,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-realtime",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-21T10:01:10.996036",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11783,7 +11783,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-realtime-6.8",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-20T15:36:35.152969",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -11803,7 +11803,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-starfive-5.19",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of kernel support"
         },
@@ -11818,7 +11818,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-starfive-6.2",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-starfive-6.5"
         },
@@ -11833,7 +11833,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-starfive-6.5",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of kernel support"
         },
@@ -11858,7 +11858,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-xilinx-zynqmp",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-21T10:01:10.996036",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -12068,7 +12068,7 @@
           "package": "linux-aws-fips",
           "priority": "critical",
           "status": "pending",
-          "trackerNote": "6.8.0-1068.71+fips1"
+          "trackerNote": "6.8.0-1069.74+fips1"
         },
         "linuxCve2026_98365Azure": {
           "allowUnfixed": true,
@@ -12799,7 +12799,7 @@
           "package": "linux-realtime",
           "priority": "critical",
           "status": "pending",
-          "trackerNote": "6.8.1-1063.64"
+          "trackerNote": "6.8.1-1064.65"
         },
         "linuxCve2026_98365Realtime6_14": {
           "allowUnfixed": true,
@@ -12846,7 +12846,8 @@
           "kernelGroup": "linuxCve2026_98365",
           "package": "linux-vmware",
           "priority": "critical",
-          "status": "not-affected"
+          "status": "pending",
+          "trackerNote": "6.8.0-1009.9"
         },
         "linuxCve2026_98365Xilinx": {
           "allowUnfixed": true,
@@ -12958,7 +12959,7 @@
           "package": "linux-aws-fips",
           "priority": "high",
           "status": "pending",
-          "trackerNote": "6.8.0-1068.71+fips1"
+          "trackerNote": "6.8.0-1069.74+fips1"
         },
         "linuxCve2026_98464Azure": {
           "allowUnfixed": true,
@@ -13689,7 +13690,7 @@
           "package": "linux-realtime",
           "priority": "high",
           "status": "pending",
-          "trackerNote": "6.8.1-1063.64"
+          "trackerNote": "6.8.1-1064.65"
         },
         "linuxCve2026_98464Realtime6_14": {
           "allowUnfixed": true,
@@ -13736,7 +13737,8 @@
           "kernelGroup": "linuxCve2026_98464",
           "package": "linux-vmware",
           "priority": "high",
-          "status": "not-affected"
+          "status": "pending",
+          "trackerNote": "6.8.0-1009.9"
         },
         "linuxCve2026_98464Xilinx": {
           "allowUnfixed": true,
@@ -13848,7 +13850,7 @@
           "package": "linux-aws-fips",
           "priority": "high",
           "status": "pending",
-          "trackerNote": "6.8.0-1068.71+fips1"
+          "trackerNote": "6.8.0-1069.74+fips1"
         },
         "linuxCve2026_98490Azure": {
           "allowUnfixed": true,
@@ -14579,7 +14581,7 @@
           "package": "linux-realtime",
           "priority": "high",
           "status": "pending",
-          "trackerNote": "6.8.1-1063.64"
+          "trackerNote": "6.8.1-1064.65"
         },
         "linuxCve2026_98490Realtime6_14": {
           "allowUnfixed": true,
@@ -14626,7 +14628,8 @@
           "kernelGroup": "linuxCve2026_98490",
           "package": "linux-vmware",
           "priority": "high",
-          "status": "not-affected"
+          "status": "pending",
+          "trackerNote": "6.8.0-1009.9"
         },
         "linuxCve2026_98490Xilinx": {
           "allowUnfixed": true,
@@ -14738,7 +14741,7 @@
           "package": "linux-aws-fips",
           "priority": "high",
           "status": "pending",
-          "trackerNote": "6.8.0-1068.71+fips1"
+          "trackerNote": "6.8.0-1069.74+fips1"
         },
         "linuxCve2026_98548Azure": {
           "allowUnfixed": true,
@@ -15469,7 +15472,7 @@
           "package": "linux-realtime",
           "priority": "high",
           "status": "pending",
-          "trackerNote": "6.8.1-1063.64"
+          "trackerNote": "6.8.1-1064.65"
         },
         "linuxCve2026_98548Realtime6_14": {
           "allowUnfixed": true,
@@ -15516,7 +15519,8 @@
           "kernelGroup": "linuxCve2026_98548",
           "package": "linux-vmware",
           "priority": "high",
-          "status": "not-affected"
+          "status": "pending",
+          "trackerNote": "6.8.0-1009.9"
         },
         "linuxCve2026_98548Xilinx": {
           "allowUnfixed": true,
@@ -16407,7 +16411,8 @@
           "kernelGroup": "linuxCve2026_98571",
           "package": "linux-vmware",
           "priority": "critical",
-          "status": "not-affected"
+          "status": "not-affected",
+          "trackerNote": "6.8.0-1005.5"
         },
         "linuxCve2026_98571Xilinx": {
           "allowUnfixed": true,
@@ -16519,7 +16524,7 @@
           "package": "linux-aws-fips",
           "priority": "critical",
           "status": "pending",
-          "trackerNote": "6.8.0-1068.71+fips1"
+          "trackerNote": "6.8.0-1069.74+fips1"
         },
         "linuxCve2026_98621Azure": {
           "allowUnfixed": true,
@@ -17250,7 +17255,7 @@
           "package": "linux-realtime",
           "priority": "critical",
           "status": "pending",
-          "trackerNote": "6.8.1-1063.64"
+          "trackerNote": "6.8.1-1064.65"
         },
         "linuxCve2026_98621Realtime6_14": {
           "allowUnfixed": true,
@@ -17297,7 +17302,8 @@
           "kernelGroup": "linuxCve2026_98621",
           "package": "linux-vmware",
           "priority": "critical",
-          "status": "not-affected"
+          "status": "pending",
+          "trackerNote": "6.8.0-1009.9"
         },
         "linuxCve2026_98621Xilinx": {
           "allowUnfixed": true,
@@ -18172,7 +18178,8 @@
           "kernelGroup": "linuxCve2026_98725",
           "package": "linux-vmware",
           "priority": "critical",
-          "status": "not-affected"
+          "status": "pending",
+          "trackerNote": "6.8.0-1010.10"
         },
         "linuxCve2026_98725Xilinx": {
           "allowUnfixed": true,
@@ -19047,7 +19054,8 @@
           "kernelGroup": "linuxCve2026_98805",
           "package": "linux-vmware",
           "priority": "critical",
-          "status": "not-affected"
+          "status": "pending",
+          "trackerNote": "6.8.0-1010.10"
         },
         "linuxCve2026_98805Xilinx": {
           "allowUnfixed": true,
@@ -19922,7 +19930,8 @@
           "kernelGroup": "linuxIpv4InetOptUaf",
           "package": "linux-vmware",
           "priority": "critical",
-          "status": "not-affected"
+          "status": "pending",
+          "trackerNote": "6.8.0-1010.10"
         },
         "linuxIpv4InetOptUafXilinx": {
           "allowUnfixed": true,
@@ -20019,7 +20028,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-20T15:36:35.152969",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20049,7 +20058,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-aws",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-24T10:14:09.833860",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20069,7 +20078,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-aws-6.14",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of life, was needs-triage"
         },
@@ -20084,7 +20093,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-aws-6.17",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of life, was needed"
         },
@@ -20099,7 +20108,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-aws-7.0",
-          "priority": "medium",
+          "priority": "high",
           "status": "not-affected",
           "trackerNote": "7.0.0-1009.9~24.04.1"
         },
@@ -20124,7 +20133,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-aws-fips",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-28T07:25:50.734580",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20154,7 +20163,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-24T10:17:16.315922",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20174,7 +20183,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-6.11",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-azure-6.14"
         },
@@ -20189,7 +20198,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-6.14",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of life, was needed"
         },
@@ -20204,7 +20213,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-6.17",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of life, was needed"
         },
@@ -20229,7 +20238,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-7.0",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-09-22T13:19:49.150743",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20259,7 +20268,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-fde",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-24T10:20:29.873473",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20279,7 +20288,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-fde-6.14",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of life, was needed"
         },
@@ -20294,7 +20303,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-fde-6.17",
-          "priority": "medium",
+          "priority": "high",
           "status": "not-affected",
           "trackerNote": "6.17.0-1005.5~24.04.1"
         },
@@ -20316,7 +20325,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-fde-7.0",
-          "priority": "medium",
+          "priority": "high",
           "status": "released"
         },
         "linuxSctpSendallAzureFips": {
@@ -20340,7 +20349,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-fips",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-24T10:23:19.684413",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20360,7 +20369,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-nvidia",
-          "priority": "medium",
+          "priority": "high",
           "status": "pending",
           "trackerNote": "6.8.0-1046.49"
         },
@@ -20375,7 +20384,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-nvidia-6.14",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of life, was needed"
         },
@@ -20400,7 +20409,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-fips",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T07:48:36.072520",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20430,7 +20439,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gcp",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-20T15:36:35.152969",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20450,7 +20459,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gcp-6.11",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-gcp-6.14"
         },
@@ -20465,7 +20474,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gcp-6.14",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of life, was needs-triage"
         },
@@ -20480,7 +20489,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gcp-6.17",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of life, was needed"
         },
@@ -20505,7 +20514,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gcp-7.0",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-09-07T09:05:21.339694",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20535,7 +20544,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gcp-fips",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-21T09:51:58.380562",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20565,7 +20574,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gke",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-20T15:36:35.152969",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20595,7 +20604,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gkeop",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-20T15:36:35.152969",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20615,7 +20624,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-hwe-6.11",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-hwe-6.14"
         },
@@ -20630,7 +20639,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-hwe-6.14",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of life, was needs-triage"
         },
@@ -20645,7 +20654,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-hwe-6.17",
-          "priority": "medium",
+          "priority": "high",
           "status": "needed"
         },
         "linuxSctpSendallHwe7_0": {
@@ -20669,7 +20678,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-hwe-7.0",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-20T16:06:38.493599",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20699,7 +20708,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-ibm",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-28T07:23:25.770240",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20729,7 +20738,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-lowlatency",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T07:48:36.072520",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20749,7 +20758,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-lowlatency-hwe-6.11",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "replaced by linux-hwe-6.14"
         },
@@ -20774,7 +20783,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-nvidia",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T08:06:00.045634",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20794,7 +20803,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-nvidia-6.11",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of kernel support"
         },
@@ -20809,7 +20818,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-nvidia-6.17",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of life, was needed"
         },
@@ -20834,7 +20843,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-nvidia-7.0",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-08-20T23:18:42.038272",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20864,7 +20873,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-nvidia-lowlatency",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T08:06:00.045634",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20894,7 +20903,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-nvidia-tegra",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-28T07:23:25.770240",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -20914,7 +20923,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oem-6.11",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-oem-6.14"
         },
@@ -20929,7 +20938,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oem-6.14",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of life, was needs-triage"
         },
@@ -20944,7 +20953,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oem-6.17",
-          "priority": "medium",
+          "priority": "high",
           "status": "needed"
         },
         "linuxSctpSendallOem6_8": {
@@ -20958,7 +20967,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oem-6.8",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "superseded by linux-oem-6.14"
         },
@@ -20983,7 +20992,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oracle",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T07:48:36.072520",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -21003,7 +21012,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oracle-6.14",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of life, was needs-triage"
         },
@@ -21018,7 +21027,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oracle-6.17",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of life, was needed"
         },
@@ -21043,7 +21052,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oracle-7.0",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-09-29T07:53:08.690008",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -21073,7 +21082,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-raspi",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-08-20T23:31:14.006428",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -21103,7 +21112,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-raspi-realtime",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-08-20T23:31:14.006428",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -21133,7 +21142,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-realtime",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-20T15:36:35.152969",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -21153,7 +21162,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-realtime-6.14",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of life, was needs-triage"
         },
@@ -21168,14 +21177,21 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-realtime-6.17",
-          "priority": "medium",
+          "priority": "high",
           "status": "ignored",
           "trackerNote": "end of life, was needed"
         },
         "linuxSctpSendallVmware": {
+          "abi": 1008,
           "allowUnfixed": true,
           "cve": "CVE-2026-46227",
-          "fixed": "",
+          "fixAvailability": {
+            "feed": "ubuntu-security-api",
+            "status": "unconfirmed",
+            "url": "https://ubuntu.com/security/cves/CVE-2026-46227",
+            "version": "6.8.0-1008.8"
+          },
+          "fixed": "6.8.0-1008.8",
           "kernelFamily": "6.8",
           "kernelFlavors": [
             "vmware",
@@ -21183,8 +21199,8 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-vmware",
-          "priority": "medium",
-          "status": "not-affected"
+          "priority": "high",
+          "status": "released"
         },
         "linuxSctpSendallXilinx": {
           "abi": 1033,
@@ -21207,7 +21223,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-xilinx",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-28T07:23:25.770240",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -23743,7 +23759,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-20T15:24:18.747835",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -23773,7 +23789,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-aws",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-28T07:16:49.282869",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -23803,7 +23819,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-24T09:51:53.477206",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -23833,7 +23849,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-azure-fde",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-24T09:51:53.477206",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -23863,7 +23879,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gcp",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-20T15:24:18.747835",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -23893,7 +23909,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-gke",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-20T15:24:18.747835",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -23923,7 +23939,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-ibm",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T07:35:09.301838",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -23953,7 +23969,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-nvidia",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-08-20T23:18:42.038272",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -23983,7 +23999,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-nvidia-bos",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-08-20T23:22:25.519840",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -24013,7 +24029,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oem-7.0",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-20T15:45:34.691959",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -24043,7 +24059,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-oracle",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-23T07:35:09.301838",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -24073,7 +24089,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-raspi",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-28T07:16:49.282869",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -24103,7 +24119,7 @@
           ],
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-realtime",
-          "priority": "medium",
+          "priority": "high",
           "released": "2026-07-20T15:24:18.747835",
           "source": {
             "feed": "ubuntu-security-notice",
@@ -24188,7 +24204,7 @@
       }
     }
   },
-  "generated": "2026-11-05T07:20:26Z",
+  "generated": "2026-11-07T07:19:35Z",
   "gracePeriodDays": 3,
   "maxAgeDays": 10,
   "schemaVersion": 1
