@@ -21083,11 +21083,11 @@
           "kernelGroup": "linuxSctpSendall",
           "package": "linux-raspi",
           "priority": "high",
-          "released": "2026-08-20T23:31:14.006428",
+          "released": "2026-08-20T23:31:14Z",
           "source": {
-            "feed": "ubuntu-security-notice",
+            "feed": "ubuntu-osv",
             "id": "USN-8665-1",
-            "url": "https://ubuntu.com/security/notices/USN-8665-1.json"
+            "url": "https://api.osv.dev/v1/vulns/USN-8665-1"
           },
           "status": "released"
         },
@@ -24204,7 +24204,7 @@
       }
     }
   },
-  "generated": "2026-11-07T07:19:35Z",
+  "generated": "2026-11-08T07:18:51Z",
   "gracePeriodDays": 3,
   "maxAgeDays": 10,
   "schemaVersion": 1
