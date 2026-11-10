@@ -1322,6 +1322,12 @@ class AbsentDeviceTests(unittest.TestCase):
         )
         self.assertEqual(status, security.PASS)
 
+    def test_remediation_does_not_prescribe_zero_trust_in_nic_mode(self) -> None:
+        spec = next(s for s in security.CHECK_SPECS if s.id == "dpu-host-isolation")
+        self.assertIn("In DPU mode, apply the zero-trust host profile", spec.remediation)
+        self.assertIn("In NIC mode, do not apply mlxprivhost zero-trust", spec.remediation)
+        self.assertIn("re-image from a trusted BFB", spec.remediation)
+
     def test_absent_hardware_is_given_no_remediation_to_apply(self) -> None:
         checks = [
             security.SecurityCheck(

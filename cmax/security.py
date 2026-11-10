@@ -2307,9 +2307,13 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
         "RShim is enabled by default, so the host reaches the DPU Arm cores "
         "directly. On a multi-tenant cluster a tenant with host root then "
         "reaches a control plane outside the hypervisor boundary.",
-        "Apply the zero-trust host profile: `mlxprivhost -d <device> r "
-        "--disable_rshim --disable_tracer --disable_counter_rd "
-        "--disable_port_owner`.",
+        # NVIDIA does not support the zero-trust profile in NIC mode, so the
+        # static fix names both modes, matching the per-verdict assessment.
+        "In DPU mode, apply the zero-trust host profile: `mlxprivhost -d "
+        "<device> r --disable_rshim --disable_tracer --disable_counter_rd "
+        "--disable_port_owner`. In NIC mode, do not apply mlxprivhost "
+        "zero-trust. The provider must enforce RShim isolation so tenant root "
+        "cannot reverse it, or re-image from a trusted BFB between tenants.",
         _references(
             (
                 "NVIDIA mlxprivhost host restriction",
