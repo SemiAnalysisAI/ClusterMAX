@@ -93,6 +93,7 @@ _CHECK_ANCHORS = {
     "securityVersions.connectxFirmware.status": _SECURITY_PATCHING,
     "securityVersions.dcgm.status": _SECURITY_PATCHING,
     "securityVersions.dcgmExporter.status": _SECURITY_PATCHING,
+    "securityVersions.snap4Container.status": _SECURITY_PATCHING,
     "securityVersions.virtioNetBluefield.status": _SECURITY_PATCHING,
     "securityVersions.virtioNetBluefield.exposure": _SECURITY_ISOLATION,
     "securityVersions.dpuHostIsolation.status": _SECURITY_ISOLATION,
