@@ -56,6 +56,8 @@ cmax audit security -h
 
 只读的 Bad Epoll 检查 `security.badEpoll.status` 根据 [CVE-2026-46242](https://ubuntu.com/security/CVE-2026-46242) 检查正在运行的内核。它覆盖 Ubuntu 24.04 GA 6.8 generic、Ubuntu 22.04 HWE 6.8 generic、Ubuntu 24.04 NVIDIA 6.17（`nvidia` 和 `nvidia-64k`）以及 Ubuntu 26.04 GA 7.0 generic 软件包。每个源码包都有各自的最低修复版本。检查要求正在运行的内核签名与已安装软件包的证据相匹配。即使已安装更新的内核，只要尚未运行该内核，失败结果就不会消除。不支持的内核变体、缺失的证据，以及已启用或无法读取的 livepatch 状态，都会产生未知结果，需要由服务商提供补丁证据。该检查不会运行漏洞利用程序，也不能证明服务商内核的真实性。如果显式固定使用的最低版本表缺少相应映射，结果为未知。
 
+只读的 AMD KVM 宿主机检查 `security.kvmSvm.status` 针对 [CVE-2026-99312](https://www.cve.org/CVERecord?id=CVE-2026-99312) 进行评级，该漏洞影响启用了嵌套虚拟化的 AMD KVM 宿主机。在已加载 `kvm_amd` 且 `nested=1` 的 AMD 物理宿主机上，上游内核达到其所属稳定分支的修复版本即为通过。最低版本表中的 `linuxKvmSvm` 行保存这些版本，每日刷新根据 Linux 内核 CNA 的 CVE 记录生成该行。受影响且没有修复版本的分支判定为失败。Intel 宿主机、`nested=0` 的宿主机，以及既没有 KVM 模块也没有 `/dev/kvm` 的 AMD 宿主机为不适用。虚拟机内部、发行版内核，以及已启用或无法读取的 livepatch 状态会产生未知结果，需要由服务商提供补丁证据。在 Slurm 和 Kubernetes 上，该检查对审计读取到的每台宿主机进行评级。该检查不会运行漏洞利用程序。参考资料：[内核修复提交](https://git.kernel.org/linus/c7c288d178cb0b78d3464a616b16b1aa0b316049)、[NVD 条目](https://nvd.nist.gov/vuln/detail/CVE-2026-99312)和 [DigitalOcean 厂商公告](https://www.digitalocean.com/blog/cve-2026-99312-kvm-patch)。详见 [docs/kvm-svm-cve-2026-99312.md](docs/kvm-svm-cve-2026-99312.md)。
+
 安全信息采集会区分被抽样工作节点上的宿主机、GPU Operator 容器和正在运行的 GPU 工作负载。当 `nvidia-smi` 不在宿主机的命令搜索路径中时，驱动检测可以读取已加载的内核模块。Toolkit 检测还会检查 GPU Operator 安装目录。CUDA Toolkit 版本取自 `nvcc` 或 Toolkit 元数据，不使用驱动所标示的 CUDA 兼容版本或镜像标签。
 
 网络探测会优先使用经过验证的特权宿主机根目录挂载（如果可用）。缺少 `lspci` 时，它可以通过 sysfs 枚举 PCI 设备。它使用只读的 `mlxconfig -e` 查询，并且仅根据 Current 列评级。默认值和下次启动设置不能证明当前已实现隔离。它不会安装工具或启动 `mst`。权限不足、扫描不完整以及未经评估的固件版本分支均保持未知状态。仅完成拓扑扫描不能证明对物理 NVLink 域的独占所有权。
@@ -86,6 +88,7 @@ $ cmax audit security --show
 
 [isolation] Security isolation
   security.januscape.status: Security / Januscape
+  security.kvmSvm.status: Security / KVM SVM
   ...
 ```
 
@@ -133,6 +136,7 @@ audit_profile:
   - securityVersions.virtioNetBluefield.exposure
   - securityVersions.dpuHostIsolation.status
   - security.januscape.status
+  - security.kvmSvm.status
   - security.guestKernel.newerInstalled
   - security.fragnesia.status
   - bmc-ipmi

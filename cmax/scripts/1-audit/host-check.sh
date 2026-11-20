@@ -676,6 +676,26 @@ echo "WORKER_NESTED_CPU_EXPOSED=${WORKER_NESTED_CPU_EXPOSED}"
 echo "WORKER_KVM_DEVICE=${WORKER_KVM_DEVICE}"
 echo "WORKER_NESTED_MODULE=${WORKER_NESTED_MODULE}"
 echo "WORKER_NESTED_ENABLED=${WORKER_NESTED_ENABLED}"
+
+# CPU vendor and AMD KVM module facts for the CVE-2026-99312 host kernel check.
+# Keep this function identical to the one in pwnescape-host-facts.sh.
+# tests/audit/test_kvm_svm.py compares the two definitions.
+collect_kvm_svm_facts() {
+    local root="${CLUSTERMAX_AUDIT_ROOT:-}" cpu=unknown loaded=unknown
+    cpu=$(awk -F ': *' '/^vendor_id[[:space:]]*:/ { print $2; exit }' \
+        "${root}/proc/cpuinfo" 2>/dev/null) || cpu=unknown
+    if [[ -d "${root}/sys/module/kvm_amd" ]]; then
+        loaded=true
+    elif [[ -r "${root}/sys/module" && -x "${root}/sys/module" \
+        && -r "${root}/dev" && -x "${root}/dev" \
+        && ! -e "${root}/dev/kvm" && ! -L "${root}/dev/kvm" ]]; then
+        loaded=false
+    fi
+    printf 'WORKER_CPU_VENDOR=%s\n' "${cpu:-unknown}"
+    printf 'WORKER_KVM_AMD_LOADED=%s\n' "$loaded"
+}
+collect_kvm_svm_facts
+
 echo "WORKER_JANUSCAPE_EXPOSED=${WORKER_JANUSCAPE_EXPOSED}"
 echo "WORKER_JANUSCAPE_STATUS=${WORKER_JANUSCAPE_STATUS}"
 echo "WORKER_VIRTIO_SERIAL=${WORKER_VIRTIO_SERIAL}"

@@ -146,6 +146,7 @@ class AuditReportTests(unittest.TestCase):
                     "fragnesia": {"status": "coverage-incomplete", "scope": "fleet"},
                     "januscape": {"status": "coverage-incomplete", "scope": "fleet"},
                     "pwnescape": {"status": "coverage-incomplete", "scope": "fleet"},
+                    "kvmSvm": {"status": "coverage-incomplete", "scope": "fleet"},
                 }
             }
         }
@@ -156,6 +157,7 @@ class AuditReportTests(unittest.TestCase):
             "security.fragnesia.status",
             "security.januscape.status",
             "security.pwnescape.status",
+            "security.kvmSvm.status",
         ):
             with self.subTest(key=key):
                 check = next(c for c in checks if c.key == key)

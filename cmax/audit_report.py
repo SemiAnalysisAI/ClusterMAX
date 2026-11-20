@@ -134,6 +134,10 @@ _PASS_ASSESSMENTS = {
     "security.pwnescape.status": (
         "Every audited worker and control-plane host meets the upstream or vendor PwnEscape patch requirements."
     ),
+    "security.kvmSvm.status": (
+        "Every audited AMD KVM host that enables nested virtualization meets "
+        "the fixed release for its kernel branch."
+    ),
     "containers.nvidiaContainerToolkit": (
         "The worker has NVIDIA Container Toolkit support."
     ),
@@ -309,6 +313,8 @@ def _title(key: str) -> str:
         "Cuda": "CUDA",
         "Rwx": "RWX",
         "Vmscape": "VMSCAPE",
+        "Kvm": "KVM",
+        "Svm": "SVM",
         "Vboost": "vBoost",
         "Bmc": "BMC",
         "Ipmi": "IPMI",
@@ -352,6 +358,13 @@ _REPRODUCTION_COMMANDS = {
         "on every worker and control-plane host: `uname -r`; "
         "`cat /etc/os-release /proc/version_signature`; "
         "`dpkg-query -W \"linux-image-$(uname -r)\"`; inspect "
+        "`/sys/kernel/livepatch`; request provider patch evidence for each host "
+        "that the audit could not read or that runs inside a guest"
+    ),
+    "security.kvmSvm.status": (
+        "on every physical KVM host: `uname -r`; "
+        "`grep -m1 vendor_id /proc/cpuinfo`; "
+        "`cat /sys/module/kvm_amd/parameters/nested`; inspect "
         "`/sys/kernel/livepatch`; request provider patch evidence for each host "
         "that the audit could not read or that runs inside a guest"
     ),
@@ -611,6 +624,20 @@ def _version_observation(audit: dict[str, Any], key: str, value: Any) -> Any:
                 )
                 + f"CVE-2026-99999; {advisory.get('reason', '')}"
             )
+    if key == "security.kvmSvm.status":
+        advisory = _nested(audit, "security.kvmSvm")
+        if isinstance(advisory, dict):
+            from cmax import security
+            return (
+                f"observed version {advisory.get('runningKernel', 'unknown')}; "
+                f"minimum version {advisory.get('minimum', 'unknown')}; "
+                + (
+                    f"{security.pwnescape_fleet_coverage(advisory)}; "
+                    if advisory.get("scope") == "fleet"
+                    else f"nested virtualization {advisory.get('nestedEnabled', 'unknown')}; "
+                )
+                + f"CVE-2026-99312; {advisory.get('reason', '')}"
+            )
     if key == "security.badEpoll.status":
         advisory = _nested(audit, "security.badEpoll")
         if isinstance(advisory, dict):
@@ -771,6 +798,11 @@ def _reproduction(key: str, harness: str | None = None) -> str:
     return _REPRODUCTION_COMMANDS.get(key, "")
 
 
+# Rule keys that show the references of the focused security check that grades
+# the same values, so the row cites the primary sources on every status.
+_SECURITY_CHECK_REFERENCES = {"security.kvmSvm.status": "kvm-svm-cve-2026-99312"}
+
+
 def _references_for_finding(
     findings: Any, finding: Any | None, key: str
 ) -> tuple[tuple[str, str], ...]:
@@ -779,10 +811,21 @@ def _references_for_finding(
     minimum_url = minimum_links.audit_check_url(key)
     if minimum_url:
         references.append((minimum_links.REFERENCE_LABEL, minimum_url))
-    if finding is not None:
+    spec_id = _SECURITY_CHECK_REFERENCES.get(key)
+    if spec_id:
+        from cmax import security
         references.extend(
-            (cve, f"https://nvd.nist.gov/vuln/detail/{cve}")
+            (reference.label, reference.url)
+            for spec in security.CHECK_SPECS
+            if spec.id == spec_id
+            for reference in spec.references
+        )
+    if finding is not None:
+        listed = {url for _, url in references}
+        references.extend(
+            (cve, url)
             for cve in finding.cves
+            if (url := f"https://nvd.nist.gov/vuln/detail/{cve}") not in listed
         )
         references.extend(
             findings._advisory_link(advisory)

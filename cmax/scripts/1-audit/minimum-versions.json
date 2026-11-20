@@ -384,6 +384,60 @@
         "url": "https://docs.docker.com/engine/release-notes/29/"
       }
     },
+    "linuxKvmSvm": {
+      "advisory": "https://www.cve.org/CVERecord?id=CVE-2026-99312",
+      "affectedFrom": {
+        "5.15": "5.15.81",
+        "6.0": "6.0.11"
+      },
+      "affectedSince": "6.1",
+      "branches": {
+        "6.12": "6.12.118",
+        "6.18": "6.18.64",
+        "7.3": "7.3.5"
+      },
+      "cnaRecord": "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2026/99xxx/CVE-2026-99312.json",
+      "cve": "CVE-2026-99312",
+      "cves": [
+        "CVE-2026-99312"
+      ],
+      "floorAvailability": {
+        "6.12": {
+          "available": "2026-11-17T10:07:15Z",
+          "bulletinReleased": "2026-11-18T08:42:06.136Z",
+          "feed": "kernel-org-changelog",
+          "status": "confirmed",
+          "url": "https://cdn.kernel.org/pub/linux/kernel/v6.x/ChangeLog-6.12.118",
+          "version": "6.12.118"
+        },
+        "6.18": {
+          "available": "2026-11-17T10:11:40Z",
+          "bulletinReleased": "2026-11-18T08:42:06.136Z",
+          "feed": "kernel-org-changelog",
+          "status": "confirmed",
+          "url": "https://cdn.kernel.org/pub/linux/kernel/v6.x/ChangeLog-6.18.64",
+          "version": "6.18.64"
+        },
+        "7.3": {
+          "available": "2026-11-17T10:14:21Z",
+          "bulletinReleased": "2026-11-18T08:42:06.136Z",
+          "feed": "kernel-org-changelog",
+          "status": "confirmed",
+          "url": "https://cdn.kernel.org/pub/linux/kernel/v7.x/ChangeLog-7.3.5",
+          "version": "7.3.5"
+        }
+      },
+      "kind": "kernelBranches",
+      "label": "Linux kernel: KVM on AMD hosts",
+      "mainline": "7.4-rc2",
+      "source": {
+        "feed": "linux-kernel-cna",
+        "id": "CVE-2026-99312",
+        "released": "2026-11-18T08:42:06.136Z",
+        "title": "KVM: x86: Unconditionally reset MMU context when emulating INIT",
+        "url": "https://www.cve.org/CVERecord?id=CVE-2026-99312"
+      }
+    },
     "nvhpc": {
       "current": "26.9",
       "kind": "releaseWindow",

@@ -868,6 +868,25 @@ def _bad_epoll(audit: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
+def _kvm_svm(audit: dict[str, Any]) -> tuple[str, str, str]:
+    value = _get(audit, "security.kvmSvm")
+    if not isinstance(value, dict):
+        return WARNING, "not collected", "AMD KVM host patch evidence was not collected."
+    status = {"pass": PASS, "not-applicable": NOT_APPLICABLE, "fail": CRITICAL}.get(
+        value.get("status"), WARNING
+    )
+    observed = (
+        f"running={value.get('runningKernel', 'unknown')}; "
+        f"minimum={value.get('minimum', 'unknown')}; "
+        f"scope={value.get('scope', 'unknown')}"
+    )
+    if value.get("scope") == "fleet":
+        observed += "; " + pwnescape_fleet_coverage(value)
+    else:
+        observed += f"; nesting={value.get('nestedEnabled', 'unknown')}"
+    return status, observed, str(value.get("reason") or "AMD KVM host patch evidence is required.")
+
+
 def _januscape(audit: dict[str, Any]) -> tuple[str, str, str]:
     value = _get(audit, "security.januscape")
     if not isinstance(value, dict):
@@ -2098,6 +2117,28 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
         _bad_epoll,
     ),
     CheckSpec(
+        "kvm-svm-cve-2026-99312",
+        "AMD KVM host kernel fix (CVE-2026-99312)",
+        "CVE-2026-99312 affects AMD KVM hosts that enable nested virtualization.",
+        (
+            "Boot the fixed host kernel for the installed branch or disable AMD KVM nesting. "
+            "Request provider patch evidence if the physical host is hidden."
+        ),
+        _references(
+            ("CVE-2026-99312", "https://www.cve.org/CVERecord?id=CVE-2026-99312"),
+            (
+                "Linux kernel fix commit",
+                "https://git.kernel.org/linus/c7c288d178cb0b78d3464a616b16b1aa0b316049",
+            ),
+            ("NVD entry", "https://nvd.nist.gov/vuln/detail/CVE-2026-99312"),
+            (
+                "DigitalOcean vendor advisory",
+                "https://www.digitalocean.com/blog/cve-2026-99312-kvm-patch",
+            ),
+        ),
+        _kvm_svm,
+    ),
+    CheckSpec(
         "januscape",
         "Januscape nested virtualization boundary",
         "Nested virtualization exposure can let an untrusted guest attack the physical-host KVM boundary.",
@@ -2832,6 +2873,7 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
             "components.ubuntuJammy.packages.linuxBadEpoll",
             "components.ubuntuResolute.packages.linuxBadEpoll",
             "components.ubuntuResolute.packages.linuxFragnesia",
+            "components.linuxKvmSvm",
         )
         try:
             candidate = json.loads(path.read_text())
