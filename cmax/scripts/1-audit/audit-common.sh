@@ -249,7 +249,7 @@ grade_ubuntu_kernel_cves() {
 # An omitted check status becomes "unknown", and an unresolved minimum becomes
 # "unknown" as well. Neither ever becomes a value that reads as a pass.
 build_security_advisory_json() {
-    local host_facts="" pwnescape_json=""
+    local host_facts="" pwnescape_json="" kvm_svm_json=""
     local bad_epoll_os=unknown bad_epoll_release=unknown bad_epoll_running=unknown
     local bad_epoll_signature=unknown bad_epoll_package=unknown bad_epoll_livepatch=unknown
     local fragnesia_status="unknown" fragnesia_compared_abi="unknown"
@@ -371,6 +371,9 @@ build_security_advisory_json() {
     pwnescape_json=$(printf '%s\n' "$host_facts" | \
         python3 "${AUDIT_COMMON_DIR}/pwnescape.py" 2>/dev/null) || pwnescape_json=""
     [[ -n "$pwnescape_json" ]] || pwnescape_json='{"status":"unknown","reason":"PwnEscape grader unavailable","exploitTested":false}'
+    kvm_svm_json=$(printf '%s\n' "$host_facts" | \
+        python3 "${AUDIT_COMMON_DIR}/kvm_svm.py" 2>/dev/null) || kvm_svm_json=""
+    [[ -n "$kvm_svm_json" ]] || kvm_svm_json='{"status":"unknown","reason":"AMD KVM grader unavailable","exploitTested":false}'
 
     # ubuntuNobleFixStatus carries the Ubuntu tracker state for the fix itself.
     # Januscape reads "pending" today: Canonical tracks the fix as 6.8.0-137.137
@@ -380,6 +383,7 @@ build_security_advisory_json() {
     cat <<EOF
     "badEpoll": ${bad_epoll_json},
     "pwnescape": ${pwnescape_json},
+    "kvmSvm": ${kvm_svm_json},
     "fragnesia": {
       "cve": "${frag_cve}",
       "relatedCves": ${frag_related},

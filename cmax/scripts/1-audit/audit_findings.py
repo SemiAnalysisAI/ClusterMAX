@@ -898,6 +898,21 @@ RULES: tuple[Rule, ...] = (
         cves=("CVE-2026-53359",),
     ),
     Rule(
+        "security.kvmSvm.status",
+        "Running kernel is below the AMD KVM fixed release for CVE-2026-99312 "
+        "while nested virtualization is enabled",
+        VERSION,
+        _status_is("fail"),
+        cves=("CVE-2026-99312",),
+    ),
+    Rule(
+        "security.kvmSvm.status",
+        "AMD KVM host patch status for CVE-2026-99312 requires vendor or provider evidence",
+        CONFIG,
+        lambda value: str(value).strip().lower() not in {"pass", "fail", "not-applicable"},
+        cves=("CVE-2026-99312",),
+    ),
+    Rule(
         "security.guestKernel.newerInstalled",
         "Newer guest/worker kernel installed but not running; reboot required",
         VERSION,
@@ -1644,6 +1659,8 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "securityVersions.virtioNetBluefield.exposure": "security-virtio-net-bluefield",
     "securityVersions.dpuHostIsolation.status": "security-dpu-host-isolation",
     "security.januscape.status": "security-januscape",
+    # CLI-only until the criteria catalog carries the security-kvm-svm row.
+    "security.kvmSvm.status": None,
     "security.guestKernel.newerInstalled": "guest-kernel-current",
     "security.guestKernel.ubuntuCveStatus": "guest-kernel-current",
     "security.ubuntuNobleKernelMinimum.status": "ubuntu-kernel-minimum-version",
@@ -1880,6 +1897,27 @@ def _finding_guidance(
         recommendation = (
             "Disable nested virtualization and remove guest access to /dev/kvm "
             "until the provider confirms the physical-host patch."
+        )
+    elif (
+        rule.key == "security.kvmSvm.status"
+        and str(value).strip().lower() != "coverage-incomplete"
+    ):
+        payload = nested_get(audit, "security", "kvmSvm", default={})
+        if not isinstance(payload, dict):
+            payload = {}
+        detected = (
+            str(payload.get("reason") or "").strip()
+            or str(value).replace("-", " ").capitalize()
+        )
+        if str(value).strip().lower() == "fail":
+            detected += (
+                f" Running kernel {payload.get('runningKernel', 'unknown')}; "
+                f"minimum {payload.get('minimum', 'unknown')}."
+            )
+        recommendation = (
+            "Boot the fixed host kernel for the installed branch or disable AMD "
+            "KVM nesting. Request provider patch evidence if the physical host "
+            "is hidden."
         )
     elif (
         rule.key == "securityVersions.docker.status"

@@ -16,6 +16,9 @@ machine-readable upstream sources only:
     bulletin HTML pages on amd.com
   * The NVIDIA HPC SDK release index for the current and previous supported
     SDK releases
+  * The CVE records of the Linux kernel CNA for the fixed release of each
+    upstream stable branch, and the kernel.org changelogs for the date of each
+    fixed release
 
 The same refresh records when each exact fix became available. It reads
 official GitHub release records where a product publishes them, exact Ubuntu
@@ -227,6 +230,25 @@ NVIDIA_DRIVER_RELEASE_REPO = "NVIDIA/open-gpu-kernel-modules"
 NVIDIA_CONTAINER_TOOLKIT_RELEASE_REPO = "NVIDIA/nvidia-container-toolkit"
 RUNC_RELEASE_REPO = "opencontainers/runc"
 DCGM_EXPORTER_RELEASE_REPO = "NVIDIA/dcgm-exporter"
+
+# Upstream Linux kernel CVEs that the audit grades per stable branch. The Linux
+# kernel CNA publishes one CVE record with the fixed release of every branch.
+# Each spec becomes one `kernelBranches` component. Distribution kernels are
+# not graded from these rows, because a vendor backports into its own release.
+LINUX_CNA_RECORD = (
+    "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/"
+    "{year}/{bucket}xxx/{cve}.json"
+)
+LINUX_CVE_PAGE = "https://www.cve.org/CVERecord?id={cve}"
+KERNEL_CHANGELOG = "https://cdn.kernel.org/pub/linux/kernel/v{major}.x/ChangeLog-{version}"
+KERNEL_RELEASE = re.compile(r"\d+\.\d+(?:\.\d+)?(?:-rc[1-9]\d*)?")
+LINUX_KERNEL_CVE_SPECS: tuple[dict[str, str], ...] = (
+    {
+        "key": "linuxKvmSvm",
+        "cve": "CVE-2026-99312",
+        "label": "Linux kernel: KVM on AMD hosts",
+    },
+)
 
 UBUNTU_RELEASE = "noble"
 UBUNTU_PACKAGES: tuple[dict[str, Any], ...] = (
@@ -3030,6 +3052,122 @@ def nvhpc_release_window(fetch: Fetcher | None = None) -> dict:
     }
 
 
+def linux_cna_record_url(cve: str) -> str:
+    _, year, number = cve.split("-")
+    return LINUX_CNA_RECORD.format(year=year, bucket=number[:-3], cve=cve)
+
+
+def kernel_changelog_availability(
+    version: str, fetch: Fetcher | None = None
+) -> dict[str, Any]:
+    """Return availability evidence for one exact kernel.org stable release.
+
+    The changelog of a stable release starts with the release commit. Its
+    subject names the release and its date is the time of the tag.
+    """
+    url = KERNEL_CHANGELOG.format(major=version.split(".", 1)[0], version=version)
+    result: dict[str, Any] = {
+        "status": "unconfirmed",
+        "feed": "kernel-org-changelog",
+        "version": version,
+        "url": url,
+    }
+    head = _fetcher(fetch).get_text_head(url) or ""
+    release_commit = head.split("\ncommit ", 1)[0]
+    released = re.search(r"^Date:\s+(.+?)\s*$", release_commit, re.MULTILINE)
+    named = re.search(
+        rf"^\s+Linux {re.escape(version)}\s*$", release_commit, re.MULTILINE
+    )
+    if released is None or named is None:
+        return result
+    try:
+        available = datetime.strptime(released.group(1), "%a %b %d %H:%M:%S %Y %z")
+    except ValueError:
+        return result
+    result.update(
+        status="confirmed",
+        available=available.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    return result
+
+
+def linux_kernel_cve_minimums(spec: dict[str, str], fetch: Fetcher | None = None) -> dict:
+    """Return the fixed release of each stable branch for one kernel CVE.
+
+    The Linux kernel CNA record carries two version lists. The list whose
+    default status is "affected" names the mainline release that introduced
+    the defect, the fixed release of each stable branch, and the mainline
+    release that carries the fix. The list whose default status is
+    "unaffected" names the older branches that received a backport of the
+    defect. A branch with no fixed release stays affected.
+    """
+    cve = spec["cve"]
+    url = linux_cna_record_url(cve)
+    record = _fetcher(fetch).get_json(url)
+    metadata = record.get("cveMetadata") or {}
+    cna = (record.get("containers") or {}).get("cna") or {}
+    published = metadata.get("datePublished")
+    if (
+        metadata.get("cveId") != cve
+        or metadata.get("state") != "PUBLISHED"
+        or not isinstance(published, str)
+        or not published.strip()
+    ):
+        raise MinimumRefreshError(f"{spec['key']}: {url} is not the published record of {cve}")
+
+    branches: dict[str, str] = {}
+    affected_from: dict[str, str] = {}
+    affected_since: list[str] = []
+    mainline: list[str] = []
+    for product in cna.get("affected") or []:
+        default = product.get("defaultStatus")
+        for entry in product.get("versions") or []:
+            version = str(entry.get("version") or "")
+            status = entry.get("status")
+            version_type = entry.get("versionType")
+            if version_type == "git" or KERNEL_RELEASE.fullmatch(version) is None:
+                continue
+            branch = ".".join(version.split("-")[0].split(".")[:2])
+            if default == "affected" and status == "affected" and version_type is None:
+                affected_since.append(version)
+            elif default == "affected" and status == "unaffected":
+                if version_type == "original_commit_for_fix":
+                    mainline.append(version)
+                elif entry.get("lessThanOrEqual") == f"{branch}.*":
+                    branches[branch] = version
+            elif default == "unaffected" and status == "affected":
+                affected_from[branch] = version
+    if len(affected_since) != 1 or len(mainline) != 1 or not branches:
+        raise MinimumRefreshError(
+            f"{spec['key']}: {url} does not name one affected release, one mainline "
+            "fix, and a fixed stable release; the record format probably changed"
+        )
+    page = LINUX_CVE_PAGE.format(cve=cve)
+    return {
+        "kind": "kernelBranches",
+        "label": spec["label"],
+        "cve": cve,
+        "cves": [cve],
+        "branches": branches,
+        "mainline": mainline[0],
+        "affectedSince": affected_since[0],
+        "affectedFrom": affected_from,
+        "floorAvailability": {
+            branch: kernel_changelog_availability(version, fetch=fetch)
+            for branch, version in branches.items()
+        },
+        "advisory": page,
+        "cnaRecord": url,
+        "source": {
+            "feed": "linux-kernel-cna",
+            "id": cve,
+            "title": cna.get("title"),
+            "released": published,
+            "url": page,
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # AMD Instinct ROCm minimum
 # ---------------------------------------------------------------------------
@@ -3441,6 +3579,18 @@ def _amd_program_minimums(
     }
 
 
+# The kinds that keep one minimum per key, with the field that holds the map.
+# Each key has its own record in `floorAvailability`.
+KEYED_MINIMUM_FIELDS = {
+    "branchMap": "branches",
+    "trainMap": "trains",
+    "programMap": "programs",
+    "ladder": "ladder",
+    "releaseLines": "lines",
+    "kernelBranches": "branches",
+}
+
+
 def _confirmed_availability(value: Any) -> bool:
     return (
         isinstance(value, dict)
@@ -3497,7 +3647,7 @@ def record_minimum_bulletin_dates(doc: dict) -> None:
     """Store the publication date beside each exact minimum availability record."""
     for block in (doc.get("components") or {}).values():
         kind = block.get("kind")
-        if kind in {"branchMap", "trainMap", "programMap", "ladder", "releaseLines"}:
+        if kind in KEYED_MINIMUM_FIELDS:
             for selector, availability in (block.get("floorAvailability") or {}).items():
                 released = _minimum_bulletin_released(block, str(selector))
                 if isinstance(availability, dict) and released:
@@ -3549,14 +3699,7 @@ def preserve_confirmed_availability(doc: dict, existing: dict | None) -> None:
                     old["fixAvailability"], old
                 )
             continue
-        keyed_fields = {
-            "branchMap": "branches",
-            "trainMap": "trains",
-            "programMap": "programs",
-            "ladder": "ladder",
-            "releaseLines": "lines",
-        }
-        field = keyed_fields.get(str(kind))
+        field = KEYED_MINIMUM_FIELDS.get(str(kind))
         if field:
             current_values = block.get(field) or {}
             old_values = old.get(field) or {}
@@ -3626,6 +3769,10 @@ def build_minimums(
             "docker": docker_minimums(fetch=fetch),
             "rocm": amd_rocm_minimums(fetch=fetch),
             "amdDriver": amd_driver_minimums(fetch=fetch),
+            **{
+                spec["key"]: linux_kernel_cve_minimums(spec, fetch=fetch)
+                for spec in LINUX_KERNEL_CVE_SPECS
+            },
             "ubuntuNoble": ubuntu_minimums(
                 specs=(*UBUNTU_PACKAGES, *discovered), fetch=fetch
             ),
@@ -3658,18 +3805,10 @@ def build_minimums(
 
 def _payload(block: dict) -> Any:
     kind = block.get("kind")
-    if kind == "branchMap":
-        return block.get("branches")
-    if kind == "trainMap":
-        return block.get("trains")
-    if kind == "programMap":
-        return block.get("programs")
+    if kind in KEYED_MINIMUM_FIELDS:
+        return block.get(KEYED_MINIMUM_FIELDS[kind])
     if kind == "minimum":
         return block.get("minimum")
-    if kind == "ladder":
-        return block.get("ladder")
-    if kind == "releaseLines":
-        return block.get("lines")
     if kind == "distroPackages":
         return block.get("packages")
     if kind == "releaseWindow":
@@ -3755,7 +3894,7 @@ def verify(doc: dict, existing: dict | None = None) -> None:
             problems.extend(
                 _availability_problems(name, block.get("fixAvailability"))
             )
-        elif kind in {"branchMap", "trainMap", "programMap", "ladder", "releaseLines"}:
+        elif kind in KEYED_MINIMUM_FIELDS:
             availability = block.get("floorAvailability") or {}
             for key in payload:
                 problems.extend(
@@ -3769,7 +3908,7 @@ def verify(doc: dict, existing: dict | None = None) -> None:
                             f"{name}.{key}", entry.get("fixAvailability")
                         )
                     )
-        if kind == "branchMap":
+        if kind in {"branchMap", "kernelBranches"}:
             problems.extend(
                 _minimum_downgrades(name, "branch", payload, old_block.get("branches"))
             )

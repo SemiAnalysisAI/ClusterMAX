@@ -249,6 +249,7 @@ apply_host_fleet() {
             && [[ -n "$fleet" ]]; then
         SECURITY_ADVISORY_JSON=$(jq --argjson fleet "$fleet" '
             .pwnescape = $fleet.pwnescape
+            | .kvmSvm = $fleet.kvmSvm
             | .fragnesia = ((.fragnesia // {})
                 + {status: $fleet.fragnesia.status,
                    reason: $fleet.fragnesia.reason,
@@ -262,6 +263,10 @@ apply_host_fleet() {
     else
         SECURITY_ADVISORY_JSON=$(jq '
             .pwnescape = {
+                status: "unknown", scope: "fleet", exploitTested: false,
+                reason: "The host fleet grader failed. Every host needs CVE-specific patch evidence."
+            }
+            | .kvmSvm = {
                 status: "unknown", scope: "fleet", exploitTested: false,
                 reason: "The host fleet grader failed. Every host needs CVE-specific patch evidence."
             }

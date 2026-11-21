@@ -13,6 +13,7 @@ import json
 import sys
 from typing import Any
 
+import kvm_svm
 import pwnescape
 
 
@@ -84,6 +85,28 @@ def _januscape_host(host: dict[str, Any]) -> dict[str, Any]:
         module=facts.get("WORKER_NESTED_MODULE", "none"),
         nestedEnabled=facts.get("WORKER_NESTED_ENABLED", "unknown"),
     )
+    return entry
+
+
+_KVM_SVM_HOST_FIELDS = (
+    "status", "reason", "runningKernel", "minimum", "localKernelStatus",
+    "virtualization", "cpuVendor", "module", "nestedEnabled", "livepatch",
+)
+
+
+def _kvm_svm_host(host: dict[str, Any]) -> dict[str, Any]:
+    """Grade one host's AMD KVM nesting state and kernel for CVE-2026-99312."""
+    entry = {"node": str(host.get("node") or "unknown"), "role": str(host.get("role") or "worker")}
+    facts = pwnescape.parse_facts(str(host.get("facts") or ""))
+    if not host.get("checked") or "WORKER_GUEST_KERNEL_RUNNING" not in facts:
+        entry.update(
+            checked=False,
+            status="unassessed",
+            error=str(host.get("error") or "The host returned no kernel facts."),
+        )
+        return entry
+    value = kvm_svm.grade(facts)
+    entry.update(checked=True, **{key: value[key] for key in _KVM_SVM_HOST_FIELDS})
     return entry
 
 
@@ -206,8 +229,37 @@ def grade_fleet(
         jan["exposed"] = False
     jan["cve"] = "CVE-2026-53359"
 
+    kvm_entries = [_kvm_svm_host(host) for host in hosts]
+    kvm = _fleet(
+        kvm_entries,
+        control_plane,
+        label=kvm_svm.CVE,
+        pass_statuses={"pass", "not-applicable"},
+        fail_statuses={"fail"},
+        clean="Every audited host meets the minimum or is outside the scope of this CVE.",
+    )
+    kvm_checked = [entry for entry in kvm_entries if entry["checked"]]
+    kvm_by_status = {
+        status: [entry for entry in kvm_checked if entry["status"] == status]
+        for status in ("fail", "unknown", "pass")
+    }
+    if kvm["status"] == "pass" and not kvm_by_status["pass"]:
+        kvm["status"] = "not-applicable"
+        kvm["reason"] = "Every audited host is outside the scope of this CVE."
+    # The fleet row shows the kernel of the host that decides the verdict.
+    decisive = (
+        kvm_by_status["fail"] or kvm_by_status["unknown"] or kvm_by_status["pass"]
+        or kvm_checked or [{}]
+    )[0]
+    for key in ("runningKernel", "minimum", "localKernelStatus", "virtualization", "livepatch"):
+        kvm[key] = decisive.get(key, "unknown")
+    kvm["runningKernels"] = sorted({entry["runningKernel"] for entry in kvm_checked})
+    kvm["unknownNodes"] = [entry["node"] for entry in kvm_by_status["unknown"]]
+    kvm["cve"] = kvm_svm.CVE
+
     return {
         "pwnescape": pwn,
+        "kvmSvm": kvm,
         "fragnesia": frag,
         "januscape": jan,
     }

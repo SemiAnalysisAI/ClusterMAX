@@ -72,6 +72,24 @@ produce an unknown result that requires provider patch evidence. The check does
 not run an exploit or attest that a provider's kernel is genuine. An explicitly
 pinned minimum table without the mapping produces an unknown result.
 
+The read-only AMD KVM host check, `security.kvmSvm.status`, grades
+[CVE-2026-99312](https://www.cve.org/CVERecord?id=CVE-2026-99312), which
+affects AMD KVM hosts that enable nested virtualization. On a physical AMD
+host with `kvm_amd` loaded and `nested=1`, an upstream kernel passes when it
+meets the fixed release of its own stable branch. The `linuxKvmSvm` row of the
+minimum table holds those releases, and the daily refresh generates the row
+from the CVE record of the Linux kernel CNA. An affected branch with no fixed
+release fails. An Intel host, a host with `nested=0`, and an AMD host with no
+KVM module and no `/dev/kvm` are not applicable. A guest, a distribution
+kernel, and an active or unreadable livepatch state produce an unknown result
+that requires provider patch evidence. On Slurm and Kubernetes, the check
+grades every host that the audit reads. The check does not run an exploit.
+References: the
+[kernel fix commit](https://git.kernel.org/linus/c7c288d178cb0b78d3464a616b16b1aa0b316049),
+the [NVD entry](https://nvd.nist.gov/vuln/detail/CVE-2026-99312), and the
+[DigitalOcean vendor advisory](https://www.digitalocean.com/blog/cve-2026-99312-kvm-patch).
+See [docs/kvm-svm-cve-2026-99312.md](docs/kvm-svm-cve-2026-99312.md).
+
 Security collection distinguishes the host, GPU Operator containers, and active
 GPU workloads on the sampled worker. Driver detection can read the loaded
 kernel module when `nvidia-smi` is outside the host search path. Toolkit
@@ -178,6 +196,7 @@ $ cmax audit security --show
 
 [isolation] Security isolation
   security.januscape.status: Security / Januscape
+  security.kvmSvm.status: Security / KVM SVM
   ...
 ```
 
@@ -225,6 +244,7 @@ audit_profile:
   - securityVersions.virtioNetBluefield.exposure
   - securityVersions.dpuHostIsolation.status
   - security.januscape.status
+  - security.kvmSvm.status
   - security.guestKernel.newerInstalled
   - security.fragnesia.status
   - bmc-ipmi

@@ -135,6 +135,13 @@ class StubFetcher(fr.Fetcher):
                 fr.github_release_url(fr.RUNC_RELEASE_REPO, f"v{version}")
             ] = release
         self.md_heads = fixture("nvidia-bulletin-md-heads.json")
+        self.changelog_heads: dict[str, str] = {}
+        for spec in fr.LINUX_KERNEL_CVE_SPECS:
+            record = fixture(f"linux-cna-{spec['cve'].lower()}.json")
+            self.json_by_url[fr.linux_cna_record_url(spec["cve"])] = record
+            for version, head in record["_changelogHeads"].items():
+                url = fr.KERNEL_CHANGELOG.format(major=version.split(".")[0], version=version)
+                self.changelog_heads[url] = head
         self.json_by_url[fr.DOCKER_DOCS_CONTENTS] = fixture(
             "docker-docs-release-notes-listing.json"
         )
@@ -209,6 +216,8 @@ class StubFetcher(fr.Fetcher):
 
     def get_text_head(self, url: str, max_bytes: int = 1200) -> str | None:
         self.calls.append(url)
+        if url in self.changelog_heads:
+            return self.changelog_heads[url][:max_bytes]
         for a_id, text in self.md_heads.items():
             if url.endswith(f"/{a_id}/{a_id}.md"):
                 return text[:max_bytes]
@@ -1549,6 +1558,67 @@ class BuildMinimumsTest(unittest.TestCase):
 
         with self.assertRaisesRegex(fr.MinimumRefreshError, "fewer than two"):
             fr.nvhpc_release_window(fetch=stub)
+
+
+class LinuxKernelCveTest(unittest.TestCase):
+    SPEC = fr.LINUX_KERNEL_CVE_SPECS[0]
+    RECORD = fr.linux_cna_record_url(SPEC["cve"])
+
+    def test_branch_minimums_come_from_the_kernel_cna_record(self) -> None:
+        stub = StubFetcher()
+        # A release with no readable changelog keeps its minimum and is unconfirmed.
+        del stub.changelog_heads[fr.KERNEL_CHANGELOG.format(major="7", version="7.3.5")]
+        block = fr.linux_kernel_cve_minimums(self.SPEC, fetch=stub)
+
+        self.assertEqual(block["kind"], "kernelBranches")
+        self.assertEqual(
+            block["branches"], {"6.12": "6.12.118", "6.18": "6.18.64", "7.3": "7.3.5"}
+        )
+        self.assertEqual(block["mainline"], "7.4-rc2")
+        self.assertEqual(block["affectedSince"], "6.1")
+        self.assertEqual(block["affectedFrom"], {"5.15": "5.15.81", "6.0": "6.0.11"})
+        self.assertEqual(
+            block["floorAvailability"]["6.12"],
+            {
+                "status": "confirmed",
+                "available": "2026-11-17T10:07:15Z",
+                "feed": "kernel-org-changelog",
+                "version": "6.12.118",
+                "url": "https://cdn.kernel.org/pub/linux/kernel/v6.x/ChangeLog-6.12.118",
+            },
+        )
+        self.assertEqual(block["floorAvailability"]["7.3"]["status"], "unconfirmed")
+        # The full build dates each branch minimum from the CVE publication.
+        built = baseline()["components"][self.SPEC["key"]]
+        self.assertEqual(
+            built["floorAvailability"]["7.3"]["bulletinReleased"],
+            "2026-11-18T08:42:06.136Z",
+        )
+
+    def test_an_unusable_cna_record_fails_closed(self) -> None:
+        def drop_mainline_fix(record: dict) -> None:
+            for product in record["containers"]["cna"]["affected"]:
+                product["versions"] = [
+                    entry for entry in product["versions"]
+                    if entry.get("versionType") != "original_commit_for_fix"
+                ]
+
+        def reject(record: dict) -> None:
+            record["cveMetadata"]["state"] = "REJECTED"
+
+        for name, change in (("no mainline fix", drop_mainline_fix), ("rejected", reject)):
+            with self.subTest(name):
+                stub = StubFetcher()
+                change(stub.json_by_url[self.RECORD])
+                with self.assertRaises(fr.MinimumRefreshError):
+                    fr.linux_kernel_cve_minimums(self.SPEC, fetch=stub)
+
+    def test_a_lowered_kernel_branch_minimum_fails_closed(self) -> None:
+        existing = baseline()
+        existing["components"][self.SPEC["key"]]["branches"]["6.12"] = "6.12.119"
+        with self.assertRaises(fr.MinimumRefreshError) as caught:
+            fr.build_minimums(generated=GENERATED, existing=existing, fetch=StubFetcher())
+        self.assertIn("linuxKvmSvm.6.12", str(caught.exception))
 
 
 class DockerMinimumTest(unittest.TestCase):
