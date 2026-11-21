@@ -48,6 +48,7 @@ def run(
     category: str | None = None,
     resolved_target: security.SecurityTarget | None = None,
     exit_on_fail: bool = False,
+    output_dir: str | None = None,
 ) -> int:
     try:
         runtime_root = security.find_runtime_root(repo)
@@ -56,8 +57,11 @@ def run(
         raise AuditError(str(exc)) from exc
 
     runner = runtime_paths.audit_runner(runtime_root)
-    audit_dir = _audit_dir()
-    audit_dir.mkdir(parents=True, exist_ok=False)
+    # A caller can pin the results directory with output_dir, which the
+    # `cmax audit security --output-dir` flag uses. Without it, the audit writes
+    # to a fresh timestamped directory.
+    audit_dir = Path(output_dir) if output_dir else _audit_dir()
+    audit_dir.mkdir(parents=True, exist_ok=bool(output_dir))
     env = {
         **os.environ,
         "RUN_RESULTS_DIR": str(audit_dir),

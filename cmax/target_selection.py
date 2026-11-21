@@ -464,6 +464,8 @@ def prepare_target(
         return choice
 
     selected = target
+    # None marks a skipped probe. A list marks a completed probe.
+    probed_interfaces: list[str] | None = None
     try:
         role = role_for(selected.harness)
         mixed = host_roles.may_have_both_interfaces(role)
@@ -475,6 +477,7 @@ def prepare_target(
                 except TargetSelectionError:
                     continue
                 available.append(harness)
+            probed_interfaces = available
             if len(available) == 2:
                 print("Both Slurm and Kubernetes are reachable from this shell.", file=output)
                 if assume_yes:
@@ -525,9 +528,13 @@ def prepare_target(
 
             _print_target(command, details, stream=output, noun=noun)
             current_role = role_for(selected.harness)
-            if current_role is not None and host_roles.guard(
-                selected.harness, current_role, noun=noun, command=command
-            ) is not None and not (allow_cluster_node or assume_yes):
+            mismatch = (
+                current_role is not None
+                and host_roles.guard(
+                    selected.harness, current_role, noun=noun, command=command
+                ) is not None
+            )
+            if mismatch and not (allow_cluster_node or assume_yes):
                 # The mismatch menu and its final question replace the usual
                 # target question, so the operator confirms exactly twice.
                 return accept(selected)
@@ -535,8 +542,22 @@ def prepare_target(
                 print("  Confirmation: accepted with --yes", file=output)
                 return accept(selected)
             if not terminal:
-                if selected.explicit:
-                    print("  Confirmation: accepted from the explicit target", file=output)
+                # One answered probe leaves a single interface.
+                # --allow-cluster-node already answered a host-role mismatch.
+                single_interface = (
+                    probed_interfaces is not None and len(probed_interfaces) < 2
+                )
+                if selected.explicit or allow_cluster_node or single_interface:
+                    if selected.explicit:
+                        print(
+                            "  Confirmation: accepted from the explicit target",
+                            file=output,
+                        )
+                    elif single_interface and not mismatch:
+                        print(
+                            "  Confirmation: accepted from the only reachable interface",
+                            file=output,
+                        )
                     return accept(selected)
                 raise TargetSelectionError(
                     "target confirmation requires an interactive terminal. "

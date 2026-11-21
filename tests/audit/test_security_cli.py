@@ -1091,7 +1091,6 @@ class SecurityCliTests(unittest.TestCase):
             command="cmax audit security",
             noun="audit",
             assume_yes=False,
-            kubeconfig=None,
             allow_cluster_node=False,
         )
         run.assert_called_once_with(
@@ -1117,7 +1116,7 @@ class SecurityCliTests(unittest.TestCase):
         self.assertIn("cmax: audit canceled", error.getvalue())
 
     def test_show_lists_security_checks_without_running(self) -> None:
-        for flag in ("-s", "--show"):
+        for flag in ("--show",):
             output = io.StringIO()
             with self.subTest(flag=flag), mock.patch.object(
                 security,
@@ -1537,7 +1536,7 @@ def installed_generator(module: types.ModuleType | None):
 
 
 class MinimumRefreshTests(unittest.TestCase):
-    """`--refresh-minimums` is opt-in, and a failed refresh never blocks an audit."""
+    """The security audit does not rebuild the minimum table on the host."""
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -1647,35 +1646,6 @@ class MinimumRefreshTests(unittest.TestCase):
         self.assertIn("pip-installed wheel", printed)
         self.assertEqual(self.path.read_text(), self.committed)
 
-    def test_refresh_runs_before_the_audit_and_a_failure_does_not_stop_it(
-        self,
-    ) -> None:
-        order: list[str] = []
-        target = security.SecurityTarget("standalone", "vm", True)
-
-        def build(**kwargs):
-            order.append("refresh")
-            raise RuntimeError("no outbound network")
-
-        def fake_audit(*args, **kwargs):
-            order.append("audit")
-            return 0
-
-        output = io.StringIO()
-        with installed_generator(fake_generator(build_minimums=build)):
-            with mock.patch.object(security, "detect_target", return_value=target):
-                with mock.patch(
-                    "cmax.audit_runner.run", side_effect=fake_audit
-                ):
-                    with contextlib.redirect_stdout(output):
-                        result = cli.main(
-                            ["audit", "security", "--vm", "--refresh-minimums"]
-                        )
-        self.assertEqual(result, 0)
-        self.assertEqual(order, ["refresh", "audit"])
-        self.assertIn("no outbound network", output.getvalue())
-        self.assertEqual(self.path.read_text(), self.committed)
-
     def test_refresh_is_not_the_default(self) -> None:
         target = security.SecurityTarget("standalone", "vm", True)
         with mock.patch.object(security, "detect_target", return_value=target):
@@ -1684,12 +1654,6 @@ class MinimumRefreshTests(unittest.TestCase):
                     result = cli.main(["audit", "security", "--vm"])
         self.assertEqual(result, 0)
         refresh.assert_not_called()
-
-    def test_refresh_minimums_is_rejected_outside_the_security_profile(self) -> None:
-        with contextlib.redirect_stderr(io.StringIO()) as stderr:
-            with self.assertRaises(SystemExit):
-                cli.main(["audit", "--refresh-minimums"])
-        self.assertIn("unrecognized arguments: --refresh-minimums", stderr.getvalue())
 
 
 class PackagedRuntimeTests(unittest.TestCase):

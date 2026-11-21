@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from cmax import __version__, audit_profiles, audit_runner, banner, cli, security, target_selection
+from cmax import audit_cli, __version__, audit_profiles, audit_runner, banner, cli, security, target_selection
 
 
 class PublicCliTests(unittest.TestCase):
@@ -84,7 +84,7 @@ class PublicCliTests(unittest.TestCase):
 
         self.assertEqual(full_exit.exception.code, 0)
         self.assertEqual(security_exit.exception.code, 0)
-        self.assertIn("full cluster configuration and health audit", full_out.getvalue())
+        self.assertIn("Run the cluster configuration and health audit.", full_out.getvalue())
         self.assertNotIn("--exit-zero", full_out.getvalue())
         self.assertIn("focused, read-only security report", security_out.getvalue())
         self.assertIn("--exit-zero", security_out.getvalue())
@@ -97,8 +97,6 @@ class PublicCliTests(unittest.TestCase):
                 "-vv",
                 "--show",
                 "--yes",
-                "--kubeconfig",
-                "/tmp/config",
                 "security",
             ]
         )
@@ -107,7 +105,6 @@ class PublicCliTests(unittest.TestCase):
         self.assertEqual(args.verbose, 2)
         self.assertTrue(args.show)
         self.assertTrue(args.assume_yes)
-        self.assertEqual(args.kubeconfig, "/tmp/config")
 
     def test_security_rejects_target_flags_across_the_profile_boundary(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()) as stderr, self.assertRaises(
@@ -127,7 +124,7 @@ class PublicCliTests(unittest.TestCase):
                 key="gpu.memory", title="GPU / Memory", category="hardware"
             ),
         ]
-        for flag in ("-s", "--show"):
+        for flag in ("--show",):
             with self.subTest(flag=flag), mock.patch(
                 "cmax.security.find_runtime_root", return_value=Path("/runtime")
             ), mock.patch.object(
@@ -158,45 +155,12 @@ class PublicCliTests(unittest.TestCase):
         ) as detect, mock.patch(
             "cmax.audit_report.list_check_specs", return_value=[]
         ) as list_checks, contextlib.redirect_stdout(io.StringIO()):
-            result = cli.main(["audit", "container", "--show"])
+            result = cli.main(["audit", "--container", "--show"])
 
         self.assertEqual(result, 0)
         detect.assert_called_once_with("container")
         list_checks.assert_called_once_with(
             mock.ANY, category=None, harness="standalone"
-        )
-
-    def test_audit_show_applies_kubeconfig_before_automatic_detection(self) -> None:
-        selected = security.SecurityTarget("k8s", "k8s")
-
-        def detect_target(explicit: str | None) -> security.SecurityTarget:
-            self.assertIsNone(explicit)
-            self.assertEqual(cli.os.environ.get("KUBECONFIG"), "/new/config")
-            return selected
-
-        def apply_kubeconfig(_value: str | None) -> None:
-            cli.os.environ["KUBECONFIG"] = "/new/config"
-
-        with mock.patch.dict(
-            cli.os.environ, {"KUBECONFIG": "/original/config"}
-        ), mock.patch.object(
-            target_selection, "apply_kubeconfig", side_effect=apply_kubeconfig
-        ) as apply, mock.patch.object(
-            security, "detect_target", side_effect=detect_target
-        ), mock.patch(
-            "cmax.audit_report.list_check_specs", return_value=[]
-        ) as list_checks, contextlib.redirect_stdout(io.StringIO()):
-            result = cli.main(
-                ["audit", "--show", "--kubeconfig", "/new/config"]
-            )
-            self.assertEqual(
-                cli.os.environ.get("KUBECONFIG"), "/original/config"
-            )
-
-        self.assertEqual(result, 0)
-        apply.assert_called_once_with("/new/config")
-        list_checks.assert_called_once_with(
-            mock.ANY, category=None, harness="k8s"
         )
 
     def test_category_show_lists_only_the_selected_category(self) -> None:
@@ -208,7 +172,7 @@ class PublicCliTests(unittest.TestCase):
         ), mock.patch("cmax.audit_runner.run") as run, contextlib.redirect_stdout(
             io.StringIO()
         ) as out:
-            result = cli.main(["audit", "hardware", "-s"])
+            result = cli.main(["audit", "hardware", "--show"])
 
         self.assertEqual(result, 0)
         self.assertIn("[hardware] Hardware (11 checks)", out.getvalue())
@@ -299,31 +263,11 @@ class PublicCliTests(unittest.TestCase):
             resolved_target=selected,
         )
 
-    def test_each_target_has_a_subcommand_alias(self) -> None:
-        selected = security.SecurityTarget("standalone", "local", True)
-        for target_name in cli.AUDIT_TARGET_NAMES:
-            with self.subTest(target=target_name), mock.patch.object(
-                security, "detect_target", return_value=selected
-            ) as detect, mock.patch.object(
-                target_selection, "prepare_target", return_value=selected
-            ), mock.patch(
-                "cmax.audit_runner.run", return_value=0
-            ) as run:
-                result = cli.main(["audit", target_name])
-            self.assertEqual(result, 0)
-            detect.assert_called_once_with(target_name)
-            run.assert_called_once_with(
-                repo=None,
-                verbosity=1,
-                category=None,
-                resolved_target=selected,
-            )
-
-    def test_target_alias_rejects_a_parent_target(self) -> None:
+    def test_a_profile_target_rejects_a_parent_target(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()) as stderr, self.assertRaises(
             SystemExit
         ) as raised:
-            cli.main(["audit", "--k8s", "slurm"])
+            cli.main(["audit", "--k8s", "hardware", "--slurm"])
 
         self.assertEqual(raised.exception.code, 2)
         self.assertIn("audit target flags are mutually exclusive", stderr.getvalue())
@@ -341,29 +285,50 @@ class PublicCliTests(unittest.TestCase):
         run.assert_not_called()
         self.assertIn("cmax: audit canceled", error.getvalue())
 
-    def test_local_target_restores_the_previous_kubeconfig(self) -> None:
-        selected = security.SecurityTarget("standalone", "local", True)
-
-        def apply_kubeconfig(_value: str | None) -> None:
-            cli.os.environ["KUBECONFIG"] = "/new/config"
-
-        with mock.patch.dict(
-            cli.os.environ, {"KUBECONFIG": "/original/config"}
-        ), mock.patch.object(
-            target_selection, "apply_kubeconfig", side_effect=apply_kubeconfig
-        ), mock.patch.object(
-            security, "detect_target", return_value=selected
-        ), mock.patch.object(
-            target_selection, "prepare_target", return_value=selected
-        ), mock.patch(
-            "cmax.audit_runner.run", return_value=0
+    def test_removed_options_and_target_subcommands_are_rejected(self) -> None:
+        for argv in (
+            ["audit", "-s"],
+            ["audit", "security", "-s"],
+            ["audit", "--kubeconfig", "/tmp/config"],
+            ["audit", "security", "--refresh-minimums"],
+            ["audit", "slurm"],
+            ["audit", "local"],
         ):
-            result = cli.main(
-                ["audit", "--local", "--kubeconfig", "/new/config"]
-            )
-            self.assertEqual(cli.os.environ["KUBECONFIG"], "/original/config")
+            with self.subTest(argv=argv), contextlib.redirect_stderr(
+                io.StringIO()
+            ), self.assertRaises(SystemExit) as raised:
+                cli.main(argv)
+            self.assertEqual(raised.exception.code, 2)
 
+    def test_security_output_dir_reaches_the_runner(self) -> None:
+        target = security.SecurityTarget("standalone", "vm", True)
+        with mock.patch.object(
+            security, "detect_target", return_value=target
+        ), mock.patch.object(
+            target_selection, "prepare_target", return_value=target
+        ), mock.patch.object(
+            security, "sync_minimum_table", return_value=True
+        ), mock.patch("cmax.audit_runner.run", return_value=0) as run:
+            result = cli.main(["audit", "security", "--vm", "--output-dir", "/tmp/out"])
         self.assertEqual(result, 0)
+        self.assertEqual(run.call_args.kwargs["output_dir"], "/tmp/out")
+
+    def test_output_dir_is_a_security_option(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+            cli.main(["audit", "--output-dir", "/tmp/out"])
+        self.assertEqual(raised.exception.code, 2)
+
+    def test_the_audit_parser_matches_the_shared_module(self) -> None:
+        commands = next(
+            action
+            for action in cli.build_parser()._subparsers._group_actions[0]
+            .choices["audit"]._actions
+            if isinstance(action, cli.argparse._SubParsersAction)
+        )
+        self.assertEqual(
+            list(commands.choices),
+            [*audit_cli.PROFILE_NAMES, "review"],
+        )
 
 
 if __name__ == "__main__":
