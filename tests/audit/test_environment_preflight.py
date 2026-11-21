@@ -74,6 +74,37 @@ def test_automation_requires_an_override():
     prepare(interactive=False, allow_cluster_node=True)
 
 
+def test_noninteractive_autodetect_proceeds_when_nothing_is_left_to_choose():
+    # An auto-detected standalone run on a compute node has no terminal.
+    # --allow-cluster-node is the override for that mismatch.
+    output = io.StringIO()
+    selected = prepare(
+        security.SecurityTarget("standalone", "bare-metal", False),
+        interactive=False,
+        allow_cluster_node=True,
+        stream=output,
+    )
+    assert selected.harness == "standalone"
+    assert "accepted with --allow-cluster-node" in output.getvalue()
+
+    # Kubernetes is unreachable. Slurm is the one interface that answered,
+    # so the run continues.
+    output = io.StringIO()
+    with mock.patch.object(target_selection, "_slurm_details", return_value=()), \
+         mock.patch.object(
+             target_selection, "_kubernetes_details",
+             side_effect=target_selection.TargetSelectionError("unreachable"),
+         ):
+        selected = prepare(
+            security.SecurityTarget("slurm", "slurm"),
+            host_role=LOGIN_POD,
+            interactive=False,
+            stream=output,
+        )
+    assert selected.harness == "slurm"
+    assert "only reachable interface" in output.getvalue()
+
+
 @pytest.mark.parametrize("interactive", [False, True])
 def test_yes_accepts_the_host_role_mismatch_without_a_prompt(interactive):
     output = io.StringIO()

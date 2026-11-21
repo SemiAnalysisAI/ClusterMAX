@@ -466,37 +466,6 @@ class CommandLineTests(MinimumSyncTestCase):
         self.assertEqual(result, 0)
         self.assertEqual(order, ["fetch", "audit"])
 
-    def test_the_refresh_runs_before_the_fetch(self) -> None:
-        # Refresh before fetch redirects the table path, preserving cached bytes and validators.
-        order: list[str] = []
-        target = security.SecurityTarget("standalone", "vm", True)
-
-        with mock.patch.object(security, "detect_target", return_value=target):
-            with mock.patch(
-                "cmax.audit_runner.run",
-                side_effect=lambda *a, **k: order.append("audit") or 0,
-            ):
-                with mock.patch.object(
-                    security,
-                    "refresh_minimum_table",
-                    side_effect=lambda **k: order.append("refresh"),
-                ):
-                    with mock.patch.object(
-                        security,
-                        "sync_minimum_table",
-                        side_effect=lambda **k: order.append("fetch") or True,
-                    ):
-                        result = cli.main(
-                            [
-                                "audit",
-                                "security",
-                                "--vm",
-                                "--refresh-minimums",
-                            ]
-                        )
-        self.assertEqual(result, 0)
-        self.assertEqual(order, ["refresh", "fetch", "audit"])
-
     def test_the_opt_out_is_rejected_outside_the_security_subcommand(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()) as stderr:
             with self.assertRaises(SystemExit):

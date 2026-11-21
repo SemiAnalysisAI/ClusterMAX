@@ -298,7 +298,7 @@ It is omitted from piped output, help, version output, and inspection commands
 such as `--show` or `--dry-run`. Set `CLUSTERMAX_PROGRESS=0` to hide the startup
 logo, prayer, and progress display.
 
-The command detects Slurm, Kubernetes, containers, virtual machines, macOS, and standalone hosts automatically, and confirms the selection interactively with the user. To skip this confirmation and force the CLI to use a certain approach, use `--local`, `--slurm`, `--k8s`, `--container`, `--vm`, or `--standalone`. Use `--kubeconfig PATH` to select Kubernetes credentials. An explicit target option confirms the target in a non-interactive run. Use `--yes` to accept an auto-detected target without a prompt.
+The command detects Slurm, Kubernetes, containers, virtual machines, macOS, and standalone hosts automatically, and confirms the selection interactively with the user. To skip this confirmation and force the CLI to use a certain approach, use `--local`, `--slurm`, `--k8s`, `--container`, `--vm`, or `--standalone`. Set `KUBECONFIG` to select Kubernetes credentials. An explicit target option confirms the target in a non-interactive run. Use `--yes` to accept an auto-detected target without a prompt.
 
 Run Slurm audits from a login node and Kubernetes audits from a machine with `kubectl` access. When a standalone command starts on a cluster node, or a Slurm command starts on a compute node, the CLI shows the evidence, scope, and recommended command before work starts.
 
@@ -311,7 +311,8 @@ For Slurm on Kubernetes, including Slinky, the CLI shows the Slurm role separate
 The regression tests use synthetic signals to cover cancellation, reporting, overrides, mixed interfaces, and failed access checks. They do not establish live cluster qualification.
 
 Users can run the command multiple times. Each run writes timestamped artifacts
-under `~/.clustermax/audit/` by default.
+under `~/.clustermax/audit/` by default. Use
+`cmax audit security --output-dir DIR` to write them to a new directory.
 
 A failed security check produces exit code 2. Use `--exit-zero` when the caller
 requires exit code 0.
@@ -374,19 +375,6 @@ minimum version, and a link to that component in the published
 labeled CVE and vendor documentation links. The `-vvv` output adds the issue
 description and recommended remediation. The CLI does not provide an output
 level below `-v`.
-
-Target aliases select an environment for the complete audit:
-
-```bash
-cmax audit slurm
-cmax audit k8s
-cmax audit standalone
-cmax audit vm
-cmax audit container
-```
-
-These commands are equivalent to the matching `--slurm`, `--k8s`,
-`--standalone`, `--vm`, and `--container` options.
 
 The Slurm audit checks Pyxis through the container options that Pyxis adds to
 `srun --help`. It records the installed package version when package metadata

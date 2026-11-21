@@ -177,7 +177,7 @@ cmax audit security -vvv
 
 交互式审计会在启动标志下方显示一段简短的集群祈愿语。祈愿语仅用于装饰，不会改变 GPU 设置或审计结果。管道输出、帮助、版本输出，以及 `--show` 或 `--dry-run` 等查看命令中不会显示祈愿语。设置 `CLUSTERMAX_PROGRESS=0` 可隐藏启动标志、祈愿语和进度显示。
 
-该命令会自动检测 Slurm、Kubernetes、容器、虚拟机、macOS 和独立主机，并与用户交互确认选择。若要跳过此确认并强制 CLI 使用指定方式，可使用 `--local`、`--slurm`、`--k8s`、`--container`、`--vm` 或 `--standalone`。使用 `--kubeconfig PATH` 可选择 Kubernetes 凭据。在非交互式运行中，显式目标选项即表示确认该目标。使用 `--yes` 可直接接受自动检测的目标而不显示提示。
+该命令会自动检测 Slurm、Kubernetes、容器、虚拟机、macOS 和独立主机，并与用户交互确认选择。若要跳过此确认并强制 CLI 使用指定方式，可使用 `--local`、`--slurm`、`--k8s`、`--container`、`--vm` 或 `--standalone`。设置 `KUBECONFIG` 可选择 Kubernetes 凭据。在非交互式运行中，显式目标选项即表示确认该目标。使用 `--yes` 可直接接受自动检测的目标而不显示提示。
 
 请从登录节点运行 Slurm 审计，从具有 `kubectl` 访问权限的机器运行 Kubernetes 审计。如果独立模式命令在集群节点上启动，或 Slurm 命令在计算节点上启动，CLI 会在开始工作前显示证据、范围和建议使用的命令。
 
@@ -189,7 +189,7 @@ cmax audit security -vvv
 
 回归测试使用合成信号覆盖取消、报告、覆盖默认行为、混合接口和访问检查失败等情况。这些测试不能证明系统已通过实际集群验证。
 
-用户可以多次运行命令。默认情况下，每次运行都会在 `~/.clustermax/audit/` 下写入带有时间戳的产物。
+用户可以多次运行命令。默认情况下，每次运行都会在 `~/.clustermax/audit/` 下写入带有时间戳的产物。使用 `cmax audit security --output-dir DIR` 可将产物写入一个新目录。
 
 安全检查失败时返回退出码 2。如果调用方需要退出码 0，可使用 `--exit-zero`。
 
@@ -232,18 +232,6 @@ cmax audit networking --slurm
 每次实际运行检查配置都会保存 `audit.out` 和 `audit.values.json`。如果安全检查配置的标准报告中包含失败的检查，则返回退出码 2。自动化系统需要退出码 0 时，可使用 `--exit-zero`。
 
 所有审计报告使用相同的状态块。输出到终端时，`PASS` 为绿色，`WARNING` 为黄色，`FAIL` 为红色，`SKIPPED` 为暗色。重定向输出保持纯文本格式。默认的 `-v` 输出会显示所有通过、警告、失败和跳过的检查，还会显示每个检测到的版本、对应的最低版本，以及已发布的[最低版本表](https://www.clustermax.ai/minimum-versions)中该组件的链接，例如 [`runc`](https://www.clustermax.ai/minimum-versions#runc)。`-vv` 输出增加带标签的 CVE 和厂商文档链接。`-vvv` 输出增加问题描述和建议的修复方法。CLI 不提供低于 `-v` 的输出级别。
-
-目标别名用于为完整审计选择环境：
-
-```bash
-cmax audit slurm
-cmax audit k8s
-cmax audit standalone
-cmax audit vm
-cmax audit container
-```
-
-这些命令分别等同于对应的 `--slurm`、`--k8s`、`--standalone`、`--vm` 和 `--container` 选项。
 
 Slurm 审计通过 Pyxis 添加到 `srun --help` 中的容器选项检查 Pyxis。如果软件包元数据可用，会记录已安装的软件包版本。该检查不会启动容器或等待 GPU 资源分配。如果这些选项不可用，审计会提供 [NVIDIA Pyxis 安装说明](https://github.com/NVIDIA/pyxis#installation)链接。
 
