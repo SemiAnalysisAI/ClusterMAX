@@ -68,7 +68,11 @@ def grade(facts: dict[str, str]) -> dict[str, str | bool]:
     nested = facts.get("WORKER_NESTED_ENABLED", "unknown")
     physical = facts.get("WORKER_VIRT_GUEST") == "false" and virt == "none"
     status, local, minimum = "unknown", "unknown", "unknown"
-    if not physical:
+    if cpu == "GenuineIntel" and module == "kvm_intel":
+        # kvm_intel loads only on Intel VMX, which an AMD host cannot give to a
+        # guest. The answer holds when the audit cannot prove bare metal.
+        status, reason = "not-applicable", "The host has an Intel CPU and the Intel KVM module."
+    elif not physical:
         reason = "The physical host is unverified. Request its CPU, nesting state, and running kernel build."
     elif cpu == "GenuineIntel" and module == "kvm_amd":
         reason = "The CPU vendor and the KVM module do not agree. Obtain host configuration evidence."
