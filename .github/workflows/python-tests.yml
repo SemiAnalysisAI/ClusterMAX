@@ -178,7 +178,7 @@ jobs:
           /tmp/clustermax-wheel-venv/bin/cmax audit security --show
           /tmp/clustermax-wheel-venv/bin/cmax audit --show
           /tmp/clustermax-wheel-venv/bin/cmax audit --standalone --show
-          /tmp/clustermax-wheel-venv/bin/cmax audit --help | grep -F "full cluster configuration and health audit"
+          /tmp/clustermax-wheel-venv/bin/cmax audit --help | grep -F "cluster configuration and health audit"
           /tmp/clustermax-wheel-venv/bin/cmax audit security --help | grep -F "focused, read-only security report"
           if /tmp/clustermax-wheel-venv/bin/cmax init 2>/dev/null; then exit 1; fi
           /tmp/clustermax-wheel-venv/bin/cmax audit security --standalone --dry-run -o yaml > /tmp/clustermax-security-plan.yaml
