@@ -17,6 +17,10 @@ This version of the `cmax` CLI provides the following commands:
 | `cmax audit security` | This command runs a focused, read-only security audit. |
 | `cmax audit` | This command runs a full cluster audit covering more than just security. |
 | `cmax audit review` | This command reviews a saved audit output without running new checks. |
+| `cmax gpu-fingerprint` | This opt-in experiment collects a local GPU signature without security grading. |
+
+The [GPU fingerprint experiment](docs/gpu-fingerprint.md) runs an active CUDA
+workload and saves identifying data locally. It is not part of the default audit.
 
 ## Install ClusterMAX
 

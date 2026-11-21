@@ -157,7 +157,10 @@ def build_parser() -> argparse.ArgumentParser:
         usage="%(prog)s [-h] [-v] command ...",
         add_help=False,
         description="Audit the configuration and security of a GPU cluster.",
-        epilog=f"commands:\n  audit  {AUDIT_COMMAND_HELP}",
+        epilog=(
+            f"commands:\n  audit  {AUDIT_COMMAND_HELP}\n"
+            "  gpu-fingerprint  Collect an experimental local GPU signature."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("-h", "--help", action="help", help=argparse.SUPPRESS)
@@ -330,7 +333,63 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    fingerprint = sub.add_parser(
+        "gpu-fingerprint",
+        help="Collect an experimental local GPU signature.",
+        description=(
+            "Run an active CUDA probe on one local, visible GPU. This consumes "
+            "GPU capacity and creates identifying data; it does not grade security."
+        ),
+    )
+    _add_target_confirmation_options(fingerprint, noun="GPU fingerprint probe")
+    fingerprint.add_argument(
+        "--acknowledge-gpu-work", action="store_true",
+        help="Confirm permission to run GPU work and collect identifying data.",
+    )
+    fingerprint.add_argument("--device", type=int, default=0,
+                             help="CUDA-visible device ordinal (default: 0).")
+    fingerprint.add_argument("--epochs", type=int, default=3)
+    fingerprint.add_argument("--launches", type=int, default=3000,
+                             help="Launches per epoch (default: 3000).")
+    fingerprint.add_argument("--replicate", type=int, default=0)
+    fingerprint.add_argument("--timeout", type=int, default=180,
+                             help="Worker timeout in seconds (default: 180).")
+    fingerprint.add_argument("--output", type=Path, required=True,
+                             help="New private JSON file; existing files are not replaced.")
+
     return parser
+
+
+def _run_gpu_fingerprint(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from cmax import gpu_fingerprint, security, target_selection
+
+    if not args.acknowledge_gpu_work:
+        parser.error("gpu-fingerprint requires --acknowledge-gpu-work, even with --yes")
+    if args.kubeconfig:
+        parser.error("gpu-fingerprint runs locally; --kubeconfig is not supported")
+    try:
+        gpu_fingerprint.validate_options(args.device, args.epochs, args.launches,
+                                         args.replicate, args.timeout)
+        # No cluster dispatch: the caller must already be inside its allocation.
+        selected = target_selection.prepare_target(
+            security.detect_target("local"), command="cmax gpu-fingerprint",
+            noun="GPU fingerprint probe", assume_yes=args.assume_yes,
+            allow_cluster_node=args.allow_cluster_node, stream=sys.stderr,
+        )
+        if selected.harness != "standalone":
+            raise ValueError("gpu-fingerprint runs locally; enter your GPU allocation first")
+        gpu_fingerprint.run_to_file(
+            args.output, device=args.device, epochs=args.epochs,
+            launches=args.launches, replicate=args.replicate, timeout=args.timeout,
+        )
+    except target_selection.TargetSelectionCancelled:
+        print("cmax: GPU fingerprint probe canceled", file=sys.stderr)
+        return AUDIT_CANCEL_EXIT
+    except (ValueError, OSError, RuntimeError) as exc:
+        print(f"cmax: {exc}", file=sys.stderr)
+        return 1
+    print(f"Experimental signature saved to {args.output}; no security grade assigned.")
+    return 0
 
 
 def _resolve_audit_target(
@@ -580,6 +639,8 @@ def main(argv: list[str] | None = None) -> int:
                 return _run_security(args, passthrough, parser)
         if passthrough:
             parser.error(f"unrecognized arguments: {' '.join(passthrough)}")
+        if args.command == "gpu-fingerprint":
+            return _run_gpu_fingerprint(args, parser)
         return _run_audit(args, parser)
     except KeyboardInterrupt:
         print("\n==> cmax: interrupted; active audit stopped", file=sys.stderr)
