@@ -61,14 +61,16 @@ def join_srun_labeled_output(stdout: str) -> str:
     as JSON ends the line too, so a line of exactly one chunk is not merged
     into the next one.
 
-    Input that is not entirely labeled (a k8s exec, a test stub, a single
-    task without --label) is returned unchanged.
+    Input with no labeled line (a k8s exec, a test stub, a single task
+    without --label) is returned unchanged. An unlabeled line beside labeled
+    ones is kept as its own line. SUNK prints one such line, "Job N: SUNK job
+    dashboard: <url>", before the task output.
     """
     lines = [line for line in stdout.splitlines() if line.strip()]
     if not lines:
         return stdout
     matches = [_SRUN_LABEL.match(line) for line in lines]
-    if not all(matches):
+    if not any(matches):
         return stdout
     pending: dict[str, list[str]] = {}
     order: list[tuple[int, str]] = []
@@ -80,7 +82,9 @@ def join_srun_labeled_output(stdout: str) -> str:
         finished.append((start, "".join(parts)))
 
     for index, match in enumerate(matches):
-        assert match is not None
+        if match is None:
+            finished.append((index, lines[index]))
+            continue
         task, payload = match.group(1), match.group(2)
         if task not in pending:
             pending[task] = []
