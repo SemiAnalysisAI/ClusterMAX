@@ -111,6 +111,21 @@ class SrunLabeledOutputTests(unittest.TestCase):
         stdout = 'srun: notice\n{"host":"gpu-a"}\n'
         self.assertEqual(fanout.join_srun_labeled_output(stdout), stdout)
 
+    def test_a_sunk_job_banner_does_not_hide_the_labeled_records(self) -> None:
+        # SUNK prints this unlabeled line before the task output. Without the
+        # fix, the vboost check read 0 of 2 nodes.
+        banner = "Job 42: SUNK job dashboard: https://grafana.example.com/d/job?id=42"
+        a = _srun_label(0, self.record("gpu-a", 1500))
+        b = _srun_label(1, self.record("gpu-b", 40))
+        stdout = "\n".join([banner, a[0], b[0], a[1]]) + "\n"
+
+        joined = fanout.join_srun_labeled_output(stdout)
+        records = fanout.parse_json_lines(stdout, require_host=True)
+
+        self.assertEqual(joined.splitlines()[0], banner)
+        self.assertEqual([r["host"] for r in records], ["gpu-a", "gpu-b"])
+        self.assertEqual(len(records[0]["pad"]), 1500)
+
     def test_labeled_noise_lines_pass_through(self) -> None:
         stdout = "0: warning: something\n1: " + self.record("n1", 5) + "\n"
         joined = fanout.join_srun_labeled_output(stdout)
