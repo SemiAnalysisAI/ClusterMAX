@@ -66,6 +66,46 @@ def test_connectx_devices_keep_their_host():
     assert [d["host"] for d in cx["devices"]] == ["gpu-a", "gpu-b"]
 
 
+def test_driver_cves_merge_independently_and_keep_coverage_gaps():
+    def driver(nvroot, forgeptr):
+        return {
+            "status": "fail" if "fail" in (nvroot, forgeptr) else "pass",
+            "cveFindings": {
+                "CVE-2026-47591": {"status": nvroot, "auditStatus": nvroot},
+                "CVE-2026-47501": {"status": forgeptr, "auditStatus": forgeptr},
+            },
+        }
+
+    payload = {
+        "sampled": {"securityVersions": {"nvidiaDriver": driver("pass", "pass")}},
+        "hostsTotal": 3,
+        "hosts": [
+            _host("gpu-a", {"nvidiaDriver": driver("fail", "pass")}),
+            _host("gpu-b", {"nvidiaDriver": driver("pass", "fail")}),
+            {"node": "gpu-c", "checked": False},
+        ],
+    }
+    merged = fleet.merge(payload)["securityVersions"]["nvidiaDriver"]
+    assert merged["cveFindings"]["CVE-2026-47591"]["fleet"]["worstHost"] == "gpu-a"
+    assert merged["cveFindings"]["CVE-2026-47501"]["fleet"]["worstHost"] == "gpu-b"
+    assert all(item["status"] == "fail" for item in merged["cveFindings"].values())
+    assert not merged["cveFindings"]["CVE-2026-47501"]["fleet"]["coverageComplete"]
+
+    # A checked old collector without CVE fields is also a coverage gap.
+    payload["hosts"] = [
+        _host("gpu-a", {"nvidiaDriver": driver("pass", "pass")}),
+        _host("gpu-b", {"nvidiaDriver": {"status": "pass"}}),
+        {"node": "gpu-c", "checked": False},
+    ]
+    for hosts in (payload["hosts"], payload["hosts"][1:]):
+        payload["hosts"] = hosts
+        merged = fleet.merge(payload)["securityVersions"]["nvidiaDriver"]
+        assert merged["status"] == "unknown"
+        for item in merged["cveFindings"].values():
+            assert item["status"] == "unknown"
+            assert item["fleet"]["coverageComplete"] is False
+
+
 def test_single_host_keeps_device_names_and_detail():
     payload = {
         "sampled": {"securityVersions": {}, "security": {}},
@@ -78,6 +118,29 @@ def test_single_host_keeps_device_names_and_detail():
     merged = fleet.merge(payload)["securityVersions"]
     assert merged["connectxFirmware"]["devices"][0]["device"] == "rail0"
     assert merged["runc"]["detail"] == "ok"
+
+
+def test_cve_grace_cannot_clear_another_hosts_missing_or_unknown_evidence():
+    cve = "CVE-2026-47501"
+    deferred = {"status": "fail", "auditStatus": "pass", "gracePeriod": {"active": True}}
+    for second, expected in (
+        ({}, "unknown"),
+        ({cve: {"status": "unknown", "auditStatus": "unknown"}}, "unknown"),
+        ({cve: {"status": "fail", "auditStatus": "fail"}}, "fail"),
+    ):
+        payload = {
+            "hostsTotal": 2,
+            "hosts": [
+                _host("gpu-a", {"nvidiaDriver": {"status": "pass", "cveFindings": {cve: deferred}}}),
+                _host("gpu-b", {"nvidiaDriver": {"status": "pass", "cveFindings": second}}),
+            ],
+        }
+        result = fleet.merge(payload)["securityVersions"]["nvidiaDriver"]
+        finding = result["cveFindings"][cve]
+        assert finding["status"] == "fail"
+        assert finding["auditStatus"] == expected
+        assert "gracePeriod" not in finding
+        assert result["status"] == expected
 
 
 def test_unread_host_blocks_a_pass():

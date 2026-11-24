@@ -29,6 +29,7 @@ _SECURITY_CHECK_COMPONENTS = {
     "nvidia-driver": "nvidiaDriver",
     "nvidia-container-toolkit": "nvidiaContainerToolkit",
     "cuda-toolkit": "cudaToolkit",
+    "dcgm-exporter": "dcgmExporter",
     "runc": "runc",
     "docker": "docker",
     "connectx-firmware": "connectxFirmware",

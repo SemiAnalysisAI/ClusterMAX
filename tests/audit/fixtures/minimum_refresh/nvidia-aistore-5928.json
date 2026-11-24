@@ -1,0 +1,392 @@
+{
+    "document": {
+        "aggregate_severity": {
+            "namespace": "https://www.first.org/cvss/v3.1/specification-document#Qualitative-Severity-Rating-Scale",
+            "text": "CRITICAL"
+        },
+        "category": "csaf_security_advisory",
+        "csaf_version": "2.0",
+        "distribution": {
+            "text": "Copyright \u00a9 2026 NVIDIA Corporation. All rights reserved.",
+            "tlp": {
+                "label": "WHITE",
+                "url": "https://www.first.org/tlp/"
+            }
+        },
+        "lang": "en",
+        "notes": [
+            {
+                "category": "details",
+                "text": "1164640",
+                "title": "Product Information Delivery"
+            },
+            {
+                "category": "details",
+                "text": "TB-12400-005_v01",
+                "title": "Part Number"
+            },
+            {
+                "category": "details",
+                "text": "false",
+                "title": "Contains Firmware"
+            },
+            {
+                "category": "details",
+                "text": "AIStore:AI Store",
+                "title": "Product Team"
+            },
+            {
+                "category": "summary",
+                "text": "NVIDIA has released a software update for NVIDIA\u00ae AIStore\u2122 framework.&nbsp;<div><span style=\"color: var(--text-color-primary); font-family: var(--psirt-font-family-sans);\">To protect your system, download and install the latest version of the NVIDIA AIStore framework from the <a href=\"https://github.com/NVIDIA/aistore\">NVIDIA/aistore</a> GitHub repo.</span></div>",
+                "title": "Summary"
+            },
+            {
+                "category": "details",
+                "text": "NVIDIA has released a software update for NVIDIA\u00ae AIStore\u2122 framework.&nbsp;<div><span style=\"color: var(--text-color-primary); font-family: var(--psirt-font-family-sans);\">To protect your system, latest version of the NVIDIA AIStore framework from the <a href=\"https://github.com/NVIDIA/aistore\">NVIDIA/aistore</a> GitHub repo.</span></div>",
+                "title": "Security Update Notes"
+            },
+            {
+                "category": "details",
+                "text": "These issues were found externally.",
+                "title": "Bulletin Notes"
+            },
+            {
+                "category": "legal_disclaimer",
+                "text": "ALL NVIDIA INFORMATION, DESIGN SPECIFICATIONS, REFERENCE BOARDS, FILES, DRAWINGS, DIAGNOSTICS, LISTS, AND OTHER DOCUMENTS (TOGETHER AND SEPARATELY, \"MATERIALS\") ARE BEING PROVIDED \"AS IS.\" NVIDIA MAKES NO WARRANTIES, EXPRESS, IMPLIED, STATUTORY, OR OTHERWISE WITH RESPECT TO THE MATERIALS, AND ALL EXPRESS OR IMPLIED CONDITIONS, REPRESENTATIONS AND WARRANTIES, INCLUDING ANY IMPLIED WARRANTY OR CONDITION OF TITLE, MERCHANTABILITY, SATISFACTORY QUALITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT, ARE HEREBY EXCLUDED TO THE MAXIMUM EXTENT PERMITTED BY LAW.\n\nInformation is believed to be accurate and reliable at the time it is furnished. However, NVIDIA Corporation assumes no responsibility for the consequences of use of such information or for any infringement of patents or other rights of third parties that may result from its use. No license is granted by implication or otherwise under any patent or patent rights of NVIDIA Corporation. Specifications mentioned in this publication are subject to change without notice. This publication supersedes and replaces all information previously supplied. NVIDIA Corporation products are not authorized for use as critical components in life support devices or systems without express written approval of NVIDIA Corporation.",
+                "title": "Terms of Use"
+            }
+        ],
+        "publisher": {
+            "category": "vendor",
+            "contact_details": "https://www.nvidia.com/security/report-vulnerability/",
+            "issuing_authority": "NVIDIA Product Security is responsible for vulnerability handling across all NVIDIA products and services.",
+            "name": "NVIDIA Product Security",
+            "namespace": "https://www.nvidia.com/security"
+        },
+        "title": "Security Bulletin: NVIDIA AIStore Framework - November 2026",
+        "tracking": {
+            "current_release_date": "2026-11-24T00:00:00Z",
+            "generator": {
+                "date": "2026-11-24T00:00:00Z",
+                "engine": {
+                    "name": "NVIDIA PSIRT",
+                    "version": "2.0.0"
+                }
+            },
+            "id": "5928",
+            "initial_release_date": "2026-11-24T00:00:00Z",
+            "revision_history": [
+                {
+                    "date": "2026-11-24",
+                    "number": "1.0.0",
+                    "summary": "Initial Release"
+                }
+            ],
+            "status": "final",
+            "version": "1.0.0"
+        }
+    },
+    "product_tree": {
+        "branches": [
+            {
+                "branches": [
+                    {
+                        "branches": [
+                            {
+                                "category": "product_name",
+                                "name": "NVIDIA AIStore",
+                                "product": {
+                                    "name": "NVIDIA AIStore",
+                                    "product_id": "linux_nvidia_aistore",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:nvidia_aistore:*:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            }
+                        ],
+                        "category": "product_family",
+                        "name": "NVIDIA Product Family"
+                    },
+                    {
+                        "branches": [
+                            {
+                                "category": "product_version",
+                                "name": "NVIDIA AIStore",
+                                "product": {
+                                    "name": "5.1",
+                                    "product_id": "linux_nvidia_aistore_5_1",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:nvidia_aistore:5_1:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_version",
+                                "name": "NVIDIA AIStore",
+                                "product": {
+                                    "name": "5.0 and earlier",
+                                    "product_id": "linux_nvidia_aistore_5_0_and_earlier",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:nvidia_aistore:5_0_and_earlier:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            }
+                        ],
+                        "category": "architecture",
+                        "name": "Linux"
+                    }
+                ],
+                "category": "vendor",
+                "name": "NVIDIA"
+            }
+        ]
+    },
+    "vulnerabilities": [
+        {
+            "acknowledgments": [
+                {
+                    "names": [
+                        "YJK(@YJK0805) of ZUSO ART and Habibullo Izzatilloyev working with TrendAI Zero Day Initiative"
+                    ]
+                }
+            ],
+            "cve": "CVE-2026-100986",
+            "cwe": {
+                "id": "CWE-73",
+                "name": "External Control of File Name or Path"
+            },
+            "notes": [
+                {
+                    "category": "summary",
+                    "text": "NVIDIA AIStore contains a vulnerability in append-operation handle validation where an unauthenticated attacker could cause data to be appended to a file outside the intended storage location. A successful exploit might lead to code execution, denial of service, escalation of privileges, information disclosure, or data tampering.",
+                    "title": "Vulnerability description"
+                },
+                {
+                    "category": "details",
+                    "text": "code execution, escalation of privileges, data tampering, denial of service, information disclosure",
+                    "title": "Impacts"
+                },
+                {
+                    "category": "details",
+                    "text": "6719612",
+                    "title": "defect"
+                }
+            ],
+            "product_status": {
+                "fixed": [
+                    "linux_nvidia_aistore_5_1"
+                ],
+                "known_affected": [
+                    "linux_nvidia_aistore_5_0_and_earlier"
+                ]
+            },
+            "references": [
+                {
+                    "category": "external",
+                    "summary": "NVD",
+                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-100986"
+                },
+                {
+                    "category": "external",
+                    "summary": "Mitre",
+                    "url": "https://www.cve.org/CVERecord?id=CVE-2026-100986"
+                }
+            ],
+            "release_date": "2026-11-24T00:00:00Z",
+            "remediations": [
+                {
+                    "category": "vendor_fix",
+                    "details": "Upgrade to version 5.1.",
+                    "product_ids": [
+                        "linux_nvidia_aistore_5_0_and_earlier"
+                    ]
+                }
+            ],
+            "scores": [
+                {
+                    "cvss_v3": {
+                        "attackComplexity": "HIGH",
+                        "attackVector": "NETWORK",
+                        "availabilityImpact": "HIGH",
+                        "baseScore": 8.1,
+                        "baseSeverity": "HIGH",
+                        "confidentialityImpact": "HIGH",
+                        "integrityImpact": "HIGH",
+                        "privilegesRequired": "NONE",
+                        "scope": "UNCHANGED",
+                        "userInteraction": "NONE",
+                        "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                        "version": "3.1"
+                    },
+                    "products": [
+                        "linux_nvidia_aistore_5_0_and_earlier"
+                    ]
+                }
+            ]
+        },
+        {
+            "acknowledgments": [
+                {
+                    "names": [
+                        "Ali Sherif"
+                    ]
+                }
+            ],
+            "cve": "CVE-2026-65175",
+            "cwe": {
+                "id": "CWE-306",
+                "name": "Missing Authentication for Critical Function"
+            },
+            "notes": [
+                {
+                    "category": "summary",
+                    "text": "NVIDIA AIStore contains a vulnerability in storage-target node-control authorization where an unauthenticated attacker could access administrative functions through a target's public interface. A successful exploit might lead to information disclosure, data tampering, or denial of service.",
+                    "title": "Vulnerability description"
+                },
+                {
+                    "category": "details",
+                    "text": "data tampering, denial of service, information disclosure",
+                    "title": "Impacts"
+                },
+                {
+                    "category": "details",
+                    "text": "6600094",
+                    "title": "defect"
+                }
+            ],
+            "product_status": {
+                "fixed": [
+                    "linux_nvidia_aistore_5_1"
+                ],
+                "known_affected": [
+                    "linux_nvidia_aistore_5_0_and_earlier"
+                ]
+            },
+            "references": [
+                {
+                    "category": "external",
+                    "summary": "NVD",
+                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-65175"
+                },
+                {
+                    "category": "external",
+                    "summary": "Mitre",
+                    "url": "https://www.cve.org/CVERecord?id=CVE-2026-65175"
+                }
+            ],
+            "release_date": "2026-11-24T00:00:00Z",
+            "remediations": [
+                {
+                    "category": "vendor_fix",
+                    "details": "Upgrade to version 5.1.",
+                    "product_ids": [
+                        "linux_nvidia_aistore_5_0_and_earlier"
+                    ]
+                }
+            ],
+            "scores": [
+                {
+                    "cvss_v3": {
+                        "attackComplexity": "LOW",
+                        "attackVector": "NETWORK",
+                        "availabilityImpact": "HIGH",
+                        "baseScore": 9.8,
+                        "baseSeverity": "CRITICAL",
+                        "confidentialityImpact": "HIGH",
+                        "integrityImpact": "HIGH",
+                        "privilegesRequired": "NONE",
+                        "scope": "UNCHANGED",
+                        "userInteraction": "NONE",
+                        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                        "version": "3.1"
+                    },
+                    "products": [
+                        "linux_nvidia_aistore_5_0_and_earlier"
+                    ]
+                }
+            ]
+        },
+        {
+            "acknowledgments": [
+                {
+                    "names": [
+                        "YJK(@YJK0805) of ZUSO ART working with TrendAI Zero Day Initiative"
+                    ]
+                }
+            ],
+            "cve": "CVE-2026-100985",
+            "cwe": {
+                "id": "CWE-22",
+                "name": "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+            },
+            "notes": [
+                {
+                    "category": "summary",
+                    "text": "NVIDIA AIStore contains a vulnerability in object-copy destination validation where an unauthenticated attacker could use a crafted destination object name to write a file outside the configured storage location. A successful exploit might lead to code execution, denial of service, escalation of privileges, information disclosure, or data tampering.",
+                    "title": "Vulnerability description"
+                },
+                {
+                    "category": "details",
+                    "text": "code execution, escalation of privileges, data tampering, denial of service, information disclosure",
+                    "title": "Impacts"
+                },
+                {
+                    "category": "details",
+                    "text": "6719663",
+                    "title": "defect"
+                }
+            ],
+            "product_status": {
+                "fixed": [
+                    "linux_nvidia_aistore_5_1"
+                ],
+                "known_affected": [
+                    "linux_nvidia_aistore_5_0_and_earlier"
+                ]
+            },
+            "references": [
+                {
+                    "category": "external",
+                    "summary": "NVD",
+                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-100985"
+                },
+                {
+                    "category": "external",
+                    "summary": "Mitre",
+                    "url": "https://www.cve.org/CVERecord?id=CVE-2026-100985"
+                }
+            ],
+            "release_date": "2026-11-24T00:00:00Z",
+            "remediations": [
+                {
+                    "category": "vendor_fix",
+                    "details": "Upgrade to version 5.1.",
+                    "product_ids": [
+                        "linux_nvidia_aistore_5_0_and_earlier"
+                    ]
+                }
+            ],
+            "scores": [
+                {
+                    "cvss_v3": {
+                        "attackComplexity": "HIGH",
+                        "attackVector": "NETWORK",
+                        "availabilityImpact": "HIGH",
+                        "baseScore": 8.1,
+                        "baseSeverity": "HIGH",
+                        "confidentialityImpact": "HIGH",
+                        "integrityImpact": "HIGH",
+                        "privilegesRequired": "NONE",
+                        "scope": "UNCHANGED",
+                        "userInteraction": "NONE",
+                        "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                        "version": "3.1"
+                    },
+                    "products": [
+                        "linux_nvidia_aistore_5_0_and_earlier"
+                    ]
+                }
+            ]
+        }
+    ]
+}

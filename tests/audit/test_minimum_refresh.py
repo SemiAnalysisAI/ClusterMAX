@@ -389,6 +389,24 @@ class ExtractorTest(unittest.TestCase):
         self.assertEqual(dcgm["dcgmExporter"]["source"]["aId"], 5857)
         self.assertEqual(virtio["source"]["aId"], 5815)
 
+    def test_aistore_minimum_joins_both_product_names(self) -> None:
+        # 5889 names the product "NVIDIA AIStore framework" and fixes 5.0.
+        # 5928 names it "NVIDIA AIStore" and fixes 5.1.
+        documents = [
+            ({"year": 2026, "aId": 5889}, fixture("nvidia-aistore-5889.json")),
+            ({"year": 2026, "aId": 5928}, fixture("nvidia-aistore-5928.json")),
+        ]
+        blocks = fr.nvidia_simple_product_minimums(documents, fetch=self.stub)
+        aistore = blocks["aistore"]
+        self.assertEqual(aistore["minimum"], "5.1")
+        self.assertEqual(aistore["source"]["aId"], 5928)
+        self.assertEqual([item["aId"] for item in aistore["sources"]], [5889, 5928])
+        self.assertIn("CVE-2026-65162", aistore["cves"])
+        self.assertIn("CVE-2026-100986", aistore["cves"])
+        only_october = fr.nvidia_simple_product_minimums(documents[:1], fetch=self.stub)
+        self.assertEqual(only_october["aistore"]["minimum"], "5.0")
+        self.assertNotIn("aistore", fr.nvidia_simple_product_minimums([], fetch=self.stub))
+
     def test_new_cuda_bulletin_raises_the_floor_without_a_code_change(self) -> None:
         original = copy.deepcopy(self.stub.json_by_url[fr.bulletin_url(2026, 5755)])
         newer = copy.deepcopy(original)

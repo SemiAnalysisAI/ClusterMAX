@@ -108,6 +108,8 @@ def merge_check(
     hosts: list[dict[str, Any]],
     section: str,
     hosts_total: int,
+    *,
+    require_coverage: bool = False,
 ) -> Any:
     checked = [h for h in hosts if h.get("checked") is True]
     per_host = [
@@ -118,6 +120,37 @@ def merge_check(
     # The sampled block stays when no host record carries this check, so an
     # older or failed per-host build never erases evidence.
     if not per_host:
+        if key == "nvidiaDriver" and hosts_total and isinstance(sampled, dict) and sampled.get("cveFindings"):
+            merged = copy.deepcopy(sampled)
+            merged["cveFindings"] = {
+                cve: merge_check(
+                    cve, finding, hosts, "cveFindings", hosts_total, require_coverage=True
+                )
+                for cve, finding in sampled["cveFindings"].items()
+            }
+            if rank(_status(merged)) <= _CLEAN_RANK:
+                merged["status"] = "unknown"
+                merged.pop("gracePeriod", None)
+                merged["detail"] = "No GPU host supplied a driver CVE assessment. Host evidence is required."
+            return merged
+        if require_coverage and isinstance(sampled, dict):
+            merged = copy.deepcopy(sampled)
+            if rank(_status(merged)) <= _CLEAN_RANK:
+                merged["status"] = "unknown"
+            if merged.get("auditStatus") != "fail":
+                merged["auditStatus"] = "unknown"
+                merged.pop("gracePeriod", None)
+            merged["detail"] = "No GPU host supplied this CVE assessment. Host evidence is required."
+            merged["fleet"] = {
+                "scope": "every-gpu-host",
+                "hostsTotal": max(hosts_total, len(hosts)),
+                "hostsChecked": 0,
+                "coverageComplete": False,
+                "unassessedHosts": [str(h.get("node") or "unknown") for h in hosts],
+                "worstHost": None,
+                "hosts": [],
+            }
+            return merged
         return sampled
     unassessed = [str(h.get("node") or "unknown") for h in hosts if h.get("checked") is not True]
     read_nodes = {node for node, _ in per_host}
@@ -138,14 +171,35 @@ def merge_check(
         if multi and merged.get("detail"):
             merged["detail"] = f"{worst_node}: {merged['detail']}"
 
+    if require_coverage:
+        audit_node, audit_worst = max(
+            per_host, key=lambda item: rank(item[1].get("auditStatus", _status(item[1])))
+        )
+        merged["auditStatus"] = audit_worst.get("auditStatus", _status(audit_worst))
+        if merged["auditStatus"] != "pass":
+            merged.pop("gracePeriod", None)
+        if audit_node != worst_node and merged["auditStatus"] not in {"pass", "not_applicable"}:
+            merged["detail"] = (
+                f"{merged.get('detail', '')} {audit_node}: "
+                f"{audit_worst.get('detail') or 'The host has unresolved CVE evidence.'}"
+            ).strip()
+
     if (unassessed or missing) and rank(_status(merged)) <= _CLEAN_RANK:
         gap = len(unassessed) + missing
         read_status = _status(merged)
         merged["status"] = "unknown"
+        if "auditStatus" in merged:
+            merged["auditStatus"] = "unknown"
+            merged.pop("gracePeriod", None)
         merged["detail"] = (
             f"{len(per_host)} of {len(per_host) + gap} GPU hosts were read and graded "
             f"{read_status}; the hosts the audit could not read are unverified."
         )
+    if (unassessed or missing) and merged.get("auditStatus") == "pass":
+        # A raw failure can remain visible during grace, but the enforcement
+        # result cannot clear hosts whose evidence is missing.
+        merged["auditStatus"] = "unknown"
+        merged.pop("gracePeriod", None)
 
     merged["fleet"] = {
         "scope": "every-gpu-host",
@@ -156,6 +210,37 @@ def merge_check(
         "worstHost": worst_node,
         "hosts": [_host_summary(node, block) for node, block in per_host],
     }
+    if key == "nvidiaDriver":
+        sampled_findings = (sampled or {}).get("cveFindings") or {}
+        cve_ids = set(sampled_findings)
+        cve_hosts = []
+        for host in hosts:
+            findings = ((host.get(section) or {}).get(key) or {}).get("cveFindings") or {}
+            cve_ids.update(findings)
+            cve_hosts.append({**host, "cveFindings": findings})
+        if cve_ids:
+            merged["cveFindings"] = {
+                cve: merge_check(
+                    cve, sampled_findings.get(cve), cve_hosts, "cveFindings",
+                    hosts_total, require_coverage=True,
+                )
+                for cve in sorted(cve_ids)
+            }
+            # Old host collectors can supply a driver result without the new
+            # CVE evidence. That gap cannot leave the driver rollup clean.
+            worst_audit_status = max(
+                (
+                    item.get("auditStatus", _status(item))
+                    for item in merged["cveFindings"].values()
+                    if isinstance(item, dict)
+                ),
+                key=rank,
+                default="unknown",
+            )
+            if rank(worst_audit_status) > rank(_status(merged)):
+                merged["status"] = worst_audit_status
+                merged.pop("gracePeriod", None)
+                merged["detail"] = "The fleet has unresolved NVIDIA driver CVE evidence."
     return merged
 
 

@@ -1,0 +1,781 @@
+{
+    "document": {
+        "aggregate_severity": {
+            "namespace": "https://www.first.org/cvss/v3.1/specification-document#Qualitative-Severity-Rating-Scale",
+            "text": "CRITICAL"
+        },
+        "category": "csaf_security_advisory",
+        "csaf_version": "2.0",
+        "distribution": {
+            "text": "Copyright \u00a9 2026 NVIDIA Corporation. All rights reserved.",
+            "tlp": {
+                "label": "WHITE",
+                "url": "https://www.first.org/tlp/"
+            }
+        },
+        "lang": "en",
+        "notes": [
+            {
+                "category": "details",
+                "text": "1162800",
+                "title": "Product Information Delivery"
+            },
+            {
+                "category": "details",
+                "text": "TB-12400-004_v01",
+                "title": "Part Number"
+            },
+            {
+                "category": "details",
+                "text": "false",
+                "title": "Contains Firmware"
+            },
+            {
+                "category": "details",
+                "text": "AIStore:AI Store",
+                "title": "Product Team"
+            },
+            {
+                "category": "summary",
+                "text": "NVIDIA has released a software update for NVIDIA\u00ae AIStore\u2122 framework.&nbsp;<div>&nbsp;To protect your system, download and install the 5.0 version of the NVIDIA AIStore framework from&nbsp;<a href=\"https://github.com/NVIDIA/aistore\">NVIDIA/aistore</a> Github.</div>",
+                "title": "Summary"
+            },
+            {
+                "category": "details",
+                "text": "NVIDIA has released a software update for NVIDIA\u00ae AIStore\u2122 framework.&nbsp;<div>To protect your system, download and install the 5.0 version of the NVIDIA AIStore framework from<a href=\"https://github.com/NVIDIA/aistore\"> NVIDIA/aistore</a> Github.</div>",
+                "title": "Security Update Notes"
+            },
+            {
+                "category": "details",
+                "text": "<br>",
+                "title": "Bulletin Notes"
+            },
+            {
+                "category": "legal_disclaimer",
+                "text": "ALL NVIDIA INFORMATION, DESIGN SPECIFICATIONS, REFERENCE BOARDS, FILES, DRAWINGS, DIAGNOSTICS, LISTS, AND OTHER DOCUMENTS (TOGETHER AND SEPARATELY, \"MATERIALS\") ARE BEING PROVIDED \"AS IS.\" NVIDIA MAKES NO WARRANTIES, EXPRESS, IMPLIED, STATUTORY, OR OTHERWISE WITH RESPECT TO THE MATERIALS, AND ALL EXPRESS OR IMPLIED CONDITIONS, REPRESENTATIONS AND WARRANTIES, INCLUDING ANY IMPLIED WARRANTY OR CONDITION OF TITLE, MERCHANTABILITY, SATISFACTORY QUALITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT, ARE HEREBY EXCLUDED TO THE MAXIMUM EXTENT PERMITTED BY LAW.\n\nInformation is believed to be accurate and reliable at the time it is furnished. However, NVIDIA Corporation assumes no responsibility for the consequences of use of such information or for any infringement of patents or other rights of third parties that may result from its use. No license is granted by implication or otherwise under any patent or patent rights of NVIDIA Corporation. Specifications mentioned in this publication are subject to change without notice. This publication supersedes and replaces all information previously supplied. NVIDIA Corporation products are not authorized for use as critical components in life support devices or systems without express written approval of NVIDIA Corporation.",
+                "title": "Terms of Use"
+            }
+        ],
+        "publisher": {
+            "category": "vendor",
+            "contact_details": "https://www.nvidia.com/security/report-vulnerability/",
+            "issuing_authority": "NVIDIA Product Security is responsible for vulnerability handling across all NVIDIA products and services.",
+            "name": "NVIDIA Product Security",
+            "namespace": "https://www.nvidia.com/security"
+        },
+        "title": "Security Bulletin - NVIDIA AIStore Framework - October 2026",
+        "tracking": {
+            "current_release_date": "2026-10-13T00:00:00Z",
+            "generator": {
+                "date": "2026-10-13T00:00:00Z",
+                "engine": {
+                    "name": "NVIDIA PSIRT",
+                    "version": "2.0.0"
+                }
+            },
+            "id": "5889",
+            "initial_release_date": "2026-10-13T00:00:00Z",
+            "revision_history": [
+                {
+                    "date": "2026-10-13",
+                    "number": "1.0.0",
+                    "summary": "Initial Release"
+                }
+            ],
+            "status": "final",
+            "version": "1.0.0"
+        }
+    },
+    "product_tree": {
+        "branches": [
+            {
+                "branches": [
+                    {
+                        "branches": [
+                            {
+                                "category": "product_name",
+                                "name": "NVIDIA AIStore framework",
+                                "product": {
+                                    "name": "NVIDIA AIStore framework",
+                                    "product_id": "linux_nvidia_aistore_framework",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:nvidia_aistore_framework:*:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            }
+                        ],
+                        "category": "product_family",
+                        "name": "NVIDIA Product Family"
+                    },
+                    {
+                        "branches": [
+                            {
+                                "category": "product_version",
+                                "name": "NVIDIA AIStore framework",
+                                "product": {
+                                    "name": "0 to 4.9",
+                                    "product_id": "linux_nvidia_aistore_framework_0_to_4_9",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:nvidia_aistore_framework:0_to_4_9:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            },
+                            {
+                                "category": "product_version",
+                                "name": "NVIDIA AIStore framework",
+                                "product": {
+                                    "name": "5.0",
+                                    "product_id": "linux_nvidia_aistore_framework_5_0",
+                                    "product_identification_helper": {
+                                        "cpe": "cpe:2.3:a:nvidia:nvidia_aistore_framework:5_0:*:*:*:*:*:*:*"
+                                    }
+                                }
+                            }
+                        ],
+                        "category": "architecture",
+                        "name": "Linux"
+                    }
+                ],
+                "category": "vendor",
+                "name": "NVIDIA"
+            }
+        ]
+    },
+    "vulnerabilities": [
+        {
+            "acknowledgments": [
+                {
+                    "names": [
+                        "Mat Powell of TrendAI of TrendAI Zero Day Initiative"
+                    ]
+                }
+            ],
+            "cve": "CVE-2026-65103",
+            "cwe": {
+                "id": "CWE-22",
+                "name": "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+            },
+            "notes": [
+                {
+                    "category": "summary",
+                    "text": "NVIDIA AIStore for Linux contains a path traversal vulnerability in the target-side object rename handler, where an unauthenticated remote attacker could cause an improper limitation of a pathname to a restricted directory by submitting a crafted rename destination directly to an AIStore target, resulting in the arbitrary creation or overwrite of a file. A successful exploit of this vulnerability might lead to code execution, escalation of privileges, information disclosure, data tampering, and denial of service.",
+                    "title": "Vulnerability description"
+                },
+                {
+                    "category": "details",
+                    "text": "code execution, escalation of privileges, data tampering, denial of service, information disclosure",
+                    "title": "Impacts"
+                },
+                {
+                    "category": "details",
+                    "text": "6522776",
+                    "title": "defect"
+                }
+            ],
+            "product_status": {
+                "fixed": [
+                    "linux_nvidia_aistore_framework_5_0"
+                ],
+                "known_affected": [
+                    "linux_nvidia_aistore_framework_0_to_4_9"
+                ]
+            },
+            "references": [
+                {
+                    "category": "external",
+                    "summary": "NVD",
+                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-65103"
+                },
+                {
+                    "category": "external",
+                    "summary": "Mitre",
+                    "url": "https://www.cve.org/CVERecord?id=CVE-2026-65103"
+                }
+            ],
+            "release_date": "2026-10-13T00:00:00Z",
+            "remediations": [
+                {
+                    "category": "vendor_fix",
+                    "details": "Upgrade to version 5.0.",
+                    "product_ids": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ],
+            "scores": [
+                {
+                    "cvss_v3": {
+                        "attackComplexity": "HIGH",
+                        "attackVector": "NETWORK",
+                        "availabilityImpact": "HIGH",
+                        "baseScore": 8.1,
+                        "baseSeverity": "HIGH",
+                        "confidentialityImpact": "HIGH",
+                        "integrityImpact": "HIGH",
+                        "privilegesRequired": "NONE",
+                        "scope": "UNCHANGED",
+                        "userInteraction": "NONE",
+                        "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                        "version": "3.1"
+                    },
+                    "products": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ]
+        },
+        {
+            "acknowledgments": [
+                {
+                    "names": [
+                        "George Chen, Rocco Calvi (@TecR0c) with TecSecurity working with TrendAI Zero Day Initiative, Facundo Fernandez"
+                    ]
+                }
+            ],
+            "cve": "CVE-2026-65161",
+            "cwe": {
+                "id": "CWE-22",
+                "name": "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+            },
+            "notes": [
+                {
+                    "category": "summary",
+                    "text": "NVIDIA AIStore for Linux contains a vulnerability in the Promote API where an unauthenticated remote attacker may read files accessible to the target process by supplying a crafted absolute source path. A successful exploit may lead to information disclosure.",
+                    "title": "Vulnerability description"
+                },
+                {
+                    "category": "details",
+                    "text": "information disclosure",
+                    "title": "Impacts"
+                },
+                {
+                    "category": "details",
+                    "text": "6540370",
+                    "title": "defect"
+                }
+            ],
+            "product_status": {
+                "fixed": [
+                    "linux_nvidia_aistore_framework_5_0"
+                ],
+                "known_affected": [
+                    "linux_nvidia_aistore_framework_0_to_4_9"
+                ]
+            },
+            "references": [
+                {
+                    "category": "external",
+                    "summary": "NVD",
+                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-65161"
+                },
+                {
+                    "category": "external",
+                    "summary": "Mitre",
+                    "url": "https://www.cve.org/CVERecord?id=CVE-2026-65161"
+                }
+            ],
+            "release_date": "2026-10-13T00:00:00Z",
+            "remediations": [
+                {
+                    "category": "vendor_fix",
+                    "details": "Upgrade to version 5.0.",
+                    "product_ids": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ],
+            "scores": [
+                {
+                    "cvss_v3": {
+                        "attackComplexity": "LOW",
+                        "attackVector": "NETWORK",
+                        "availabilityImpact": "NONE",
+                        "baseScore": 7.5,
+                        "baseSeverity": "HIGH",
+                        "confidentialityImpact": "HIGH",
+                        "integrityImpact": "NONE",
+                        "privilegesRequired": "NONE",
+                        "scope": "UNCHANGED",
+                        "userInteraction": "NONE",
+                        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                        "version": "3.1"
+                    },
+                    "products": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ]
+        },
+        {
+            "acknowledgments": [
+                {
+                    "names": [
+                        "Mohamed Lemine Ahmed Jidou"
+                    ]
+                }
+            ],
+            "cve": "CVE-2026-65162",
+            "cwe": {
+                "id": "CWE-250",
+                "name": "Execution with Unnecessary Privileges"
+            },
+            "notes": [
+                {
+                    "category": "summary",
+                    "text": "NVIDIA AIStore for Linux contains a vulnerability in the legacy ETL Kubernetes PodSpec initialization API where a remote attacker may supply Kubernetes host-namespace and container-security settings. A successful exploit may lead to code execution, privilege escalation, information disclosure, data tampering, and denial of service.",
+                    "title": "Vulnerability description"
+                },
+                {
+                    "category": "details",
+                    "text": "code execution, escalation of privileges, data tampering, denial of service, information disclosure",
+                    "title": "Impacts"
+                },
+                {
+                    "category": "details",
+                    "text": "6421666",
+                    "title": "defect"
+                }
+            ],
+            "product_status": {
+                "fixed": [
+                    "linux_nvidia_aistore_framework_5_0"
+                ],
+                "known_affected": [
+                    "linux_nvidia_aistore_framework_0_to_4_9"
+                ]
+            },
+            "references": [
+                {
+                    "category": "external",
+                    "summary": "NVD",
+                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-65162"
+                },
+                {
+                    "category": "external",
+                    "summary": "Mitre",
+                    "url": "https://www.cve.org/CVERecord?id=CVE-2026-65162"
+                }
+            ],
+            "release_date": "2026-10-13T00:00:00Z",
+            "remediations": [
+                {
+                    "category": "vendor_fix",
+                    "details": "Upgrade to version 5.0.",
+                    "product_ids": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ],
+            "scores": [
+                {
+                    "cvss_v3": {
+                        "attackComplexity": "LOW",
+                        "attackVector": "NETWORK",
+                        "availabilityImpact": "HIGH",
+                        "baseScore": 10.0,
+                        "baseSeverity": "CRITICAL",
+                        "confidentialityImpact": "HIGH",
+                        "integrityImpact": "HIGH",
+                        "privilegesRequired": "NONE",
+                        "scope": "CHANGED",
+                        "userInteraction": "NONE",
+                        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+                        "version": "3.1"
+                    },
+                    "products": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ]
+        },
+        {
+            "acknowledgments": [
+                {
+                    "names": [
+                        "Habibullo Izzatilloyev working with TrendAI Zero Day Initiative"
+                    ]
+                }
+            ],
+            "cve": "CVE-2026-65170",
+            "cwe": {
+                "id": "CWE-918",
+                "name": "Server-Side Request Forgery (SSRF)"
+            },
+            "notes": [
+                {
+                    "category": "summary",
+                    "text": "NVIDIA AIStore for Linux contains a vulnerability in the experimental HT backend where an unauthenticated remote attacker may cause server-side request forgery by supplying a crafted original URL. A successful exploit of this vulnerability may lead to information disclosure.",
+                    "title": "Vulnerability description"
+                },
+                {
+                    "category": "details",
+                    "text": "information disclosure",
+                    "title": "Impacts"
+                },
+                {
+                    "category": "details",
+                    "text": "6440920",
+                    "title": "defect"
+                }
+            ],
+            "product_status": {
+                "fixed": [
+                    "linux_nvidia_aistore_framework_5_0"
+                ],
+                "known_affected": [
+                    "linux_nvidia_aistore_framework_0_to_4_9"
+                ]
+            },
+            "references": [
+                {
+                    "category": "external",
+                    "summary": "NVD",
+                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-65170"
+                },
+                {
+                    "category": "external",
+                    "summary": "Mitre",
+                    "url": "https://www.cve.org/CVERecord?id=CVE-2026-65170"
+                }
+            ],
+            "release_date": "2026-10-13T00:00:00Z",
+            "remediations": [
+                {
+                    "category": "vendor_fix",
+                    "details": "Upgrade to version 5.0.",
+                    "product_ids": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ],
+            "scores": [
+                {
+                    "cvss_v3": {
+                        "attackComplexity": "LOW",
+                        "attackVector": "NETWORK",
+                        "availabilityImpact": "NONE",
+                        "baseScore": 8.6,
+                        "baseSeverity": "HIGH",
+                        "confidentialityImpact": "HIGH",
+                        "integrityImpact": "NONE",
+                        "privilegesRequired": "NONE",
+                        "scope": "CHANGED",
+                        "userInteraction": "NONE",
+                        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N",
+                        "version": "3.1"
+                    },
+                    "products": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ]
+        },
+        {
+            "acknowledgments": [
+                {
+                    "names": [
+                        "Habibullo Izzatilloyev working with TrendAI Zero Day Initiative"
+                    ]
+                }
+            ],
+            "cve": "CVE-2026-65101",
+            "cwe": {
+                "id": "CWE-918",
+                "name": "Server-Side Request Forgery (SSRF)"
+            },
+            "notes": [
+                {
+                    "category": "summary",
+                    "text": "NVIDIA AIStore for Linux contains a vulnerability in the distributed sort component where an attacker could cause server-side request forgery by supplying a crafted external key map URL. A successful exploit of this vulnerability might lead to information disclosure.",
+                    "title": "Vulnerability description"
+                },
+                {
+                    "category": "details",
+                    "text": "information disclosure",
+                    "title": "Impacts"
+                },
+                {
+                    "category": "details",
+                    "text": "6440951",
+                    "title": "defect"
+                }
+            ],
+            "product_status": {
+                "fixed": [
+                    "linux_nvidia_aistore_framework_5_0"
+                ],
+                "known_affected": [
+                    "linux_nvidia_aistore_framework_0_to_4_9"
+                ]
+            },
+            "references": [
+                {
+                    "category": "external",
+                    "summary": "NVD",
+                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-65101"
+                },
+                {
+                    "category": "external",
+                    "summary": "Mitre",
+                    "url": "https://www.cve.org/CVERecord?id=CVE-2026-65101"
+                }
+            ],
+            "release_date": "2026-10-13T00:00:00Z",
+            "remediations": [
+                {
+                    "category": "vendor_fix",
+                    "details": "Upgrade to version 5.0.",
+                    "product_ids": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ],
+            "scores": [
+                {
+                    "cvss_v3": {
+                        "attackComplexity": "LOW",
+                        "attackVector": "NETWORK",
+                        "availabilityImpact": "NONE",
+                        "baseScore": 8.6,
+                        "baseSeverity": "HIGH",
+                        "confidentialityImpact": "HIGH",
+                        "integrityImpact": "NONE",
+                        "privilegesRequired": "NONE",
+                        "scope": "CHANGED",
+                        "userInteraction": "NONE",
+                        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N",
+                        "version": "3.1"
+                    },
+                    "products": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ]
+        },
+        {
+            "cve": "CVE-2026-65173",
+            "cwe": {
+                "id": "CWE-306",
+                "name": "Missing Authentication for Critical Function"
+            },
+            "notes": [
+                {
+                    "category": "summary",
+                    "text": "NVIDIA AIStore for Linux contains a missing authentication vulnerability in the token-revocation endpoint where an unauthenticated remote attacker may submit crafted token-revocation lists. A successful exploit may lead to data tampering and denial of service.",
+                    "title": "Vulnerability description"
+                },
+                {
+                    "category": "details",
+                    "text": "data tampering, denial of service",
+                    "title": "Impacts"
+                },
+                {
+                    "category": "details",
+                    "text": "6512929",
+                    "title": "defect"
+                }
+            ],
+            "product_status": {
+                "fixed": [
+                    "linux_nvidia_aistore_framework_5_0"
+                ],
+                "known_affected": [
+                    "linux_nvidia_aistore_framework_0_to_4_9"
+                ]
+            },
+            "references": [
+                {
+                    "category": "external",
+                    "summary": "NVD",
+                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-65173"
+                },
+                {
+                    "category": "external",
+                    "summary": "Mitre",
+                    "url": "https://www.cve.org/CVERecord?id=CVE-2026-65173"
+                }
+            ],
+            "release_date": "2026-10-13T00:00:00Z",
+            "remediations": [
+                {
+                    "category": "vendor_fix",
+                    "details": "Upgrade to version 5.0.",
+                    "product_ids": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ],
+            "scores": [
+                {
+                    "cvss_v3": {
+                        "attackComplexity": "LOW",
+                        "attackVector": "NETWORK",
+                        "availabilityImpact": "HIGH",
+                        "baseScore": 9.1,
+                        "baseSeverity": "CRITICAL",
+                        "confidentialityImpact": "NONE",
+                        "integrityImpact": "HIGH",
+                        "privilegesRequired": "NONE",
+                        "scope": "UNCHANGED",
+                        "userInteraction": "NONE",
+                        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:H",
+                        "version": "3.1"
+                    },
+                    "products": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ]
+        },
+        {
+            "cve": "CVE-2026-65164",
+            "cwe": {
+                "id": "CWE-22",
+                "name": "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+            },
+            "notes": [
+                {
+                    "category": "summary",
+                    "text": "NVIDIA AIStore for Linux contains a path traversal vulnerability in the dSort archive extraction component where a remote attacker may cause an improper limitation of a pathname to a restricted directory by supplying crafted archive member names to a dSort job. A successful exploit may lead to arbitrary file creation or overwrite, code execution, information disclosure, data tampering, and denial of service.",
+                    "title": "Vulnerability description"
+                },
+                {
+                    "category": "details",
+                    "text": "code execution, escalation of privileges, data tampering, denial of service, information disclosure",
+                    "title": "Impacts"
+                },
+                {
+                    "category": "details",
+                    "text": "6513327",
+                    "title": "defect"
+                }
+            ],
+            "product_status": {
+                "fixed": [
+                    "linux_nvidia_aistore_framework_5_0"
+                ],
+                "known_affected": [
+                    "linux_nvidia_aistore_framework_0_to_4_9"
+                ]
+            },
+            "references": [
+                {
+                    "category": "external",
+                    "summary": "NVD",
+                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-65164"
+                },
+                {
+                    "category": "external",
+                    "summary": "Mitre",
+                    "url": "https://www.cve.org/CVERecord?id=CVE-2026-65164"
+                }
+            ],
+            "release_date": "2026-10-13T00:00:00Z",
+            "remediations": [
+                {
+                    "category": "vendor_fix",
+                    "details": "Upgrade to version 5.0.",
+                    "product_ids": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ],
+            "scores": [
+                {
+                    "cvss_v3": {
+                        "attackComplexity": "HIGH",
+                        "attackVector": "NETWORK",
+                        "availabilityImpact": "HIGH",
+                        "baseScore": 8.1,
+                        "baseSeverity": "HIGH",
+                        "confidentialityImpact": "HIGH",
+                        "integrityImpact": "HIGH",
+                        "privilegesRequired": "NONE",
+                        "scope": "UNCHANGED",
+                        "userInteraction": "NONE",
+                        "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                        "version": "3.1"
+                    },
+                    "products": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ]
+        },
+        {
+            "cve": "CVE-2026-65172",
+            "cwe": {
+                "id": "CWE-862",
+                "name": "Missing Authorization"
+            },
+            "notes": [
+                {
+                    "category": "summary",
+                    "text": "NVIDIA AIStore for Linux and Kubernetes contains a missing authorization vulnerability in the ETL management API where an unauthenticated remote attacker may access ETL information or control existing ETL jobs by sending crafted GET or POST requests to an AIStore proxy.\n\nA successful exploit may lead to information disclosure and unauthorized start or stop operations that affect the integrity and availability of ETL data-processing pipelines.",
+                    "title": "Vulnerability description"
+                },
+                {
+                    "category": "details",
+                    "text": "data tampering, denial of service, information disclosure",
+                    "title": "Impacts"
+                },
+                {
+                    "category": "details",
+                    "text": "6513367",
+                    "title": "defect"
+                }
+            ],
+            "product_status": {
+                "fixed": [
+                    "linux_nvidia_aistore_framework_5_0"
+                ],
+                "known_affected": [
+                    "linux_nvidia_aistore_framework_0_to_4_9"
+                ]
+            },
+            "references": [
+                {
+                    "category": "external",
+                    "summary": "NVD",
+                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-65172"
+                },
+                {
+                    "category": "external",
+                    "summary": "Mitre",
+                    "url": "https://www.cve.org/CVERecord?id=CVE-2026-65172"
+                }
+            ],
+            "release_date": "2026-10-13T00:00:00Z",
+            "remediations": [
+                {
+                    "category": "vendor_fix",
+                    "details": "Upgrade to version 5.0.",
+                    "product_ids": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ],
+            "scores": [
+                {
+                    "cvss_v3": {
+                        "attackComplexity": "LOW",
+                        "attackVector": "NETWORK",
+                        "availabilityImpact": "LOW",
+                        "baseScore": 8.6,
+                        "baseSeverity": "HIGH",
+                        "confidentialityImpact": "HIGH",
+                        "integrityImpact": "LOW",
+                        "privilegesRequired": "NONE",
+                        "scope": "UNCHANGED",
+                        "userInteraction": "NONE",
+                        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:L",
+                        "version": "3.1"
+                    },
+                    "products": [
+                        "linux_nvidia_aistore_framework_0_to_4_9"
+                    ]
+                }
+            ]
+        }
+    ]
+}
