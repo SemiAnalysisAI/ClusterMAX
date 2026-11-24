@@ -750,6 +750,37 @@ def grade_ray(hosts: list[dict[str, Any]], k8s: dict[str, Any] | None) -> dict[s
     return _verdict("not_applicable", "No Ray dashboard was found.")
 
 
+def aistore_minimum() -> tuple[str, str]:
+    """Read the AIStore minimum and bulletin from the installed minimum table."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        import minimum_versions
+
+        block = minimum_versions.component("aistore")
+    except Exception:  # noqa: BLE001 - a missing table leaves the grade unknown
+        return "", ""
+    minimum = block.get("minimum")
+    advisory = block.get("advisory")
+    return (
+        minimum if isinstance(minimum, str) else "",
+        advisory if isinstance(advisory, str) else "",
+    )
+
+
+def _aistore_key(version: str) -> tuple[int, ...] | None:
+    match = re.fullmatch(r"v?(\d+)\.(\d+)(?:\.(\d+))?", version.strip())
+    if not match:
+        return None
+    return tuple(int(part or 0) for part in match.groups())
+
+
+def _aistore_status(version: str, minimum: str) -> str:
+    found, floor = _aistore_key(version), _aistore_key(minimum) if minimum else None
+    if found is None or floor is None:
+        return "unknown"
+    return "fail" if found < floor else "pass"
+
+
 def grade_aistore(hosts: list[dict[str, Any]], k8s: dict[str, Any] | None) -> dict[str, Any]:
     deployments = []
     for host in hosts:
@@ -758,7 +789,21 @@ def grade_aistore(hosts: list[dict[str, Any]], k8s: dict[str, Any] | None) -> di
     for item in (k8s or {}).get("aistore") or []:
         deployments.append({"where": f"{item['namespace']}/{item['pod']}", "version": item["version"]})
     if deployments:
-        return _verdict("present", f"AIStore runs in {len(deployments)} place(s).", deployments=deployments)
+        minimum, advisory = aistore_minimum()
+        for item in deployments:
+            item["status"] = _aistore_status(item["version"], minimum)
+        statuses = {item["status"] for item in deployments}
+        version_status = (
+            "fail" if "fail" in statuses else "unknown" if "unknown" in statuses else "pass"
+        )
+        return _verdict(
+            "present",
+            f"AIStore runs in {len(deployments)} place(s).",
+            deployments=deployments,
+            minimum=minimum or None,
+            advisory=advisory or None,
+            versionStatus=version_status,
+        )
     if not hosts and not k8s:
         return _verdict("unknown", "No host was read.")
     return _verdict("not_applicable", "No AIStore node was found.")

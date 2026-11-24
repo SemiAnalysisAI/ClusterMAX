@@ -231,7 +231,14 @@ class KubernetesTests(unittest.TestCase):
         self.assertEqual(facts["ray"][0]["version"], "2.47.1")
         self.assertEqual(facts["aistore"][0]["version"], "5.0")
         self.assertEqual(exposure.grade_ray([], facts)["status"], "fail")
-        self.assertEqual(exposure.grade_aistore([], facts)["status"], "present")
+        aistore = exposure.grade_aistore([], facts)
+        self.assertEqual(aistore["status"], "present")
+        # The shipped table publishes the AIStore minimum, so 5.0 is below it.
+        self.assertTrue(aistore["minimum"])
+        self.assertEqual(aistore["versionStatus"], "fail")
+        self.assertEqual(aistore["deployments"][0]["status"], "fail")
+        with mock.patch.object(exposure, "aistore_minimum", return_value=("", "")):
+            self.assertEqual(exposure.grade_aistore([], facts)["versionStatus"], "unknown")
 
 
 class PayloadTests(unittest.TestCase):
