@@ -298,6 +298,13 @@ class SecurityGradeTests(unittest.TestCase):
                 self.assertEqual(check.status, expected)
                 self.assertIn("n1 listens", check.observed)
 
+    def test_observed_states_the_reason_without_evidence_rows(self) -> None:
+        check = self._check("mig-side-channel", audit_with(
+            "mig", {"status": "not_applicable", "message": "No GPU has more than one MIG instance."}
+        ))
+        self.assertEqual(check.status, security.NOT_APPLICABLE)
+        self.assertEqual(check.observed, "No GPU has more than one MIG instance.")
+
     def test_missing_evidence_warns(self) -> None:
         for check_id in ("mig-side-channel", "gpu-ecc-rowhammer",
                          "nvidia-cdi-hook-monitoring", "ray-dashboard-exposure", "aistore"):

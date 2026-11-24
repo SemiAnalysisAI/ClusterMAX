@@ -1232,7 +1232,7 @@ def _runtime_exposure_observed(topic: dict[str, Any]) -> str:
     versions = topic.get("versions")
     if isinstance(versions, list) and versions:
         rows.append("Ray versions " + ", ".join(str(item) for item in versions))
-    return "; ".join(rows) or str(topic.get("status") or "unknown")
+    return "; ".join(rows) or str(topic.get("message") or topic.get("status") or "unknown")
 
 
 def _runtime_exposure_evaluator(
