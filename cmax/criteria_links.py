@@ -151,6 +151,11 @@ _CHECK_ANCHORS = {
     "ufm-profile": _SECURITY_UFM,
     "pcie-passthrough": _SECURITY_ISOLATION,
     "nvlink-boundary": _SECURITY_ISOLATION,
+    "mig-side-channel": _SECURITY_ISOLATION,
+    "gpu-ecc-rowhammer": _SECURITY_ISOLATION,
+    "nvidia-cdi-hook-monitoring": _SECURITY_ISOLATION,
+    "ray-dashboard-exposure": _SECURITY_ISOLATION,
+    "aistore": _SECURITY_ISOLATION,
 }
 
 

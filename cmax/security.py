@@ -1210,6 +1210,108 @@ def _ingress_nginx_cve_2025_1974(audit: dict[str, Any]) -> tuple[str, str, str]:
     return WARNING, observed, "Complete pod inventory and identifiable upstream image versions are required. " + scope
 
 
+_RUNTIME_EXPOSURE_KEY = "gpu_runtime_exposure"
+_RUNTIME_EXPOSURE_STATUS = {
+    "fail": CRITICAL,
+    "warning": WARNING,
+    "unknown": WARNING,
+    "pass": PASS,
+    "not_applicable": NOT_APPLICABLE,
+}
+
+
+def _runtime_exposure_observed(topic: dict[str, Any]) -> str:
+    """List the evidence rows of one gpu_runtime_exposure topic."""
+    rows: list[str] = []
+    for field in ("partitions", "gpus", "hosts", "hooks", "endpoints"):
+        value = topic.get(field)
+        if isinstance(value, list):
+            rows.extend(str(item) for item in value[:8])
+            if len(value) > 8:
+                rows.append(f"{len(value) - 8} more")
+    versions = topic.get("versions")
+    if isinstance(versions, list) and versions:
+        rows.append("Ray versions " + ", ".join(str(item) for item in versions))
+    return "; ".join(rows) or str(topic.get("status") or "unknown")
+
+
+def _runtime_exposure_evaluator(
+    topic_name: str,
+) -> Callable[[dict[str, Any]], tuple[str, str, str]]:
+    """Grade one topic that checks/system/gpu_runtime_exposure.py recorded."""
+
+    def evaluate(audit: dict[str, Any]) -> tuple[str, str, str]:
+        topic = _get(audit, f"{_RUNTIME_EXPOSURE_KEY}.{topic_name}")
+        if not isinstance(topic, dict):
+            return (
+                WARNING,
+                "not collected",
+                "The GPU runtime exposure check did not run, so this exposure cannot be ruled out.",
+            )
+        status = str(topic.get("status") or "unknown").lower()
+        message = str(topic.get("message") or "")
+        return (
+            _RUNTIME_EXPOSURE_STATUS.get(status, WARNING),
+            _runtime_exposure_observed(topic),
+            message or "The GPU runtime exposure check returned no detail.",
+        )
+
+    return evaluate
+
+
+def _aistore(audit: dict[str, Any]) -> tuple[str, str, str]:
+    """Grade each AIStore deployment against the minimum table."""
+    topic = _get(audit, f"{_RUNTIME_EXPOSURE_KEY}.aistore")
+    if not isinstance(topic, dict):
+        return (
+            WARNING,
+            "not collected",
+            "The GPU runtime exposure check did not run, so an AIStore deployment cannot be ruled out.",
+        )
+    status = str(topic.get("status") or "unknown").lower()
+    if status == "not_applicable":
+        return NOT_APPLICABLE, "no AIStore node found", str(topic.get("message") or "")
+    if status != "present":
+        return WARNING, status, str(topic.get("message") or "AIStore presence is not known.")
+    block = minimum_component("aistore")
+    minimum = block.get("minimum") if isinstance(block.get("minimum"), str) else ""
+    deployments = [item for item in topic.get("deployments") or [] if isinstance(item, dict)]
+    rows: list[str] = []
+    below = unknown = 0
+    for item in deployments:
+        version = str(item.get("version") or "unknown")
+        rows.append(f"{item.get('where', '')}: {version}")
+        parsed = _aistore_version(version)
+        if parsed is None or not minimum:
+            unknown += 1
+        elif parsed < _aistore_version(minimum):
+            below += 1
+    observed = "; ".join(rows) + f"; minimum version {minimum or 'unknown'}"
+    if below:
+        return (
+            CRITICAL,
+            observed,
+            f"{below} AIStore deployment(s) are below the published minimum version. The "
+            "October 2026 bulletin fixes CVE-2026-65162, an unauthenticated remote code "
+            "execution through the legacy ETL path.",
+        )
+    if unknown:
+        return (
+            WARNING,
+            observed,
+            "AIStore runs, but its version could not be read from an image tag, so the "
+            "AIStore bulletins cannot be ruled out.",
+        )
+    return PASS, observed, "Every AIStore deployment meets the published minimum version."
+
+
+def _aistore_version(version: str) -> tuple[int, ...] | None:
+    match = re.fullmatch(r"v?(\d+)\.(\d+)(?:\.(\d+))?", version.strip())
+    if not match:
+        return None
+    return tuple(int(part or 0) for part in match.groups())
+
+
 def _kubernetes_nodes_proxy(audit: dict[str, Any]) -> tuple[str, str, str]:
     value = _get(audit, "kubernetes_nodes_proxy")
     if not isinstance(value, dict):
@@ -1999,6 +2101,26 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
         _version_evaluator("securityVersions.cudaToolkit"),
     ),
     CheckSpec(
+        "dcgm-exporter",
+        "DCGM Exporter minimum version",
+        "DCGM Exporter 4.8.0 and 4.8.1 serve Go pprof debug endpoints on the "
+        "metrics port, and NVIDIA treats every release before 4.8.2 as affected "
+        "(CVE-2026-47483). A reachable metrics port can then leak process memory "
+        "details and allow denial of service.",
+        # The minimum version, its bulletin, and its CVEs come from the minimum
+        # table at evaluation time (see MINIMUM_BOUND_CHECKS).
+        "Upgrade DCGM Exporter to the published minimum version. Keep "
+        "--enable-pprof off, and bind the metrics port to loopback or a private "
+        "network.",
+        _references(
+            (
+                "Stealthium DCGM Exporter CVE-2026-47483",
+                "https://stealthium.io/blog/dcgm-exporter-cve-2026-47483-in-a-working-day",
+            ),
+        ),
+        _version_evaluator("securityVersions.dcgmExporter"),
+    ),
+    CheckSpec(
         "runc",
         "runc minimum version",
         "Affected OCI runtime releases contain container setup races that can bypass masked-path protections.",
@@ -2298,6 +2420,103 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
         ),
         _dpu_host_isolation,
     ),
+    CheckSpec(
+        "mig-side-channel",
+        "MIG cross-partition timing side channel",
+        "MIG instances on one Hopper or Blackwell GPU share timing resources. "
+        "A tenant on one instance can fingerprint the model and infer the work "
+        "of a tenant on another instance of the same GPU.",
+        "Give each tenant whole GPUs, or put only one tenant's MIG instances on "
+        "a GPU. Do not expose other GPUs of the node to the tenant container.",
+        _references(
+            (
+                "Stealthium Behind Bars MIG side channel",
+                "https://stealthium.io/blog/behind-bars-mig-side-channel-model-fingerprinting",
+            ),
+            (
+                "Stealthium multi-tenant GPU timing",
+                "https://stealthium.io/blog/reading-the-work-multi-tenant-gpu-not-private",
+            ),
+        ),
+        _runtime_exposure_evaluator("mig"),
+    ),
+    CheckSpec(
+        "gpu-ecc-rowhammer",
+        "GDDR GPU ECC for GPUBreach",
+        "GPUBreach uses GDDR6 Rowhammer bit flips in GPU page table entries to "
+        "reach a driver heap overflow and a root shell on the host. It has no "
+        "CVE and no driver fix, and NVIDIA recommends System-Level ECC.",
+        "Enable ECC on every GDDR GPU with `nvidia-smi -e 1` and reset the GPU "
+        "or reboot.",
+        _references(
+            (
+                "Stealthium GPUBreach root cause and detection",
+                "https://stealthium.io/blog/gpubreach-root-cause-analysis-detection",
+            ),
+            (
+                "NVIDIA Rowhammer security notice",
+                "https://nvidia.custhelp.com/app/answers/detail/a_id/5671/",
+            ),
+        ),
+        _runtime_exposure_evaluator("ecc"),
+    ),
+    CheckSpec(
+        "nvidia-cdi-hook-monitoring",
+        "nvidia-cdi-hook exec monitoring",
+        "NVIDIA Container Toolkit 1.19.1 runs nvidia-cdi-hook as root on the "
+        "host at container creation. Past toolkit CVEs ran attacker code at this "
+        "step, so an unmonitored hook hides a container escape.",
+        "Record every nvidia-cdi-hook execution with Falco, Tetragon, Tracee or "
+        "an auditd execve rule. Alert on an unexpected path or parent, and on "
+        "LD_PRELOAD, LD_AUDIT or LD_LIBRARY_PATH in the hook environment.",
+        _references(
+            (
+                "Stealthium NVIDIA Container Toolkit compromise detection",
+                "https://stealthium.io/blog/catching-nvidia-container-toolkit-compromise",
+            ),
+        ),
+        _runtime_exposure_evaluator("cdiHooks"),
+    ),
+    CheckSpec(
+        "ray-dashboard-exposure",
+        "Ray dashboard and Jobs API exposure",
+        "The Ray Jobs API on the dashboard port 8265 runs submitted code. "
+        "Without token authentication, anyone who reaches the port can run code "
+        "on the cluster (ShadowRay 2.0, CVE-2023-48022).",
+        "Bind the Ray dashboard to loopback or a private network, or set "
+        "RAY_AUTH_MODE=token on every node with Ray 2.52.0 or newer.",
+        _references(
+            (
+                "Stealthium ShadowRay 2.0",
+                "https://stealthium.io/blog/shadowray-ray-jobs-api-gpu-cryptomining",
+            ),
+            (
+                "Ray token authentication",
+                "https://docs.ray.io/en/latest/ray-security/token-auth.html",
+            ),
+            ("NVD CVE-2023-48022", "https://nvd.nist.gov/vuln/detail/CVE-2023-48022"),
+        ),
+        _runtime_exposure_evaluator("ray"),
+    ),
+    CheckSpec(
+        "aistore",
+        "AIStore minimum version",
+        "AIStore before 5.0 accepts unauthenticated requests that reach remote "
+        "code execution through the legacy ETL path (CVE-2026-65162). Later "
+        "bulletins raise the minimum version again.",
+        # The minimum version, its bulletin, and its CVEs come from the minimum
+        # table at evaluation time (see MINIMUM_BOUND_CHECKS).
+        "Upgrade AIStore to the published minimum version. Until then, require "
+        "authentication, disable ETL, and block privileged and host-namespace "
+        "pods with Pod Security Admission.",
+        _references(
+            (
+                "Stealthium AIStore CVE-2026-65162",
+                "https://stealthium.io/blog/aistore-cve-2026-65162-rce",
+            ),
+        ),
+        _aistore,
+    ),
 )
 
 
@@ -2338,6 +2557,19 @@ MINIMUM_BOUND_CHECKS: dict[str, tuple[str, str, str]] = {
         "docker",
         "Upgrade Docker Engine to {minimum} or newer and restart the daemon.",
         "Docker Engine release notes",
+    ),
+    "dcgm-exporter": (
+        "dcgmExporter",
+        "Upgrade DCGM Exporter to {minimum} or newer. Keep --enable-pprof off, "
+        "and bind the metrics port to loopback or a private network.",
+        "NVIDIA DCGM bulletin",
+    ),
+    "aistore": (
+        "aistore",
+        "Upgrade AIStore to {minimum} or newer. Until then, require "
+        "authentication, disable ETL, and block privileged and host-namespace "
+        "pods with Pod Security Admission.",
+        "NVIDIA AIStore bulletin",
     ),
     "connectx-firmware": (
         "connectxFirmware",
@@ -2556,6 +2788,7 @@ def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
         "nvidia-driver": "securityVersions.nvidiaDriver",
         "nvidia-container-toolkit": "securityVersions.nvidiaContainerToolkit",
         "cuda-toolkit": "securityVersions.cudaToolkit",
+        "dcgm-exporter": "securityVersions.dcgmExporter",
         "runc": "securityVersions.runc",
         "docker": "securityVersions.docker",
         "connectx-firmware": "securityVersions.connectxFirmware",
@@ -2594,6 +2827,7 @@ def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
             "nvidia-driver": "securityVersions.nvidiaDriver.advisory",
             "nvidia-container-toolkit": "securityVersions.nvidiaContainerToolkit.advisory",
             "cuda-toolkit": "securityVersions.cudaToolkit.advisory",
+            "dcgm-exporter": "securityVersions.dcgmExporter.advisory",
             "runc": "securityVersions.runc.advisory",
             "docker": "securityVersions.docker.advisory",
             "connectx-firmware": "securityVersions.connectxFirmware.advisory",
@@ -2605,6 +2839,35 @@ def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
                     SecurityReference("Detected component advisory", advisory),
                     *references,
                 )
+        if spec.id == "nvidia-driver":
+            findings = _get(audit, "securityVersions.nvidiaDriver.cveFindings")
+            if isinstance(findings, dict):
+                scopes = []
+                for cve, finding in findings.items():
+                    if not isinstance(finding, dict):
+                        continue
+                    assessment += (
+                        f"\n{finding.get('name', cve)} ({cve}): "
+                        f"{finding.get('status', 'unknown')}. "
+                        f"Found {_display(finding.get('version'))}; "
+                        f"published minimum {_display(finding.get('minimum'))}. "
+                        f"{finding.get('detail', '')}"
+                    )
+                    grace = finding.get("gracePeriod") or {}
+                    if grace.get("active") is True:
+                        assessment += f" {grace.get('message', '')}"
+                    if finding.get("scope") and finding["scope"] not in scopes:
+                        scopes.append(finding["scope"])
+                    for source in finding.get("sources") or []:
+                        if isinstance(source, dict) and source.get("url") and source["url"] not in {
+                            reference.url for reference in references
+                        }:
+                            references = (
+                                *references,
+                                SecurityReference(str(source.get("name") or cve), source["url"]),
+                            )
+                if scopes:
+                    assessment += "\n" + " ".join(scopes)
         documentation = references[0].url if references else ""
         checks.append(
             SecurityCheck(

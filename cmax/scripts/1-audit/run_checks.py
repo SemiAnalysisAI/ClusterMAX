@@ -35,6 +35,7 @@ CHECK_PROFILES = {
     "system/kubernetes_nodes_proxy.py": frozenset({"security", "isolation"}),
     "system/ingress_nginx_cve_2025_1974.py": frozenset({"security", "isolation"}),
     "system/vm-iommu-check.py": frozenset({"hardware"}),
+    "system/gpu_runtime_exposure.py": frozenset({"security", "isolation", "versions"}),
 }
 CHECK_HARNESSES = {
     'system/hugepages.py': frozenset(['standalone', 'slurm', 'k8s']),
@@ -56,6 +57,7 @@ CHECK_HARNESSES = {
     "system/kubernetes_nodes_proxy.py": frozenset({"k8s"}),
     "system/ingress_nginx_cve_2025_1974.py": frozenset({"k8s"}),
     "system/vm-iommu-check.py": frozenset({"standalone", "slurm", "k8s"}),
+    "system/gpu_runtime_exposure.py": frozenset({"standalone", "slurm", "k8s"}),
 }
 PLATFORM_CHECK_KEYS = {
     "fabric/nccl-ib-qps-check.py": "nccl_ib_qps",
@@ -189,6 +191,7 @@ STATUS_CHECK_KEYS = (
     "nccl_ib_qps",
     "kubernetes_nodes_proxy",
     "ingress_nginx_cve_2025_1974",
+    "gpu_runtime_exposure",
 )
 
 

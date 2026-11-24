@@ -40,6 +40,8 @@ FIXTURE_ADVISORIES = {
     "docker": "https://example.invalid/minimums/docker",
     "connectxFirmware": "https://example.invalid/minimums/connectx",
     "virtioNetBluefield": "https://example.invalid/minimums/virtio",
+    "dcgmExporter": "https://example.invalid/minimums/dcgm-exporter",
+    "aistore": "https://example.invalid/minimums/aistore",
 }
 
 
@@ -90,6 +92,20 @@ def minimum_table(generated: datetime, **components: dict) -> dict:
                 "advisory": FIXTURE_ADVISORIES["virtioNetBluefield"],
                 "cves": ["CVE-2026-65094"],
                 "source": {"aId": 5815, "feed": "nvidia-csaf"},
+            },
+            "dcgmExporter": {
+                "kind": "minimum",
+                "minimum": "4.8.2",
+                "advisory": FIXTURE_ADVISORIES["dcgmExporter"],
+                "cves": ["CVE-2026-47483"],
+                "source": {"aId": 5857, "feed": "nvidia-csaf"},
+            },
+            "aistore": {
+                "kind": "minimum",
+                "minimum": "5.1",
+                "advisory": FIXTURE_ADVISORIES["aistore"],
+                "cves": ["CVE-2026-65162"],
+                "source": {"aId": 5928, "feed": "nvidia-csaf"},
             },
         },
     }
@@ -866,7 +882,7 @@ class SecurityReportTests(unittest.TestCase):
             Path("/tmp/report"),
         )
         self.assertIn("# ClusterMAX security audit report", report)
-        self.assertIn("3 failed, 13 warnings, 4 passed, 3 skipped", report)
+        self.assertIn("3 failed, 19 warnings, 4 passed, 3 skipped", report)
         self.assertIn("Action required: 3 critical findings.", report)
         self.assertNotIn("critical findings are known exposure", report)
         self.assertIn("NVIDIA driver minimum version", report)
@@ -1005,6 +1021,12 @@ class SecurityReportTests(unittest.TestCase):
         for check_id, (component, _, label) in security.MINIMUM_BOUND_CHECKS.items():
             expected = FIXTURE_ADVISORIES[component]
             check = checks[check_id]
+            if security.minimum_links.security_check_url(check_id) is None:
+                # aistore has no website row yet, so the table bulletin is
+                # its first reference.
+                self.assertEqual(check.references[0].url, expected, check_id)
+                self.assertEqual(check.references[0].label, label, check_id)
+                continue
             website, bulletin = check.references[:2]
             self.assertEqual(
                 website.url,
@@ -1406,12 +1428,12 @@ class MinimumFreshnessTests(unittest.TestCase):
             security.counts(stale_checks),
             {
                 security.PASS: 3,
-                security.WARNING: 13,
+                security.WARNING: 19,
                 security.CRITICAL: 4,
                 security.NOT_APPLICABLE: 3,
             },
         )
-        self.assertEqual(sum(security.counts(stale_checks).values()), 23)
+        self.assertEqual(sum(security.counts(stale_checks).values()), 29)
         self.assertEqual(clean_exit, 0)
         report = self._report(now=self.generated + timedelta(days=40), verbosity=3)
         self.assertNotIn("minimum-version-freshness", report)
@@ -1466,8 +1488,8 @@ class MinimumFreshnessTests(unittest.TestCase):
 
     def test_minimum_freshness_is_not_a_graded_criterion(self) -> None:
         ids = [spec.id for spec in security.CHECK_SPECS]
-        self.assertEqual(len(ids), 23)
-        self.assertEqual(len(set(ids)), 23)
+        self.assertEqual(len(ids), 29)
+        self.assertEqual(len(set(ids)), 29)
         self.assertEqual(
             ids,
             [
@@ -1477,6 +1499,7 @@ class MinimumFreshnessTests(unittest.TestCase):
                 "nvidia-driver",
                 "nvidia-container-toolkit",
                 "cuda-toolkit",
+                "dcgm-exporter",
                 "runc",
                 "docker",
                 "connectx-firmware",
@@ -1494,6 +1517,11 @@ class MinimumFreshnessTests(unittest.TestCase):
                 "nvlink-boundary",
                 "virtio-net-bluefield",
                 "dpu-host-isolation",
+                "mig-side-channel",
+                "gpu-ecc-rowhammer",
+                "nvidia-cdi-hook-monitoring",
+                "ray-dashboard-exposure",
+                "aistore",
             ],
         )
 

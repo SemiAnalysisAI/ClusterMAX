@@ -76,6 +76,11 @@ class CriteriaParityTests(unittest.TestCase):
             "nvlink-boundary",
             "pcie-passthrough",
             "ufm-profile",
+            "mig-side-channel",
+            "gpu-ecc-rowhammer",
+            "nvidia-cdi-hook-monitoring",
+            "ray-dashboard-exposure",
+            "aistore",
         }
 
         self.assertEqual(set(mapping), rule_keys | extension_ids)

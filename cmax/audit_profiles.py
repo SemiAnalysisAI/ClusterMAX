@@ -32,6 +32,7 @@ AUDIT_CATEGORIES = (
                 "securityVersions.dcgm.status",
                 "securityVersions.dcgmExporter.status",
                 "securityVersions.virtioNetBluefield.status",
+                "aistore",
             }
         ),
     ),
@@ -53,6 +54,10 @@ AUDIT_CATEGORIES = (
                 "ufm-profile",
                 "securityVersions.virtioNetBluefield.exposure",
                 "securityVersions.dpuHostIsolation.status",
+                "mig-side-channel",
+                "gpu-ecc-rowhammer",
+                "nvidia-cdi-hook-monitoring",
+                "ray-dashboard-exposure",
             }
         ),
     ),

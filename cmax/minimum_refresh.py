@@ -185,10 +185,14 @@ NVIDIA_DCGM_PRODUCT_ID_PATTERNS: dict[str, re.Pattern[str]] = {
 NVIDIA_SIMPLE_PRODUCTS: tuple[tuple[str, str], ...] = (
     ("cudaToolkit", "NVIDIA CUDA Toolkit"),
     ("nvidiaContainerToolkit", "NVIDIA Container Toolkit"),
+    ("aistore", "NVIDIA AIStore"),
 )
 NVIDIA_SIMPLE_PRODUCT_ALIASES: dict[str, tuple[str, ...]] = {
     "NVIDIA CUDA Toolkit": ("NVIDIA CUDA Toolkit", "CUDA Toolkit"),
     "NVIDIA Container Toolkit": ("NVIDIA Container Toolkit",),
+    # 5889 names the product "NVIDIA AIStore framework" and 5928 names it
+    # "NVIDIA AIStore". Both are the same AIStore release line.
+    "NVIDIA AIStore": ("NVIDIA AIStore", "NVIDIA AIStore framework"),
 }
 # The audit reads the CUDA Toolkit version from `nvcc --version`, whose build
 # number does not follow the toolkit update number: toolkit 13.4 Update 1
@@ -3762,6 +3766,11 @@ def build_minimums(
             "nvidiaContainerToolkit": simple_products.get("nvidiaContainerToolkit", {}),
             "nvhpc": nvhpc_release_window(fetch=fetch),
             "cudaToolkit": simple_products.get("cudaToolkit", {}),
+            **(
+                {"aistore": simple_products["aistore"]}
+                if simple_products.get("aistore")
+                else {}
+            ),
             "connectxFirmware": connectx,
             "virtioNetBluefield": nvidia_virtio_net_minimums(nvidia_documents),
             **({"snap4Container": snap4} if snap4 else {}),

@@ -1717,6 +1717,14 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "ufm-profile": "ufm-secured-bare-metal-cloud",
     "pcie-passthrough": "security-pcie-passthrough",
     "nvlink-boundary": "security-nvlink-boundary",
+    # Stealthium disclosure checks from checks/system/gpu_runtime_exposure.py.
+    # The public criteria catalog has no row for them yet, so they are
+    # CLI-only checks until a criterion is published.
+    "mig-side-channel": None,
+    "gpu-ecc-rowhammer": None,
+    "nvidia-cdi-hook-monitoring": None,
+    "ray-dashboard-exposure": None,
+    "aistore": None,
 }
 
 

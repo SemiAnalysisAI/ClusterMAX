@@ -36,6 +36,11 @@ _SECURITY_EXTENSION_IDS = frozenset(
         "observability-isolation",
         "qemu-virtio-serial",
         "vmscape",
+        "mig-side-channel",
+        "gpu-ecc-rowhammer",
+        "nvidia-cdi-hook-monitoring",
+        "ray-dashboard-exposure",
+        "aistore",
     }
 )
 _SECURITY_EXTENSION_HARNESSES = {

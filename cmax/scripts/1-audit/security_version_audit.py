@@ -315,6 +315,179 @@ def nvidia_driver_verdict(version: str) -> Verdict:
     )
 
 
+def nvidia_driver_cve_findings(
+    version: str, *, gpu_vendor: str = "nvidia", nvidia_gpu_absent: bool = False
+) -> dict[str, dict[str, Any]]:
+    """Assess the two CVEs only where bulletin 5861 supplies exact evidence.
+
+    Branch identifiers and the disputed release line select evidence. They are
+    not minimums. A later component bulletin cannot silently become either
+    CVE's threshold, because the table has no per-CVE affected ranges.
+    """
+    bulletin = "https://github.com/NVIDIA/product-security/blob/main/2026/5861/5861.md"
+    scope = (
+        "This passive comparison assumes a Linux display driver; the product was not detected. "
+        "It does not prove exploitation or tenant access. A guest reading does not "
+        "attest the physical host or vGPU manager. Request host product and patch evidence."
+    )
+    block: dict[str, Any] = {}
+    table_error = ""
+    try:
+        block = minimum_versions.component("nvidiaDriver")
+    except MinimumDataError as exc:
+        table_error = str(exc)
+    # Reject custom builds and partial readings rather than treating their
+    # numeric prefix as an upstream release.
+    parsed = numeric_version(version) if re.fullmatch(r"\d{3}\.\d+\.\d+", version) else None
+    branch = str(parsed[0]) if parsed else ""
+    minimum = (block.get("branches") or {}).get(branch)
+    covered = (
+        branch in {"580", "595", "610", "615"}
+        and str((block.get("branchSources") or {}).get(branch)) == "5861"
+        and isinstance(minimum, str)
+        and re.fullmatch(r"\d{3}\.\d+\.\d+", minimum) is not None
+        and minimum.split(".")[0] == branch
+    )
+    # Bulletin 5861 lists fixes only for R580, R595, R610 and R615, and its
+    # notes say that an earlier branch with no listed update must move to the
+    # latest branch. A release on an older branch, R535, R570 and R590 included,
+    # therefore has no NvRoot fix. Stealthium also reports R590, R575, R570 and
+    # R565 and earlier as unpatched. A branch above the newest listed branch has
+    # no bulletin evidence yet, so it stays unknown.
+    bulletin_branches = sorted(
+        int(key) for key, source in (block.get("branchSources") or {}).items()
+        if str(source) == "5861" and str(key).isdigit()
+    )
+    branch_without_fix = bool(
+        parsed and bulletin_branches
+        and parsed[0] < bulletin_branches[-1]
+        and parsed[0] not in bulletin_branches
+    )
+    # ForgePtr follows Stealthium's report. The flaw is present in every
+    # open-source release through 610.57.04, and Stealthium exploited 610.43.02
+    # and 610.57.04, which NVIDIA lists as fixed. Only the R615 bulletin fix is
+    # corroborated, so that table entry is the single ForgePtr threshold for
+    # every branch. NVIDIA's R580, R595 and R610 backports do not clear it.
+    forgeptr_minimum = (block.get("branches") or {}).get("615")
+    forgeptr_covered = (
+        str((block.get("branchSources") or {}).get("615")) == "5861"
+        and isinstance(forgeptr_minimum, str)
+        and re.fullmatch(r"615\.\d+\.\d+", forgeptr_minimum) is not None
+    )
+    findings: dict[str, dict[str, Any]] = {}
+    for cve, name, slug in (
+        ("CVE-2026-47591", "NvRoot", "nvroot"),
+        ("CVE-2026-47501", "ForgePtr", "forgeptr"),
+    ):
+        forgeptr = cve == "CVE-2026-47501"
+        cve_minimum, cve_covered, cve_branch = (
+            (forgeptr_minimum, forgeptr_covered, "615") if forgeptr else (minimum, covered, branch)
+        )
+        status, evidence, vendor_status = "unknown", "unverified", "unassessed"
+        detail = "The observed branch has no exact CVE threshold in the installed table."
+        if gpu_vendor.lower() == "amd":
+            status, evidence = "not_applicable", "non-nvidia"
+            detail = "The observed GPU vendor is AMD."
+        elif nvidia_gpu_absent:
+            status, evidence = "not_applicable", "no-nvidia-gpu"
+            detail = "No NVIDIA GPU is present in the completed device scan."
+        elif gpu_vendor.lower() != "nvidia":
+            detail = "The GPU vendor is unverified."
+        elif table_error:
+            detail = f"The minimum version table is unusable: {table_error}"
+        elif parsed is None:
+            detail = "The driver release is missing, malformed, or custom. Request upstream release and patch evidence."
+        elif forgeptr and cve_covered:
+            if covered:
+                vendor_status = "reported_affected" if parsed < numeric_version(minimum) else "reported_fixed"
+            if parsed < numeric_version(cve_minimum):
+                status, evidence = "fail", "researcher-reported-affected"
+                detail = (
+                    "Stealthium reports ForgePtr in every open-source release through 610.57.04 "
+                    "and exploited 610.43.02 and 610.57.04, which NVIDIA lists as fixed. "
+                    f"The observed release is below the R615 fix {cve_minimum}. "
+                    "NVIDIA's R580, R595 and R610 backports do not clear this finding."
+                )
+            else:
+                status, evidence = "pass", "researcher-confirmed-fix"
+                detail = (
+                    f"For a Linux display driver, the observed release meets the R615 fix "
+                    f"{cve_minimum}, which Stealthium and NVIDIA both report."
+                )
+        elif parsed[:2] == (595, 44):
+            evidence = "release-line-unverified"
+            detail = (
+                "Stealthium reports a separate NvRoot fix on the 595.44 release line. "
+                "The table has no threshold for that line, so NvRoot cannot be cleared."
+            )
+        elif branch_without_fix and not forgeptr:
+            vendor_status = "reported_affected"
+            status, evidence = "fail", "branch-without-fix"
+            listed = ", ".join(f"R{item}" for item in bulletin_branches)
+            detail = (
+                f"Bulletin 5861 lists NvRoot fixes only for {listed}. Its notes tell users of an "
+                "earlier branch with no listed update to upgrade to the latest branch release, "
+                f"so R{branch} has no NvRoot fix. Stealthium also reports R590, R575, R570 "
+                "and earlier branches as unpatched."
+            )
+        elif covered and not forgeptr:
+            vendor_status = "reported_affected" if parsed < numeric_version(minimum) else "reported_fixed"
+            if parsed < numeric_version(minimum):
+                status, evidence = "fail", "below-vendor-fix"
+                detail = (
+                    "The observed release is below NVIDIA's published fix for this CVE. "
+                    "The version indicates potential exposure."
+                )
+            else:
+                status, evidence = "pass", "vendor-fixed"
+                detail = "For a Linux display driver, the observed release meets NVIDIA's published fix for this CVE."
+        verdict = Verdict(
+            version or "unknown", status, cve_minimum if cve_covered else MINIMUMS_UNAVAILABLE,
+            bulletin, detail,
+        )
+        enforced = _verdict_record(verdict, "nvidiaDriver", cve_branch or None)
+        findings[cve] = {
+            **asdict(verdict),
+            "name": name,
+            "auditStatus": enforced["status"],
+            "evidenceStatus": evidence,
+            "vendorStatus": vendor_status,
+            "assessedProduct": "linux_gpu_display_driver",
+            "productEvidence": "assumed_not_detected",
+            "assessmentBasis": "version_only",
+            "physicalHostPatchStatus": "not_assessed",
+            "scope": scope,
+            "sources": [
+                {"name": "NVIDIA bulletin 5861", "url": bulletin},
+                {"name": f"NVD {cve}", "url": f"https://nvd.nist.gov/vuln/detail/{cve}"},
+                {"name": f"Stealthium {name}", "url": f"https://stealthium.io/blog/{slug}"},
+            ],
+        }
+        if "gracePeriod" in enforced:
+            findings[cve]["gracePeriod"] = enforced["gracePeriod"]
+    return findings
+
+
+def _driver_record(verdict: Verdict, gpu_vendor: str) -> dict[str, Any]:
+    parsed = numeric_version(verdict.version, parts=1)
+    record = _verdict_record(
+        verdict, "nvidiaDriver", str(parsed[0]) if parsed else None
+    )
+    findings = nvidia_driver_cve_findings(
+        verdict.version, gpu_vendor=gpu_vendor,
+        nvidia_gpu_absent=verdict.status == "not_applicable",
+    )
+    record["cveFindings"] = findings
+    ranks = {"not_applicable": 0, "pass": 1, "unknown": 2, "fail": 3}
+    worst = max(findings.values(), key=lambda item: ranks[item["auditStatus"]])
+    if ranks[worst["auditStatus"]] > ranks.get(str(record["status"]), 2):
+        record["status"] = worst["auditStatus"]
+        record["detail"] = (
+            f"{verdict.detail}. The CVE assessment requires attention. {worst['detail']}"
+        )
+    if record["status"] != "pass":
+        record.pop("gracePeriod", None)
+    return record
 def nvidia_container_toolkit_verdict(version: str) -> Verdict:
     try:
         block, minimum, parsed_minimum = _minimum_minimum("nvidiaContainerToolkit")
@@ -1814,17 +1987,12 @@ def evaluate(
         every_bluefield_host_read=every_bluefield_host_read,
     )
     isolation_record = dpu_host_isolation_result(dpu_isolation)
-    driver_parsed = numeric_version(driver, parts=1)
     runc_parsed = numeric_version(runc, parts=2)
     return {
         "amdDriver": amd_driver_record(
             amd_model, amd_driver_evidence, gpu_vendor=gpu_vendor
         ),
-        "nvidiaDriver": _verdict_record(
-            driver_result,
-            "nvidiaDriver",
-            str(driver_parsed[0]) if driver_parsed else None,
-        ),
+        "nvidiaDriver": _driver_record(driver_result, gpu_vendor),
         "nvidiaContainerToolkit": _verdict_record(
             nct_result, "nvidiaContainerToolkit"
         ),

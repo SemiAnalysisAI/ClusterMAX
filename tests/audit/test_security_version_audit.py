@@ -92,6 +92,73 @@ def unreadable_minimum_table():
 
 
 class NvidiaDriverPolicyTests(unittest.TestCase):
+    def test_forgeptr_clears_only_at_the_r615_fix(self) -> None:
+        # These are observed releases and evidence cases, not policy minima.
+        # ForgePtr follows Stealthium: NVIDIA's R580, R595 and R610 fixes do not clear it.
+        cases = (
+            ("610.43.02", "fail", "fail"),
+            ("610.57.04", "pass", "fail"),
+            ("580.178.04", "pass", "fail"),
+            ("595.91.07", "pass", "fail"),
+            ("615.71.09", "pass", "pass"),
+            ("595.44.14", "unknown", "fail"),
+            # Bulletin 5861 lists no fix for R535, R570 or R590, so NvRoot
+            # fails there instead of staying unknown.
+            ("535.309.01", "fail", "fail"),
+            ("570.211.01", "fail", "fail"),
+            ("590.48.01", "fail", "fail"),
+            ("650.10.02", "unknown", "pass"),
+            ("unknown", "unknown", "unknown"),
+            ("615.71.09-custom", "unknown", "unknown"),
+        )
+        for version, nvroot, forgeptr in cases:
+            with self.subTest(version=version):
+                result = security.evaluate(
+                    driver=version, nct="unknown", runc="unknown", connectx_firmware=[]
+                )["nvidiaDriver"]
+                findings = result["cveFindings"]
+                self.assertEqual(findings["CVE-2026-47591"]["status"], nvroot)
+                self.assertEqual(findings["CVE-2026-47501"]["status"], forgeptr)
+                if "fail" in (nvroot, forgeptr):
+                    self.assertEqual(result["status"], "fail")
+                elif "unknown" in (nvroot, forgeptr):
+                    self.assertNotEqual(result["status"], "pass")
+                self.assertTrue(findings["CVE-2026-47501"]["sources"])
+                self.assertEqual(
+                    findings["CVE-2026-47591"]["physicalHostPatchStatus"], "not_assessed"
+                )
+
+    def test_nvroot_on_a_branch_without_a_5861_fix_names_the_bulletin_note(self) -> None:
+        finding = security.nvidia_driver_cve_findings("570.211.01")["CVE-2026-47591"]
+        self.assertEqual(finding["status"], "fail")
+        self.assertEqual(finding["evidenceStatus"], "branch-without-fix")
+        self.assertIn("latest branch release", finding["detail"])
+
+    def test_cve_grace_keeps_raw_exposure(self) -> None:
+        grace = {"active": True, "message": "test grace"}
+        with mock.patch.object(minimums, "active_grace_period", return_value=grace):
+            affected = security.evaluate(
+                driver="610.43.02", nct="unknown", runc="unknown", connectx_firmware=[]
+            )["nvidiaDriver"]
+            backport = security.evaluate(
+                driver="610.57.04", nct="unknown", runc="unknown", connectx_firmware=[]
+            )["nvidiaDriver"]
+        self.assertEqual(affected["status"], "pass")
+        self.assertEqual(affected["cveFindings"]["CVE-2026-47501"]["status"], "fail")
+        self.assertEqual(affected["cveFindings"]["CVE-2026-47501"]["auditStatus"], "pass")
+        self.assertEqual(backport["cveFindings"]["CVE-2026-47501"]["status"], "fail")
+        self.assertEqual(backport["cveFindings"]["CVE-2026-47501"]["auditStatus"], "pass")
+
+    def test_cve_evidence_refuses_a_minimum_from_another_bulletin(self) -> None:
+        block = dict(minimums.component("nvidiaDriver"))
+        block["branchSources"] = {**block["branchSources"], "615": 9999}
+        with mock.patch.object(minimums, "component", return_value=block):
+            findings = security.nvidia_driver_cve_findings("615.71.09")
+        self.assertEqual({item["status"] for item in findings.values()}, {"unknown"})
+        with unreadable_minimum_table():
+            findings = security.nvidia_driver_cve_findings("615.71.09")
+        self.assertEqual({item["status"] for item in findings.values()}, {"unknown"})
+
     def test_driver_below_its_branch_minimum_version_fails(self) -> None:
         minimum = read_minimum("components.nvidiaDriver.branches.580")
         parts = [int(part) for part in minimum.split(".")]

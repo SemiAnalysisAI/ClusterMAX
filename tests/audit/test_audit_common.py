@@ -232,6 +232,7 @@ class AuditCommonTests(unittest.TestCase):
                 "fabric/nic-topology-check.py",
                 "fabric/vf-interface-exposure.py",
                 "fabric/virtio-net-check.py",
+                "system/gpu_runtime_exposure.py",
             },
         )
         self.assertEqual(
@@ -1164,7 +1165,11 @@ class ContainerWorkerCheckTests(unittest.TestCase):
         )
         runc_minimum = minimum_versions.get("components.runc.ladder")["1.3"]
         docker_minimum = minimum_versions.get("components.docker.minimum")
-        security = self.security_policy(check, runc=runc_minimum, docker=docker_minimum)
+        # ForgePtr clears only at the R615 fix, so a fully passing driver uses it.
+        driver = minimum_versions.get("components.nvidiaDriver.branches")["615"]
+        security = self.security_policy(
+            check, runc=runc_minimum, docker=docker_minimum, driver=driver
+        )
         self.assertEqual(security["nvidiaDriver"]["status"], "pass")
         self.assertEqual(security["runc"]["status"], "pass")
         self.assertEqual(security["docker"]["status"], "pass")
