@@ -1,5 +1,63 @@
 {
   "components": {
+    "aistore": {
+      "advisory": "https://nvidia.custhelp.com/app/answers/detail/a_id/5928/",
+      "cves": [
+        "CVE-2026-100985",
+        "CVE-2026-100986",
+        "CVE-2026-24270",
+        "CVE-2026-65101",
+        "CVE-2026-65103",
+        "CVE-2026-65161",
+        "CVE-2026-65162",
+        "CVE-2026-65164",
+        "CVE-2026-65170",
+        "CVE-2026-65172",
+        "CVE-2026-65173",
+        "CVE-2026-65175"
+      ],
+      "fixAvailability": {
+        "aId": 5928,
+        "available": "2026-11-24T00:00:00Z",
+        "bulletinReleased": "2026-11-24T00:00:00Z",
+        "feed": "nvidia-csaf-fixed-product",
+        "status": "confirmed",
+        "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5928/5928.json",
+        "version": "5.1"
+      },
+      "kind": "minimum",
+      "minimum": "5.1",
+      "source": {
+        "aId": 5928,
+        "feed": "nvidia-csaf",
+        "released": "2026-11-24T00:00:00Z",
+        "title": "Security Bulletin: NVIDIA AIStore Framework - November 2026",
+        "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5928/5928.json"
+      },
+      "sources": [
+        {
+          "aId": 5849,
+          "feed": "nvidia-csaf",
+          "released": "2026-06-30T00:00:00.000Z",
+          "title": "Security Bulletin: NVIDIA AIStore Framework - June 2026",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5849/5849.json"
+        },
+        {
+          "aId": 5889,
+          "feed": "nvidia-csaf",
+          "released": "2026-10-13T00:00:00Z",
+          "title": "Security Bulletin - NVIDIA AIStore Framework - October 2026",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5889/5889.json"
+        },
+        {
+          "aId": 5928,
+          "feed": "nvidia-csaf",
+          "released": "2026-11-24T00:00:00Z",
+          "title": "Security Bulletin: NVIDIA AIStore Framework - November 2026",
+          "url": "https://github.com/NVIDIA/product-security/blob/main/2026/5928/5928.json"
+        }
+      ]
+    },
     "amdDriver": {
       "advisory": "https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6034.html",
       "cves": [
