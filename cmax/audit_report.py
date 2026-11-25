@@ -1014,6 +1014,16 @@ def _security_extension_specs(harness: str | None = None) -> list[AuditCheckSpec
     ]
 
 
+def _target_is_guest(values: dict[str, Any]) -> bool:
+    """Return whether the collector found that the audited host is a VM guest.
+
+    A container on a VM has the same tenant boundary as the VM, so the
+    collected evidence decides the skip. The target flag alone does not.
+    """
+    audit = values.get("audit_data") if isinstance(values.get("audit_data"), dict) else values
+    return _nested(audit, "security.virtualization.guest") is True
+
+
 def _security_extension_checks(
     values: dict[str, Any],
     harness: str | None = None,
@@ -1049,7 +1059,9 @@ def _security_extension_checks(
                 )
             )
             continue
-        if check.id == "pcie-passthrough" and environment == "vm":
+        if check.id == "pcie-passthrough" and (
+            environment == "vm" or _target_is_guest(values)
+        ):
             checks.append(
                 AuditCheck(
                     check.id,
