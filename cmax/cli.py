@@ -196,11 +196,6 @@ def _run_security(
             else:
                 print(rendered, end="" if rendered.endswith("\n") else "\n")
             return 0
-        # The fetch is on by default. `sync_minimum_table` never raises, so a
-        # host with no outbound network access prints one warning and grades
-        # against the installed table, exactly as before.
-        if args.fetch_minimums:
-            security.sync_minimum_table(repo=args.repo)
         return _run_audit(
             args,
             parser,
@@ -243,7 +238,7 @@ def _run_audit(
         except (security.SecurityAuditError, ValueError) as exc:
             parser.error(str(exc))
 
-    from cmax import audit_runner
+    from cmax import audit_runner, security
 
     try:
         target = _resolve_audit_target(
@@ -254,6 +249,12 @@ def _run_audit(
         )
         if target is None:
             return AUDIT_CANCEL_EXIT
+        # Every audit grades version checks, so every audit reads the same
+        # minimum table. The fetch is on by default. `sync_minimum_table`
+        # never raises, so a host with no outbound network access prints one
+        # warning and grades against the last fetched or installed table.
+        if args.fetch_minimums:
+            security.sync_minimum_table(repo=args.repo)
         runner_options = dict(
             repo=args.repo,
             verbosity=_audit_verbosity(args.verbose),

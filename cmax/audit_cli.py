@@ -105,6 +105,24 @@ def _add_verbose(parser: argparse.ArgumentParser, *, suppress: bool) -> None:
     )
 
 
+def _add_fetch_minimums(parser: argparse.ArgumentParser, *, suppress: bool) -> None:
+    parser.add_argument(
+        "--no-fetch-minimums",
+        action="store_false",
+        dest="fetch_minimums",
+        default=_default(suppress, True),
+        help=(
+            "Do not read the published minimum version table from "
+            "https://semianalysisai.github.io/ClusterMAX/minimum-versions.json "
+            "before the audit runs. By default every audit fetches that "
+            "table, stores it in a user cache directory, and grades against it. "
+            "A fetch failure prints a warning, and the audit continues against "
+            "the last fetched table or the installed table. This flag keeps a "
+            "saved result reproducible on a host with no outbound network access."
+        ),
+    )
+
+
 def _add_run_options(parser: argparse.ArgumentParser, *, show_help: str) -> None:
     parser.add_argument(
         "--show",
@@ -114,6 +132,7 @@ def _add_run_options(parser: argparse.ArgumentParser, *, show_help: str) -> None
     )
     add_target_options(parser, suppress=True, dest="profile_target")
     add_confirmation_options(parser, suppress=True)
+    _add_fetch_minimums(parser, suppress=True)
     _add_verbose(parser, suppress=True)
 
 
@@ -132,6 +151,7 @@ def add_audit_parser(
     )
     add_target_options(audit)
     add_confirmation_options(audit)
+    _add_fetch_minimums(audit, suppress=False)
     _add_verbose(audit, suppress=False)
 
     commands = audit.add_subparsers(dest="profile", title="commands", metavar="COMMAND")
@@ -170,21 +190,6 @@ def add_audit_parser(
         action="store_true",
         default=argparse.SUPPRESS,
         help="Return exit code 0 when the report has critical findings.",
-    )
-    security.add_argument(
-        "--no-fetch-minimums",
-        action="store_false",
-        dest="fetch_minimums",
-        default=argparse.SUPPRESS,
-        help=(
-            "Do not read the published minimum version table from "
-            "https://semianalysisai.github.io/ClusterMAX/minimum-versions.json "
-            "before the audit runs. By default the security audit fetches that "
-            "table, stores it in a user cache directory, and grades against it. "
-            "A fetch failure prints a warning, and the audit continues against "
-            "the last fetched table or the installed table. This flag keeps a "
-            "saved result reproducible on a host with no outbound network access."
-        ),
     )
     if security_options is not None:
         security_options(security)

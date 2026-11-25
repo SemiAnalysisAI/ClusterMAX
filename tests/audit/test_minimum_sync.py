@@ -466,11 +466,39 @@ class CommandLineTests(MinimumSyncTestCase):
         self.assertEqual(result, 0)
         self.assertEqual(order, ["fetch", "audit"])
 
-    def test_the_opt_out_is_rejected_outside_the_security_subcommand(self) -> None:
-        with contextlib.redirect_stderr(io.StringIO()) as stderr:
-            with self.assertRaises(SystemExit):
-                cli.main(["audit", "--no-fetch-minimums"])
-        self.assertIn("--no-fetch-minimums", stderr.getvalue())
+    def _fetch_calls(self, argv: list[str]) -> int:
+        target = security.SecurityTarget("standalone", "vm", True)
+        with mock.patch.object(security, "detect_target", return_value=target):
+            with mock.patch("cmax.audit_runner.run", return_value=0):
+                with mock.patch.object(security, "sync_minimum_table") as fetch:
+                    self.assertEqual(cli.main(argv), 0)
+        return fetch.call_count
+
+    def test_every_audit_scope_fetches_the_same_table(self) -> None:
+        for argv in (
+            ["audit", "--vm"],
+            ["audit", "security", "--vm"],
+            ["audit", "versions", "--vm"],
+        ):
+            with self.subTest(argv=argv):
+                self.assertEqual(self._fetch_calls(argv), 1)
+
+    def test_the_opt_out_works_for_every_audit_scope(self) -> None:
+        for argv in (
+            ["audit", "--vm", "--no-fetch-minimums"],
+            ["audit", "--no-fetch-minimums", "security", "--vm"],
+            ["audit", "versions", "--vm", "--no-fetch-minimums"],
+        ):
+            with self.subTest(argv=argv):
+                self.assertEqual(self._fetch_calls(argv), 0)
+
+    def test_show_does_not_fetch(self) -> None:
+        target = security.SecurityTarget("standalone", "vm", True)
+        with mock.patch.object(security, "detect_target", return_value=target):
+            with mock.patch.object(security, "sync_minimum_table") as fetch:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    cli.main(["audit", "--vm", "--show"])
+        fetch.assert_not_called()
 
     def test_the_module_reports_the_outcome_on_the_command_line(self) -> None:
         output = io.StringIO()

@@ -3081,7 +3081,7 @@ def minimum_changes(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
 def sync_minimum_table(*, repo: str | None = None) -> bool:
     """Fetch the published minimum table and grade this run against it.
 
-    The security audit calls this by default on startup, and
+    Every audit calls this by default on startup, and
     `--no-fetch-minimums` skips it. This function needs one HTTPS GET request,
     so it also works for a pip installation, where the installed table is
     read-only and the upstream generator cannot write.
