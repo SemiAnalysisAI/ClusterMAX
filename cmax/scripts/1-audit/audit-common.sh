@@ -9,6 +9,14 @@
 AUDIT_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MINIMUM_VERSIONS_READER="${AUDIT_COMMON_DIR}/minimum_versions.py"
 
+# Lowercase a string without the bash 4 `${var,,}` expansion. The k8s collector
+# sources this file and runs on the operator machine, which can be macOS with
+# bash 3.2, where `${var,,}` is a fatal "bad substitution" that aborts the whole
+# audit at its final step. `tr` is portable across bash 3.2, bash 5, and uutils.
+audit_to_lower() {
+    printf '%s' "${1-}" | tr '[:upper:]' '[:lower:]'
+}
+
 # host-check.sh is delivered to the worker over stdin (`bash -s`) by the slurm
 # and k8s collectors, and copied to /tmp by the standalone collector, so it
 # cannot find its own siblings. Export the reader path for the collectors whose
@@ -185,7 +193,7 @@ print(" ".join(f"{branch}={floors[branch]}" for branch in sorted(floors)))
 # The fixed ABI always comes from the table. A tracker status of needed,
 # pending, deferred, or ignored is vulnerable because Ubuntu has not released a
 # fix for that kernel. A released status compares the running ABI with the
-# generated fixed ABI. A running kernel with no SCTP_SENDALL row (custom,
+# generated fixed ABI. A running kernel with no matching table row (custom,
 # mainline, or newer than the table), a missing GA row, a missing reader, an
 # unreadable release string, or an ambiguous row match is unknown.
 grade_ubuntu_kernel_cves() {
@@ -216,6 +224,35 @@ grade_ubuntu_kernel_cves() {
             UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON="[]"
             ;;
     esac
+}
+
+# apply_k8s_nodeinfo_kernel_fallback - use read-only Kubernetes node facts when
+# the privileged host check did not return its kernel or Ubuntu release. The
+# fallback accepts a value only when all nodes agree on the kernel, distribution,
+# and major/minor release. Different Ubuntu point releases remain compatible.
+apply_k8s_nodeinfo_kernel_fallback() {
+    local nodes_json="${1:-}" node_kernel="unknown" node_os_id="unknown"
+    local node_os_version="unknown"
+    command -v jq >/dev/null 2>&1 || return 0
+    node_kernel=$(printf '%s' "$nodes_json" | jq -r \
+        '[.items[].status.nodeInfo.kernelVersion // empty] | unique | if length == 1 then .[0] else "unknown" end' \
+        2>/dev/null) || node_kernel="unknown"
+    node_os_id=$(printf '%s' "$nodes_json" | jq -r \
+        '[.items[].status.nodeInfo.osImage // "" | if test("^Ubuntu "; "i") then "ubuntu" else "unknown" end] | unique | if length == 1 then .[0] else "unknown" end' \
+        2>/dev/null) || node_os_id="unknown"
+    node_os_version=$(printf '%s' "$nodes_json" | jq -r \
+        '[.items[].status.nodeInfo.osImage // "" | if test("^Ubuntu [0-9]+\\.[0-9]+"; "i") then capture("^Ubuntu (?<release>[0-9]+\\.[0-9]+)"; "i").release else "unknown" end] | unique | if length == 1 then .[0] else "unknown" end' \
+        2>/dev/null) || node_os_version="unknown"
+
+    if [[ -z "${HP_GUEST_KERNEL_RUNNING:-}" || "${HP_GUEST_KERNEL_RUNNING:-unknown}" == unknown ]]; then
+        HP_GUEST_KERNEL_RUNNING="$node_kernel"
+    fi
+    if [[ -z "${HP_OS_ID:-}" || "${HP_OS_ID:-unknown}" == unknown ]]; then
+        HP_OS_ID="$node_os_id"
+    fi
+    if [[ -z "${HP_OS_VERSION_ID:-}" || "${HP_OS_VERSION_ID:-unknown}" == unknown ]]; then
+        HP_OS_VERSION_ID="$node_os_version"
+    fi
 }
 
 # build_security_advisory_json - emit the Ubuntu Noble advisory members that
@@ -249,7 +286,7 @@ grade_ubuntu_kernel_cves() {
 # An omitted check status becomes "unknown", and an unresolved minimum becomes
 # "unknown" as well. Neither ever becomes a value that reads as a pass.
 build_security_advisory_json() {
-    local host_facts="" pwnescape_json="" kvm_svm_json=""
+    local host_facts="" pwnescape_json="" sctp_sendall_json="" kvm_svm_json=""
     local bad_epoll_os=unknown bad_epoll_release=unknown bad_epoll_running=unknown
     local bad_epoll_signature=unknown bad_epoll_package=unknown bad_epoll_livepatch=unknown
     local fragnesia_status="unknown" fragnesia_compared_abi="unknown"
@@ -371,6 +408,9 @@ build_security_advisory_json() {
     pwnescape_json=$(printf '%s\n' "$host_facts" | \
         python3 "${AUDIT_COMMON_DIR}/pwnescape.py" 2>/dev/null) || pwnescape_json=""
     [[ -n "$pwnescape_json" ]] || pwnescape_json='{"status":"unknown","reason":"PwnEscape grader unavailable","exploitTested":false}'
+    sctp_sendall_json=$(printf '%s\n' "$host_facts" | \
+        python3 "${AUDIT_COMMON_DIR}/sctp_sendall.py" 2>/dev/null) || sctp_sendall_json=""
+    [[ -n "$sctp_sendall_json" ]] || sctp_sendall_json='{"status":"unknown","reason":"SCTP SCTP_SENDALL grader unavailable","exploitTested":false}'
     kvm_svm_json=$(printf '%s\n' "$host_facts" | \
         python3 "${AUDIT_COMMON_DIR}/kvm_svm.py" 2>/dev/null) || kvm_svm_json=""
     [[ -n "$kvm_svm_json" ]] || kvm_svm_json='{"status":"unknown","reason":"AMD KVM grader unavailable","exploitTested":false}'
@@ -383,6 +423,7 @@ build_security_advisory_json() {
     cat <<EOF
     "badEpoll": ${bad_epoll_json},
     "pwnescape": ${pwnescape_json},
+    "sctpSendall": ${sctp_sendall_json},
     "kvmSvm": ${kvm_svm_json},
     "fragnesia": {
       "cve": "${frag_cve}",
@@ -578,6 +619,83 @@ dcgm_versions_from_tag() {
     printf 'unknown unknown\n'
 }
 
+# dcgm_exporter_from_kubectl reads the dcgm-exporter image from the Kubernetes API.
+#
+# Usage: dcgm_exporter_from_kubectl cluster|slurm
+#
+# The exporter version exists only in its container image tag, so this is the
+# one place the audit reads that tag from a live pod list. The k8s harness and
+# the Slurm harness both call it. It makes one read-only `kubectl get pods`
+# call with a bounded request timeout and sets four globals:
+# DCGM_EXPORTER_IMAGE, DCGM_EXPORTER_PRESENT, DCGM_EXPORTER_VERSION_SOURCE, and
+# DCGM_EXPORTER_VERSION_REASON.
+#
+# "cluster" scope is the k8s harness, where the kubectl context is the audited
+# cluster. A complete pod list with no exporter therefore proves absence.
+#
+# "slurm" scope is the fallback for Slurm on Kubernetes (Slinky, SUNK,
+# Soperator), where the exporter runs as a pod beside the Slurm workers. The
+# audit host can have a kubectl context for some other cluster, so the image is
+# accepted only when one pod name, pod hostname, or Kubernetes node name in the
+# list is also a Slurm node name from sinfo. This scope never claims absence,
+# because the exporter can also run outside Kubernetes. Each path that cannot
+# read a version keeps the exporter unknown and records the reason, so the
+# fallback cannot change an unknown grade into a false pass or a false fail.
+dcgm_exporter_from_kubectl() {
+    local scope="${1:-cluster}"
+    local pods_json matched request_timeout=60s
+    local -a slurm_nodes=()
+    DCGM_EXPORTER_IMAGE=""
+    DCGM_EXPORTER_PRESENT="unknown"
+    DCGM_EXPORTER_VERSION_SOURCE=""
+    DCGM_EXPORTER_VERSION_REASON=""
+    if ! command -v kubectl >/dev/null 2>&1; then
+        DCGM_EXPORTER_VERSION_REASON="kubectl is not installed on the audit host"
+        return 0
+    fi
+    if ! command -v jq >/dev/null 2>&1; then
+        DCGM_EXPORTER_VERSION_REASON="jq is not installed on the audit host"
+        return 0
+    fi
+    # A fallback must not stall a Slurm audit, so it waits less than the
+    # k8s harness, where this list is primary evidence.
+    [[ "$scope" == "slurm" ]] && request_timeout=20s
+    if ! pods_json=$(kubectl get pods --all-namespaces -o json \
+            --request-timeout="$request_timeout" 2>/dev/null) || [[ -z "$pods_json" ]]; then
+        DCGM_EXPORTER_VERSION_REASON="kubectl could not list pods because it has no context, no access, or timed out"
+        return 0
+    fi
+    if [[ "$scope" == "slurm" ]]; then
+        mapfile -t slurm_nodes < <(sinfo -h -N -o '%N' 2>/dev/null | sort -u)
+        matched=""
+        if [[ ${#slurm_nodes[@]} -gt 0 ]]; then
+            matched=$(jq -r --args '$ARGS.positional as $nodes
+                | [.items[]? | (.metadata.name, .spec.hostname, .spec.nodeName)
+                   | strings | select(IN($nodes[]))] | first // ""' \
+                "${slurm_nodes[@]}" <<< "$pods_json" 2>/dev/null || true)
+        fi
+        if [[ -z "$matched" ]]; then
+            DCGM_EXPORTER_VERSION_REASON="the kubectl context has no pod or node that matches a Slurm node name, so it is not proven to be this cluster"
+            return 0
+        fi
+    fi
+    DCGM_EXPORTER_IMAGE=$(jq -r '
+        [.items[]?.spec.containers[]?
+         | select(((.name // "") + " " + (.image // ""))
+                  | test("dcgm-exporter"; "i"))
+         | .image] | first // ""' <<< "$pods_json" 2>/dev/null || true)
+    if [[ -n "$DCGM_EXPORTER_IMAGE" ]]; then
+        DCGM_EXPORTER_PRESENT=true
+        DCGM_EXPORTER_VERSION_SOURCE="kubectl_image_tag"
+    elif [[ "$scope" == "cluster" ]]; then
+        DCGM_EXPORTER_PRESENT=false
+        DCGM_EXPORTER_VERSION_SOURCE="kubectl_pod_list"
+    else
+        DCGM_EXPORTER_VERSION_REASON="kubectl listed no dcgm-exporter pod, and a Slurm fallback does not claim absence"
+    fi
+    return 0
+}
+
 # dcgm_version_from_check - the DCGM version the host check already collected.
 #
 # host-check.sh owns the `dcgmi --version` parse and emits WORKER_DCGM_VERSION
@@ -642,10 +760,11 @@ build_security_version_audit() {
     # DCGM_EXPORTER_PRESENT. The standalone collector also supplies
     # DCGM_EXPORTER_PRESENT, from its socket, systemd, and process scan, because
     # that one host is the whole fleet and the scan can therefore be complete.
-    # Slurm has no fleet-wide discovery path for dcgm-exporter today: it scans
-    # the head node while the exporter runs on the workers, so it reports
-    # unknown rather than inventing one. "not-installed" is claimed only when a
-    # scan positively found none.
+    # The Slurm collectors read the tag through dcgm_exporter_from_kubectl when
+    # the audit host has a kubectl context for the same Slurm-on-Kubernetes
+    # cluster. Otherwise Slurm reports unknown with the reason, because its
+    # port 9400 scan carries no version. "not-installed" is claimed only when
+    # a scan positively found none.
     local dcgm dcgm_exporter tag_dcgm tag_exporter
     dcgm=$(dcgm_version_from_check "$check_output")
     dcgm_exporter="unknown"
@@ -675,6 +794,14 @@ build_security_version_audit() {
         dcgm_exporter="not-installed"
     fi
     args+=(--dcgm "$dcgm" --dcgm-exporter "$dcgm_exporter")
+    # The full k8s collector reads the tag through monitoring-k8s.sh and sets
+    # no source, so an image without a source is still a kubectl image tag.
+    local exporter_source="${DCGM_EXPORTER_VERSION_SOURCE:-}"
+    [[ -z "$exporter_source" && -n "${DCGM_EXPORTER_IMAGE:-}" ]] \
+        && exporter_source="kubectl_image_tag"
+    [[ -n "$exporter_source" ]] && args+=(--dcgm-exporter-source "$exporter_source")
+    [[ -n "${DCGM_EXPORTER_VERSION_REASON:-}" ]] \
+        && args+=(--dcgm-exporter-reason "${DCGM_EXPORTER_VERSION_REASON}")
 
     # "per-host" grades one host of a fleet for security_fleet.py, which keeps
     # the cluster-wide VIRTIO-Net rollup from the sampled run, so the
@@ -734,13 +861,19 @@ build_security_version_audit() {
     fi
 
     # The NVIDIA driver minimum only applies where an NVIDIA GPU exists, and
-    # absence graded not_applicable reads as a pass, so only a unanimous
-    # positive claim reaches the evaluator: every host's GPU inventory read a
-    # bus (a =true line with no =false line beside it) and no host saw a 10de
-    # device. A mixed fleet, a host that could not read its bus, or a check
-    # that never emitted the keys all leave the flag off, and the evaluator
-    # keeps reporting unknown so the provider is asked to attest.
-    if grep -q '^WORKER_SECURITY_GPU_INVENTORY_COMPLETE=true$' <<< "$check_output" \
+    # absence graded not_applicable reads as a pass. Set the flag only when
+    # every named host record completed a PCI scan and reported no NVIDIA
+    # device. A record that omits those keys is not an absence claim. A stream
+    # with no host name still needs one completed absence pair and no contrary
+    # line. A mixed fleet, an unread bus, or a missing key leaves the flag off,
+    # and the evaluator keeps reporting unknown so the provider is asked to
+    # attest.
+    local gpu_hosts gpu_complete gpu_absent
+    gpu_hosts=$(printf '%s\n' "$check_output" | grep -c '^WORKER_HOSTNAME=' || true)
+    gpu_complete=$(printf '%s\n' "$check_output" | grep -c '^WORKER_SECURITY_GPU_INVENTORY_COMPLETE=true$' || true)
+    gpu_absent=$(printf '%s\n' "$check_output" | grep -c '^WORKER_SECURITY_NVIDIA_GPU_PRESENT=false$' || true)
+    if [[ "$gpu_complete" -ge 1 && "$gpu_complete" -eq "$gpu_absent" ]] \
+        && { [[ "$gpu_hosts" -eq 0 ]] || [[ "$gpu_hosts" -eq "$gpu_complete" ]]; } \
         && ! grep -q '^WORKER_SECURITY_GPU_INVENTORY_COMPLETE=false$' <<< "$check_output" \
         && ! grep -q '^WORKER_SECURITY_NVIDIA_GPU_PRESENT=true$' <<< "$check_output" \
         && ! grep -q '^WORKER_SECURITY_NVIDIA_GPU_PRESENT=unknown$' <<< "$check_output"; then
@@ -765,6 +898,46 @@ build_security_version_audit() {
 
     python3 "$policy" "${args[@]}" 2>/dev/null \
         || printf '%s\n' '{"amdDriver":{"status":"unknown"},"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"}}'
+}
+
+# Some Slurm/Pyxis integrations return a zero srun status after the task plugin
+# reports that Enroot could not import or start the container. Treat those
+# semantic errors as check failures so the audit does not publish a false pass.
+pyxis_check_failure_lines() {
+    local output="${1:-}"
+    grep -Ei \
+        "pyxis: (container start failed|couldn.t start container|failed to import docker image)|enroot-[^:]*:.*(failed|permission denied|operation not permitted)" \
+        <<< "$output"
+}
+
+pyxis_check_output_has_failure() {
+    local output="${1:-}"
+    if pyxis_check_failure_lines "$output" >/dev/null; then
+        printf 'true\n'
+    else
+        printf 'false\n'
+    fi
+}
+
+# The GPU worker container test starts only when srun exposes the Pyxis
+# options and a GPU partition is known. Without a partition the test never
+# starts, and pyxisRuntimeWorks remains the default false.
+pyxis_worker_test_should_run() {
+    local cli_available="${1:-}"
+    local gpu_partition="${2:-}"
+    [[ "$cli_available" == "true" && -n "$gpu_partition" ]]
+}
+
+select_pyxis_check_image() {
+    if [[ -n "${CLUSTERMAX_PYXIS_CHECK_IMAGE:-}" ]]; then
+        printf '%s\n' "$CLUSTERMAX_PYXIS_CHECK_IMAGE"
+    elif [[ "${AMD_GPUS_PRESENT:-false}" == "true" && -n "${CLUSTERMAX_CONTAINER_ROCM_PYTORCH:-}" ]]; then
+        printf '%s\n' "$CLUSTERMAX_CONTAINER_ROCM_PYTORCH"
+    elif [[ -n "${CLUSTERMAX_CONTAINER_NGC_PYTORCH:-}" ]]; then
+        printf '%s\n' "$CLUSTERMAX_CONTAINER_NGC_PYTORCH"
+    else
+        printf '%s\n' "nvcr.io/nvidia/pytorch:26.04-py3"
+    fi
 }
 
 amd_gpu_check_present() {
@@ -1620,6 +1793,9 @@ build_audit_json() {
     "runtimeScope": "${CONTAINER_RUNTIME_SCOPE:-${WORKER_CONTAINER_RUNTIME_SCOPE:-unknown}}",
     "pyxis": ${PYXIS_INSTALLED},
     "pyxisRuntimeWorks": ${PYXIS_RUNTIME_WORKS:-false},
+    "pyxisCliAvailable": $( [[ "${PYXIS_CLI_AVAILABLE:-}" =~ ^(true|false)$ ]] && echo "$PYXIS_CLI_AVAILABLE" || echo null ),
+    "pyxisRuntimeAttempted": $( [[ "${PYXIS_RUNTIME_ATTEMPTED:-}" == "true" ]] && echo true || echo false ),
+    "pyxisRuntimeError": "${PYXIS_RUNTIME_ERROR:-}",
     "pyxisVersion": "${PYXIS_VERSION:-unknown}",
     "enroot": ${ENROOT_INSTALLED},
     "enrootVersion": "${ENROOT_VERSION}",
@@ -1865,7 +2041,8 @@ ${security_advisory_json}
         "totalCapacityGB": ${WORKER_NVME_TOTAL_GB:-0},
         "devices": ${WORKER_NVME_DEVS_JSON:-[]}
       },
-      "sharedMounts": ${WORKER_SHARED_MOUNTS_JSON:-[]}
+      "sharedMounts": ${WORKER_SHARED_MOUNTS_JSON:-[]},
+      "mountNamespace": ${WORKER_MOUNTS_JSON:-null}
     }
   }
 }

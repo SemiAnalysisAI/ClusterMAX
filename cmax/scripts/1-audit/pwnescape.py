@@ -30,6 +30,14 @@ FIXED_RELEASES = {
 # the CVE-specific Ubuntu tracker entry. Other flavors need their own mapping.
 UBUNTU_KERNELS = {
     ("24.04", "6.8.0", "generic"): ("ubuntuNoble", "linux", {"linux", "linux-signed"}, ""),
+    # The NVIDIA GPU nodes run a distinct source package with its own patch
+    # stream and its own table rows, so the generic ABI ladder says nothing
+    # about them. Mapping the flavor lets their rows be read instead of
+    # collapsing to unknown before any row is consulted.
+    ("24.04", "6.17.0", "nvidia-64k"): (
+        "ubuntuNoble", "linux-nvidia-6.17",
+        {"linux-nvidia-6.17", "linux-signed-nvidia-6.17"}, "",
+    ),
     ("26.04", "7.0.0", "generic"): ("ubuntuResolute", "linux", {"linux", "linux-signed"}, ""),
     ("22.04", "6.8.0", "generic"): (
         "ubuntuJammy", "linux-hwe-6.8",
@@ -41,7 +49,7 @@ UBUNTU_KERNELS = {
 def _ubuntu_grade(facts: dict[str, str], running: str) -> tuple[str, str, str, str]:
     """Use a verified running Ubuntu image and its CVE-specific vendor state."""
     unknown = ("unknown", "unknown", "unknown", "unknown")
-    match = re.fullmatch(r"(6\.8\.0|7\.0\.0)-([1-9][0-9]*)-(generic)", running)
+    match = re.fullmatch(r"(6\.8\.0|7\.0\.0|6\.17\.0)-([1-9][0-9]*)-([a-z0-9-]+)", running)
     if facts.get("WORKER_OS_ID") != "ubuntu" or match is None:
         return unknown
     family, abi, flavor = match.groups()
@@ -69,10 +77,24 @@ def _ubuntu_grade(facts: dict[str, str], running: str) -> tuple[str, str, str, s
     ):
         return unknown
     try:
-        entry = minimum_versions.get(f"components.{component}.packages.linuxPwnescape")
+        packages = minimum_versions.get(f"components.{component}.packages") or {}
     except (minimum_versions.MinimumDataError, OSError, ValueError):
         return unknown
-    if not isinstance(entry, dict) or entry.get("cve") != CVE or entry.get("package") != source:
+    # The table keeps one PwnEscape row per source package, named
+    # linuxPwnescape for the generic kernel and linuxPwnescapeNvidia6_17 for
+    # the NVIDIA one. Select the row for THIS source package rather than a
+    # single hard-coded key, so a vendor flavor is graded from its own row
+    # instead of reporting unknown because the generic row was not found.
+    entry = next(
+        (
+            row for row in packages.values()
+            if isinstance(row, dict)
+            and row.get("cve") == CVE
+            and row.get("package") == source
+        ),
+        None,
+    )
+    if entry is None:
         return unknown
     vendor_status = entry.get("status")
     minimum = entry.get("fixed")
@@ -97,8 +119,33 @@ def _ubuntu_grade(facts: dict[str, str], running: str) -> tuple[str, str, str, s
             "no fixed package has been released. Request CVE-specific evidence "
             "if the provider has applied a private backport.",
         )
+    if vendor_status == "ignored":
+        # Only an explicit end-of-life note supports out-of-support. The
+        # tracker can ignore a CVE for other reasons; neither proves a patch
+        # or a vulnerability.
+        note = entry.get("trackerNote")
+        if not isinstance(note, str) or not re.search(
+            r"\b(?:end[ -]of[ -]life|eol)\b", note, re.IGNORECASE
+        ):
+            return (
+                "unknown", "unknown", vendor_status,
+                f"Ubuntu marks {source} ignored for {CVE}, but this does not "
+                "by itself establish end of support or patch status. Obtain "
+                "CVE-specific provider evidence.",
+            )
+        why = (
+            f" The vendor tracker states: {note}." if isinstance(note, str) and note
+            else ""
+        )
+        return (
+            "out-of-support", "unknown", vendor_status,
+            f"Ubuntu is not tracking {source} for {CVE}: the package is marked "
+            f"{vendor_status}, so no fixed release is expected.{why} The CVE is "
+            "not proven present, but this kernel line will not be triaged "
+            "further. Move to a supported kernel line or track the vendor's own "
+            "advisories.",
+        )
     return unknown
-
 
 # A distribution kernel release is <upstream>-<ABI>-<flavor>, for example
 # 6.17.0-1021-nvidia-64k. The generic flavors belong to the distribution ABI
@@ -204,9 +251,17 @@ def grade(facts: dict[str, str]) -> dict:
             )
     else:
         local_status, minimum, vendor_status, ubuntu_reason = _ubuntu_grade(facts, running)
-        if local_status != "unknown":
+        if local_status != "unknown" or vendor_status == "ignored":
+            # An out-of-support grade deliberately reports unknown for the
+            # version while still carrying a reason, so it must not be dropped
+            # with the plain-unknown case.
             reason = ubuntu_reason
-    if livepatch not in {"none", "not-supported"} and local_status != "unknown":
+    if (
+        livepatch not in {"none", "not-supported"}
+        and local_status not in {"unknown", "out-of-support"}
+    ):
+        # Livepatch can move a version verdict, but it cannot revive a kernel
+        # line the vendor has abandoned, so out-of-support is left alone.
         local_status = "unknown"
         reason = (
             "Livepatch state is active or unreadable. "
@@ -218,7 +273,8 @@ def grade(facts: dict[str, str]) -> dict:
     if vendor is not None:
         # The upstream base version cannot settle a vendor kernel, because the
         # vendor backports into its own release. Keep the verdict at unknown and
-        # ask for the exact facts that settle it instead.
+        # ask for the exact facts that settle it instead. An out-of-support
+        # verdict already names who stopped caring and why, so it is kept.
         if local_status == "unknown":
             reason = _vendor_reason(vendor)
         vendor_fields = {
@@ -232,7 +288,12 @@ def grade(facts: dict[str, str]) -> dict:
     status = local_status
     # The existing detector classifies containers as guests too. A container
     # can share the visible kernel, but cannot establish the outer host model.
-    if guest != "false" or technology != "none":
+    #
+    # Out-of-support survives this: it is a statement about whether the vendor
+    # will ever triage the kernel line, which a guest can read just as well as a
+    # host. Demoting it to host-version-required would hide the one fact we do
+    # have behind a request for evidence we cannot obtain.
+    if (guest != "false" or technology != "none") and status != "out-of-support":
         status = "host-version-required"
         reason += (
             " The physical host is not established at this scope. "
@@ -354,6 +415,8 @@ def grade_fleet(hosts: list[dict], control_plane: dict) -> dict:
         status = "pass"
     elif "host-version-required" in statuses:
         status = "host-version-required"
+    elif "out-of-support" in statuses:
+        status = "out-of-support"
     else:
         status = "unknown"
 

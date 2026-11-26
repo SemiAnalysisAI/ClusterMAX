@@ -42,6 +42,7 @@ FIXTURE_ADVISORIES = {
     "virtioNetBluefield": "https://example.invalid/minimums/virtio",
     "dcgmExporter": "https://example.invalid/minimums/dcgm-exporter",
     "aistore": "https://example.invalid/minimums/aistore",
+    "amdDriver": "https://example.invalid/minimums/amd-driver",
 }
 
 
@@ -99,6 +100,13 @@ def minimum_table(generated: datetime, **components: dict) -> dict:
                 "advisory": FIXTURE_ADVISORIES["dcgmExporter"],
                 "cves": ["CVE-2026-47483"],
                 "source": {"aId": 5857, "feed": "nvidia-csaf"},
+            },
+            "amdDriver": {
+                "kind": "programMap",
+                "programs": {"MI300X": "31.40"},
+                "advisory": FIXTURE_ADVISORIES["amdDriver"],
+                "cves": ["CVE-2026-43603"],
+                "source": {"feed": "amd-security-bulletin"},
             },
             "aistore": {
                 "kind": "minimum",
@@ -882,7 +890,7 @@ class SecurityReportTests(unittest.TestCase):
             Path("/tmp/report"),
         )
         self.assertIn("# ClusterMAX security audit report", report)
-        self.assertIn("3 failed, 19 warnings, 4 passed, 3 skipped", report)
+        self.assertIn("3 failed, 21 warnings, 4 passed, 3 skipped", report)
         self.assertIn("Action required: 3 critical findings.", report)
         self.assertNotIn("critical findings are known exposure", report)
         self.assertIn("NVIDIA driver minimum version", report)
@@ -1428,12 +1436,12 @@ class MinimumFreshnessTests(unittest.TestCase):
             security.counts(stale_checks),
             {
                 security.PASS: 3,
-                security.WARNING: 19,
+                security.WARNING: 21,
                 security.CRITICAL: 4,
                 security.NOT_APPLICABLE: 3,
             },
         )
-        self.assertEqual(sum(security.counts(stale_checks).values()), 29)
+        self.assertEqual(sum(security.counts(stale_checks).values()), 31)
         self.assertEqual(clean_exit, 0)
         report = self._report(now=self.generated + timedelta(days=40), verbosity=3)
         self.assertNotIn("minimum-version-freshness", report)
@@ -1488,8 +1496,8 @@ class MinimumFreshnessTests(unittest.TestCase):
 
     def test_minimum_freshness_is_not_a_graded_criterion(self) -> None:
         ids = [spec.id for spec in security.CHECK_SPECS]
-        self.assertEqual(len(ids), 29)
-        self.assertEqual(len(set(ids)), 29)
+        self.assertEqual(len(ids), 31)
+        self.assertEqual(len(set(ids)), 31)
         self.assertEqual(
             ids,
             [
@@ -1497,6 +1505,7 @@ class MinimumFreshnessTests(unittest.TestCase):
                 "vmscape",
                 "observability-isolation",
                 "nvidia-driver",
+                "amd-driver",
                 "nvidia-container-toolkit",
                 "cuda-toolkit",
                 "dcgm-exporter",
@@ -1505,6 +1514,7 @@ class MinimumFreshnessTests(unittest.TestCase):
                 "connectx-firmware",
                 "guest-kernel",
                 "pwnescape",
+                "sctp-sendall",
                 "fragnesia",
                 "bad-epoll",
                 "kvm-svm-cve-2026-99312",

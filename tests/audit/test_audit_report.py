@@ -162,7 +162,11 @@ class AuditReportTests(unittest.TestCase):
             with self.subTest(key=key):
                 check = next(c for c in checks if c.key == key)
                 self.assertEqual(check.status, audit_report.WARNING)
-                self.assertIn("not a pass", check.assessment)
+                if key == "security.pwnescape.status":
+                    # The kernel CVE rows name what the audit read.
+                    self.assertTrue(check.assessment.startswith("Coverage incomplete"))
+                else:
+                    self.assertIn("not a pass", check.assessment)
 
     def test_removed_checks_do_not_run_for_any_cluster(self) -> None:
         removed = {
@@ -717,7 +721,7 @@ class AuditReportTests(unittest.TestCase):
 
         rendered = audit_report.format_check_specs(checks)
 
-        self.assertIn("[networking] Networking (5 checks)", rendered)
+        self.assertIn("[networking] Networking (6 checks)", rendered)
         self.assertIn("networking.hcaNamingValid", rendered)
         self.assertNotIn("[hardware]", rendered)
 

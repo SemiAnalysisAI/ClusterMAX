@@ -45,10 +45,8 @@ _FANOUT = None
 def load_fanout():
     """Import the shared checks/_fanout.py module, lazily.
 
-    Lazy (not a top-level import) because the worker arm runs this file on
-    compute nodes via ``srun python3 <path> --worker`` and never calls into
-    _fanout, so only the orchestrator arm (run_checks.py) pays for the import
-    and the sys.path mutation.
+    The worker reads this file through ``python3 -`` and does not call this
+    function. The controller imports the helper before it starts the worker.
     """
     global _FANOUT
     if _FANOUT is None:
@@ -224,7 +222,13 @@ def slurm_vboost_results(
             "stderr": clipped(proc.stderr),
             "message": "srun returned no worker vboost result",
         }
-    return results, None
+    error = _slurm_coverage_error(
+        command=command,
+        node_count=node_count,
+        proc=proc,
+        results=results,
+    )
+    return results, error
 
 
 def kubectl(
@@ -360,6 +364,66 @@ def k8s_vboost_results(
     )
 
 
+def _positive_int(value: str) -> int | None:
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _slurm_coverage_error(
+    *,
+    command: list[str],
+    node_count: str,
+    proc: subprocess.CompletedProcess[str],
+    results: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Return an error when the Slurm fan-out did not cover every task.
+
+    A non-zero ``srun`` exit can leave a task out even when other tasks
+    printed JSON. A zero exit with fewer JSON lines than ``SLURM_NNODES``
+    has the same gap. Either gap blocks a full allow.
+    """
+    if proc.returncode != 0:
+        return {
+            "status": "slurm_failed",
+            "command": display_command(command),
+            "exit_code": proc.returncode,
+            "stdout": clipped(proc.stdout),
+            "stderr": clipped(proc.stderr),
+            "message": (
+                f"srun exited {proc.returncode} after {len(results)} worker result(s)"
+            ),
+        }
+    expected = _positive_int(node_count)
+    if expected is not None and len(results) < expected:
+        return {
+            "status": "slurm_incomplete",
+            "command": display_command(command),
+            "exit_code": proc.returncode,
+            "message": (
+                f"only {len(results)} of {expected} allocated node(s) "
+                "reported a vboost result"
+            ),
+        }
+    return None
+
+
+def withhold_uncovered_allow(vboost: dict[str, Any]) -> None:
+    """Do not grade a full allow when a selected worker did not report.
+
+    A Kubernetes host-check limit, a missing worker result, or a non-zero
+    srun exit can leave a node unread. The workers that answered can all
+    allow the change. That result is not evidence for the unread workers.
+    A denial on a worker that did report stays a denial.
+    """
+    if vboost.get("status") != "allowed" or not vboost.get("errors"):
+        return
+    vboost["status"] = "incomplete"
+    vboost["allowed"] = None
+
+
 def aggregate_status(nodes: list[dict[str, Any]]) -> str:
     if not nodes:
         return "not_checked"
@@ -405,38 +469,37 @@ def build_check_payload(
         }
 
     errors: list[dict[str, Any]] = []
-    mode = "local"
+    mode = harness or "local"
     nodes: list[dict[str, Any]]
 
     if harness == "slurm":
         nodes, error = slurm_vboost_results(env=env, runner=runner, which=which)
-        mode = "slurm"
         if error:
             errors.append(error)
     elif harness == "k8s":
         k8s_nodes, k8s_errors = k8s_vboost_results(env=env, runner=runner)
+        mode = "k8s"
         for message in k8s_errors:
             errors.append({"status": "k8s", "message": message})
-        mode = "k8s"
         nodes = k8s_nodes
     else:
         nodes = [local_vboost_result(runner=runner, which=which)]
 
     allowed_nodes = sum(1 for node in nodes if node.get("allowed") is True)
     status = aggregate_status(nodes)
-    not_applicable = (
-        harness == "k8s"
-        and not nodes
-        and any(error.get("message") == VBOOST_AMD_NOT_APPLICABLE for error in errors)
-    )
-    if not_applicable:
+    reason = ""
+    if harness == "k8s" and not nodes and VBOOST_AMD_NOT_APPLICABLE in k8s_errors:
         status = "not_applicable"
+        reason = VBOOST_AMD_NOT_APPLICABLE
+        # The reason carries the message, so it is not also an error.
         errors = [
             error for error in errors if error.get("message") != VBOOST_AMD_NOT_APPLICABLE
         ]
     vboost: dict[str, Any] = {
         "target": TARGET_VBOOST,
         "checked": bool(nodes),
+        # No worker read means vboost was not shown to be allowed. Report
+        # allowed=false; status says not_checked.
         "allowed": bool(nodes) and allowed_nodes == len(nodes),
         "status": status,
         "mode": mode,
@@ -446,8 +509,9 @@ def build_check_payload(
     }
     if errors:
         vboost["errors"] = errors
-    if not_applicable:
-        vboost["reason"] = VBOOST_AMD_NOT_APPLICABLE
+    if reason:
+        vboost["reason"] = reason
+    withhold_uncovered_allow(vboost)
     return {"gpu_controls": {"vboost": vboost}}
 
 

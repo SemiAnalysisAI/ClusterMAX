@@ -119,6 +119,19 @@ def _status_is(expected: str) -> Callable[[Any], bool]:
     return lambda value: str(value).strip().lower() == expected
 
 
+# A pass cleared the check. A fail is its own finding. not-applicable means the
+# check does not cover this host. Every other fleet status, including unknown
+# and coverage-incomplete, still needs evidence before the report can stay quiet.
+_EVIDENCE_EXCLUDED_STATUSES = frozenset(
+    {"pass", "fail", "not-applicable", "not_applicable"}
+)
+
+
+def _status_needs_evidence(value: Any) -> bool:
+    """True when a status neither passed, failed, nor declared itself out of scope."""
+    return str(value).strip().lower() not in _EVIDENCE_EXCLUDED_STATUSES
+
+
 def _is_true(value: Any) -> bool:
     """True when the value is a boolean-ish 'yes'."""
     if isinstance(value, bool):
@@ -243,6 +256,21 @@ def _ncu_install_verdict_available(audit: dict[str, Any]) -> bool:
         "unknown",
     }
     return normalized not in inconclusive
+
+
+def _pyxis_cli_available(audit: dict[str, Any]) -> bool:
+    """True when srun exposes the Pyxis options (the collector says so)."""
+    return nested_get(audit, "containers", "pyxisCliAvailable") is True
+
+
+def _pyxis_runtime_attempted(audit: dict[str, Any]) -> bool:
+    """True when the GPU worker container test actually started."""
+    return nested_get(audit, "containers", "pyxisRuntimeAttempted") is True
+
+
+def _pyxis_container_test_failed(audit: dict[str, Any]) -> bool:
+    """True when the worker test ran and the container did not start."""
+    return _pyxis_cli_available(audit) and _pyxis_runtime_attempted(audit)
 
 
 def _vboost_check_unavailable(audit: dict[str, Any]) -> bool:
@@ -945,9 +973,11 @@ RULES: tuple[Rule, ...] = (
     ),
     Rule(
         "security.fragnesia.status",
-        "Fleet coverage is incomplete for the Fragnesia / Dirty Frag check",
+        "Fragnesia host patch status could not be verified",
         CONFIG,
-        _status_is("coverage-incomplete"),
+        # The fail rule above owns a proven miss. This rule owns every other
+        # status that did not clear the fleet, including coverage-incomplete.
+        _status_needs_evidence,
         cves=("CVE-2026-46300", "CVE-2026-43284", "CVE-2026-43500"),
     ),
     Rule(
@@ -963,6 +993,21 @@ RULES: tuple[Rule, ...] = (
         CONFIG,
         _status_is("unknown"),
         cves=("CVE-2026-46242",),
+    ),
+    Rule(
+        "security.sctpSendall.status",
+        "Running kernel is below the SCTP SCTP_SENDALL (CVE-2026-46227) fixed version",
+        VERSION,
+        _status_is("fail"),
+        cves=("CVE-2026-46227",),
+    ),
+    Rule(
+        "security.sctpSendall.status",
+        "SCTP SCTP_SENDALL host patch status requires vendor or provider evidence",
+        CONFIG,
+        lambda value: str(value).strip().lower() != "pass"
+        and str(value).strip().lower() != "fail",
+        cves=("CVE-2026-46227",),
     ),
     # --- Containers -------------------------------------------------------
     Rule(
@@ -1006,6 +1051,18 @@ RULES: tuple[Rule, ...] = (
         "Slurm does not expose the Pyxis command-line options",
         CONFIG,
         _is_false,
+        guard=lambda audit: not _pyxis_cli_available(audit),
+        harnesses=frozenset({"slurm"}),
+    ),
+    # srun exposes the Pyxis options, and the container test on a GPU worker
+    # ran and failed. A missing GPU partition never starts the test. The false
+    # default stays unverified.
+    Rule(
+        "containers.pyxisRuntimeWorks",
+        "Pyxis container test failed on a GPU worker",
+        CONFIG,
+        _is_false,
+        guard=_pyxis_container_test_failed,
         harnesses=frozenset({"slurm"}),
     ),
     # --- Compilers / toolchains ------------------------------------------
@@ -1087,6 +1144,14 @@ RULES: tuple[Rule, ...] = (
         and not _vboost_check_unavailable(audit)
         and not _vboost_not_applicable(audit)
         and not _vboost_unsupported_gpu(audit),
+    ),
+    Rule(
+        "gpu_controls.vboost.status",
+        "Vboost check did not read every selected GPU worker",
+        CONFIG,
+        # not_checked (no worker read) is reported on the allowed row as
+        # allowed=false, so it is not repeated here.
+        _status_is("incomplete"),
     ),
     # --- GPU HBM memory exposure -------------------------------------------
     # The Tier-0 hbm_memory_exposure check (see tests/AUDIT-CRITERIA.md) applies
@@ -1399,6 +1464,14 @@ RULES: tuple[Rule, ...] = (
         harnesses=frozenset({"k8s"}),
     ),
     Rule(
+        "networking.rdmaType",
+        "Kubernetes advertises no rdma extended resource for the active host RDMA fabric",
+        CONFIG,
+        lambda value: _missing_string(value),
+        guard=_host_rdma_active,
+        harnesses=frozenset({"k8s"}),
+    ),
+    Rule(
         "storage_config.status",
         "Mounted filesystems differ across worker nodes",
         CONFIG,
@@ -1566,6 +1639,16 @@ GUARD_SUPPRESSIONS: dict[str, tuple[GuardReason, ...]] = {
             "nvidia_peermem module does not indicate a legacy-only configuration.",
         ),
     ),
+    "containers.pyxisRuntimeWorks": (
+        GuardReason(
+            lambda audit: (
+                _pyxis_cli_available(audit) and not _pyxis_runtime_attempted(audit)
+            ),
+            UNVERIFIED_KIND,
+            "The Pyxis options are available. The worker container test did "
+            "not run. Treat this row as unverified.",
+        ),
+    ),
     "gpu_controls.vboost.allowed": (
         _AMD_HARDWARE,
         GuardReason(
@@ -1622,21 +1705,20 @@ def classify_suppression(key: str, audit: dict[str, Any]) -> tuple[str, str]:
 # Check-key -> dashboard criterion id (dashboard/src/data/audit-criteria.ts on
 # master, vendored as criteria-checks.json next to this file). Several check
 # keys can serve one criterion. None marks a CLI-only check with no criteria
-# page row today: the DCGM / DCGM Exporter security floors, the Tier-0 HBM and
+# page row today: the DCGM security floor, the Tier-0 HBM and
 # kubelet CPU Manager platform checks, the worker-vantage meta check, and
 # CUDA_VISIBLE_DEVICES (the criteria page lists cuda-visible-devices as a
 # manual item). tests/audit/test_criteria_parity.py enforces that every rule
 # key and security extension id appears here and that every mapped id exists
 # in the vendored catalog.
 CHECK_CRITERIA: dict[str, str | None] = {
-    # CLI-only until the criteria catalog has an AMD host-driver criterion.
-    "securityVersions.amdDriver.status": None,
+    "securityVersions.amdDriver.status": "security-amd-driver",
     "qemu-virtio-serial": "security-qemu-virtio-serial",
     "vmscape": "security-vmscape",
     "observability-isolation": "security-observability-isolation",
-    "thp_madvise.status": None,
-    "static_hugepages.status": None,
-    "hugepage_allocation.status": None,
+    "thp_madvise.status": "thp-madvise",
+    "static_hugepages.status": "static-hugepages",
+    "hugepage_allocation.status": "hugepage-allocation",
     "storage_config.status": None,
     "k8s_scheduling.status": None,
     # CLI-only until the criteria catalog has a Slinky placement criterion.
@@ -1654,20 +1736,21 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "securityVersions.docker.status": "security-docker",
     "securityVersions.connectxFirmware.status": "security-connectx-firmware",
     "securityVersions.dcgm.status": None,
-    "securityVersions.dcgmExporter.status": None,
+    "securityVersions.dcgmExporter.status": "security-dcgm-exporter",
     "securityVersions.virtioNetBluefield.status": "security-virtio-net-bluefield",
     "securityVersions.virtioNetBluefield.exposure": "security-virtio-net-bluefield",
     "securityVersions.dpuHostIsolation.status": "security-dpu-host-isolation",
     "security.januscape.status": "security-januscape",
-    # CLI-only until the criteria catalog carries the security-kvm-svm row.
-    "security.kvmSvm.status": None,
+    "security.kvmSvm.status": "security-kvm-svm",
+    "security.sctpSendall.status": "security-sctp-sendall",
+    "gpu_controls.vboost.status": None,
+    "networking.rdmaType": None,
     "security.guestKernel.newerInstalled": "guest-kernel-current",
     "security.guestKernel.ubuntuCveStatus": "guest-kernel-current",
     "security.ubuntuNobleKernelMinimum.status": "ubuntu-kernel-minimum-version",
     "security.fragnesia.status": "ubuntu-kernel-fragnesia-dirty-frag",
-    # CLI-only until the website catalog publishes a dedicated Bad Epoll row.
-    "security.badEpoll.status": None,
-    "security.pwnescape.status": None,
+    "security.badEpoll.status": "security-bad-epoll",
+    "security.pwnescape.status": "security-pwnescape",
     "containers.nvidiaContainerToolkit": "container-toolkit",
     "containers.workerCheckOk": None,
     "containers.pyxisRuntimeWorks": "pyxis",
@@ -1711,20 +1794,18 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "slurm.accounting.sacctAvailable": "sacct-accounting",
     # Security extension checks merged by audit_report._security_extension_checks.
     "bmc-ipmi": "security-bmc-ipmi",
-    "kubernetes-nodes-proxy": None,
+    "kubernetes-nodes-proxy": "security-kubernetes-nodes-proxy",
     # CVE-specific pod inventory, not complete ingress-controller criteria coverage.
-    "ingress-nginx-cve-2025-1974": None,
+    "ingress-nginx-cve-2025-1974": "security-ingress-nginx-cve-2025-1974",
     "ufm-profile": "ufm-secured-bare-metal-cloud",
     "pcie-passthrough": "security-pcie-passthrough",
     "nvlink-boundary": "security-nvlink-boundary",
     # Stealthium disclosure checks from checks/system/gpu_runtime_exposure.py.
-    # The public criteria catalog has no row for them yet, so they are
-    # CLI-only checks until a criterion is published.
-    "mig-side-channel": None,
-    "gpu-ecc-rowhammer": None,
-    "nvidia-cdi-hook-monitoring": None,
-    "ray-dashboard-exposure": None,
-    "aistore": None,
+    "mig-side-channel": "security-mig-side-channel",
+    "gpu-ecc-rowhammer": "security-gpu-ecc-rowhammer",
+    "nvidia-cdi-hook-monitoring": "security-nvidia-cdi-hook-monitoring",
+    "ray-dashboard-exposure": "security-ray-dashboard-exposure",
+    "aistore": "security-aistore",
 }
 
 
@@ -1860,6 +1941,50 @@ def _rule_subject(rule: Rule) -> str:
     return subject or rule.title
 
 
+# Kernel CVE graders and the audit_data block each one writes. The PwnEscape,
+# SCTP SCTP_SENDALL, and AMD KVM graders record `runningKernel`; Bad Epoll
+# records `running`. Each grader records `minimum`, which is "unknown" when no
+# fixed package or release exists or the floor does not apply to the kernel
+# flavor.
+_KERNEL_CVE_BLOCKS = {
+    "security.pwnescape.status": "pwnescape",
+    "security.sctpSendall.status": "sctpSendall",
+    "security.kvmSvm.status": "kvmSvm",
+    "security.badEpoll.status": "badEpoll",
+}
+
+
+def _kernel_cve_detected(block: dict[str, Any], value: Any) -> str:
+    """Status plus the running kernel and the fixed minimum it was graded against."""
+    status = str(value).replace("_", " ").replace("-", " ").capitalize()
+    kernels = block.get("runningKernels")
+    if isinstance(kernels, list) and len({str(k) for k in kernels}) > 1:
+        running = ", ".join(sorted({str(k) for k in kernels}))
+    else:
+        running = block.get("runningKernel", block.get("running"))
+    parts = []
+    if not _missing_string(running):
+        parts.append(f"running kernel {running}")
+    package = block.get("sourcePackage", block.get("package"))
+    if not _missing_string(package) and str(package) != str(running):
+        parts.append(f"source package {package}")
+    minimum = block.get("minimum")
+    reason = str(block.get("reason") or block.get("detail") or "").lower()
+    graded = str(value).strip().lower() in {"pass", "fail"}
+    if "no fixed package" in reason:
+        parts.append("no fixed kernel released yet")
+    elif graded and not _missing_string(minimum):
+        parts.append(f"fixed minimum {minimum}")
+    elif parts and str(value).strip().lower() != "coverage-incomplete":
+        # An ungraded status means the recorded floor (for example the Ubuntu
+        # Noble generic ABI) does not grade this kernel, so it is not shown
+        # as the version to update to. A coverage gap names unread hosts, and
+        # the read kernel can already meet a minimum, so this sentence stays
+        # off that status.
+        parts.append("no fixed minimum applies to this kernel")
+    return f"{status}; {'; '.join(parts)}" if parts else status
+
+
 def _finding_guidance(
     audit: dict[str, Any], rule: Rule, value: Any
 ) -> tuple[str, str, tuple[str, ...], tuple[str, ...]]:
@@ -1886,7 +2011,7 @@ def _finding_guidance(
             "Check the recorded policy against the intended workload. A placement restriction does not establish a provider defect.",
             (), (),
         )
-    if rule.key.startswith("tenant_pod_defaults."):
+    if rule.key.startswith("tenant_pod_defaults.") or rule.key == "networking.rdmaType":
         detected, recommendation = _tenant_pod_guidance(audit, rule, value)
         return detected, recommendation, (), ()
     component, observed, minimum = _version_context(audit, rule.key)
@@ -1906,6 +2031,65 @@ def _finding_guidance(
             "Disable nested virtualization and remove guest access to /dev/kvm "
             "until the provider confirms the physical-host patch."
         )
+    elif rule.key in _KERNEL_CVE_BLOCKS and rule.key != "security.kvmSvm.status" and (
+        rule.key == "security.sctpSendall.status"
+        or str(value).strip().lower() in {"fail", "coverage-incomplete"}
+    ):
+        component_key = _KERNEL_CVE_BLOCKS[rule.key]
+        block = nested_get(audit, "security", component_key, default={})
+        if not isinstance(block, dict):
+            block = {}
+        reason = block.get("reason") or block.get("detail")
+        detected = _kernel_cve_detected(block, value)
+        recommendation = str(reason) if reason else ""
+        minimum = block.get("minimum")
+        if str(value).strip().lower() == "fail" and not _missing_string(minimum):
+            recommendation = (
+                f"Update the kernel to {minimum} or later, and reboot. "
+                + recommendation
+            ).strip()
+        if component_key == "kvmSvm" and str(value).strip().lower() == "fail":
+            # Some affected stable branches have no fixed release, so the
+            # recommendation must also name the mitigation that needs no
+            # kernel update.
+            recommendation = (
+                recommendation
+                + " Until the host runs a fixed kernel, set the kvm_amd module "
+                "parameter nested to 0."
+            ).strip()
+        if "source package version" not in recommendation.lower():
+            recommendation = (
+                (recommendation + " " if recommendation else "")
+                + "Ask the provider for the distribution, kernel flavor and "
+                "ABI, the source package version that built the kernel, the "
+                "CVE fix, and the livepatch state, because the upstream "
+                "version alone does not settle a vendor kernel."
+            )
+    elif (
+        rule.key == "containers.pyxisRuntimeWorks"
+        and rule.title.startswith("Pyxis container test failed")
+    ):
+        error = nested_get(audit, "containers", "pyxisRuntimeError")
+        detected = (
+            str(error).strip()
+            if isinstance(error, str) and error.strip()
+            else "The container did not start on the GPU worker"
+        )
+        recommendation = (
+            "Ask the provider why Pyxis containers fail to start on GPU "
+            "workers, then run the audit again."
+        )
+    elif rule.key == "gpu_controls.vboost.status":
+        errors = nested_get(audit, "gpu_controls", "vboost", "errors")
+        parts: list[str] = []
+        if isinstance(errors, list):
+            for item in errors:
+                if isinstance(item, dict) and item.get("message"):
+                    parts.append(str(item["message"]))
+                elif isinstance(item, str) and item.strip():
+                    parts.append(item.strip())
+        detected = "; ".join(parts) if parts else "Incomplete"
+        recommendation = "Check vboost on every selected GPU worker, then run the audit again."
     elif (
         rule.key == "security.kvmSvm.status"
         and str(value).strip().lower() != "coverage-incomplete"
@@ -2135,19 +2319,16 @@ def _finding_guidance(
             "host that the audit could not read, including managed "
             "control-plane hosts."
         )
-    elif rule.key == "security.pwnescape.status":
-        block = nested_get(audit, "security", "pwnescape", default={})
+        # A fleet grader names the hosts it could not read in its reason.
+        parts = rule.key.split(".")
+        block = (
+            nested_get(audit, *parts[:-1], default={})
+            if len(parts) > 2 and parts[-1] == "status"
+            else {}
+        )
         reason = block.get("reason") if isinstance(block, dict) else None
-        detected = str(value).replace("_", " ").capitalize()
-        recommendation = str(reason) if reason else ""
-        if "source package version" not in recommendation.lower():
-            recommendation = (
-                (recommendation + " " if recommendation else "")
-                + "Ask the provider for the distribution, kernel flavor and "
-                "ABI, the source package version that built the kernel, the "
-                "CVE fix, and the livepatch state, because the upstream "
-                "version alone does not settle a vendor kernel."
-            )
+        if not _missing_string(reason):
+            recommendation = f"{recommendation} {str(reason).strip()}"
     else:
         detected = str(value).replace("_", " ").capitalize()
         if "reboot required" in rule.title.lower():
@@ -2164,6 +2345,17 @@ def _finding_guidance(
             recommendation = "Disable operating-system HBM exposure, and run the audit again."
         else:
             recommendation = "Correct the reported configuration, and run the audit again."
+
+    if (
+        rule.key in _KERNEL_CVE_BLOCKS
+        and rule.key != "security.kvmSvm.status"
+        and str(value).strip().lower() == "unknown"
+    ):
+        # Name the kernel that could not be graded, so the row says what the
+        # audit read instead of only that it could not verify the check.
+        block = nested_get(audit, "security", _KERNEL_CVE_BLOCKS[rule.key], default={})
+        if isinstance(block, dict) and block:
+            detected = _kernel_cve_detected(block, value)
 
     minimums = _minimum_versions()
     minimum = minimums.get(component) if component else None

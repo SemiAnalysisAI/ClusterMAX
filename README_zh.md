@@ -124,6 +124,9 @@ audit_profile:
   - audit.out
   - audit.values.json
   checks:
+  - audit.out
+  - audit.values.json
+  - securityVersions.amdDriver.status
   - securityVersions.nvidiaDriver.status
   - securityVersions.nvidiaContainerToolkit.status
   - securityVersions.cudaToolkit.status
@@ -138,11 +141,26 @@ audit_profile:
   - security.januscape.status
   - security.kvmSvm.status
   - security.guestKernel.newerInstalled
+  - security.ubuntuNobleKernelMinimum.status
+  - security.guestKernel.ubuntuCveStatus
   - security.fragnesia.status
+  - security.badEpoll.status
+  - security.sctpSendall.status
+  - security.pwnescape.status
+  - qemu-virtio-serial
+  - vmscape
+  - observability-isolation
   - bmc-ipmi
+  - kubernetes-nodes-proxy
+  - ingress-nginx-cve-2025-1974
   - ufm-profile
   - pcie-passthrough
   - nvlink-boundary
+  - mig-side-channel
+  - gpu-ecc-rowhammer
+  - nvidia-cdi-hook-monitoring
+  - ray-dashboard-exposure
+  - aistore
 ```
 
 解析后的计划仅启用 `audit.audit`。它使用标准产物文件、进度封装层和报告格式化器。它与 `cmax audit` 运行同一个采集器，安全检查配置只筛选报告内容。

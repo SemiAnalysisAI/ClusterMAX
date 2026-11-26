@@ -11,17 +11,18 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parents[2] / "cmax" / "scripts" / "1-audit"
 from unittest import mock
 
 
-AUDIT_SCRIPTS = Path(__file__).resolve().parents[2] / "cmax" / "scripts" / "1-audit"
-CHECK_PATH = AUDIT_SCRIPTS / "checks" / "system" / "hbm_memory_exposure.py"
+CHECK_PATH = SCRIPT_DIR / "checks" / "system" / "hbm_memory_exposure.py"
 SPEC = importlib.util.spec_from_file_location("hbm_memory_exposure", CHECK_PATH)
 assert SPEC and SPEC.loader
 hbm_memory_exposure = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(hbm_memory_exposure)
 
-RUN_CHECKS_PATH = AUDIT_SCRIPTS / "run_checks.py"
+RUN_CHECKS_PATH = SCRIPT_DIR / "run_checks.py"
 RUN_CHECKS_SPEC = importlib.util.spec_from_file_location("run_checks", RUN_CHECKS_PATH)
 assert RUN_CHECKS_SPEC and RUN_CHECKS_SPEC.loader
 run_checks = importlib.util.module_from_spec(RUN_CHECKS_SPEC)
@@ -195,6 +196,25 @@ class HbmMemoryExposureTests(unittest.TestCase):
             self.assertEqual(report["nvidia"]["coherent_gpu_memory_mode"], "driver")
             self.assertEqual(report["kubelet_cpu_manager_policy"]["status"], "warning")
 
+    def test_scheduler_node_name_keeps_each_hbm_host(self) -> None:
+        reports = []
+        envs = (
+            {"SLURMD_NODENAME": "node-a"},
+            {"NODE_NAME": "node-b"},
+        )
+        for env in envs:
+            with tempfile.TemporaryDirectory() as tmp:
+                write(Path(tmp) / "proc/sys/kernel/hostname", "localhost\n")
+                with mock.patch.dict(hbm_memory_exposure.os.environ, env, clear=False):
+                    for key in ("SLURMD_NODENAME", "NODE_NAME"):
+                        if key not in env:
+                            hbm_memory_exposure.os.environ.pop(key, None)
+                    reports.append(
+                        hbm_memory_exposure.collect_host(root=Path(tmp), harness="slurm")
+                    )
+        aggregate = hbm_memory_exposure.aggregate_reports(reports, [])
+        self.assertEqual(set(aggregate["hosts"]), {"node-a", "node-b"})
+
     def test_default_check_emits_two_independent_status_lines(self) -> None:
         report = {
             "host": "b300-node-0",
@@ -248,44 +268,8 @@ class HbmMemoryExposureTests(unittest.TestCase):
             result = hbm_memory_exposure.run_default_check("slurm")
 
         self.assertEqual(result["hbm_memory_exposure"]["status"], "warning")
-        self.assertNotIn("kubelet_cpu_manager_policy", result)
-
-    def test_standalone_check_does_not_run_the_kubernetes_check(self) -> None:
-        report = {
-            "host": "standalone-0",
-            "summary": {
-                "status": "pass",
-                "failures": [],
-                "warnings": [],
-                "message": "HBM is not exposed as ordinary system memory",
-            },
-            "kubelet_cpu_manager_policy": {
-                "status": "warning",
-                "failures": [],
-                "warnings": ["policy is none"],
-                "message": "kubelet CPU Manager policy is none",
-            },
-        }
-        with mock.patch.object(
-            hbm_memory_exposure, "collect_host", return_value=report
-        ):
-            result = hbm_memory_exposure.run_default_check("standalone")
-
-        self.assertEqual(result["hbm_memory_exposure"]["status"], "pass")
-        self.assertNotIn("kubelet_cpu_manager_policy", result)
-
-    def test_standalone_host_collection_does_not_read_kubelet_state(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
-            hbm_memory_exposure, "parse_kubelet_cpu_manager"
-        ) as parse_cpu_manager:
-            report = hbm_memory_exposure.collect_host(
-                root=Path(tmp),
-                harness="standalone",
-            )
-
-        parse_cpu_manager.assert_not_called()
-        self.assertNotIn("kubelet_cpu_manager", report)
-        self.assertNotIn("kubelet_cpu_manager_policy", report)
+        self.assertEqual(result["kubelet_cpu_manager_policy"]["status"], "not_applicable")
+        self.assertEqual(result["kubelet_cpu_manager_policy"]["warnings"], [])
 
     def test_k8s_transport_errors_do_not_create_cpu_manager_warning(self) -> None:
         report = {
@@ -341,7 +325,14 @@ class HbmMemoryExposureTests(unittest.TestCase):
 
 
 class RunSlurmCheckTests(unittest.TestCase):
-    """Stderr policy for the srun fan-out: record it only as failure evidence."""
+    """Stderr policy for the srun fan-out: record it only as failure evidence.
+
+    Matches the sibling nic-topology and vboost checks. srun emits
+    informational stderr on healthy clusters (site banners, cgroup notices),
+    and aggregate_reports downgrades pass to warning whenever errors is
+    non-empty, so blanket stderr recording turned clean Tier-0 passes into
+    warnings headlined by raw srun chatter.
+    """
 
     HOST_JSON = json.dumps(
         {"host": "node-0", "summary": {"status": "pass", "failures": [], "warnings": []}}
@@ -355,18 +346,35 @@ class RunSlurmCheckTests(unittest.TestCase):
             return hbm_memory_exposure.run_slurm_check("slurm")
 
     def test_benign_stderr_with_clean_exit_keeps_pass(self) -> None:
+        second = json.dumps(
+            {"host": "node-1", "summary": {"status": "pass", "failures": [], "warnings": []}}
+        )
         proc = subprocess.CompletedProcess(
             args=["srun"],
             returncode=0,
-            stdout=self.HOST_JSON + "\n",
+            stdout=self.HOST_JSON + "\n" + second + "\n",
             stderr="srun: job 42 has been allocated resources\nWelcome to cluster MOTD\n",
         )
         reports, errors = self.run_check(proc)
         self.assertEqual(errors, [])
-        self.assertEqual(len(reports), 1)
+        self.assertEqual(len(reports), 2)
         aggregate = hbm_memory_exposure.aggregate_reports(reports, errors)
         self.assertEqual(aggregate["status"], "pass")
         self.assertEqual(aggregate["message"], "HBM exposure check passed")
+
+    def test_short_host_list_does_not_pass(self) -> None:
+        proc = subprocess.CompletedProcess(
+            args=["srun"],
+            returncode=0,
+            stdout=self.HOST_JSON + "\n",
+            stderr="",
+        )
+        reports, errors = self.run_check(proc)
+        self.assertEqual([report["host"] for report in reports], ["node-0"])
+        self.assertEqual(errors, ["srun HBM check returned 1 of 2 host records"])
+        aggregate = hbm_memory_exposure.aggregate_reports(reports, errors)
+        self.assertEqual(aggregate["status"], "warning")
+        self.assertEqual(aggregate["message"], "srun HBM check returned 1 of 2 host records")
 
     def test_command_streams_source_to_each_compute_node(self) -> None:
         with mock.patch.dict(
@@ -436,12 +444,12 @@ class AggregateReportsTests(unittest.TestCase):
     def test_check_errors_without_reports_are_warning(self) -> None:
         aggregate = hbm_memory_exposure.aggregate_reports(
             [],
-            ["srun host check returned no host JSON; local host only"],
+            ["srun HBM check returned no host JSON; no compute node was checked"],
         )
 
         self.assertEqual(aggregate["status"], "warning")
         self.assertEqual(aggregate["hosts_checked"], 0)
-        self.assertEqual(aggregate["message"], "srun host check returned no host JSON; local host only")
+        self.assertEqual(aggregate["message"], "srun HBM check returned no host JSON; no compute node was checked")
 
 
 if __name__ == "__main__":

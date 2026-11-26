@@ -161,7 +161,8 @@ def test_fragnesia_nvidia_uses_source_minimum(version, expected, monkeypatch, tm
 
 @pytest.mark.parametrize("guest,complete,devices,unsafe,expected", [
     (False, True, 0, 0, security.NOT_APPLICABLE),
-    (False, False, 0, 0, security.WARNING),
+    (False, False, 0, 0, security.NOT_APPLICABLE),
+    (False, False, 2, 0, security.WARNING),
     (True, True, 0, 0, security.WARNING),
     (False, True, 2, 1, security.CRITICAL),
     (False, True, 2, 0, security.WARNING),

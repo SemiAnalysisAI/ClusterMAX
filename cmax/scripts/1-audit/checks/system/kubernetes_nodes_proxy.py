@@ -1,5 +1,32 @@
 #!/usr/bin/env python3
-"""Report Kubernetes RBAC grants for GET requests to nodes/proxy."""
+"""Inventory the ClusterRoleBindings that grant GET on the core nodes/proxy resource.
+
+HTTP GET on `nodes/proxy` reaches the kubelet API through the API server. The
+Kubernetes RBAC authorizer accepts a request when a rule names `nodes/proxy`,
+`*`, or `*/proxy`, lists the `get` verb (or `*`), and applies to the core API
+group (`""` or `*`). `*/proxy` covers the proxy subresource of every resource
+in that group, including nodes. `nodes/*` does not match.
+
+Kubernetes ships many ClusterRoles and ClusterRoleBindings labeled
+`kubernetes.io/bootstrapping=rbac-defaults`. Those bindings are the stock
+control plane grants, so the inventory skips a binding that carries the label.
+The `cluster-admin` binding for `system:masters` is one of them. A custom
+binding does not carry the label. The inventory reports that binding even when
+the role itself is a stock role, because a tenant bound to `cluster-admin` can
+reach the kubelet. Skipping the role would hide that grant.
+
+The check reports each grant as the binding, the role, the subject, and the
+`resourceNames` scope of the matching rule. An empty `resourceNames` list means
+every node. The evaluator in `cmax/security.py` reads this object from the
+top-level `kubernetes_nodes_proxy` key of `audit.values.json`.
+
+The inventory fails closed. When `kubectl` cannot read ClusterRoles or
+ClusterRoleBindings, it records the reason under `errors` instead of reporting
+an empty grant list, because an empty grant list is a pass.
+
+This check runs only on the Kubernetes harness. It uses the selected kubectl
+context and it changes no cluster state.
+"""
 
 from __future__ import annotations
 
@@ -8,231 +35,195 @@ import os
 import subprocess
 from typing import Any
 
-
-REQUEST_TIMEOUT = "15s"
-PROCESS_TIMEOUT = 20
-
-
-def _string_list(value: Any) -> list[str] | None:
-    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
-        return None
-    return value
+REQUEST_TIMEOUT = "30s"
+COMMAND_TIMEOUT_S = 45
+CORE_GROUPS = {"", "*"}
+MATCHING_VERBS = {"get", "*"}
+SUBJECT_KINDS = {"User", "Group", "ServiceAccount"}
+BOOTSTRAP_LABEL = "kubernetes.io/bootstrapping"
+BOOTSTRAP_LABEL_VALUE = "rbac-defaults"
 
 
-def _list_items(payload: Any, kind: str, errors: list[str]) -> list[Any]:
-    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
-        errors.append(f"{kind} inventory is not a Kubernetes list")
-        return []
-    metadata = payload.get("metadata")
-    if metadata is not None and not isinstance(metadata, dict):
-        errors.append(f"{kind} list metadata is malformed")
-    elif isinstance(metadata, dict):
-        if metadata.get("continue") not in (None, ""):
-            errors.append(f"{kind} inventory is partial (continue token present)")
-        if metadata.get("remainingItemCount") not in (None, 0):
-            errors.append(f"{kind} inventory is partial (remaining items present)")
-    return payload["items"]
+def is_bootstrap_binding(binding: dict[str, Any]) -> bool:
+    """Return True for a stock Kubernetes bootstrap ClusterRoleBinding."""
+    labels = binding["metadata"].get("labels")
+    return isinstance(labels, dict) and labels.get(BOOTSTRAP_LABEL) == BOOTSTRAP_LABEL_VALUE
 
 
-def _object_name(item: Any, kind: str, errors: list[str]) -> str | None:
-    if not isinstance(item, dict) or item.get("kind") != kind:
-        errors.append(f"{kind} inventory contains a malformed object")
-        return None
-    metadata = item.get("metadata")
-    if (
-        not isinstance(metadata, dict)
-        or not isinstance(metadata.get("name"), str)
-        or not metadata["name"]
+def read_kubectl(resource: str) -> list[dict[str, Any]]:
+    """Return the items of one cluster-scoped kubectl read."""
+    proc = subprocess.run(
+        ["kubectl", "get", resource, "-o", "json", f"--request-timeout={REQUEST_TIMEOUT}"],
+        capture_output=True,
+        text=True,
+        timeout=COMMAND_TIMEOUT_S,
+        check=False,
+    )
+    if proc.returncode:
+        lines = (proc.stderr or proc.stdout).strip().splitlines()
+        detail = lines[0] if lines else "no detail"
+        raise RuntimeError(f"kubectl get {resource} failed with exit {proc.returncode}: {detail}")
+    data = json.loads(proc.stdout)
+    items = data.get("items")
+    if not isinstance(items, list) or any(
+        not isinstance(item, dict)
+        or not isinstance(item.get("metadata"), dict)
+        or not item["metadata"].get("name")
+        for item in items
     ):
-        errors.append(f"{kind} inventory contains an object without a valid name")
+        raise ValueError(f"kubectl get {resource} returned an invalid item list")
+    return items
+
+
+def resource_covers_nodes_proxy(resource: object) -> bool:
+    """Return True when one RBAC resource entry covers nodes/proxy.
+
+    Kubernetes matches `*`, the exact name `nodes/proxy`, and `*/proxy`.
+    `*/proxy` covers the proxy subresource of every resource. `nodes/*` does not.
+    """
+    return resource == "*" or resource == "nodes/proxy" or resource == "*/proxy"
+
+
+def matching_resource_names(rule: dict[str, Any]) -> list[str] | None:
+    """Return the rule's node scope when the rule grants GET on nodes/proxy.
+
+    `None` means the rule does not match. An empty list means every node.
+    """
+    api_groups = rule.get("apiGroups")
+    verbs = rule.get("verbs")
+    resources = rule.get("resources")
+    if (
+        not isinstance(api_groups, list)
+        or not any(group in CORE_GROUPS for group in api_groups)
+        or not isinstance(verbs, list)
+        or not any(verb in MATCHING_VERBS for verb in verbs)
+        or not isinstance(resources, list)
+        or not any(resource_covers_nodes_proxy(resource) for resource in resources)
+    ):
         return None
-    return metadata["name"]
+    names = rule.get("resourceNames")
+    if not isinstance(names, list):
+        return []
+    return [name for name in names if isinstance(name, str)]
 
 
-def _matching_scopes(role: dict[str, Any], role_name: str, errors: list[str]) -> list[list[str]]:
+def role_grants(role: dict[str, Any]) -> list[list[str]]:
     rules = role.get("rules")
-    if rules is None:
-        return []
     if not isinstance(rules, list):
-        errors.append(f"ClusterRole {role_name} has malformed rules")
         return []
-
-    scopes: list[list[str]] = []
-    for index, rule in enumerate(rules):
+    matches = []
+    for rule in rules:
         if not isinstance(rule, dict):
-            errors.append(f"ClusterRole {role_name} rule {index} is malformed")
             continue
-        api_groups_value = rule.get("apiGroups")
-        resources_value = rule.get("resources")
-        verbs_value = rule.get("verbs")
-        if "nonResourceURLs" in rule and api_groups_value is None and resources_value is None:
-            urls = _string_list(rule.get("nonResourceURLs"))
-            verbs = _string_list(verbs_value)
-            if urls is None or verbs is None:
-                errors.append(f"ClusterRole {role_name} rule {index} is malformed")
-            continue
-        if api_groups_value is None and resources_value is None and verbs_value is None:
-            errors.append(f"ClusterRole {role_name} rule {index} is malformed")
-            continue
-        api_groups = _string_list(api_groups_value)
-        resources = _string_list(resources_value)
-        verbs = _string_list(verbs_value)
-        if api_groups is None or resources is None or verbs is None:
-            errors.append(f"ClusterRole {role_name} rule {index} is malformed")
-            continue
-        names_value = rule.get("resourceNames")
-        if names_value is None:
-            names_value = []
-        resource_names = _string_list(names_value)
-        if resource_names is None:
-            errors.append(
-                f"ClusterRole {role_name} rule {index} has malformed resourceNames"
-            )
-            continue
-        if (
-            any(value in {"", "*"} for value in api_groups)
-            and any(value in {"get", "*"} for value in verbs)
-            and any(value in {"nodes/proxy", "*/proxy", "*"} for value in resources)
-        ):
-            scopes.append(resource_names)
-    return scopes
-
-
-def evaluate_inventory(roles_payload: Any, bindings_payload: Any) -> dict[str, Any]:
-    errors: list[str] = []
-    role_scopes: dict[str, list[list[str]]] = {}
-    role_names: set[str] = set()
-    for item in _list_items(roles_payload, "ClusterRole", errors):
-        name = _object_name(item, "ClusterRole", errors)
-        if name is None:
-            continue
-        role_names.add(name)
-        scopes = _matching_scopes(item, name, errors)
-        if scopes:
-            role_scopes[name] = scopes
-
-    grants: list[dict[str, Any]] = []
-    for item in _list_items(bindings_payload, "ClusterRoleBinding", errors):
-        binding_name = _object_name(item, "ClusterRoleBinding", errors)
-        if binding_name is None:
-            continue
-        role_ref = item.get("roleRef")
-        if (
-            not isinstance(role_ref, dict)
-            or role_ref.get("apiGroup") != "rbac.authorization.k8s.io"
-            or role_ref.get("kind") != "ClusterRole"
-            or not isinstance(role_ref.get("name"), str)
-            or not role_ref["name"]
-        ):
-            errors.append(f"ClusterRoleBinding {binding_name} has malformed roleRef")
-            continue
-        role_name = role_ref["name"]
-        if role_name not in role_names:
-            errors.append(
-                f"ClusterRoleBinding {binding_name} references missing ClusterRole {role_name}"
-            )
-            continue
-        subjects = item.get("subjects")
-        if subjects is None:
-            continue
-        if not isinstance(subjects, list):
-            errors.append(f"ClusterRoleBinding {binding_name} has malformed subjects")
-            continue
-        for index, subject in enumerate(subjects):
-            if not isinstance(subject, dict):
-                errors.append(
-                    f"ClusterRoleBinding {binding_name} subject {index} is malformed"
-                )
-                continue
-            kind = subject.get("kind")
-            name = subject.get("name")
-            if (
-                kind not in {"User", "Group", "ServiceAccount"}
-                or not isinstance(name, str)
-                or not name
-            ):
-                errors.append(
-                    f"ClusterRoleBinding {binding_name} subject {index} is malformed"
-                )
-                continue
-            evidence = {"kind": kind, "name": name}
-            if kind == "ServiceAccount":
-                namespace = subject.get("namespace")
-                if not isinstance(namespace, str) or not namespace:
-                    errors.append(
-                        f"ClusterRoleBinding {binding_name} subject {index} is malformed"
-                    )
-                    continue
-                evidence["namespace"] = namespace
-            for resource_names in role_scopes.get(role_name, []):
-                grants.append(
-                    {
-                        "role": role_name,
-                        "binding": binding_name,
-                        "subject": evidence.copy(),
-                        "resourceNames": resource_names,
-                    }
-                )
-
-    status = "fail" if grants else "unknown" if errors else "pass"
-    if status == "fail":
-        message = f"Found {len(grants)} Kubernetes RBAC nodes/proxy GET permission grant(s)."
-    elif status == "unknown":
-        message = "The Kubernetes RBAC inventory was incomplete or malformed."
-    else:
-        message = "The complete Kubernetes RBAC inventory contains no nodes/proxy GET grants."
-    return {"status": status, "message": message, "grants": grants, "errors": errors}
-
-
-def _get(resource: str) -> tuple[Any | None, str | None]:
-    command = [
-        "kubectl",
-        "get",
-        resource,
-        "-o",
-        "json",
-        f"--request-timeout={REQUEST_TIMEOUT}",
-    ]
-    try:
-        process = subprocess.run(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=PROCESS_TIMEOUT,
-        )
-    except subprocess.TimeoutExpired:
-        return None, f"kubectl get {resource} timed out"
-    except OSError as exc:
-        return None, f"kubectl get {resource} failed: {exc}"
-    if process.returncode != 0:
-        detail = process.stderr.strip() or f"exit {process.returncode}"
-        return None, f"kubectl get {resource} failed: {detail}"
-    try:
-        return json.loads(process.stdout), None
-    except json.JSONDecodeError:
-        return None, f"kubectl get {resource} returned invalid JSON"
+        names = matching_resource_names(rule)
+        if names is not None:
+            matches.append(names)
+    return matches
 
 
 def collect() -> dict[str, Any]:
-    if os.environ.get("CLUSTERMAX_AUDIT_HARNESS") != "k8s":
-        return {
-            "kubernetes_nodes_proxy": {
-                "status": "not_applicable",
-                "message": "This check applies only to Kubernetes audits.",
-                "grants": [],
-                "errors": [],
-            }
+    errors: list[str] = []
+    roles: dict[str, dict[str, Any]] = {}
+    roles_ok = True
+    try:
+        for role in read_kubectl("clusterroles"):
+            roles[role["metadata"]["name"]] = role
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+        errors.append(f"The ClusterRole inventory is incomplete: {exc}")
+        roles_ok = False
+
+    grants: list[dict[str, Any]] = []
+    try:
+        bindings = read_kubectl("clusterrolebindings")
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+        errors.append(f"The ClusterRoleBinding inventory is incomplete: {exc}")
+        bindings = []
+    if not roles_ok:
+        # Every binding would report a missing role, so one error is enough.
+        bindings = []
+
+    for binding in bindings:
+        if is_bootstrap_binding(binding):
+            continue
+        role_ref = binding.get("roleRef")
+        if not isinstance(role_ref, dict) or role_ref.get("kind") != "ClusterRole":
+            continue
+        role_name = role_ref.get("name")
+        if not isinstance(role_name, str) or not role_name:
+            continue
+        role = roles.get(role_name)
+        if role is None:
+            errors.append(f"ClusterRole {role_name} is missing for its binding.")
+            continue
+        matches = role_grants(role)
+        if not matches:
+            continue
+        subjects = binding.get("subjects")
+        if not isinstance(subjects, list):
+            continue
+        binding_name = binding["metadata"]["name"]
+        for subject in subjects:
+            if not isinstance(subject, dict):
+                continue
+            kind = subject.get("kind")
+            name = subject.get("name")
+            namespace = subject.get("namespace")
+            if kind not in SUBJECT_KINDS or not isinstance(name, str) or not name:
+                continue
+            if kind == "ServiceAccount" and (
+                not isinstance(namespace, str) or not namespace
+            ):
+                continue
+            resource_names: set[str] = set()
+            unrestricted = False
+            for names in matches:
+                if not names:
+                    unrestricted = True
+                    break
+                resource_names.update(names)
+            grants.append(
+                {
+                    "role": role_name,
+                    "binding": binding_name,
+                    "subject": {
+                        "kind": kind,
+                        "namespace": namespace if isinstance(namespace, str) else "",
+                        "name": name,
+                    },
+                    "resourceNames": []
+                    if unrestricted
+                    else sorted(resource_names),
+                }
+            )
+
+    grants.sort(
+        key=lambda grant: (
+            grant["binding"],
+            grant["role"],
+            grant["subject"]["kind"],
+            grant["subject"]["namespace"],
+            grant["subject"]["name"],
+        )
+    )
+    status = "fail" if grants or errors else "pass"
+    if grants:
+        message = (
+            f"{len(grants)} ClusterRoleBinding grant(s) allow GET on the core "
+            "nodes/proxy resource."
+        )
+    elif errors:
+        message = "The nodes/proxy RBAC inventory could not complete."
+    else:
+        message = "No ClusterRoleBinding grants GET on the core nodes/proxy resource."
+    return {
+        "kubernetes_nodes_proxy": {
+            "status": status,
+            "grants": grants,
+            "errors": errors,
+            "message": message,
         }
-    roles, role_error = _get("clusterroles.rbac.authorization.k8s.io")
-    bindings, binding_error = _get("clusterrolebindings.rbac.authorization.k8s.io")
-    result = evaluate_inventory(roles, bindings)
-    command_errors = [error for error in (role_error, binding_error) if error]
-    result["errors"] = [*command_errors, *result["errors"]]
-    if result["status"] == "unknown":
-        result["message"] = "The Kubernetes RBAC inventory could not be completed."
-    return {"kubernetes_nodes_proxy": result}
+    }
 
 
-if __name__ == "__main__":
-    print(json.dumps(collect(), sort_keys=True))
+if __name__ == "__main__" and os.environ.get("CLUSTERMAX_AUDIT_HARNESS") == "k8s":
+    print(json.dumps(collect(), indent=2, sort_keys=True))

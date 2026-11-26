@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Report coherent GPU HBM exposure and Kubernetes CPU Manager policy.
+"""Report coherent GPU HBM exposure and kubelet CPU Manager policy.
 
 The check passively inspects NUMA topology, ``/proc/meminfo``, the NVIDIA
 ``CoherentGPUMemoryMode`` driver param, and the kubelet
-``cpu_manager_state`` policy on Kubernetes. It omits the Kubernetes check on
-Slurm and standalone targets. It does not allocate memory or perturb the node.
-Use a separate destructive memory test for the active DRAM-to-HBM spill repro.
+``cpu_manager_state`` policy. It emits separate results because HBM exposure
+applies only to coherent GPU platforms, while CPU Manager policy is a general
+Kubernetes configuration advisory. It does not allocate memory or perturb the
+node. Use a separate destructive memory test for the active DRAM-to-HBM spill
+repro.
 
 Kubernetes harness environment variables:
 
@@ -33,11 +35,6 @@ from typing import Any
 
 
 GIB_KB = 1024 * 1024
-# Pin the multi-architecture index so both x86 and Arm hosts use fixed images.
-DEFAULT_K8S_HOST_CHECK_IMAGE = (
-    "python:3.12-alpine@"
-    "sha256:c4634f578a412db396771b61b064c6e546c9d6414c7fb5b1b05d5871f1885f7b"
-)
 # Lower bound for what counts as an HBM-sized memory-only NUMA node. 64 GiB
 # catches every coherent NVIDIA platform shipping today (GH200 96 GiB, GB200
 # 192 GiB per GPU, GB300 288 GiB per GPU, H100 SXM 80 GiB if ever exposed
@@ -53,6 +50,12 @@ COHERENT_GPU_MARKERS = (
 )
 
 _FANOUT = None
+
+# Pin the multi-architecture index so both x86 and Arm hosts use fixed images.
+DEFAULT_K8S_HOST_CHECK_IMAGE = (
+    "python:3.12-alpine@"
+    "sha256:c4634f578a412db396771b61b064c6e546c9d6414c7fb5b1b05d5871f1885f7b"
+)
 
 
 def load_fanout():
@@ -404,6 +407,21 @@ def summarize_cpu_manager_host(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def host_name(root: Path) -> str:
+    """Return the scheduler node name before the kernel hostname.
+
+    Kubernetes sets NODE_NAME to the node object name. Slurm sets
+    SLURMD_NODENAME on the task. Cloned images can share one kernel hostname,
+    and a later report would replace the earlier node.
+    """
+    for key in ("SLURMD_NODENAME", "NODE_NAME"):
+        name = os.environ.get(key, "").strip()
+        if name:
+            return name
+    hostname = read_text(under_root(root, "/proc/sys/kernel/hostname")).strip()
+    return hostname or socket.gethostname()
+
+
 def collect_host(
     *,
     root: Path,
@@ -412,9 +430,7 @@ def collect_host(
     gpu_memory_mb_hint: int = 0,
     gpu_count_hint: int = 0,
 ) -> dict[str, Any]:
-    hostname = os.environ.get("NODE_NAME") or read_text(under_root(root, "/proc/sys/kernel/hostname")).strip()
-    if not hostname:
-        hostname = socket.gethostname()
+    hostname = host_name(root)
 
     smi_gpus = query_nvidia_smi() if root == Path("/") else []
     proc_gpus = parse_gpu_information(root)
@@ -478,12 +494,11 @@ def collect_host(
             "coherent_gpu_memory_mode": cdmm_mode,
             "params_read": bool(params),
         },
+        "kubelet_cpu_manager": parse_kubelet_cpu_manager(root),
     }
 
     report["summary"] = summarize_host(report)
-    if harness == "k8s":
-        report["kubelet_cpu_manager"] = parse_kubelet_cpu_manager(root)
-        report["kubelet_cpu_manager_policy"] = summarize_cpu_manager_host(report)
+    report["kubelet_cpu_manager_policy"] = summarize_cpu_manager_host(report)
     return report
 
 
@@ -611,6 +626,21 @@ def run_slurm_check(harness: str, *, worker_source: str | None = None) -> tuple[
 
     if not reports:
         errors.append("srun HBM check returned no host JSON; no compute node was checked")
+        return reports, errors
+
+    # srun can exit 0 after it returns only the hosts that printed JSON.
+    # A shorter host set must not pass for the nodes that did not report.
+    hosts = {
+        str(report.get("host") or "")
+        for report in reports
+        if str(report.get("host") or "")
+    }
+    try:
+        wanted = int(str(node_count))
+    except (TypeError, ValueError):
+        wanted = len(hosts)
+    if len(hosts) < wanted:
+        errors.append(f"srun HBM check returned {len(hosts)} of {wanted} host records")
     return reports, errors
 
 
@@ -735,14 +765,10 @@ def run_default_check(harness: str) -> dict[str, Any]:
         reports, errors = run_k8s_check()
     else:
         reports = [collect_host(root=Path("/"), harness=harness)]
-    result = {
+    return {
         "hbm_memory_exposure": aggregate_reports(reports, errors),
+        "kubelet_cpu_manager_policy": aggregate_cpu_manager_reports(reports, errors),
     }
-    if harness == "k8s":
-        result["kubelet_cpu_manager_policy"] = aggregate_cpu_manager_reports(
-            reports, errors
-        )
-    return result
 
 
 def main(argv: list[str]) -> int:

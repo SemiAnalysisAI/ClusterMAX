@@ -97,60 +97,44 @@ collect_pwnescape_facts() {
 }
 collect_pwnescape_facts
 
-
-# Kernel identity facts that a vendor kernel needs for a CVE verdict. The
-# upstream base version of a vendor kernel does not decide a CVE, because the
-# vendor backports the fix into its own release. Record the distribution, the
-# flavor, the ABI, and the source package so the grader can name the exact
-# evidence that a provider must send. Every read here is passive.
-#
-# Keep this function identical to the copy in pwnescape-host-facts.sh.
-# tests/audit/test_pwnescape.py compares the two definitions.
-collect_kernel_identity_facts() {
-    local root="${CLUSTERMAX_AUDIT_ROOT:-}"
-    local running flavor="" abi="" distribution=unknown signature=unknown
-    local source_package=unknown image_package row=""
-    running=$(uname -r 2>/dev/null) || running=unknown
-    [[ -n "$running" ]] || running=unknown
-    if [[ "$running" =~ ^[0-9]+(\.[0-9]+)*\-([0-9]+)\-(.+)$ ]]; then
-        abi="${BASH_REMATCH[2]}"
-        flavor="${BASH_REMATCH[3]}"
-    fi
-    if [[ -r "${root}/etc/os-release" ]]; then
-        distribution=$(
-            awk -F= '
-                $1 == "ID" { id = $2 }
-                $1 == "VERSION_ID" { version = $2 }
-                END {
-                    gsub(/"/, "", id); gsub(/"/, "", version)
-                    if (id == "" && version == "") print "unknown"
-                    else print id " " version
-                }
-            ' "${root}/etc/os-release" 2>/dev/null
-        ) || distribution=unknown
-        [[ -n "$distribution" ]] || distribution=unknown
-    fi
-    if [[ -r "${root}/proc/version_signature" ]]; then
-        signature=$(cat "${root}/proc/version_signature" 2>/dev/null) || signature=unknown
-    fi
-    [[ -n "$signature" ]] || signature=unknown
-    image_package="linux-image-${running}"
-    if command -v dpkg-query >/dev/null 2>&1; then
-        row=$(dpkg-query -W -f='${Source} ${Version}' "$image_package" 2>/dev/null) || row=""
-    fi
-    [[ -n "$row" ]] && source_package="$row"
-    printf 'WORKER_KERNEL_DISTRIBUTION=%s\n' "$distribution"
-    printf 'WORKER_KERNEL_VERSION_SIGNATURE=%s\n' "$signature"
-    printf 'WORKER_KERNEL_FLAVOR=%s\n' "${flavor:-unknown}"
-    printf 'WORKER_KERNEL_ABI=%s\n' "${abi:-unknown}"
-    printf 'WORKER_KERNEL_SOURCE_PACKAGE=%s\n' "$source_package"
-}
-collect_kernel_identity_facts
-
-
 # The same passive reads also establish the other host-kernel CVEs. They add no
 # device opens and no probe traffic; the collector grades them across every
 # worker and control-plane host, not only the sampled GPU worker.
+#
+# Keep these functions identical to their host-check.sh counterparts. The fleet
+# script runs over stdin, so it cannot source a sibling file.
+
+# Keep this function identical to collect_sctp_sendall_facts in host-check.sh.
+collect_sctp_sendall_facts() {
+    local root="${CLUSTERMAX_AUDIT_ROOT:-}"
+    local livepatch=unknown sctp=unknown userns=unknown
+    local entry enabled
+    if [[ -d "${root}/sys/kernel/livepatch" && -r "${root}/sys/kernel/livepatch" \
+          && -x "${root}/sys/kernel/livepatch" ]]; then
+        livepatch=none
+        for entry in "${root}"/sys/kernel/livepatch/*; do
+            [[ -e "$entry" ]] || continue
+            enabled=$(cat "$entry/enabled" 2>/dev/null) || enabled=unknown
+            if [[ "$enabled" != 0 ]]; then
+                livepatch=active-or-unreadable
+            fi
+        done
+    elif [[ -d "${root}/sys/kernel" && -r "${root}/sys/kernel" \
+            && -x "${root}/sys/kernel" && ! -e "${root}/sys/kernel/livepatch" \
+            && ! -L "${root}/sys/kernel/livepatch" ]]; then
+        livepatch=not-supported
+    fi
+    if [[ -d "${root}/sys/module" && -r "${root}/sys/module" && -x "${root}/sys/module" ]]; then
+        sctp=false
+        [[ -d "${root}/sys/module/sctp" ]] && sctp=true
+    fi
+    userns=$(cat "${root}/proc/sys/user/max_user_namespaces" 2>/dev/null) || userns=unknown
+    [[ "$userns" =~ ^[0-9]+$ ]] || userns=unknown
+    printf 'WORKER_SCTP_SENDALL_LIVEPATCH=%s\n' "$livepatch"
+    printf 'WORKER_SCTP_SENDALL_SCTP_LOADED=%s\n' "$sctp"
+    printf 'WORKER_SCTP_SENDALL_USERNS_MAX=%s\n' "$userns"
+}
+collect_sctp_sendall_facts
 
 collect_fragnesia_facts() {
     local root="${CLUSTERMAX_AUDIT_ROOT:-}"
@@ -218,9 +202,7 @@ collect_januscape_facts() {
 }
 collect_januscape_facts
 
-# CPU vendor and AMD KVM module facts for the CVE-2026-99312 host kernel check.
 # Keep this function identical to the one in host-check.sh.
-# tests/audit/test_kvm_svm.py compares the two definitions.
 collect_kvm_svm_facts() {
     local root="${CLUSTERMAX_AUDIT_ROOT:-}" cpu=unknown loaded=unknown
     cpu=$(awk -F ': *' '/^vendor_id[[:space:]]*:/ { print $2; exit }' \
@@ -236,3 +218,52 @@ collect_kvm_svm_facts() {
     printf 'WORKER_KVM_AMD_LOADED=%s\n' "$loaded"
 }
 collect_kvm_svm_facts
+
+# Kernel identity facts that a vendor kernel needs for a CVE verdict. The
+# upstream base version of a vendor kernel does not decide a CVE, because the
+# vendor backports the fix into its own release. Record the distribution, the
+# flavor, the ABI, and the source package so the grader can name the exact
+# evidence that a provider must send. Every read here is passive.
+#
+# Keep this function identical to the copy in host-check.sh.
+# tests/audit/test_pwnescape.py compares the two definitions.
+collect_kernel_identity_facts() {
+    local root="${CLUSTERMAX_AUDIT_ROOT:-}"
+    local running flavor="" abi="" distribution=unknown signature=unknown
+    local source_package=unknown image_package row=""
+    running=$(uname -r 2>/dev/null) || running=unknown
+    [[ -n "$running" ]] || running=unknown
+    if [[ "$running" =~ ^[0-9]+(\.[0-9]+)*\-([0-9]+)\-(.+)$ ]]; then
+        abi="${BASH_REMATCH[2]}"
+        flavor="${BASH_REMATCH[3]}"
+    fi
+    if [[ -r "${root}/etc/os-release" ]]; then
+        distribution=$(
+            awk -F= '
+                $1 == "ID" { id = $2 }
+                $1 == "VERSION_ID" { version = $2 }
+                END {
+                    gsub(/"/, "", id); gsub(/"/, "", version)
+                    if (id == "" && version == "") print "unknown"
+                    else print id " " version
+                }
+            ' "${root}/etc/os-release" 2>/dev/null
+        ) || distribution=unknown
+        [[ -n "$distribution" ]] || distribution=unknown
+    fi
+    if [[ -r "${root}/proc/version_signature" ]]; then
+        signature=$(cat "${root}/proc/version_signature" 2>/dev/null) || signature=unknown
+    fi
+    [[ -n "$signature" ]] || signature=unknown
+    image_package="linux-image-${running}"
+    if command -v dpkg-query >/dev/null 2>&1; then
+        row=$(dpkg-query -W -f='${Source} ${Version}' "$image_package" 2>/dev/null) || row=""
+    fi
+    [[ -n "$row" ]] && source_package="$row"
+    printf 'WORKER_KERNEL_DISTRIBUTION=%s\n' "$distribution"
+    printf 'WORKER_KERNEL_VERSION_SIGNATURE=%s\n' "$signature"
+    printf 'WORKER_KERNEL_FLAVOR=%s\n' "${flavor:-unknown}"
+    printf 'WORKER_KERNEL_ABI=%s\n' "${abi:-unknown}"
+    printf 'WORKER_KERNEL_SOURCE_PACKAGE=%s\n' "$source_package"
+}
+collect_kernel_identity_facts

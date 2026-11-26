@@ -220,17 +220,23 @@ def _allocation_trial(root: Path) -> dict:
     return result
 
 
+def host_name(root: Path) -> str:
+    """Return the scheduler node name before the kernel hostname.
+
+    Kubernetes sets NODE_NAME to the node object name. Slurm sets
+    SLURMD_NODENAME on the task. Cloned images can share one kernel hostname,
+    and a later report would replace the earlier node.
+    """
+    for key in ("SLURMD_NODENAME", "NODE_NAME"):
+        name = os.environ.get(key, "").strip()
+        if name:
+            return name
+    return read(root / "proc/sys/kernel/hostname") or socket.gethostname()
+
+
 def collect_host(root: Path, *, try_allocate: bool = False) -> dict:
     return {
-        # Per-node identity, as in the other worker checks: the node name the
-        # Kubernetes pod spec passes (the pod's own UTS namespace would report
-        # the pod name), then the Slurm node name, then the hostname.
-        "host": (
-            os.environ.get("NODE_NAME")
-            or os.environ.get("SLURMD_NODENAME")
-            or read(root / "proc/sys/kernel/hostname")
-            or socket.gethostname()
-        ),
+        "host": host_name(root),
         "thp_madvise": thp_report(root),
         "static_hugepages": static_report(root),
         "hugepage_allocation": allocation_trial(root, enabled=try_allocate),
@@ -250,6 +256,7 @@ def aggregate(reports: list[dict], errors: list[str]) -> dict:
             status = "neutral"
         else:
             status = statuses[0] if len(set(statuses)) == 1 else "incomplete"
+        # A partial read keeps the graded hosts but cannot pass for the rest.
         complete = not errors and len(hosts) == len(reports)
         if not complete and hosts and status in {"pass", "neutral"}:
             status = "warning"
