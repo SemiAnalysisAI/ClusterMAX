@@ -809,6 +809,26 @@ def _pwnescape(audit: dict[str, Any]) -> tuple[str, str, str]:
     return status, observed, reason
 
 
+def _sctp_sendall(audit: dict[str, Any]) -> tuple[str, str, str]:
+    value = _get(audit, "security.sctpSendall")
+    if not isinstance(value, dict):
+        return WARNING, "not collected", "SCTP SCTP_SENDALL host patch evidence was not collected."
+    status = {"pass": PASS, "fail": CRITICAL}.get(value.get("status"), WARNING)
+    observed = (
+        f"running={value.get('runningKernel', 'unknown')}; "
+        f"minimum={value.get('minimum', 'unknown')}; "
+        f"local={value.get('localKernelStatus', 'unknown')}; "
+        f"scope={value.get('scope', 'unknown')}"
+    )
+    identity = _kernel_identity_observation(value)
+    if identity:
+        observed += "; " + identity
+    reason = str(value.get("reason") or "Host patch evidence is required.")
+    if status == WARNING and "Request from the provider" not in reason:
+        reason += _vendor_evidence_note(value)
+    return status, observed, reason
+
+
 
 def _fragnesia(audit: dict[str, Any]) -> tuple[str, str, str]:
     advisory = _get(audit, "security.fragnesia")
@@ -1107,6 +1127,11 @@ def _bmc_ipmi(audit: dict[str, Any]) -> tuple[str, str, str]:
         return WARNING, observed, f"Fleet coverage was incomplete. {scope}"
 
     measured_from = str(value.get("measuredFrom") or "").lower()
+    # The focused Kubernetes security collector sets accessMode and omits
+    # measuredFrom. A true exposed flag there means the privileged audit pod
+    # reached ipmitool as root on the host.
+    if not measured_from and access_mode == _BMC_PRIVILEGED_ACCESS_MODE:
+        measured_from = "privileged-pod"
     if measured_from == "privileged-pod":
         # The Kubernetes host-check fold records this when the probe ran in
         # the privileged audit pod (root, host / mounted and chrooted).
@@ -1125,6 +1150,17 @@ def _bmc_ipmi(audit: dict[str, Any]) -> tuple[str, str, str]:
                 WARNING,
                 "in-band BMC path present; measured as root on the host",
                 _BMC_PRIVILEGED_EXPOSED,
+            )
+        user_access = str(value.get("userAccess") or "").strip().lower()
+        sudo_access = str(value.get("sudoAccess") or "").strip().lower()
+        if user_access == "blocked" and sudo_access in {"blocked", "no-passwordless-sudo"}:
+            return (
+                PASS,
+                "in-band BMC access blocked from the privileged pod",
+                "ipmitool is present on the host, and the privileged audit "
+                "pod could not reach the BMC in-band. The direct ipmitool "
+                "probe was blocked, and passwordless sudo did not reach "
+                "the BMC.",
             )
         if exposed_false:
             return (
@@ -1438,24 +1474,30 @@ def _pcie_boundary(audit: dict[str, Any]) -> tuple[str, str, str]:
     if not isinstance(virt, dict):
         virt = {}
     guest = virt.get("guest")
-    complete = evidence.get("inventoryComplete") is True
+    inventory = evidence.get("inventoryComplete", "unknown")
     devices = evidence.get("vfioDevices")
     unsafe = evidence.get("unsafeGroups")
     observed = (
-        f"target guest={_display(guest)}; inventory complete={complete}; "
+        f"target guest={_display(guest)}; inventory complete={_display(inventory)}; "
         f"VFIO devices={_display(devices)}; unsafe IOMMU groups={_display(unsafe)}; "
         f"scope={evidence.get('scope', 'unknown')}"
     )
-    if guest is False and complete and type(devices) is int and type(unsafe) is int:
-        if devices > 0 and unsafe > 0:
+    if guest is False and type(devices) is int and type(unsafe) is int:
+        # The sampled worker is the physical host, not a guest. When it binds
+        # no VFIO device, no guest consumes a passed-through device on this
+        # target, so an incomplete inventory cannot turn that result into a
+        # warning. A real guest, or a bare-metal host that does bind a VFIO
+        # device, keeps the WARNING path below when its inventory is incomplete.
+        if unsafe > 0:
             return CRITICAL, observed, (
                 "A host VFIO device has no IOMMU group or shares it with a "
                 "host-driver device. The required assignment isolation is not established."
             )
         if devices == 0:
             return NOT_APPLICABLE, observed, (
-                "The complete sampled bare-metal PCI inventory found no VFIO "
-                "passthrough devices. This does not certify other hosts or tenant boundaries."
+                "The sampled worker is the bare-metal host, and it binds no "
+                "VFIO passthrough device, so no guest consumes a passed-through "
+                "device. This does not certify other hosts or other tenants."
             )
     return WARNING, observed, (
         "PCIe assignment requires physical-host IOMMU, ACS, reset, and memory "
@@ -2071,6 +2113,18 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
         _version_evaluator("securityVersions.nvidiaDriver"),
     ),
     CheckSpec(
+        "amd-driver",
+        "AMD host driver minimum version",
+        "GPU driver vulnerabilities can expose the host kernel through device interfaces available to workloads.",
+        # The minimum is per Instinct model, and the bulletin link comes from
+        # the generated minimum table (see MINIMUM_BOUND_CHECKS).
+        "Install the fixed AMD GPU driver release for the deployed Instinct model and reload the driver or reboot.",
+        _references(
+            ("AMD product security", "https://www.amd.com/en/resources/product-security.html"),
+        ),
+        _version_evaluator("securityVersions.amdDriver"),
+    ),
+    CheckSpec(
         "nvidia-container-toolkit",
         "NVIDIA Container Toolkit minimum version",
         "Affected container hooks can allow a crafted image to escape its container during initialization.",
@@ -2208,6 +2262,20 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
             ("Ubuntu tracker", "https://ubuntu.com/security/CVE-2026-99999"),
         ),
         _pwnescape,
+    ),
+    CheckSpec(
+        "sctp-sendall",
+        "SCTP SCTP_SENDALL kernel fix",
+        "A stale list cursor in the SCTP SCTP_SENDALL path lets an unprivileged container escape to the host kernel.",
+        (
+            "Install the vendor kernel fix for CVE-2026-46227 and boot it on every worker. "
+            "Request provider evidence when the physical host is hidden."
+        ),
+        _references(
+            ("CVE-2026-46227", "https://nvd.nist.gov/vuln/detail/CVE-2026-46227"),
+            ("Ubuntu tracker", "https://ubuntu.com/security/CVE-2026-46227"),
+        ),
+        _sctp_sendall,
     ),
     CheckSpec(
         "fragnesia",
@@ -2533,6 +2601,14 @@ MINIMUM_BOUND_CHECKS: dict[str, tuple[str, str, str]] = {
         "reload the driver or reboot.",
         "NVIDIA GPU driver bulletin",
     ),
+    "amd-driver": (
+        "amdDriver",
+        # Per Instinct model, so the template names the model and not a single
+        # version.
+        "Install the fixed AMD GPU driver release for the deployed Instinct "
+        "model and reload the driver or reboot.",
+        "AMD GPU driver bulletin",
+    ),
     "nvidia-container-toolkit": (
         "nvidiaContainerToolkit",
         "Upgrade NVIDIA Container Toolkit to {minimum} or newer, then restart "
@@ -2825,6 +2901,7 @@ def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
             grace_active, grace_note = False, ""
         version_path = {
             "nvidia-driver": "securityVersions.nvidiaDriver.advisory",
+            "amd-driver": "securityVersions.amdDriver.advisory",
             "nvidia-container-toolkit": "securityVersions.nvidiaContainerToolkit.advisory",
             "cuda-toolkit": "securityVersions.cudaToolkit.advisory",
             "dcgm-exporter": "securityVersions.dcgmExporter.advisory",

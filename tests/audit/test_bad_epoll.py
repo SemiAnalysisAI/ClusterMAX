@@ -272,7 +272,7 @@ def test_real_collector_argument_wiring(collector):
         "WORKER_BAD_EPOLL_LIVEPATCH": data["livepatch"],
     }
     if collector == "k8s":
-        names = ["HP_BAD_EPOLL_OS", "HP_BAD_EPOLL_RELEASE", "HP_GUEST_KERNEL_RUNNING",
+        names = ["HP_OS_ID", "HP_OS_VERSION_ID", "HP_GUEST_KERNEL_RUNNING",
                  "HP_BAD_EPOLL_SIGNATURE", "HP_BAD_EPOLL_PACKAGE", "HP_BAD_EPOLL_LIVEPATCH"]
         worker = dict(zip(names, worker.values()))
         call = bashtest.extract_block(

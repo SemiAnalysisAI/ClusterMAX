@@ -1,24 +1,12 @@
 #!/usr/bin/env python3
-"""Shared k8s node fan-out scaffolding for the audit checks.
+"""Provide shared support for node fan-out in audit checks.
 
-The three audit checks (vboost, hbm_memory_exposure, nic-topology) each run a
-small worker on every GPU node and collect one JSON object per node. The
-genuinely-identical pieces of that live here:
-
-  * parse_json_lines - one JSON object per line of worker stdout.
-  * k8s_gpu_nodes     - the GPU nodes from ``kubectl get nodes -o json``.
-  * fan_out_k8s       - apply a per-node callable concurrently over the (capped)
-                        node list, collecting records + errors with the shared
-                        cap message.
-
-What stays in each check, because it genuinely differs and is already validated:
-the slurm ``srun`` fan-out, the local/standalone collector, namespace + node
-discovery wording, the max-nodes parse, the JSON aggregation/summary, and the
-per-node MECHANISM itself - driver-pod exec (NIC, VIRTIO-Net, vBoost) vs a
-fresh privileged pod with host mounts (platform and HBM). That mechanism is the
-``per_node`` callable handed to fan_out_k8s. There is deliberately no harness
-switch and no kubectl/subprocess call in this module; it is pure, so the checks'
-validated I/O paths are untouched.
+The Slurm helpers build a command that reads Python source from standard input
+and put labeled srun output back together. The Kubernetes helpers discover GPU
+nodes and apply a callable to each node. The check modules own subprocess
+execution, mechanisms for individual nodes, result aggregation, and error
+messages. This module stays pure so tests can validate each command and
+node-selection rule without a live cluster.
 """
 
 from __future__ import annotations

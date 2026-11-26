@@ -6,7 +6,7 @@
 # merge_security_fleet before it writes its JSON. The merge reads every other
 # host that a security verdict depends on:
 #
-#   - PwnEscape, AMD KVM, Fragnesia and Januscape facts on every
+#   - PwnEscape, SCTP sendall, AMD KVM, Fragnesia and Januscape facts on every
 #     worker, the login host and each control-plane host (host_fleet.py).
 #   - The host and container checks on every GPU host (security_fleet.py).
 #   - On Kubernetes, the BMC and IPMI probe on every worker node.
@@ -207,6 +207,7 @@ apply_host_fleet() {
         SECURITY_ADVISORY_JSON=$(jq --slurpfile fleet_doc <(printf '%s' "$fleet") '
             $fleet_doc[0] as $fleet
             | .pwnescape = $fleet.pwnescape
+            | .sctpSendall = $fleet.sctpSendall
             | .kvmSvm = $fleet.kvmSvm
             | .fragnesia = ((.fragnesia // {})
                 + {status: $fleet.fragnesia.status,
@@ -221,6 +222,10 @@ apply_host_fleet() {
     else
         SECURITY_ADVISORY_JSON=$(jq '
             .pwnescape = {
+                status: "unknown", scope: "fleet", exploitTested: false,
+                reason: "The host fleet grader failed. Every host needs CVE-specific patch evidence."
+            }
+            | .sctpSendall = {
                 status: "unknown", scope: "fleet", exploitTested: false,
                 reason: "The host fleet grader failed. Every host needs CVE-specific patch evidence."
             }
@@ -752,6 +757,7 @@ collect_slurm_security_host_fleet() {
     done <<< "$rows"
     rm -rf "$tmp"
 }
+
 
 # Read one KEY=value line from host-check output.
 security_fact() {

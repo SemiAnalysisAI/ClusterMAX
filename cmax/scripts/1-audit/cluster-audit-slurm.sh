@@ -464,6 +464,7 @@ WORKER_BOOT_SIZE="unknown"
 WORKER_NVME_DEVICES=""
 WORKER_NVME_COUNT="0"
 WORKER_NVME_TOTAL_GB="0"
+WORKER_MOUNTS_JSON="null"
 
 if [[ -n "$GPU_PARTITION" ]]; then
     print_section "Checking compute node via srun (partition: ${GPU_PARTITION})"
@@ -621,6 +622,10 @@ while IFS='=' read -r key val; do
     WORKER_SHARED_MOUNTS_JSON+="{\"mountpoint\":\"${target}\",\"fstype\":\"${fstype}\",\"source\":\"\",\"size\":\"${df_size}\",\"used\":\"${df_used}\",\"available\":\"${df_avail}\",\"options\":\"\"}"
 done < <(echo "$WORKER_CHECK_OUTPUT" | grep '^WORKER_MNTDF_' 2>/dev/null || true)
 WORKER_SHARED_MOUNTS_JSON+="]"
+
+if ! jq -e '.filesystems | type == "array"' >/dev/null 2>&1 <<< "$WORKER_MOUNTS_JSON"; then
+    WORKER_MOUNTS_JSON="null"
+fi
 
 # Worker NVMe devices JSON array
 WORKER_NVME_DEVS_JSON="["
@@ -1790,6 +1795,8 @@ print_section "Pyxis (SLURM Container Plugin)"
 PYXIS_INSTALLED="false"
 PYXIS_RUNTIME_WORKS="false"
 PYXIS_CLI_AVAILABLE="false"
+PYXIS_RUNTIME_ATTEMPTED="false"
+PYXIS_RUNTIME_ERROR=""
 PYXIS_VERSION=$(detect_pyxis_version)
 PYXIS_INSTALL_DOCS="https://github.com/NVIDIA/pyxis#installation"
 if [[ "$PYXIS_VERSION" != "unknown" ]]; then
@@ -1799,7 +1806,8 @@ fi
 if pyxis_cli_is_available; then
     PYXIS_CLI_AVAILABLE="true"
     PYXIS_INSTALLED="true"
-    PYXIS_RUNTIME_WORKS="true"
+    # An accepted flag is not proof that the runtime works. The worker
+    # runtime test below decides PYXIS_RUNTIME_WORKS.
     print_info "Pyxis CLI: available through srun --container-image"
     if [[ "$PYXIS_VERSION" == "unknown" ]]; then
         print_detail "Package version metadata is unavailable; Pyxis can be a source installation"
@@ -1922,6 +1930,81 @@ if [[ -n "$GPU_PARTITION" && -f "$WORKLOAD_DIR/container-check.sh" ]]; then
     fi
 else
     print_warn "Worker container check skipped (no GPU partition or check script unavailable) - Docker / NVIDIA runtime unverified from this vantage; not evidence of absence"
+fi
+
+# An accepted --container-image flag is not enough: execute a campaign image on
+# a GPU worker to prove that Pyxis and its Enroot runtime work end-to-end.
+#
+# Do not use a Docker Hub library image here. Some Pyxis/Enroot installations
+# can authenticate against Docker Hub but receive a 401 for the subsequent
+# library manifest request. That is a registry-specific failure, not evidence
+# that Pyxis cannot launch the NGC images used by this suite.
+if pyxis_worker_test_should_run "$PYXIS_CLI_AVAILABLE" "$GPU_PARTITION"; then
+    PYXIS_RUNTIME_ATTEMPTED="true"
+    print_section "Pyxis Worker Runtime Test"
+    PYXIS_CHECK_IMAGE="$(select_pyxis_check_image)"
+    PYXIS_CHECK_TIMEOUT_S="${CLUSTERMAX_PYXIS_CHECK_TIMEOUT_S:-600}"
+    PYXIS_CHECK_JOB_NAME="cmax-audit-pyxis-${AUDIT_TIMESTAMP_FILE}-$$"
+    # AUDIT_STEP_TMPDIR_EXPORT_ARGS (defined above the container check) also
+    # applies here: Pyxis reads the job's TMPDIR for enroot extraction and
+    # ignores a job-level ENROOT_TEMP_PATH.
+    if [[ -n "${CLUSTERMAX_STEP_TMPDIR:-}" ]]; then
+        print_detail "Check TMPDIR: ${CLUSTERMAX_STEP_TMPDIR} (CLUSTERMAX_STEP_TMPDIR)"
+    fi
+    if command -v timeout >/dev/null 2>&1; then
+        if PYXIS_CHECK_OUTPUT=$(timeout --signal=TERM --kill-after=30s "$PYXIS_CHECK_TIMEOUT_S" \
+            srun "${AUDIT_SRUN_FLAGS[@]}" "${GPU_SRUN_SCOPE_ARGS[@]}" "${AUDIT_STEP_TMPDIR_EXPORT_ARGS[@]}" \
+            --job-name="$PYXIS_CHECK_JOB_NAME" -N1 --ntasks=1 --gres=gpu:1 --time=10:00 \
+            --container-image="$PYXIS_CHECK_IMAGE" \
+            --no-container-mount-home --container-remap-root --no-container-entrypoint /bin/true 2>&1); then
+            PYXIS_CHECK_RC=0
+        else
+            PYXIS_CHECK_RC=$?
+        fi
+    else
+        if PYXIS_CHECK_OUTPUT=$(srun "${AUDIT_SRUN_FLAGS[@]}" "${GPU_SRUN_SCOPE_ARGS[@]}" "${AUDIT_STEP_TMPDIR_EXPORT_ARGS[@]}" \
+            --job-name="$PYXIS_CHECK_JOB_NAME" -N1 --ntasks=1 --gres=gpu:1 --time=10:00 \
+            --container-image="$PYXIS_CHECK_IMAGE" \
+            --no-container-mount-home --container-remap-root --no-container-entrypoint /bin/true 2>&1); then
+            PYXIS_CHECK_RC=0
+        else
+            PYXIS_CHECK_RC=$?
+        fi
+    fi
+    # A timed-out top-level srun can leave its allocation running after the
+    # client exits. Clean only this uniquely named check. Inside an existing
+    # allocation, never cancel the parent job.
+    if [[ "$PYXIS_CHECK_RC" -ne 0 && -z "${SLURM_JOB_ID:-}" ]] \
+        && command -v squeue >/dev/null 2>&1 && command -v scancel >/dev/null 2>&1; then
+        PYXIS_CHECK_USER="${USER:-$(id -un)}"
+        PYXIS_ORPHANED_JOB_IDS=$(squeue --user="$PYXIS_CHECK_USER" \
+            --name="$PYXIS_CHECK_JOB_NAME" --noheader --format='%i' 2>/dev/null || true)
+        for leftover_job_id in $PYXIS_ORPHANED_JOB_IDS; do
+            [[ "$leftover_job_id" =~ ^[0-9]+$ ]] || continue
+            scancel "$leftover_job_id" 2>/dev/null || true
+            print_detail "Cancelled orphaned Pyxis check job ${leftover_job_id}"
+        done
+    fi
+    PYXIS_CHECK_SEMANTIC_FAILURE=$(pyxis_check_output_has_failure "$PYXIS_CHECK_OUTPUT")
+    if [[ "$PYXIS_CHECK_RC" -eq 0 && "$PYXIS_CHECK_SEMANTIC_FAILURE" == "false" ]]; then
+        PYXIS_INSTALLED="true"
+        PYXIS_RUNTIME_WORKS="true"
+        print_info "Pyxis: container executed successfully on a GPU worker"
+    else
+        [[ "$PYXIS_CLI_AVAILABLE" == "true" ]] && PYXIS_INSTALLED="true"
+        print_warn "Pyxis: worker container test failed"
+        if [[ "$PYXIS_CHECK_SEMANTIC_FAILURE" == "true" ]]; then
+            PYXIS_CHECK_DETAIL=$(pyxis_check_failure_lines "$PYXIS_CHECK_OUTPUT" | head -3)
+        else
+            PYXIS_CHECK_DETAIL=$(head -3 <<< "$PYXIS_CHECK_OUTPUT")
+        fi
+        print_detail "Output: $(tr '\n' ' ' <<< "$PYXIS_CHECK_DETAIL")"
+        # A JSON-safe copy for the report: one line, no quotes or backslashes.
+        PYXIS_RUNTIME_ERROR=$(tr '\n' ' ' <<< "$PYXIS_CHECK_DETAIL" | tr -d '"\\' \
+            | tr -cd '[:print:]' | cut -c1-300)
+    fi
+else
+    print_warn "Pyxis: container flags unavailable or no GPU partition for worker test"
 fi
 
 # Head-vs-worker consistency for container runtimes (additive; the worker check
@@ -2725,6 +2808,17 @@ if [[ ${#SHARED_FS[@]} -eq 0 ]]; then
     print_warn "No shared filesystems detected at common mount points"
 fi
 
+print_section "Worker Mount Namespace"
+if [[ "$WORKER_MOUNTS_JSON" != "null" ]]; then
+    print_info "Captured $(jq '.filesystems | length' <<< "$WORKER_MOUNTS_JSON") worker mounts"
+    jq -r '.filesystems[] | "\(.source) -> \(.target) (\(.fstype); \(.options))"' \
+        <<< "$WORKER_MOUNTS_JSON" | while IFS= read -r mount; do
+            print_detail "$mount"
+        done
+else
+    print_warn "Worker mount namespace was not captured"
+fi
+
 print_section "Home Directory"
 HOME_DIR="$HOME"
 if [[ -d "$HOME_DIR" ]]; then
@@ -3523,6 +3617,11 @@ echo ""
 SECURITY_GPU_VENDOR="nvidia"
 if [[ "${AMD_GPUS_PRESENT:-false}" == "true" ]]; then
     SECURITY_GPU_VENDOR="amd"
+fi
+# On Slurm on Kubernetes the exporter version exists only in its image tag,
+# which the port 9400 scan cannot read.
+if [[ "$SECURITY_GPU_VENDOR" == "nvidia" ]]; then
+    dcgm_exporter_from_kubectl slurm
 fi
 SECURITY_VERSION_AUDIT_JSON=$(build_security_version_audit \
     "$WORKER_CHECK_OUTPUT" "$SECURITY_DRIVER_VERSION" "$SECURITY_NCT_VERSION" \

@@ -488,6 +488,8 @@ def _driver_record(verdict: Verdict, gpu_vendor: str) -> dict[str, Any]:
     if record["status"] != "pass":
         record.pop("gracePeriod", None)
     return record
+
+
 def nvidia_container_toolkit_verdict(version: str) -> Verdict:
     try:
         block, minimum, parsed_minimum = _minimum_minimum("nvidiaContainerToolkit")
@@ -1734,73 +1736,6 @@ def connectx_firmware_verdict(version: str) -> Verdict:
     )
 
 
-def aggregate_connectx(
-    entries: Iterable[str], *, inventory_complete: bool = False
-) -> dict[str, object]:
-    advisory = _component_advisory("connectxFirmware")
-    devices: list[dict[str, object]] = []
-    verdicts: list[Verdict] = []
-    records: list[dict[str, object]] = []
-    for entry in entries:
-        if "=" in entry:
-            device, version = entry.split("=", 1)
-        else:
-            device, version = "unknown", entry
-        verdict = connectx_firmware_verdict(version)
-        verdicts.append(verdict)
-        parsed = numeric_version(version, parts=3)
-        selector = str(parsed[1]) if parsed and len(parsed) >= 3 else None
-        record = _verdict_record(verdict, "connectxFirmware", selector)
-        records.append(record)
-        devices.append({"device": device, **record})
-    if not verdicts:
-        if inventory_complete:
-            return {
-                "status": "not_applicable",
-                "minimum": "NVIDIA ConnectX/BlueField only",
-                "advisory": advisory,
-                "devices": [],
-            }
-        verdict = connectx_firmware_verdict("unknown")
-        verdicts = [verdict]
-        record = _verdict_record(verdict, "connectxFirmware")
-        records = [record]
-        devices = [{"device": "unknown", **record}]
-    statuses = {str(record["status"]) for record in records}
-    status = "fail" if "fail" in statuses else "unknown" if "unknown" in statuses else "pass"
-    if status == "pass" and not inventory_complete:
-        status = "unknown"
-    minimum_record = next(
-        (record for record in records if str(record["status"]) == status),
-        None,
-    )
-    if minimum_record is None:
-        minimum_record = _verdict_record(
-            connectx_firmware_verdict("unknown"), "connectxFirmware"
-        )
-    result: dict[str, object] = {
-        "status": status,
-        "minimum": minimum_record["minimum"],
-        "advisory": advisory,
-        "devices": devices,
-    }
-    grace = next(
-        (record.get("gracePeriod") for record in records if record.get("gracePeriod")),
-        None,
-    )
-    if status == "pass" and grace:
-        result["gracePeriod"] = grace
-    return result
-
-
-def minimums_metadata() -> dict[str, object]:
-    """Return the provenance of the minimum table the verdicts were graded against."""
-    try:
-        return minimum_versions.metadata()
-    except MinimumDataError as exc:
-        return {"error": str(exc)}
-
-
 def amd_driver_verdict(
     model: str, evidence: dict[str, Any] | None = None, *, gpu_vendor: str = "amd"
 ) -> Verdict:
@@ -1885,6 +1820,73 @@ def amd_driver_record(
     }
 
 
+def aggregate_connectx(
+    entries: Iterable[str], *, inventory_complete: bool = False
+) -> dict[str, object]:
+    advisory = _component_advisory("connectxFirmware")
+    devices: list[dict[str, object]] = []
+    verdicts: list[Verdict] = []
+    records: list[dict[str, object]] = []
+    for entry in entries:
+        if "=" in entry:
+            device, version = entry.split("=", 1)
+        else:
+            device, version = "unknown", entry
+        verdict = connectx_firmware_verdict(version)
+        verdicts.append(verdict)
+        parsed = numeric_version(version, parts=3)
+        selector = str(parsed[1]) if parsed and len(parsed) >= 3 else None
+        record = _verdict_record(verdict, "connectxFirmware", selector)
+        records.append(record)
+        devices.append({"device": device, **record})
+    if not verdicts:
+        if inventory_complete:
+            return {
+                "status": "not_applicable",
+                "minimum": "NVIDIA ConnectX/BlueField only",
+                "advisory": advisory,
+                "devices": [],
+            }
+        verdict = connectx_firmware_verdict("unknown")
+        verdicts = [verdict]
+        record = _verdict_record(verdict, "connectxFirmware")
+        records = [record]
+        devices = [{"device": "unknown", **record}]
+    statuses = {str(record["status"]) for record in records}
+    status = "fail" if "fail" in statuses else "unknown" if "unknown" in statuses else "pass"
+    if status == "pass" and not inventory_complete:
+        status = "unknown"
+    minimum_record = next(
+        (record for record in records if str(record["status"]) == status),
+        None,
+    )
+    if minimum_record is None:
+        minimum_record = _verdict_record(
+            connectx_firmware_verdict("unknown"), "connectxFirmware"
+        )
+    result: dict[str, object] = {
+        "status": status,
+        "minimum": minimum_record["minimum"],
+        "advisory": advisory,
+        "devices": devices,
+    }
+    grace = next(
+        (record.get("gracePeriod") for record in records if record.get("gracePeriod")),
+        None,
+    )
+    if status == "pass" and grace:
+        result["gracePeriod"] = grace
+    return result
+
+
+def minimums_metadata() -> dict[str, object]:
+    """Return the provenance of the minimum table the verdicts were graded against."""
+    try:
+        return minimum_versions.metadata()
+    except MinimumDataError as exc:
+        return {"error": str(exc)}
+
+
 def evaluate(
     *,
     driver: str,
@@ -1903,6 +1905,8 @@ def evaluate(
     dpu_isolation: dict[str, Any] | None = None,
     dcgm: str = "unknown",
     dcgm_exporter: str = "unknown",
+    dcgm_exporter_source: str | None = None,
+    dcgm_exporter_reason: str | None = None,
     virtio_net_worst: str | None = None,
     virtio_net_worst_line: str | None = None,
     virtio_net_worst_mode: str | None = None,
@@ -1934,7 +1938,7 @@ def evaluate(
             )
         nct_result = nvidia_container_toolkit_verdict(nct)
         dcgm_result = dcgm_verdict(dcgm)
-        dcgm_exporter_result = dcgm_exporter_verdict(dcgm_exporter)
+        dcgm_exporter_result = None
     else:
         driver_result = Verdict(
             driver,
@@ -2013,11 +2017,30 @@ def evaluate(
         ),
         "dpuHostIsolation": isolation_record,
         "dcgm": _verdict_record(dcgm_result, "dcgm"),
-        "dcgmExporter": _verdict_record(
-            dcgm_exporter_result, "dcgmExporter"
+        "dcgmExporter": _dcgm_exporter_record(
+            dcgm_exporter, dcgm_exporter_source, dcgm_exporter_reason,
+            verdict=dcgm_exporter_result,
         ),
         "floorsMetadata": minimums_metadata(),
     }
+
+
+def _dcgm_exporter_record(
+    version: str, source: str | None, reason: str | None,
+    *, verdict: Verdict | None = None,
+) -> dict[str, object]:
+    """Grade the exporter and record where its version came from.
+
+    The source tells a reviewer which evidence type the grade rests on, for
+    example an image tag that kubectl read. The reason explains an unknown
+    grade and is dropped when a version was graded.
+    """
+    record = _verdict_record(verdict or dcgm_exporter_verdict(version), "dcgmExporter")
+    record["versionSource"] = source or None
+    record["versionUnavailableDetail"] = (
+        (reason or None) if record["status"] == "unknown" else None
+    )
+    return record
 
 
 def _parse_isolation_json(raw: str | None) -> dict[str, Any] | None:
@@ -2048,14 +2071,14 @@ def _parse_observed_json(raw: str | None) -> list[dict[str, Any]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--amd-model", default="unknown")
-    parser.add_argument("--amd-driver-evidence", default="{}")
     parser.add_argument("--driver", default="unknown")
     parser.add_argument("--nct", default="unknown")
     parser.add_argument("--runc", default="unknown")
     parser.add_argument("--docker", default="unknown")
     parser.add_argument("--cuda", default="unknown")
     parser.add_argument("--gpu-vendor", default="nvidia")
+    parser.add_argument("--amd-model", default="unknown")
+    parser.add_argument("--amd-driver-evidence", default="{}")
     parser.add_argument("--connectx-firmware", action="append", default=[])
     parser.add_argument("--connectx-inventory-complete", action="store_true")
     parser.add_argument(
@@ -2080,6 +2103,16 @@ def main() -> int:
         "--dcgm-exporter",
         default="unknown",
         help="DCGM Exporter version, already separated from the image tag",
+    )
+    parser.add_argument(
+        "--dcgm-exporter-source",
+        default=None,
+        help="Where the collector read the DCGM Exporter version, for example kubectl_image_tag",
+    )
+    parser.add_argument(
+        "--dcgm-exporter-reason",
+        default=None,
+        help="Why the collector could not read the DCGM Exporter version",
     )
     parser.add_argument(
         "--virtio-net-worst",
@@ -2139,6 +2172,8 @@ def main() -> int:
                 nvidia_gpu_present=False if args.nvidia_gpu_absent else None,
                 dcgm=args.dcgm,
                 dcgm_exporter=args.dcgm_exporter,
+                dcgm_exporter_source=args.dcgm_exporter_source,
+                dcgm_exporter_reason=args.dcgm_exporter_reason,
             ),
             sort_keys=True,
         )

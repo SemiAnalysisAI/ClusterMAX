@@ -16,8 +16,8 @@ the same way ``nic-topology-check.py`` does, because a DPU is per node and a
 head-node-only answer is a false negative:
 
 * ``slurm``  - srun one ``--collect-host`` worker per node.
-* ``k8s``    - exec a POSIX-sh collector in each GPU node's driver pod (that
-  image has no python3), then parse it here.
+* ``k8s``    - exec a POSIX-sh collector in each GPU node's privileged NVIDIA
+  or AMD GPU Operator system pod, then parse it here.
 * otherwise  - run the worker on the local host (standalone).
 
 Where the version actually lives
@@ -141,6 +141,7 @@ GPU_OPERATOR_NAMESPACES = (
     "gpu-operator-resources",
     "nvidia-gpu-operator",
     "nvidia",
+    "kube-amd-gpu",
     "gpu",
 )
 KUBECTL_TIMEOUT_S = 60
@@ -1642,6 +1643,12 @@ def k8s_driver_pod(namespace: str, node: str, *, runner: Runner) -> dict[str, An
                     # MFT and pciutils are host software. A verified privileged
                     # host-root mount is preferable to the thin driver image.
                     candidates.append((0, name, container.get("name"), True))
+        elif "-device-plugin-" in name and not name.startswith("nvidia-"):
+            # AMD GPU nodes can carry a BlueField-3 too. The AMD operator's
+            # device plugin is the privileged system pod on those nodes.
+            candidates.append((2, name, None, False))
+        elif "-metrics-exporter-" in name and not name.startswith("nvidia-"):
+            candidates.append((3, name, None, False))
     if not candidates:
         return None
     _, name, container, host_root = min(candidates)
@@ -1651,7 +1658,7 @@ def k8s_driver_pod(namespace: str, node: str, *, runner: Runner) -> dict[str, An
 def run_k8s_node_check(namespace: str, node: str, *, runner: Runner) -> tuple[dict[str, Any] | None, str | None]:
     access = k8s_driver_pod(namespace, node, runner=runner)
     if not access:
-        return None, f"{node}: no running nvidia-driver pod for the virtio-net check"
+        return None, f"{node}: no running privileged GPU system pod for the virtio-net check"
     exec_args = ["exec", "-i", "-n", namespace, access["name"]]
     if access["container"]:
         exec_args.extend(["-c", access["container"]])
@@ -1682,12 +1689,12 @@ def k8s_records(
     nodes_json, error = fanout.k8s_nodes_json(lambda args: kubectl(args, runner=runner, timeout=45))
     if nodes_json is None:
         return [], [error]
-    nodes = fanout.k8s_gpu_nodes(nodes_json, gpu_vendor="nvidia")
+    nodes = fanout.k8s_gpu_nodes(nodes_json)
     if not nodes:
-        return [], ["no Kubernetes nodes advertise nvidia.com/gpu capacity"]
+        return [], ["no Kubernetes nodes advertise nvidia.com/gpu or amd.com/gpu capacity"]
     namespace = k8s_namespace(env=env, runner=runner)
     if not namespace:
-        return [], ["no NVIDIA GPU Operator namespace found; cannot reach a driver pod for the virtio-net check"]
+        return [], ["no supported GPU Operator namespace found; cannot reach a system pod for the virtio-net check"]
     per_node = lambda node: run_k8s_node_check(namespace, node["name"], runner=runner)  # noqa: E731
     return fanout.fan_out_k8s(per_node, nodes=nodes, max_nodes=fanout.k8s_max_host_checks(env, len(nodes)))
 

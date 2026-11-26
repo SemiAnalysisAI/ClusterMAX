@@ -51,11 +51,24 @@ SLURM_TIMEOUT_S = 180
 K8S_POD_READY_TIMEOUT = "90s"
 
 
+def run_captured(runner: Callable[..., Any], command: list[str], **kwargs: Any) -> Any:
+    """Run a command and keep every output byte in the text result.
+
+    ``df`` can print a mount path that is not UTF-8. The default text
+    decoder raises ``UnicodeDecodeError`` for that byte. The storage check
+    then exits before it writes JSON, and the audit drops the result.
+    ``errors="replace"`` keeps the row in the comparison.
+    """
+    return runner(command, capture_output=True, text=True, errors="replace", **kwargs)
+
+
 def parse_df(text: str) -> list[dict[str, str]]:
     """Parse ``df -hT`` output into rows keyed by column name."""
     rows: list[dict[str, str]] = []
     wrapped_source: str | None = None
     for line in text.splitlines()[1:]:
+        # Without -P, df puts a long source on its own line and the other
+        # columns on the next line.
         if wrapped_source:
             line = wrapped_source + " " + line.lstrip()
             wrapped_source = None
@@ -77,7 +90,7 @@ def parse_df(text: str) -> list[dict[str, str]]:
 def worker_report() -> dict[str, Any]:
     host = os.environ.get("SLURMD_NODENAME") or socket.gethostname()
     try:
-        proc = subprocess.run(["df", "-hTP"], capture_output=True, text=True, timeout=60)
+        proc = run_captured(subprocess.run, ["df", "-hTP"], timeout=60)
         rows = parse_df(proc.stdout)
         error = proc.stderr.strip() or None
         if proc.returncode != 0 and not error:
@@ -93,10 +106,15 @@ def aggregate(
     reports: list[dict[str, Any]], *, nodes_expected: int, mode: str,
     errors: Optional[list[str]] = None,
 ) -> dict[str, Any]:
-    errors = list(errors or [])
+    """Compare the mount tables. Collection errors make a pass a warning."""
+    return record_fanout_errors(
+        _aggregate(reports, nodes_expected=nodes_expected, mode=mode), list(errors or []),
+    )
+
+
+def _aggregate(reports: list[dict[str, Any]], *, nodes_expected: int, mode: str) -> dict[str, Any]:
     if not reports:
-        message = "; ".join(["no worker node reported df -hT", *errors])
-        return {"status": "unknown", "message": message, "mode": mode, "errors": errors,
+        return {"status": "unknown", "message": "no worker node reported df -hT", "mode": mode, "errors": [],
                 "nodes_expected": nodes_expected, "nodes_checked": 0, "hosts": []}
     hosts = sorted(r["host"] for r in reports)
     # A host whose df failed or returned nothing has no mount table to
@@ -108,7 +126,7 @@ def aggregate(
     }
     all_targets = sorted({t for rows in by_host.values() for t in rows})
     failures: list[str] = []
-    warnings: list[str] = [f"collection error: {error}" for error in errors]
+    warnings: list[str] = []
     for target in all_targets:
         present = {h for h, rows in by_host.items() if target in rows}
         missing = sorted(set(by_host) - present)
@@ -133,7 +151,7 @@ def aggregate(
     message = "; ".join(failures + warnings) or f"{len(reports)} node(s) agree on {len(all_targets)} mount(s)"
     return {"status": status, "message": message, "mode": mode, "nodes_expected": nodes_expected,
             "nodes_checked": len(reports), "hosts_checked": hosts, "failures": failures,
-            "warnings": warnings, "errors": errors, "hosts": reports}
+            "warnings": warnings, "errors": [], "hosts": reports}
 
 
 def k8s_pod_manifest(namespace: str, node: str, image: str, pod_name: str) -> dict[str, Any]:
@@ -161,7 +179,7 @@ def k8s_pod_manifest(namespace: str, node: str, image: str, pod_name: str) -> di
 def k8s_node_report(namespace: str, node: str, image: str, *, runner: Callable[..., Any]) -> tuple[Optional[dict[str, Any]], Optional[str]]:
     """Run ``df -hT`` in the host mount namespace of one node."""
     pod_name = f"clustermax-storage-{uuid.uuid4().hex[:8]}"
-    kubectl = lambda args, **kw: runner(["kubectl", *args], capture_output=True, text=True, **kw)  # noqa: E731
+    kubectl = lambda args, **kw: run_captured(runner, ["kubectl", *args], **kw)  # noqa: E731
     try:
         apply = kubectl(["apply", "-f", "-"], input=json.dumps(k8s_pod_manifest(namespace, node, image, pod_name)), timeout=45)
         if apply.returncode != 0:
@@ -206,6 +224,27 @@ def k8s_reports(env: dict[str, str], runner: Callable[..., Any], fanout: Any) ->
     return reports, errors, min(max_nodes, len(nodes))
 
 
+def record_fanout_errors(payload: dict[str, Any], errors: list[str]) -> dict[str, Any]:
+    """Include fan-out errors in the graded storage result.
+
+    Mount comparison can agree on the tables it received while a host check
+    limit left other GPU nodes unread, or while ``srun`` exited non-zero.
+    Those errors are warnings. A pass becomes a warning, so the audit
+    finding shows the incomplete read.
+    """
+    payload["errors"] = list(errors)
+    if not errors:
+        return payload
+    warnings = list(payload.get("warnings") or [])
+    warnings.extend(errors)
+    payload["warnings"] = warnings
+    if payload.get("status") == "pass":
+        payload["status"] = "warning"
+    failures = list(payload.get("failures") or [])
+    payload["message"] = "; ".join([*failures, *warnings])
+    return payload
+
+
 def build_check_payload(
     *,
     harness: str,
@@ -221,30 +260,28 @@ def build_check_payload(
 
     if harness != "slurm":
         reports, errors, expected = k8s_reports(dict(env), runner, _fanout)
-        return {"storage_config": aggregate(
-            reports, nodes_expected=expected, mode="k8s", errors=errors,
-        )}
+        payload = aggregate(reports, nodes_expected=expected, mode="k8s")
+        return {"storage_config": record_fanout_errors(payload, errors)}
     if not env.get("SLURM_JOB_ID"):
-        return {"storage_config": aggregate(
-            [], nodes_expected=0, mode="slurm",
-            errors=["SLURM_JOB_ID is not set; no compute node was checked"],
-        )}
+        payload = aggregate([], nodes_expected=0, mode="slurm")
+        record_fanout_errors(payload, ["SLURM_JOB_ID is not set; no compute node was checked"])
+        return {"storage_config": payload}
 
     node_count = env.get("SLURM_NNODES", "1")
     command = _fanout.slurm_python_command(node_count=node_count, worker_args=["--worker"])
     reports: list[dict[str, Any]] = []
     errors: list[str] = []
     try:
-        proc = runner(command, input=Path(__file__).read_text(), capture_output=True, text=True,
-                      timeout=SLURM_TIMEOUT_S, env=dict(env))
+        proc = run_captured(
+            runner, command, input=Path(__file__).read_text(), timeout=SLURM_TIMEOUT_S, env=dict(env)
+        )
         reports = _fanout.parse_json_lines(proc.stdout, require_host=True)
         if proc.returncode != 0:
             errors.append(f"srun exited {proc.returncode}: {proc.stderr.strip()[-400:]}")
     except (OSError, subprocess.TimeoutExpired) as exc:
         errors.append(f"srun failed: {exc}")
-    return {"storage_config": aggregate(
-        reports, nodes_expected=int(node_count or 1), mode="slurm", errors=errors,
-    )}
+    payload = aggregate(reports, nodes_expected=int(node_count or 1), mode="slurm")
+    return {"storage_config": record_fanout_errors(payload, errors)}
 
 
 def main(argv: list[str]) -> int:

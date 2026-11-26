@@ -65,6 +65,17 @@
       ]
     },
     {
+      "id": "security-amd-driver",
+      "label": "AMD host driver minimum version",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
       "id": "security-nvidia-container-toolkit",
       "label": "NVIDIA Container Toolkit minimum version",
       "category": "Security",
@@ -78,6 +89,17 @@
     {
       "id": "cuda-toolkit-security",
       "label": "CUDA Toolkit minimum version",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-dcgm-exporter",
+      "label": "DCGM Exporter minimum version",
       "category": "Security",
       "coverage": "audit",
       "harnesses": [
@@ -142,8 +164,52 @@
       ]
     },
     {
+      "id": "security-pwnescape",
+      "label": "PwnEscape host networking kernel fix",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-sctp-sendall",
+      "label": "SCTP SCTP_SENDALL kernel fix",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
       "id": "ubuntu-kernel-fragnesia-dirty-frag",
       "label": "Fragnesia / Dirty Frag kernel fix",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-bad-epoll",
+      "label": "Bad Epoll running-kernel fix",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-kvm-svm",
+      "label": "AMD KVM host kernel fix",
       "category": "Security",
       "coverage": "audit",
       "harnesses": [
@@ -194,6 +260,24 @@
         "slurm",
         "k8s",
         "standalone"
+      ]
+    },
+    {
+      "id": "security-kubernetes-nodes-proxy",
+      "label": "Kubernetes nodes/proxy GET permission",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "k8s"
+      ]
+    },
+    {
+      "id": "security-ingress-nginx-cve-2025-1974",
+      "label": "ingress-nginx CVE-2025-1974",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "k8s"
       ]
     },
     {
@@ -263,6 +347,61 @@
       ]
     },
     {
+      "id": "security-mig-side-channel",
+      "label": "MIG cross-partition timing side channel",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-gpu-ecc-rowhammer",
+      "label": "GDDR GPU ECC for GPUBreach",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-nvidia-cdi-hook-monitoring",
+      "label": "nvidia-cdi-hook exec monitoring",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-ray-dashboard-exposure",
+      "label": "Ray dashboard and Jobs API exposure",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "security-aistore",
+      "label": "AIStore minimum version",
+      "category": "Security",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
       "id": "gpu-drivers",
       "label": "GPU drivers present",
       "category": "GPU Stack",
@@ -296,7 +435,7 @@
     },
     {
       "id": "pcie-acs",
-      "label": "PCIe ACS disabled on GPU\u2194NIC switches",
+      "label": "PCIe ACS disabled on GPU↔NIC switches",
       "category": "GPU Stack",
       "coverage": "audit",
       "harnesses": [
@@ -640,6 +779,39 @@
       "coverage": "audit",
       "harnesses": [
         "k8s"
+      ]
+    },
+    {
+      "id": "thp-madvise",
+      "label": "THP madvise",
+      "category": "Scheduler & Resources",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "static-hugepages",
+      "label": "Static HugeTLB (GB)",
+      "category": "Scheduler & Resources",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
+      ]
+    },
+    {
+      "id": "hugepage-allocation",
+      "label": "HugeTLB 1 GiB allocation",
+      "category": "Scheduler & Resources",
+      "coverage": "audit",
+      "harnesses": [
+        "slurm",
+        "k8s",
+        "standalone"
       ]
     },
     {

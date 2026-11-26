@@ -1,0 +1,34 @@
+{
+  "bare_metal_host_no_guest": {
+    "security": {
+      "virtualization": {
+        "type": "none",
+        "guest": false
+      },
+      "pciePassthrough": {
+        "guestIommuGroupCount": 61,
+        "inventoryComplete": "unknown",
+        "vfioDevices": 0,
+        "unsafeGroups": 0,
+        "scope": "sampled-worker-host",
+        "hostVerificationRequired": true
+      }
+    }
+  },
+  "guest_passthrough_incomplete_inventory": {
+    "security": {
+      "virtualization": {
+        "type": "kvm",
+        "guest": true
+      },
+      "pciePassthrough": {
+        "guestIommuGroupCount": 61,
+        "inventoryComplete": "unknown",
+        "vfioDevices": 2,
+        "unsafeGroups": 0,
+        "scope": "sampled-worker-host",
+        "hostVerificationRequired": true
+      }
+    }
+  }
+}

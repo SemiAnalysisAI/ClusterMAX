@@ -31,7 +31,11 @@ looks for is a mount that the launcher does not make.
 No check in this check hard-fails on missing evidence. A platform the check
 does not apply to reports ``not_applicable``, and an unreadable platform
 reports ``unknown``, so an inconclusive check is never read as a provider
-fault.
+fault. A pass or a ``not_applicable`` result also becomes ``unknown`` when
+the fan-out leaves hosts unread. The signals are
+``CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS``, a host check that returns no
+report, and a non-zero ``srun`` exit. A warning or a failure stays, because
+it names a host the check did read.
 
 Environment variables:
 
@@ -1561,6 +1565,22 @@ def summary(
     }
 
 
+def scheduler_host_name(env: dict[str, str], root: Path) -> str:
+    """Return the scheduler node name before the kernel hostname.
+
+    Kubernetes sets ``NODE_NAME`` to the node object name. Slurm sets
+    ``SLURMD_NODENAME`` on the task. Cloned images can share one kernel
+    hostname, and the aggregate keeps one entry per host string, so the later
+    report would replace the earlier node.
+    """
+    for key in ("SLURMD_NODENAME", "NODE_NAME"):
+        name = str(env.get(key) or "").strip()
+        if name:
+            return name
+    kernel = read_text(under_root(root, "/proc/sys/kernel/hostname")).strip()
+    return kernel or socket.gethostname()
+
+
 def collect_host(
     *,
     root: Path = Path("/"),
@@ -1578,7 +1598,7 @@ def collect_host(
         include_rdma_iommu = include_scale_out
 
     report: dict[str, Any] = {
-        "host": hostname or env.get("NODE_NAME") or socket.gethostname(),
+        "host": hostname or scheduler_host_name(env, root),
         "harness": harness,
         "machine": machine,
         "virtualization": detect_virtualization(root, runner=runner),
@@ -1655,6 +1675,44 @@ def aggregate_check(key: str, reports: list[dict[str, Any]], errors: list[str]) 
     }
 
 
+# These strings are produced by this check's own fan-out. A missing topology
+# file and an sinfo failure are not in the list: those notes do not mean a
+# host report was dropped.
+_UNREAD_HOST_MARKERS = (
+    "CLUSTERMAX_AUDIT_K8S_MAX_HOST_CHECKS",
+    "srun host check exited",
+    "failed to create host check pod",
+    "host check pod did not become Ready",
+    "host check exec failed",
+    "host check returned no JSON",
+    "host check failed:",
+)
+
+
+def unread_host_errors(errors: list[str]) -> list[str]:
+    return [error for error in errors if any(marker in error for marker in _UNREAD_HOST_MARKERS)]
+
+
+def withdraw_clearance_for_unread_hosts(detail: dict[str, Any], errors: list[str]) -> None:
+    """Stop a pass or ``not_applicable`` from covering hosts the fan-out did not read.
+
+    The grade of the hosts that did report stays in ``hosts``. A warning or a
+    failure stays too, because that result names a host the check did read.
+    ``unknown`` is the status this check already uses when a reading cannot
+    clear the row. A warning would claim a platform fault the sample did not
+    show.
+    """
+    if int(detail.get("hosts_checked") or 0) <= 0:
+        return
+    if detail.get("status") not in {"pass", "not_applicable"}:
+        return
+    unread = unread_host_errors(errors)
+    if not unread:
+        return
+    detail["status"] = "unknown"
+    detail["message"] = unread[0]
+
+
 def build_payload(
     *,
     reports: list[dict[str, Any]],
@@ -1688,6 +1746,8 @@ def build_payload(
         clos_node_threshold=clos_node_threshold,
         errors=errors,
     )
+    for detail in payload.values():
+        withdraw_clearance_for_unread_hosts(detail, errors)
     return payload
 
 
@@ -1972,7 +2032,7 @@ def k8s_gpu_node_list() -> tuple[list[dict[str, Any]], list[str]]:
         return [], [error]
     nodes = fanout.k8s_gpu_nodes(nodes_json)
     if not nodes:
-        return [], ["no Kubernetes nodes advertise nvidia.com/gpu capacity"]
+        return [], ["no Kubernetes nodes advertise nvidia.com/gpu or amd.com/gpu capacity"]
     return nodes, []
 
 

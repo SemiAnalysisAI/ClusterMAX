@@ -528,7 +528,7 @@ def refine_rdma_fabric_from_topology(audit: dict[str, Any], nic_topology: dict[s
 
     Shared-device-plugin clusters (e.g. Moonlite Spectrum-X via
     rdma/rdma_shared_device) classify only as a generic "rdma" because the k8s
-    resource name does not reveal IB vs RoCE — which leaves the UFM
+    resource name does not reveal IB vs RoCE, which leaves the UFM
     "Secured Bare Metal Cloud" profile graded "unknown". nic_topology (collected
     after the main audit) records each NIC's link layer, so once it is available
     we can settle the fabric: Ethernet -> RoCE (UFM not applicable), InfiniBand

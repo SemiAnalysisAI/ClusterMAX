@@ -114,6 +114,9 @@ ALERT_RULES_COUNT=0
 GRAFANA_DASHBOARDS=0
 DCGM_METRICS_COUNT=0
 DCGM_POD=""
+# Freshness of the last scrape. Empty means not assessed.
+PROMETHEUS_SCRAPE_AGE_SECONDS=""
+PROMETHEUS_FRESHNESS="unknown"
 
 print_header "GPU CLUSTER MONITORING AUDIT"
 echo "Cluster: ${CLUSTER_NAME}"
@@ -365,6 +368,67 @@ PROMETHEUS_NAMESPACE=""
 PROMETHEUS_VERSION=""
 PROMETHEUS_TYPE=""  # operator, standalone, managed
 
+# Report how stale the newest Prometheus sample is.
+#
+# A monitoring stack can be fully "installed" and still have stopped scraping.
+# Every installer check passes, the pods are Running, the dashboards load, and
+# the graphs are flat at the moment of the outage. This function asks the
+# running server for the age of its newest sample and grades that age.
+#
+# The question is asked over kubectl exec into the Prometheus process itself,
+# so it does not depend on a port-forward, an exposed Service, or the cluster's
+# network policy. It returns nothing when the server cannot be queried, so an
+# unreachable server is reported as not assessed rather than as stale.
+#
+# Age is measured with max(timestamp(...)), not with a count of samples: a
+# count of series stays high long after scrapes stop, so it cannot distinguish
+# a live server from a dead one.
+check_prometheus_freshness() {
+    local ns="$PROMETHEUS_NAMESPACE" pod query out age
+    PROMETHEUS_SCRAPE_AGE_SECONDS=""
+    PROMETHEUS_FRESHNESS="unknown"
+    pod=$(kubectl get pods -n "$ns" -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    [[ -z "$pod" ]] && pod=$(kubectl get pods -n "$ns" -l app=prometheus -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    [[ -z "$pod" ]] && pod=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | awk '$1 ~ /^prometheus-[^k]/ {print $1; exit}')
+    [[ -z "$pod" ]] && return 0
+
+    # Instant selectors lose series after lookback/staleness. A bounded
+    # subquery can still find the newest historical timestamp in six hours.
+    # https://prometheus.io/docs/prometheus/latest/querying/basics/
+    for query in 'max(timestamp(up))' 'max_over_time(max(timestamp(up))%5B6h%3A1m%5D)'; do
+        out=$(kubectl exec -n "$ns" "$pod" -c prometheus -- \
+            wget -qO- --timeout=5 "http://127.0.0.1:9090/api/v1/query?query=${query}" 2>/dev/null)
+        age=$(printf '%s' "$out" | jq -er \
+            'select(.status == "success" and .data.resultType == "vector")
+             | .data.result[0].value[1] | tonumber
+             | select(type == "number" and isfinite and . >= 0)' 2>/dev/null) || age=""
+        [[ -n "$age" ]] && break
+    done
+    [[ -z "$age" ]] && return 0
+
+    PROMETHEUS_SCRAPE_AGE_SECONDS=$(jq -n --arg ts "$age" --argjson now "$(date +%s)" '$now - ($ts | tonumber) | floor' 2>/dev/null)
+    [[ -z "$PROMETHEUS_SCRAPE_AGE_SECONDS" ]] && return 0
+
+    # Only tolerate small clock disagreement, not arbitrary future samples.
+    if [[ "$PROMETHEUS_SCRAPE_AGE_SECONDS" -lt -5 ]]; then
+        PROMETHEUS_SCRAPE_AGE_SECONDS=""
+        print_warn "Scrape freshness: unknown (sample clock is ahead)"
+        return 0
+    fi
+    [[ "$PROMETHEUS_SCRAPE_AGE_SECONDS" -lt 0 ]] && PROMETHEUS_SCRAPE_AGE_SECONDS=0
+
+    if [[ "$PROMETHEUS_SCRAPE_AGE_SECONDS" -le 300 ]]; then
+        PROMETHEUS_FRESHNESS="fresh"
+        print_info "Scrape freshness: fresh (newest sample ${PROMETHEUS_SCRAPE_AGE_SECONDS}s old)"
+    elif [[ "$PROMETHEUS_SCRAPE_AGE_SECONDS" -le 3600 ]]; then
+        PROMETHEUS_FRESHNESS="delayed"
+        print_warn "Scrape freshness: delayed (newest sample ${PROMETHEUS_SCRAPE_AGE_SECONDS}s old)"
+    else
+        PROMETHEUS_FRESHNESS="stale"
+        print_warn "Scrape freshness: STALE (newest sample ${PROMETHEUS_SCRAPE_AGE_SECONDS}s old)"
+    fi
+}
+
 print_section "Prometheus Detection"
 
 # Check for Prometheus Operator CRDs
@@ -463,6 +527,8 @@ if [[ "$PROMETHEUS_INSTALLED" == "true" ]]; then
     # Check storage
     STORAGE_SIZE=$(kubectl get prometheus -n "$PROMETHEUS_NAMESPACE" -o jsonpath='{.items[0].spec.storage.volumeClaimTemplate.spec.resources.requests.storage}' 2>/dev/null)
     [[ -n "$STORAGE_SIZE" ]] && print_info "Storage: ${STORAGE_SIZE}"
+
+    check_prometheus_freshness
 else
     print_warn "Prometheus: Not detected"
 fi
@@ -802,7 +868,7 @@ echo ""
 
 # Calculate readiness score
 SCORE=0
-TOTAL=10
+TOTAL=11
 
 [[ "$GPU_METRICS_EXPORTER_INSTALLED" == "true" ]] && SCORE=$((SCORE+1)) && echo "  ✓ GPU metrics exporter (${GPU_METRICS_VENDOR})" || echo "  ✗ GPU metrics exporter"
 [[ "$DCGM_SERVICE_MONITOR" == "true" ]] && SCORE=$((SCORE+1)) && echo "  ✓ DCGM ServiceMonitor" || echo "  ✗ DCGM ServiceMonitor"
@@ -814,16 +880,19 @@ TOTAL=10
 [[ "$NODE_EXPORTER_INSTALLED" == "true" ]] && SCORE=$((SCORE+1)) && echo "  ✓ node-exporter" || echo "  ✗ node-exporter"
 [[ "$GFD_INSTALLED" == "true" ]] && SCORE=$((SCORE+1)) && echo "  ✓ GPU Feature Discovery" || echo "  ✗ GPU Feature Discovery"
 [[ "$LOGGING_STACK" != "none" ]] && SCORE=$((SCORE+1)) && echo "  ✓ Log Aggregation (${LOGGING_STACK})" || echo "  ✗ Log Aggregation"
+# A stack that has stopped scraping looks identical to a healthy one in every
+# other line above, so freshness is scored explicitly rather than inferred.
+[[ "$PROMETHEUS_FRESHNESS" == "fresh" ]] && SCORE=$((SCORE+1)) && echo "  ✓ Scrape freshness (${PROMETHEUS_FRESHNESS})" || echo "  ✗ Scrape freshness (${PROMETHEUS_FRESHNESS})"
 
 echo ""
 print_section "Readiness Score"
 echo ""
 echo "  Monitoring Readiness: ${SCORE}/${TOTAL}"
 
-if [[ "$SCORE" -ge 8 ]]; then
+if [[ "$SCORE" -ge 9 && "$PROMETHEUS_FRESHNESS" == "fresh" ]]; then
     echo -e "  Status: ${GREEN}Production Ready${NC}"
     MONITORING_STATUS="production"
-elif [[ "$SCORE" -ge 5 ]]; then
+elif [[ "$SCORE" -ge 6 ]]; then
     echo -e "  Status: ${YELLOW}Partial Monitoring${NC}"
     MONITORING_STATUS="partial"
 else
@@ -873,7 +942,9 @@ JSON_OUTPUT=$(cat <<EOF
     "namespace": "${PROMETHEUS_NAMESPACE:-none}",
     "version": "${PROMETHEUS_VERSION:-unknown}",
     "type": "${PROMETHEUS_TYPE:-standalone}",
-    "serviceMonitorCount": ${SM_COUNT:-0}
+    "serviceMonitorCount": ${SM_COUNT:-0},
+    "scrapeAgeSeconds": ${PROMETHEUS_SCRAPE_AGE_SECONDS:-null},
+    "freshness": "${PROMETHEUS_FRESHNESS}"
   },
   "grafana": {
     "installed": ${GRAFANA_INSTALLED},

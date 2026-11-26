@@ -377,6 +377,11 @@ _REPRODUCTION_COMMANDS = {
         "on the audited worker: `uname -r`; `cat /proc/version_signature`; "
         "`dpkg-query -W 'linux-image-*'`; inspect `/sys/kernel/livepatch`"
     ),
+    "security.sctpSendall.status": (
+        "on every worker: `uname -r`; `cat /proc/version_signature`; "
+        "`dpkg-query -W 'linux-image-*'`; inspect `/sys/kernel/livepatch`; "
+        "request provider patch evidence for a custom or vendor kernel"
+    ),
     "software.nvhpc.status": (
         "on the audited worker: run `nvc --version`, `nvc++ --version`, and "
         "`nvfortran --version`; inspect the selected SDK release tree for NCCL, "
@@ -487,6 +492,14 @@ _CONTEXT_OBSERVATION_KEYS = frozenset(
     }
 )
 
+# Fleet kernel checks whose graders write the same block shape, and the CVE
+# that each check grades.
+_HOST_KERNEL_CVES = {
+    "security.pwnescape.status": "CVE-2026-99999",
+    "security.sctpSendall.status": "CVE-2026-46227",
+}
+
+
 def _nested(data: dict[str, Any], path: str) -> Any:
     current: Any = data
     for part in path.split("."):
@@ -534,6 +547,20 @@ def _version_observation(audit: dict[str, Any], key: str, value: Any) -> Any:
     """Show the evidence that lets an operator interpret each check."""
     if key == "containers.pyxisRuntimeWorks":
         version = _nested(audit, "containers.pyxisVersion") or "unknown"
+        cli = _nested(audit, "containers.pyxisCliAvailable")
+        attempted = _nested(audit, "containers.pyxisRuntimeAttempted") is True
+        if cli is True and value is not True and attempted:
+            # The options exist, and the worker container test failed.
+            error = _nested(audit, "containers.pyxisRuntimeError") or "no output"
+            return (
+                f"CLI available true; container test failed ({error}); "
+                f"installed version {version}"
+            )
+        if cli is True and value is not True:
+            return (
+                "CLI available true; worker container test did not run; "
+                f"installed version {version}"
+            )
         return f"CLI available {str(value).lower()}; installed version {version}"
     if key == "containers.workerCheckOk":
         worker = _nested(audit, "containers.workerNode") or "unknown"
@@ -615,8 +642,9 @@ def _version_observation(audit: dict[str, Any], key: str, value: Any) -> Any:
                 "minimum version not applicable; newest installed version "
                 f"{kernel.get('newestInstalled', 'unknown')}"
             )
-    if key == "security.pwnescape.status":
-        advisory = _nested(audit, "security.pwnescape")
+    if key in _HOST_KERNEL_CVES:
+        cve = _HOST_KERNEL_CVES[key]
+        advisory = _nested(audit, key.removesuffix(".status"))
         if isinstance(advisory, dict):
             from cmax import security
             return (
@@ -627,7 +655,7 @@ def _version_observation(audit: dict[str, Any], key: str, value: Any) -> Any:
                     f"{security.pwnescape_fleet_coverage(advisory)}; "
                     if advisory.get("scope") == "fleet" else ""
                 )
-                + f"CVE-2026-99999; {advisory.get('reason', '')}"
+                + f"{cve}; {advisory.get('reason', '')}"
             )
     if key == "security.kvmSvm.status":
         advisory = _nested(audit, "security.kvmSvm")
@@ -1237,6 +1265,25 @@ def evaluate(
             or key in _CONTEXT_OBSERVATION_KEYS
             else effective
         )
+        if (
+            key == "gpu_controls.vboost.status"
+            and _normalize_sentinel(effective) == "not_checked"
+        ):
+            # No worker was read. The gpu_controls.vboost.allowed row warns
+            # for it, so this row must not pass.
+            checks.append(
+                AuditCheck(
+                    key,
+                    _title(key),
+                    check_category,
+                    SKIPPED,
+                    display_observed,
+                    "No GPU worker was checked for vboost; the vBoost allowed "
+                    "row reports this.",
+                    references=_with_criteria_reference(key),
+                )
+            )
+            continue
         if _is_not_applicable(audit, key, effective):
             checks.append(
                 AuditCheck(

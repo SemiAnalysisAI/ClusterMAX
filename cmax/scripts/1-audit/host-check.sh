@@ -334,6 +334,49 @@ fi
 # state and can otherwise report no pending update while the live kernel stays
 # vulnerable until reboot.
 WORKER_GUEST_KERNEL_RUNNING=$(uname -r 2>/dev/null || echo unknown)
+WORKER_GUEST_KERNEL_NEWEST_INSTALLED=unknown
+WORKER_GUEST_KERNEL_NEWER_INSTALLED=false
+WORKER_GUEST_REBOOT_REQUIRED=false
+WORKER_GUEST_KERNEL_FLAVOR=$(printf '%s\n' "$WORKER_GUEST_KERNEL_RUNNING" \
+    | sed -E 's/^[0-9]+(\.[0-9]+)*-[0-9]+-//')
+if [[ -e /var/run/reboot-required ]]; then
+    WORKER_GUEST_REBOOT_REQUIRED=true
+fi
+if command -v dpkg-query >/dev/null 2>&1; then
+    WORKER_GUEST_KERNEL_NEWEST_INSTALLED=$(
+        # The Status-Abbrev second character is the package state, so "hi"
+        # (held and installed) counts exactly like "ii". Vendor kernel images
+        # are commonly held to block an automatic replacement, and the old
+        # "ii"-only match reported such a host as having no installed kernel.
+        dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'linux-image-[0-9]*' 2>/dev/null \
+            | awk -v suffix="-${WORKER_GUEST_KERNEL_FLAVOR}" \
+                'substr($1, 2, 1) == "i" && index($2, suffix) == length($2) - length(suffix) + 1 {
+                    sub(/^linux-image-/, "", $2); print $2
+                }' \
+            | sort -V | tail -1
+    )
+    [[ -z "$WORKER_GUEST_KERNEL_NEWEST_INSTALLED" ]] \
+        && WORKER_GUEST_KERNEL_NEWEST_INSTALLED=unknown
+elif command -v rpm >/dev/null 2>&1; then
+    WORKER_GUEST_KERNEL_NEWEST_INSTALLED=$(
+        rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-core kernel 2>/dev/null \
+            | grep -v '^package ' | sort -V | tail -1
+    )
+    [[ -z "$WORKER_GUEST_KERNEL_NEWEST_INSTALLED" ]] \
+        && WORKER_GUEST_KERNEL_NEWEST_INSTALLED=unknown
+fi
+if [[ "$WORKER_GUEST_KERNEL_RUNNING" != unknown \
+        && "$WORKER_GUEST_KERNEL_NEWEST_INSTALLED" != unknown \
+        && "$WORKER_GUEST_KERNEL_RUNNING" != "$WORKER_GUEST_KERNEL_NEWEST_INSTALLED" ]]; then
+    WORKER_GUEST_KERNEL_OLDEST=$(
+        printf '%s\n%s\n' "$WORKER_GUEST_KERNEL_RUNNING" \
+            "$WORKER_GUEST_KERNEL_NEWEST_INSTALLED" | sort -V | head -1
+    )
+    if [[ "$WORKER_GUEST_KERNEL_OLDEST" == "$WORKER_GUEST_KERNEL_RUNNING" ]]; then
+        WORKER_GUEST_KERNEL_NEWER_INSTALLED=true
+    fi
+fi
+echo "WORKER_GUEST_KERNEL_RUNNING=${WORKER_GUEST_KERNEL_RUNNING}"
 # Bad Epoll identity evidence. These reads never exercise the vulnerability.
 # /proc describes the running kernel; dpkg must identify that same image.
 WORKER_BAD_EPOLL_SIGNATURE=$(cat "${CLUSTERMAX_AUDIT_ROOT:-}/proc/version_signature" 2>/dev/null || echo unknown)
@@ -363,48 +406,10 @@ echo "WORKER_BAD_EPOLL_SIGNATURE=${WORKER_BAD_EPOLL_SIGNATURE}"
 echo "WORKER_BAD_EPOLL_PACKAGE=${WORKER_BAD_EPOLL_PACKAGE}"
 echo "WORKER_BAD_EPOLL_LIVEPATCH=${WORKER_BAD_EPOLL_LIVEPATCH}"
 # End Bad Epoll identity evidence.
-WORKER_GUEST_KERNEL_NEWEST_INSTALLED=unknown
-WORKER_GUEST_KERNEL_NEWER_INSTALLED=false
-WORKER_GUEST_REBOOT_REQUIRED=false
-WORKER_GUEST_KERNEL_FLAVOR=$(printf '%s\n' "$WORKER_GUEST_KERNEL_RUNNING" \
-    | sed -E 's/^[0-9]+(\.[0-9]+)*-[0-9]+-//')
-if [[ -e /var/run/reboot-required ]]; then
-    WORKER_GUEST_REBOOT_REQUIRED=true
-fi
-if command -v dpkg-query >/dev/null 2>&1; then
-    WORKER_GUEST_KERNEL_NEWEST_INSTALLED=$(
-        dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'linux-image-[0-9]*' 2>/dev/null \
-            | awk -v suffix="-${WORKER_GUEST_KERNEL_FLAVOR}" \
-                '$1 ~ /^[uihrp]i$/ && index($2, suffix) == length($2) - length(suffix) + 1 {
-                    sub(/^linux-image-/, "", $2); print $2
-                }' \
-            | sort -V | tail -1
-    )
-    [[ -z "$WORKER_GUEST_KERNEL_NEWEST_INSTALLED" ]] \
-        && WORKER_GUEST_KERNEL_NEWEST_INSTALLED=unknown
-elif command -v rpm >/dev/null 2>&1; then
-    WORKER_GUEST_KERNEL_NEWEST_INSTALLED=$(
-        rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-core kernel 2>/dev/null \
-            | grep -v '^package ' | sort -V | tail -1
-    )
-    [[ -z "$WORKER_GUEST_KERNEL_NEWEST_INSTALLED" ]] \
-        && WORKER_GUEST_KERNEL_NEWEST_INSTALLED=unknown
-fi
-if [[ "$WORKER_GUEST_KERNEL_RUNNING" != unknown \
-        && "$WORKER_GUEST_KERNEL_NEWEST_INSTALLED" != unknown \
-        && "$WORKER_GUEST_KERNEL_RUNNING" != "$WORKER_GUEST_KERNEL_NEWEST_INSTALLED" ]]; then
-    WORKER_GUEST_KERNEL_OLDEST=$(
-        printf '%s\n%s\n' "$WORKER_GUEST_KERNEL_RUNNING" \
-            "$WORKER_GUEST_KERNEL_NEWEST_INSTALLED" | sort -V | head -1
-    )
-    if [[ "$WORKER_GUEST_KERNEL_OLDEST" == "$WORKER_GUEST_KERNEL_RUNNING" ]]; then
-        WORKER_GUEST_KERNEL_NEWER_INSTALLED=true
-    fi
-fi
-echo "WORKER_GUEST_KERNEL_RUNNING=${WORKER_GUEST_KERNEL_RUNNING}"
 echo "WORKER_GUEST_KERNEL_NEWEST_INSTALLED=${WORKER_GUEST_KERNEL_NEWEST_INSTALLED}"
 echo "WORKER_GUEST_KERNEL_NEWER_INSTALLED=${WORKER_GUEST_KERNEL_NEWER_INSTALLED}"
 echo "WORKER_GUEST_REBOOT_REQUIRED=${WORKER_GUEST_REBOOT_REQUIRED}"
+
 
 # Ubuntu's CVE-2026-46300 (Fragnesia) Noble 6.8 fixed package carries a minimum
 # kernel ABI, for example 6.8.0-124.124 whose running release is
@@ -835,6 +840,37 @@ collect_kernel_identity_facts() {
     printf 'WORKER_KERNEL_SOURCE_PACKAGE=%s\n' "$source_package"
 }
 collect_kernel_identity_facts
+
+collect_sctp_sendall_facts() {
+    local root="${CLUSTERMAX_AUDIT_ROOT:-}"
+    local livepatch=unknown sctp=unknown userns=unknown
+    local entry enabled
+    if [[ -d "${root}/sys/kernel/livepatch" && -r "${root}/sys/kernel/livepatch" \
+          && -x "${root}/sys/kernel/livepatch" ]]; then
+        livepatch=none
+        for entry in "${root}"/sys/kernel/livepatch/*; do
+            [[ -e "$entry" ]] || continue
+            enabled=$(cat "$entry/enabled" 2>/dev/null) || enabled=unknown
+            if [[ "$enabled" != 0 ]]; then
+                livepatch=active-or-unreadable
+            fi
+        done
+    elif [[ -d "${root}/sys/kernel" && -r "${root}/sys/kernel" \
+            && -x "${root}/sys/kernel" && ! -e "${root}/sys/kernel/livepatch" \
+            && ! -L "${root}/sys/kernel/livepatch" ]]; then
+        livepatch=not-supported
+    fi
+    if [[ -d "${root}/sys/module" && -r "${root}/sys/module" && -x "${root}/sys/module" ]]; then
+        sctp=false
+        [[ -d "${root}/sys/module/sctp" ]] && sctp=true
+    fi
+    userns=$(cat "${root}/proc/sys/user/max_user_namespaces" 2>/dev/null) || userns=unknown
+    [[ "$userns" =~ ^[0-9]+$ ]] || userns=unknown
+    printf 'WORKER_SCTP_SENDALL_LIVEPATCH=%s\n' "$livepatch"
+    printf 'WORKER_SCTP_SENDALL_SCTP_LOADED=%s\n' "$sctp"
+    printf 'WORKER_SCTP_SENDALL_USERNS_MAX=%s\n' "$userns"
+}
+collect_sctp_sendall_facts
 
 # --- GPU ---
 if command -v nvidia-smi &>/dev/null; then
@@ -2785,6 +2821,18 @@ echo "WORKER_IB_SM_KEY_STATUS=${WORKER_IB_SM_KEY_STATUS}"
 echo "WORKER_IB_SM_KEY_CHECK_SCOPE=${WORKER_IB_SM_KEY_CHECK_SCOPE}"
 
 # --- Storage / Drive Config ---
+collect_slurm_mount_namespace() {
+    local mounts="null"
+    if command -v findmnt >/dev/null 2>&1; then
+        mounts=$(findmnt -J -l -o SOURCE,TARGET,FSTYPE,OPTIONS 2>/dev/null \
+            | tr -d '\n' || true)
+    fi
+    printf 'WORKER_MOUNTS_JSON=%s\n' "${mounts:-null}"
+}
+if [[ -n "${SLURM_JOB_ID:-}" ]]; then
+    collect_slurm_mount_namespace
+fi
+
 # Boot device
 W_BOOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null || df / 2>/dev/null | tail -1 | awk '{print $1}')
 W_BOOT_FSTYPE=$(findmnt -n -o FSTYPE / 2>/dev/null || df -T / 2>/dev/null | tail -1 | awk '{print $2}')

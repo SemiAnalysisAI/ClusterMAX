@@ -6,7 +6,7 @@ import os
 import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import yaml
 
@@ -36,6 +36,23 @@ MAX_BYTES = 192 * 1024
 # A node record holds a few KiB of labels and capacity, so the shared budget
 # covers only tens of nodes. Placement evidence must cover large clusters.
 NODE_MAX_BYTES = 1024 * 1024
+
+
+def json_safe(value):
+    """Return a copy of a YAML value that json.dumps can encode."""
+    if isinstance(value, dict):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [json_safe(item) for item in value]
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, bool) or value is None or isinstance(value, (str, int)):
+        return value
+    if isinstance(value, float):
+        if value != value or value in {float("inf"), float("-inf")}:
+            raise ValueError("The configuration contains a non-finite number.")
+        return value
+    raise ValueError(f"The configuration contains {type(value).__name__}.")
 
 
 def zero_quantity(value):
@@ -92,6 +109,7 @@ def read_resource(resource, namespace="", name=""):
             elif any(
                 s in error
                 for s in (
+                    "error from server (notfound)",
                     "doesn't have a resource type",
                     "the server could not find the requested resource",
                 )
@@ -331,7 +349,7 @@ def collect(namespace):
                         raise ValueError(
                             "The configuration exceeds the retention limit"
                         )
-                    config = yaml.safe_load(value)
+                    config = json_safe(yaml.safe_load(value))
                     if (
                         isinstance(config, dict)
                         and str(config.get("apiVersion", "")).partition("/")[0]
@@ -369,5 +387,7 @@ def collect(namespace):
 
 
 if __name__ == "__main__" and os.environ.get("CLUSTERMAX_AUDIT_HARNESS") == "k8s":
-    namespace = os.environ.get("CLUSTERMAX_AUDIT_TENANT_NAMESPACE", "default")
+    namespace = os.environ.get("CLUSTERMAX_AUDIT_TENANT_NAMESPACE") or os.environ.get(
+        "K8S_NAMESPACE", "default"
+    )
     print(json.dumps({"k8s_scheduling": collect(namespace)}, indent=2))
