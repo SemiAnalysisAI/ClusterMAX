@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import sys
 import threading
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
@@ -2586,11 +2587,14 @@ class PullRequestBodyTest(unittest.TestCase):
         start = run.index("<<'PY'\n") + len("<<'PY'\n")
         cls.script = run[start : run.rindex("\nPY")]
 
-    def body(self, *, found: str | None, report: str) -> str:
+    def body(self, *, found: str | None, report: str, before=None, after=None,
+             summary: list | None = None) -> str:
         with tempfile.TemporaryDirectory() as temp:
             minimums = Path(temp) / "minimum-versions.json"
-            before = {"schemaVersion": 1, "components": {"docker": {"minimum": "29.4.2"}}}
-            after = {"schemaVersion": 1, "components": {"docker": {"minimum": "29.4.3"}}}
+            if before is None:
+                before = {"schemaVersion": 1, "components": {"docker": {"minimum": "29.4.2"}}}
+            if after is None:
+                after = {"schemaVersion": 1, "components": {"docker": {"minimum": "29.4.3"}}}
             minimums.write_text(json.dumps(after))
             (Path(temp) / "minimums-before.json").write_text(json.dumps(before))
             (Path(temp) / "new-bulletins.txt").write_text(report)
@@ -2598,6 +2602,7 @@ class PullRequestBodyTest(unittest.TestCase):
                 "MINIMUMS_PATH": str(minimums),
                 "RUNNER_TEMP": temp,
                 "RUN_URL": "https://example.invalid/run/1",
+                "GITHUB_STEP_SUMMARY": str(Path(temp) / "summary.md"),
             }
             if found is not None:
                 env["NEW_BULLETINS"] = found
@@ -2606,7 +2611,73 @@ class PullRequestBodyTest(unittest.TestCase):
                     __import__("os").environ.pop("NEW_BULLETINS", None)
                 with redirect_stdout(io.StringIO()):
                     exec(compile(self.script, "pr-body", "exec"), {"__name__": "__main__"})
+            if summary is not None and (Path(temp) / "summary.md").exists():
+                summary.append((Path(temp) / "summary.md").read_text())
             return (Path(temp) / "pr-body.md").read_text()
+
+    @staticmethod
+    def kernel_tables(rows: int, *, released: bool) -> tuple[dict, dict]:
+        def row(index: int, fixed: bool) -> dict:
+            entry = {
+                "cve": "CVE-2026-98432",
+                "kernelGroup": "linuxIpv4InetOptUaf",
+                "kernelFamily": "6.8",
+                "kernelFlavors": [f"flavor{index}", f"flavor{index}-64k"],
+                "package": f"linux-flavor{index}",
+                "status": "pending",
+                "fixed": "",
+            }
+            if fixed:
+                notice = {
+                    "id": "USN-9027-1",
+                    "url": "https://ubuntu.com/security/notices/USN-9027-1.json",
+                    "feed": "ubuntu-security-notice",
+                    "status": "confirmed",
+                    "available": "2026-11-10T08:45:39.949765",
+                    "bulletinReleased": "2026-11-10T08:45:39.949765",
+                    "version": f"6.8.0-{1000 + index}.1",
+                }
+                entry.update(
+                    status="released", fixed=f"6.8.0-{1000 + index}.1", abi=1000 + index,
+                    released=notice["available"], fixAvailability=notice,
+                    source={"feed": notice["feed"], "id": notice["id"], "url": notice["url"]},
+                )
+            return entry
+
+        def table(fixed: bool) -> dict:
+            packages = {f"linuxIpv4InetOptUafFlavor{index}": row(index, fixed) for index in range(rows)}
+            return {"schemaVersion": 1, "components": {"ubuntuNoble": {"packages": packages}}}
+
+        return table(False), table(released)
+
+    def test_a_released_kernel_fix_gets_one_line_per_row(self) -> None:
+        # Ubuntu released CVE-2026-98432 on every kernel at once. The leaf
+        # table made a 130 KB body, which GitHub rejects over 65536.
+        before, after = self.kernel_tables(150, released=True)
+        body = self.body(found="false", report="", before=before, after=after)
+        self.assertLess(len(body), 65536)
+        self.assertIn("### Named Ubuntu kernel CVEs", body)
+        self.assertIn(
+            "| ubuntuNoble | `linuxIpv4InetOptUafFlavor7` | CVE-2026-98432 | "
+            "pending → released | (none) → 6.8.0-1007.1 | "
+            "[USN-9027-1](https://ubuntu.com/security/notices/USN-9027-1.json) |",
+            body,
+        )
+        self.assertNotIn("fixAvailability.bulletinReleased", body)
+        self.assertNotIn("no minimum changed", body)
+
+    def test_an_oversized_change_list_moves_to_the_job_summary(self) -> None:
+        before = {"schemaVersion": 1, "components": {"docker": {
+            f"item{index}": "1" for index in range(3000)}}}
+        after = {"schemaVersion": 1, "components": {"docker": {
+            f"item{index}": "2" * 20 for index in range(3000)}}}
+        summary: list = []
+        body = self.body(found="false", report="", before=before, after=after, summary=summary)
+        self.assertLess(len(body), 65536)
+        self.assertIn("too long for a pull request body", body)
+        self.assertIn("https://example.invalid/run/1", body)
+        self.assertEqual(len(summary), 1)
+        self.assertIn("`item2999`", summary[0])
 
     def test_a_failed_scan_is_never_described_as_a_clean_scan(self) -> None:
         for found in (None, ""):
@@ -2776,12 +2847,40 @@ class FetchLoggingTests(unittest.TestCase):
     def test_failed_request_logs_duration_and_still_raises(self):
         url = "https://example.com/feed"
         with (
-            mock.patch.object(fr.SAFE_OPENER, "open", side_effect=TimeoutError("timed out")),
+            mock.patch.object(fr.SAFE_OPENER, "open", side_effect=TimeoutError("timed out")) as opener,
+            mock.patch.object(fr.time, "sleep") as sleep,
             self.assertLogs(fr.__name__, level="INFO") as logs,
             self.assertRaisesRegex(fr.MinimumRefreshError, "timed out"),
         ):
             fr.Fetcher().get_text(url)
         self.assertIn("finished " + url, "\n".join(logs.output))
+        # A timeout is transient: the request is tried once per retry delay
+        # plus once, and then the error stops the refresh.
+        self.assertEqual(opener.call_count, len(fr.Fetcher.retry_delays) + 1)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], list(fr.Fetcher.retry_delays))
+
+    def test_a_gateway_error_is_retried_and_a_404_is_not(self):
+        url = "https://ubuntu.com/security/notices/USN-1-1.json"
+
+        def http_error(code):
+            return fr.urllib.error.HTTPError(url, code, "error", {}, None)
+
+        with (
+            mock.patch.object(
+                fr.SAFE_OPENER, "open", side_effect=[http_error(502), io.BytesIO(b'{"ok": 1}')]
+            ) as opener,
+            mock.patch.object(fr.time, "sleep"),
+        ):
+            self.assertEqual(fr.Fetcher().get_json(url), {"ok": 1})
+        self.assertEqual(opener.call_count, 2)
+
+        with (
+            mock.patch.object(fr.SAFE_OPENER, "open", side_effect=http_error(404)) as opener,
+            mock.patch.object(fr.time, "sleep") as sleep,
+        ):
+            self.assertIsNone(fr.Fetcher().get_optional_json(url))
+        self.assertEqual(opener.call_count, 1)
+        sleep.assert_not_called()
 
 
 class UbuntuConcurrencyTests(unittest.TestCase):
@@ -2812,6 +2911,90 @@ class UbuntuConcurrencyTests(unittest.TestCase):
                 specs=[{"key": "x", "cve": "x", "package": "x"}],
                 package_policy=(),
             )
+
+
+    def test_kernel_cves_run_concurrently_and_keep_spec_order(self):
+        barrier = threading.Barrier(4, timeout=5)
+        specs = [
+            {"key": f"k{n}", "cve": f"CVE-2026-{n}", "package": "linux", "allKernels": True}
+            for n in range(4)
+        ]
+
+        def rows(spec, codename, fetch=None):
+            barrier.wait()
+            return {spec["key"]: {"cve": spec["cve"]}, "shared": {"cve": spec["cve"]}}
+
+        with mock.patch.object(fr, "ubuntu_kernel_cve_rows", side_effect=rows):
+            result = fr.ubuntu_minimums(specs=specs, package_policy=())
+        self.assertEqual(list(result["packages"]), ["k0", "shared", "k1", "k2", "k3"])
+        # A later spec still wins a shared row key, as in the serial loop.
+        self.assertEqual(result["packages"]["shared"]["cve"], "CVE-2026-3")
+
+
+class FetcherSharingTests(unittest.TestCase):
+    def test_parallel_readers_of_one_url_send_one_request(self):
+        fetch = fr.Fetcher()
+        calls: list[str] = []
+        started = threading.Event()
+
+        def read(url):
+            calls.append(url)
+            started.set()
+            time.sleep(0.2)
+            return {"url": url}
+
+        with mock.patch.object(fetch, "_read_json", side_effect=read):
+            with fr.ThreadPoolExecutor(max_workers=8) as pool:
+                results = list(pool.map(fetch.get_json, ["https://example.test/a"] * 8))
+        self.assertEqual(calls, ["https://example.test/a"])
+        self.assertTrue(all(result == {"url": "https://example.test/a"} for result in results))
+        # Callers get copies, so one caller cannot change another's record.
+        results[0]["url"] = "changed"
+        self.assertEqual(fetch.get_json("https://example.test/a"), {"url": "https://example.test/a"})
+
+    def test_a_failed_read_is_retried(self):
+        fetch = fr.Fetcher()
+        outcomes = [fr.MinimumRefreshError("timed out"), {"ok": True}]
+
+        def read(url):
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with mock.patch.object(fetch, "_read_json", side_effect=read):
+            with self.assertRaisesRegex(fr.MinimumRefreshError, "timed out"):
+                fetch.get_json("https://example.test/b")
+            self.assertEqual(fetch.get_json("https://example.test/b"), {"ok": True})
+
+    def test_ubuntu_com_keeps_its_connection_bound(self):
+        limit = fr.HOST_CONCURRENCY["ubuntu.com"]
+        lock = threading.Lock()
+        state = {"open": 0, "peak": 0}
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                with lock:
+                    state["open"] -= 1
+                return False
+
+        def opener(request, timeout=None):
+            with lock:
+                state["open"] += 1
+                state["peak"] = max(state["peak"], state["open"])
+            time.sleep(0.05)
+            return Response(b"{}")
+
+        fetch = fr.Fetcher()
+        urls = [f"https://ubuntu.com/security/cves/CVE-2026-{n}.json" for n in range(limit * 4)]
+        with mock.patch.object(fr.SAFE_OPENER, "open", side_effect=opener):
+            with fr.ThreadPoolExecutor(max_workers=limit * 4) as pool:
+                list(pool.map(fetch.get_json, urls))
+        self.assertLessEqual(state["peak"], limit)
+        self.assertGreater(state["peak"], 1)
 
 
 class BulletinShellTests(unittest.TestCase):
