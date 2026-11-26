@@ -40,6 +40,13 @@ def _kernel_grade(running: str) -> tuple[str, str, str]:
         return "unknown", "unknown", "The minimum table has no usable policy for this CVE."
 
     branch = f"{observed[0]}.{observed[1]}"
+    first_on_branch = _release(affected_from.get(branch))
+    if branch in affected_from and (first_on_branch is None or first_on_branch[:2] != observed[:2]):
+        return "unknown", "unknown", "The minimum table has an invalid affected range for this branch."
+    if first_on_branch is not None and observed < first_on_branch and observed < affected_since:
+        # The bug reached this older branch in a backport. A release before that
+        # backport is not affected, even when the branch also has a fixed release.
+        return "not-applicable", "unknown", "The running upstream kernel predates the affected releases."
     floor_text = entry["mainline"] if observed[:2] >= mainline[:2] else branches.get(branch)
     if floor_text is not None:
         floor = _release(floor_text)
@@ -49,9 +56,6 @@ def _kernel_grade(running: str) -> tuple[str, str, str]:
             return "pass", floor_text, f"The running upstream kernel meets the {floor_text} minimum."
         return "fail", floor_text, f"The running upstream kernel is below the {floor_text} minimum."
 
-    first_on_branch = _release(affected_from.get(branch))
-    if branch in affected_from and (first_on_branch is None or first_on_branch[:2] != observed[:2]):
-        return "unknown", "unknown", "The minimum table has an invalid affected range for this branch."
     if observed[-1] != sys.maxsize:
         return "unknown", "unknown", "The minimum table does not grade this release candidate."
     if observed >= affected_since or (first_on_branch is not None and observed >= first_on_branch):
