@@ -382,7 +382,30 @@ jobs:
           # CVE below, so the leaf table stays within the pull request body limit.
           old_discovered = discovered_rows(before)
           new_discovered = discovered_rows(after)
-          skip = {f"{component}.packages.{key}" for component, key in (*old_discovered, *new_discovered)}
+
+          def named_kernel_rows(table):
+              """(component, key) -> row for each named Ubuntu kernel CVE row."""
+              rows = {}
+              for component, block in (table.get("components") or {}).items():
+                  packages = block.get("packages") if isinstance(block, dict) else None
+                  for key, entry in (packages or {}).items():
+                      if (
+                          isinstance(entry, dict)
+                          and entry.get("kernelGroup")
+                          and entry.get("discovered") is not True
+                      ):
+                          rows[(component, key)] = entry
+              return rows
+
+          # A named kernel CVE has one row per Ubuntu kernel source package, and each
+          # row has about 15 leaves. When Ubuntu releases its fix, every row changes
+          # at once, so these rows get one summary line each instead of a leaf table.
+          old_named = named_kernel_rows(before)
+          new_named = named_kernel_rows(after)
+          skip = {
+              f"{component}.packages.{key}"
+              for component, key in (*old_discovered, *new_discovered, *old_named, *new_named)
+          }
 
           def kept(leaves):
               return {
@@ -410,6 +433,24 @@ jobs:
           def cell(text):
               # Keep a value with a pipe character inside the table cell.
               return text.replace("|", "\\|") if text else "(none)"
+
+          def moved(old_value, new_value):
+              old_text, new_text = cell(old_value), cell(new_value)
+              return new_text if old_text == new_text else f"{old_text} → {new_text}"
+
+          named_changes = {}
+          for row in sorted(set(old_named) | set(new_named)):
+              old_entry, new_entry = old_named.get(row) or {}, new_named.get(row) or {}
+              if old_entry == new_entry:
+                  continue
+              fix = (new_entry or old_entry).get("fixAvailability") or {}
+              named_changes.setdefault(row[0], []).append((
+                  row[1],
+                  str((new_entry or old_entry).get("cve") or ""),
+                  moved(str(old_entry.get("status") or ""), str(new_entry.get("status") or "removed")),
+                  moved(str(old_entry.get("fixed") or ""), str(new_entry.get("fixed") or "")),
+                  f"[{fix['id']}]({fix['url']})" if fix.get("id") and fix.get("url") else cell(""),
+              ))
 
           changes = {}
           for leaf in sorted(set(old_leaves) | set(new_leaves)):
@@ -452,6 +493,21 @@ jobs:
                       )
               lines.append("")
 
+          if named_changes:
+              lines.append("### Named Ubuntu kernel CVEs")
+              lines.append("")
+              lines.append(
+                  "One line per changed kernel source package row. A released fix "
+                  "moves a row to `released` with the fixed version and its notice."
+              )
+              lines.append("")
+              lines.append("| Component | Row | CVE | Status | Fixed | Fix notice |")
+              lines.append("| --- | --- | --- | --- | --- | --- |")
+              for component, rows in sorted(named_changes.items()):
+                  for key, cve, status, fixed, notice in rows:
+                      lines.append(f"| {component} | `{key}` | {cve} | {status} | {fixed} | {notice} |")
+              lines.append("")
+
           if changes:
               total = sum(len(rows) for rows in changes.values())
               lines.append(
@@ -478,7 +534,7 @@ jobs:
                       lines.append("Upstream sources:")
                       lines.extend(f"- {link}" for link in source_links)
                       lines.append("")
-          elif not discovered_summary:
+          elif not discovered_summary and not named_changes:
               lines.append(
                   f"- `{path}`: no minimum changed. Only the `generated` timestamp "
                   "moved, because the table was near its `maxAgeDays` limit."
@@ -612,8 +668,30 @@ jobs:
               """
           )
 
+          change_list = "\n".join(lines).rstrip()
+          # GitHub rejects a pull request body over 65536 characters. Keep the body
+          # under that with room for the template, and put the full change list in
+          # the job summary, which allows 1 MiB.
+          budget = 50000
+          if len(change_list) > budget:
+              summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+              if summary_path:
+                  with open(summary_path, "a", encoding="utf-8") as summary:
+                      summary.write("## Full minimum table change list\n\n" + change_list + "\n")
+              kept_lines, size = [], 0
+              for line in lines:
+                  if size + len(line) + 1 > budget:
+                      break
+                  kept_lines.append(line)
+                  size += len(line) + 1
+              change_list = "\n".join(kept_lines).rstrip() + (
+                  "\n\n**The change list is too long for a pull request body and stops "
+                  "here.** Read the full list in the job summary of run "
+                  f"{os.environ.get('RUN_URL', '')}."
+              )
+
           replacements = {
-              "CHANGE_LIST": "\n".join(lines).rstrip(),
+              "CHANGE_LIST": change_list,
               "BULLETIN_REPORT": bulletin_text,
               "SCHEMA_VERSION": str(after.get("schemaVersion")),
               "MINIMUMS_FILE": path,

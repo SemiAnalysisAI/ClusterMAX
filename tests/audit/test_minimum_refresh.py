@@ -2587,11 +2587,14 @@ class PullRequestBodyTest(unittest.TestCase):
         start = run.index("<<'PY'\n") + len("<<'PY'\n")
         cls.script = run[start : run.rindex("\nPY")]
 
-    def body(self, *, found: str | None, report: str) -> str:
+    def body(self, *, found: str | None, report: str, before=None, after=None,
+             summary: list | None = None) -> str:
         with tempfile.TemporaryDirectory() as temp:
             minimums = Path(temp) / "minimum-versions.json"
-            before = {"schemaVersion": 1, "components": {"docker": {"minimum": "29.4.2"}}}
-            after = {"schemaVersion": 1, "components": {"docker": {"minimum": "29.4.3"}}}
+            if before is None:
+                before = {"schemaVersion": 1, "components": {"docker": {"minimum": "29.4.2"}}}
+            if after is None:
+                after = {"schemaVersion": 1, "components": {"docker": {"minimum": "29.4.3"}}}
             minimums.write_text(json.dumps(after))
             (Path(temp) / "minimums-before.json").write_text(json.dumps(before))
             (Path(temp) / "new-bulletins.txt").write_text(report)
@@ -2599,6 +2602,7 @@ class PullRequestBodyTest(unittest.TestCase):
                 "MINIMUMS_PATH": str(minimums),
                 "RUNNER_TEMP": temp,
                 "RUN_URL": "https://example.invalid/run/1",
+                "GITHUB_STEP_SUMMARY": str(Path(temp) / "summary.md"),
             }
             if found is not None:
                 env["NEW_BULLETINS"] = found
@@ -2607,7 +2611,73 @@ class PullRequestBodyTest(unittest.TestCase):
                     __import__("os").environ.pop("NEW_BULLETINS", None)
                 with redirect_stdout(io.StringIO()):
                     exec(compile(self.script, "pr-body", "exec"), {"__name__": "__main__"})
+            if summary is not None and (Path(temp) / "summary.md").exists():
+                summary.append((Path(temp) / "summary.md").read_text())
             return (Path(temp) / "pr-body.md").read_text()
+
+    @staticmethod
+    def kernel_tables(rows: int, *, released: bool) -> tuple[dict, dict]:
+        def row(index: int, fixed: bool) -> dict:
+            entry = {
+                "cve": "CVE-2026-98432",
+                "kernelGroup": "linuxIpv4InetOptUaf",
+                "kernelFamily": "6.8",
+                "kernelFlavors": [f"flavor{index}", f"flavor{index}-64k"],
+                "package": f"linux-flavor{index}",
+                "status": "pending",
+                "fixed": "",
+            }
+            if fixed:
+                notice = {
+                    "id": "USN-9027-1",
+                    "url": "https://ubuntu.com/security/notices/USN-9027-1.json",
+                    "feed": "ubuntu-security-notice",
+                    "status": "confirmed",
+                    "available": "2026-11-10T08:45:39.949765",
+                    "bulletinReleased": "2026-11-10T08:45:39.949765",
+                    "version": f"6.8.0-{1000 + index}.1",
+                }
+                entry.update(
+                    status="released", fixed=f"6.8.0-{1000 + index}.1", abi=1000 + index,
+                    released=notice["available"], fixAvailability=notice,
+                    source={"feed": notice["feed"], "id": notice["id"], "url": notice["url"]},
+                )
+            return entry
+
+        def table(fixed: bool) -> dict:
+            packages = {f"linuxIpv4InetOptUafFlavor{index}": row(index, fixed) for index in range(rows)}
+            return {"schemaVersion": 1, "components": {"ubuntuNoble": {"packages": packages}}}
+
+        return table(False), table(released)
+
+    def test_a_released_kernel_fix_gets_one_line_per_row(self) -> None:
+        # Ubuntu released CVE-2026-98432 on every kernel at once. The leaf
+        # table made a 130 KB body, which GitHub rejects over 65536.
+        before, after = self.kernel_tables(150, released=True)
+        body = self.body(found="false", report="", before=before, after=after)
+        self.assertLess(len(body), 65536)
+        self.assertIn("### Named Ubuntu kernel CVEs", body)
+        self.assertIn(
+            "| ubuntuNoble | `linuxIpv4InetOptUafFlavor7` | CVE-2026-98432 | "
+            "pending → released | (none) → 6.8.0-1007.1 | "
+            "[USN-9027-1](https://ubuntu.com/security/notices/USN-9027-1.json) |",
+            body,
+        )
+        self.assertNotIn("fixAvailability.bulletinReleased", body)
+        self.assertNotIn("no minimum changed", body)
+
+    def test_an_oversized_change_list_moves_to_the_job_summary(self) -> None:
+        before = {"schemaVersion": 1, "components": {"docker": {
+            f"item{index}": "1" for index in range(3000)}}}
+        after = {"schemaVersion": 1, "components": {"docker": {
+            f"item{index}": "2" * 20 for index in range(3000)}}}
+        summary: list = []
+        body = self.body(found="false", report="", before=before, after=after, summary=summary)
+        self.assertLess(len(body), 65536)
+        self.assertIn("too long for a pull request body", body)
+        self.assertIn("https://example.invalid/run/1", body)
+        self.assertEqual(len(summary), 1)
+        self.assertIn("`item2999`", summary[0])
 
     def test_a_failed_scan_is_never_described_as_a_clean_scan(self) -> None:
         for found in (None, ""):
