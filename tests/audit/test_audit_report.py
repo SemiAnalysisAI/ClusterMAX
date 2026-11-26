@@ -1847,5 +1847,34 @@ class VersionDetailReportTests(unittest.TestCase):
         self.assertTrue(bare_metal_check.reproduce)
 
 
+    def test_pcie_passthrough_is_skipped_for_a_container_on_a_vm(self) -> None:
+        values = {
+            "cluster": {"orchestrator": "standalone", "environment": "container"},
+            "audit_data": {
+                "security": {
+                    "virtualization": {"guest": True},
+                    "pciePassthrough": {"hostVerificationRequired": True},
+                }
+            },
+        }
+
+        def pcie(data: dict) -> audit_report.AuditCheck:
+            return next(
+                check
+                for check in audit_report.evaluate(
+                    data,
+                    RUNTIME_ROOT,
+                    harness="standalone",
+                    environment="container",
+                )
+                if check.key == "pcie-passthrough"
+            )
+
+        self.assertEqual(pcie(values).status, audit_report.SKIPPED)
+        self.assertEqual(pcie(values).observed, "running in a VM")
+
+        values["audit_data"]["security"]["virtualization"]["guest"] = False
+        self.assertEqual(pcie(values).status, audit_report.WARNING)
+
 if __name__ == "__main__":
     unittest.main()
