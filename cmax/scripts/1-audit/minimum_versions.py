@@ -3,8 +3,8 @@
 
 `minimum-versions.json` holds every published minimum version the audit grades
 against. A daily GitHub Actions workflow regenerates it from upstream feeds
-(NVIDIA CSAF, OSV, and the Ubuntu security API) and opens a pull request. The
-security audit fetches the published copy of this table on startup; a cluster
+(NVIDIA CSAF, OSV, and the Ubuntu security API) and opens a pull request. Every
+audit fetches the published copy of this table on startup; a cluster
 with no outbound network prints one warning, grades against the installed
 table, and stays reproducible with `--no-fetch-minimums`.
 

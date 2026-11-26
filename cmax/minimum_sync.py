@@ -27,12 +27,12 @@ upstream feeds and needs a writable checkout. This module needs one HTTPS GET
 request and a writable cache directory, so it works for a wheel installation
 and for a checkout.
 
-The security audit fetches by default on startup, so an installed client
+Every audit fetches by default on startup, so an installed client
 grades against the current published minimums without any flag. A cluster
 under audit frequently has no outbound network access, so a failed fetch
 prints one warning and the audit continues against the installed table. An
 operator who needs a committed audit result to stay reproducible from the
-committed table opts out with `cmax audit security --no-fetch-minimums`.
+committed table opts out with `cmax audit --no-fetch-minimums`.
 
 Design rules:
 
