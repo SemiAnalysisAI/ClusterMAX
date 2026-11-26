@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Executable tests for the focused security collectors."""
+"""Executable tests for the fleet security stage that every collector runs."""
 
 from __future__ import annotations
 
 import json
+import shlex
 import sys
 import tempfile
 import unittest
@@ -22,13 +23,38 @@ AUDIT_ROOT = (
     / "scripts"
     / "1-audit"
 )
-COLLECTOR = AUDIT_ROOT / "cluster-audit-slurm-security.sh"
-K8S_COLLECTOR = AUDIT_ROOT / "cluster-audit-k8s-security.sh"
+FLEET = AUDIT_ROOT / "security-fleet.sh"
+SAMPLED_JSON = {
+    "securityVersions": {},
+    "security": {
+        "pciePassthrough": {"guestIommuGroupCount": 3, "hostVerificationRequired": True}
+    },
+}
 
 
-ROCM_COUNTER_ACCESS_STATE = bashtest.extract_function(
-    AUDIT_ROOT / "audit-common.sh", "rocm_counter_access_state"
-)
+def merge_script(
+    harness: str, sampled: str, container: str, output: Path, sampled_json: dict | None = None
+) -> str:
+    """Source the shared stage and fold the fleet into a sampled JSON."""
+    host_file = output.with_suffix(".host")
+    container_file = output.with_suffix(".container")
+    json_file = output.with_suffix(".sampled.json")
+    host_file.write_text(sampled)
+    container_file.write_text(container)
+    json_file.write_text(json.dumps(SAMPLED_JSON if sampled_json is None else sampled_json))
+    return f"""
+set -o pipefail
+WORKLOAD_DIR={shlex.quote(str(AUDIT_ROOT))}
+. "$WORKLOAD_DIR/audit-common.sh"
+. "$WORKLOAD_DIR/security-fleet.sh"
+trap cleanup_k8s_security_pod EXIT
+JSON_OUTPUT=$(cat {shlex.quote(str(json_file))})
+SAMPLED=$(cat {shlex.quote(str(host_file))})
+CONTAINER_CHECK_OUTPUT=$(cat {shlex.quote(str(container_file))})
+WORKER_HOSTNAME=$(sed -n 's/^WORKER_HOSTNAME=//p' <<< "$SAMPLED" | head -1)
+merge_security_fleet {harness} "$SAMPLED"
+printf '%s\\n' "$JSON_OUTPUT" > {shlex.quote(str(output))}
+"""
 
 
 @pytest.mark.parametrize(
@@ -53,113 +79,150 @@ def test_rocm_counter_access_state(
     assert run.stdout.strip() == expected
 
 
-class SlurmSecurityCollectorTests(unittest.TestCase):
-    def test_collector_runs_only_the_security_worker_steps(self) -> None:
-        host_evidence = """\
-WORKER_HOSTNAME=amd-worker-01
-WORKER_GPU_MODEL=unknown
-WORKER_GPU_COUNT=0
-WORKER_DRIVER_VERSION=unknown
-WORKER_CUDA_VERSION=unknown
-WORKER_NVCC_VERSION=not-found
-WORKER_AMD_GPU_MODEL=AMD-Instinct-MI300X
-WORKER_AMD_GPU_COUNT=8
-WORKER_AMD_GPU_MEMORY=196608
-WORKER_AMD_DRIVER_VERSION=6.8.5
+ROCM_COUNTER_ACCESS_STATE = bashtest.extract_function(
+    AUDIT_ROOT / "audit-common.sh", "rocm_counter_access_state"
+)
+
+
+SLURM_HOST = """\
+WORKER_HOSTNAME={node}
+WORKER_GPU_MODEL=NVIDIA-H100-80GB-HBM3
+WORKER_GPU_COUNT=8
+WORKER_DRIVER_VERSION=580.159.03
 WORKER_SECURITY_GPU_INVENTORY_COMPLETE=true
-WORKER_SECURITY_NVIDIA_GPU_PRESENT=false
-WORKER_SECURITY_NIC_INVENTORY_COMPLETE=true
-WORKER_RDMA_LINK_LAYERS=Ethernet
-WORKER_IB_DEVICES=bnxt_re0
+WORKER_SECURITY_NVIDIA_GPU_PRESENT=true
 WORKER_OS_ID=ubuntu
 WORKER_OS_VERSION_ID=24.04
-WORKER_GUEST_KERNEL_RUNNING=6.8.0-124-generic
-WORKER_GUEST_KERNEL_NEWEST_INSTALLED=6.8.0-138-generic
-WORKER_GUEST_KERNEL_NEWER_INSTALLED=true
-WORKER_GUEST_REBOOT_REQUIRED=true
-WORKER_FRAGNESIA_STATUS=unknown
-WORKER_FRAGNESIA_ABI_FLOOR=6.8.0-124.124
-WORKER_NESTED_CPU_EXPOSED=true
-WORKER_KVM_DEVICE=true
-WORKER_NESTED_MODULE=kvm_amd
-WORKER_NESTED_ENABLED=true
-WORKER_JANUSCAPE_EXPOSED=false
-WORKER_JANUSCAPE_STATUS=not-exposed
-WORKER_QEMU_CVE_2024_3446_STATUS=not-applicable
-WORKER_VMSCAPE_STATUS=not-applicable
-WORKER_VIRT_TYPE=none
-WORKER_VIRT_GUEST=false
-WORKER_VIRTIO_SERIAL=true
-WORKER_IOMMU_GROUPS=32
-WORKER_NVLINK_EXPOSED=unknown
-WORKER_NVLINK_TOPOLOGY_CHECKED=false
-WORKER_NVIDIA_MAY_2026_PATCHED=not-applicable
-WORKER_IPMITOOL_PATH=
-WORKER_IPMI_USER_ACCESS=not-installed
-WORKER_IPMI_SUDO_ACCESS=not-installed
+WORKER_GUEST_KERNEL_RUNNING=6.8.0-138-generic
+WORKER_PCIE_SCAN_COMPLETE=true
+WORKER_PCIE_VFIO_DEVICES=0
+WORKER_PCIE_UNSAFE_GROUPS=0
 """
-        container_evidence = """\
-WORKER_CONTAINER_HOSTNAME=amd-worker-01
-WORKER_CONTAINER_SECURITY_DOCKER_VERSION=29.5.3
-WORKER_CONTAINER_SECURITY_NCT_VERSION=not-installed
-WORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.5
+SLURM_CONTAINER = """\
+WORKER_CONTAINER_HOSTNAME={node}
+WORKER_CONTAINER_SECURITY_DOCKER_VERSION={docker}
+WORKER_CONTAINER_SECURITY_NCT_VERSION=1.19.1
+WORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.6
 """
-        srun_stub = (
-            'if [[ "$*" == *"--time=5:00"* ]]; then\n'
-            f"  printf '%b' {host_evidence!r}\n"
-            "else\n"
-            f"  printf '%b' {container_evidence!r}\n"
-            "fi\n"
-        )
 
+
+class SlurmSecurityFleetTests(unittest.TestCase):
+    def test_fleet_json_larger_than_one_argument_is_merged(self) -> None:
+        # Linux limits one argument to 128 KiB. The published minimum table
+        # can make the sampled security JSON larger than that, and jq then
+        # failed and emptied the audit JSON.
+        padding = "x" * 300_000
+        sampled_json = {
+            "securityVersions": {"docker": {"status": "pass", "note": padding}},
+            "security": {"pciePassthrough": {}, "note": padding},
+        }
+        payload, _ = self.run_slurm_merge(sampled_json)
+        self.assertEqual(payload["security"]["note"], padding)
+        self.assertEqual(payload["security"]["pwnescape"]["scope"], "fleet")
+        self.assertEqual(payload["securityVersions"]["docker"]["fleet"]["hostsChecked"], 2)
+
+    def test_full_collector_stage_reads_every_gpu_and_control_host(self) -> None:
+        payload, run = self.run_slurm_merge()
+        self.check_fleet(payload, run)
+
+    def run_slurm_merge(self, sampled_json: dict | None = None):
+        srun_stub = (
+            'node=unknown; prev=""\n'
+            'for arg in "$@"; do [[ "$prev" == "-w" ]] && node="$arg"; prev="$arg"; done\n'
+            'payload=$(cat)\n'
+            'if grep -q WORKER_CONTAINER_SECURITY_DOCKER_VERSION <<< "$payload"; then\n'
+            "  printf 'WORKER_CONTAINER_HOSTNAME=%s\\nWORKER_CONTAINER_SECURITY_DOCKER_VERSION=29.0.0\\n"
+            "WORKER_CONTAINER_SECURITY_NCT_VERSION=1.19.1\\nWORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.6\\n' \"$node\"\n"
+            'else\n'
+            "  printf 'WORKER_HOSTNAME=%s\\nWORKER_OS_ID=ubuntu\\nWORKER_OS_VERSION_ID=24.04\\n"
+            "WORKER_GUEST_KERNEL_RUNNING=6.8.0-138-generic\\nWORKER_DRIVER_VERSION=580.159.03\\n' \"$node\"\n"
+            'fi\n'
+        )
+        sinfo_stub = (
+            'case "$*" in\n'
+            "  *'%N|%P|%G'*) printf 'gpu-a|gpu|gpu:8\\ngpu-b|gpu|gpu:8\\n' ;;\n"
+            "  *) printf 'gpu-a|gpu\\ngpu-b|gpu\\n' ;;\n"
+            'esac\n'
+        )
+        scontrol_stub = (
+            'case "$*" in\n'
+            "  'show config') echo 'SlurmctldHost[0] = ctl-0(10.0.0.1)' ;;\n"
+            'esac\n'
+        )
+        ssh_stub = (
+            "printf 'WORKER_HOSTNAME=ctl-0\\nWORKER_GUEST_KERNEL_RUNNING=6.8.0-138-generic\\n'\n"
+        )
+        sampled = SLURM_HOST.format(node="gpu-a")
+        container = SLURM_CONTAINER.format(node="gpu-a", docker="29.5.3")
         with tempfile.TemporaryDirectory() as tmp:
-            output_dir = Path(tmp) / "raw"
+            output = Path(tmp) / "audit.json"
             run = bashtest.run_bash(
-                f'bash "{COLLECTOR}" --name amd-cluster --output-dir "{output_dir}"',
-                stubs={"srun": srun_stub},
-                env={
-                    "CLUSTERMAX_AUDIT_HARNESS": "slurm",
-                    "CLUSTERMAX_AUDIT_SCOPE": "security",
-                    "CLUSTERMAX_GPU_PARTITION": "gpu",
+                merge_script("slurm", sampled, container, output, sampled_json),
+                stubs={
+                    "srun": srun_stub,
+                    "sinfo": sinfo_stub,
+                    "scontrol": scontrol_stub,
+                    "ssh": ssh_stub,
                 },
+                env={"SLURM_JOB_ID": "", "SLURM_JOB_NODELIST": ""},
+                timeout=60,
+            )
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+            self.assertNotIn("Argument list too long", run.stdout + run.stderr)
+            payload = json.loads(output.read_text())
+        return payload, run
+
+    def check_fleet(self, payload: dict, run) -> None:
+        pwnescape = payload["security"]["pwnescape"]
+        self.assertEqual(pwnescape["scope"], "fleet")
+        roles = {(host["node"], host["role"]) for host in pwnescape["hosts"]}
+        self.assertIn(("gpu-a", "worker"), roles)
+        self.assertIn(("gpu-b", "worker"), roles)
+        self.assertIn(("ctl-0", "control-plane"), roles)
+        self.assertEqual(payload["security"]["kvmSvm"]["scope"], "fleet")
+        self.assertEqual(payload["security"]["januscape"]["scope"], "fleet")
+        docker = payload["securityVersions"]["docker"]
+        self.assertEqual(docker["fleet"]["hostsChecked"], 2)
+        self.assertEqual(
+            {host["node"] for host in docker["fleet"]["hosts"]}, {"gpu-a", "gpu-b"}
+        )
+        self.assertEqual(
+            payload["security"]["pciePassthrough"],
+            {
+                "guestIommuGroupCount": 3,
+                "hostVerificationRequired": True,
+                "inventoryComplete": True,
+                "vfioDevices": 0,
+                "unsafeGroups": 0,
+                "scope": "sampled-worker-host",
+            },
+        )
+        # One host check and one container check on the second GPU node, and
+        # one PwnEscape read on each compute node.
+        self.assertEqual(len(run.calls("srun")), 4)
+
+
+class StandaloneSecurityFleetTests(unittest.TestCase):
+    def test_standalone_adds_pcie_inventory_and_reads_no_other_host(self) -> None:
+        sampled = SLURM_HOST.format(node="box")
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "audit.json"
+            run = bashtest.run_bash(
+                merge_script("standalone", sampled, "", output),
+                stubs={"srun": "exit 99\n", "kubectl": "exit 99\n", "sinfo": "exit 99\n"},
                 timeout=30,
             )
-
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-            output_files = list(output_dir.glob("*.json"))
-            self.assertEqual(len(output_files), 1)
-            payload = json.loads(output_files[0].read_text())
-
-        self.assertEqual(len(run.calls("srun")), 2)
-        self.assertEqual(payload["gpus"]["model"], "AMD-Instinct-MI300X")
-        self.assertTrue(payload["gpus"]["amd"]["present"])
-        self.assertEqual(payload["securityVersions"]["docker"]["version"], "29.5.3")
-        self.assertEqual(payload["securityVersions"]["runc"]["version"], "1.3.5")
-        self.assertTrue(payload["security"]["guestKernel"]["newerInstalled"])
-        # The security profile grades the kernel against the per-kernel Ubuntu
-        # CVE rows, as the full audit does. 6.8.0-124 predates every fix.
-        self.assertEqual(payload["security"]["guestKernel"]["ubuntuCveStatus"], "fail")
-        self.assertIn(
-            "CVE-2026-46227", payload["security"]["guestKernel"]["ubuntuVulnerableCves"]
-        )
-        self.assertEqual(payload["security"]["guestKernel"]["ubuntuCveGracePeriods"], [])
-        self.assertTrue(payload["security"]["virtualization"]["virtioSerialExposed"])
-        self.assertEqual(
-            payload["security"]["nvidiaMay2026"]["driverVersion"], "unknown"
-        )
-        self.assertFalse(
-            payload["security"]["nvlinkBoundary"]["nvidiaGpuPresent"]
-        )
-        self.assertEqual(
-            payload["security"]["nvlinkBoundary"]["nvlinkExposed"], "unknown"
-        )
-        self.assertNotIn("NVIDIA HPC SDK & SOFTWARE STACK", run.stdout)
-        self.assertNotIn("STORAGE & FILESYSTEM", run.stdout)
-        self.assertNotIn("HEALTH CHECKS & MONITORING", run.stdout)
+            payload = json.loads(output.read_text())
+        self.assertEqual(payload["securityVersions"], {})
+        self.assertNotIn("pwnescape", payload["security"])
+        self.assertTrue(payload["security"]["pciePassthrough"]["inventoryComplete"])
+        self.assertEqual(run.calls("srun"), [])
+        self.assertEqual(run.calls("kubectl"), [])
 
 
-class KubernetesSecurityCollectorTests(unittest.TestCase):
-    def test_collector_uses_one_host_pod_and_only_security_worker_steps(self) -> None:
+class KubernetesSecurityFleetTests(unittest.TestCase):
+    def test_full_collector_stage_visits_every_node_once(self) -> None:
         nodes = {
             "items": [
                 {
@@ -262,6 +325,7 @@ WORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.6
             'case "$*" in\n'
             f'  "get nodes"*) printf \'%s\\n\' {json.dumps(nodes)!r} ;;\n'
             f'  "get pods --all-namespaces"*) printf \'%s\\n\' {json.dumps(pods)!r} ;;\n'
+            '  "get pods -A"*) printf \'{"items": []}\\n\' ;;\n'
             '  "apply "*) cat >/dev/null ;;\n'
             '  "wait "*) exit 0 ;;\n'
             '  "exec "*)\n'
@@ -283,46 +347,24 @@ WORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.6
         )
 
         with tempfile.TemporaryDirectory() as tmp:
-            output_dir = Path(tmp) / "raw"
+            output = Path(tmp) / "audit.json"
             run = bashtest.run_bash(
-                f'bash "{K8S_COLLECTOR}" --name k8s-cluster --output-dir "{output_dir}"',
+                merge_script("k8s", host_evidence, "", output),
                 stubs={"kubectl": kubectl_stub},
                 env={
                     "CLUSTERMAX_AUDIT_K8S_BMC_NODE_LIMIT": "2",
-                    "CLUSTERMAX_NVLINK_DOMAIN_EXCLUSIVE_ATTESTED": "true",
                 },
                 timeout=30,
             )
 
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-            output_files = list(output_dir.glob("*.json"))
-            self.assertEqual(len(output_files), 1)
-            payload = json.loads(output_files[0].read_text())
+            payload = json.loads(output.read_text())
 
-        self.assertEqual(payload["audit"]["type"], "k8s")
-        self.assertEqual(payload["nodes"]["total"], 3)
-        self.assertEqual(payload["gpus"]["total"], 8)
         self.assertEqual(
-            payload["securityVersions"]["nvidiaDriver"]["version"],
-            "580.159.03",
+            payload["securityVersions"]["nvidiaDriver"]["fleet"]["hostsChecked"], 1
         )
         self.assertEqual(
-            payload["securityVersions"]["dcgmExporter"]["version"], "4.8.2"
-        )
-        self.assertEqual(
-            payload["security"]["nvlinkBoundary"],
-            {
-                "nvlinkExposed": True,
-                "topologyChecked": True,
-                "topologyCoverageComplete": True,
-                "nvidiaGpuPresent": True,
-                "targetIsVm": True,
-                "allHostGpusVisible": "unknown",
-                "hostGpuCount": "unknown",
-                "visibleGpuCount": "unknown",
-                "domainExclusive": True,
-                "domainExclusivitySource": "operator-attestation",
-            },
+            payload["runtimeSoftware"]["cudaToolkit"]["node"], "gpu-node-01"
         )
         exec_calls = [call for call in run.calls("kubectl") if call[0] == "exec"]
         # Host check, container check, two BMC probes within the limit, and
@@ -381,8 +423,6 @@ WORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.6
             payload["security"]["bmcIpmi"]["ordinaryPodExposureTested"]
         )
         self.assertEqual(run.calls("srun"), [])
-        self.assertNotIn("STORAGE & FILESYSTEM", run.stdout)
-        self.assertNotIn("HEALTH CHECKS & MONITORING", run.stdout)
 
 
 if __name__ == "__main__":

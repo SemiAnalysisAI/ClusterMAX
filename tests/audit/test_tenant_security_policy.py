@@ -9,7 +9,7 @@ from test_security_release_evidence import WORK, bashtest, runtime
 
 policy = runtime.policy
 BMC_RECORD = bashtest.extract_function(
-    WORK / "cluster-audit-slurm-security.sh", "k8s_bmc_record_for_current_pod"
+    WORK / "security-fleet.sh", "k8s_bmc_record_for_current_pod"
 )
 
 

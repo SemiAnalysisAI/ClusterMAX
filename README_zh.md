@@ -145,7 +145,7 @@ audit_profile:
   - nvlink-boundary
 ```
 
-解析后的计划仅启用 `audit.audit`。它使用标准产物文件、进度封装层和报告格式化器。在 Slurm 上，安全检查配置使用专项采集器，执行报告所需的工作节点安全信息采集、容器版本信息采集和后端互联网络检查。
+解析后的计划仅启用 `audit.audit`。它使用标准产物文件、进度封装层和报告格式化器。它与 `cmax audit` 运行同一个采集器，安全检查配置只筛选报告内容。
 
 每次实际审计都会在采集数据前报告目标。交互式运行需要确认。默认选项会取消审计并返回退出码 130：
 
@@ -243,7 +243,7 @@ Kubernetes 审计会跨所有命名空间发现服务商组件，因为托管服
 
 Kubernetes 的 BMC 和 IPMI 检查使用已确认的 Kubernetes 身份创建特权 Pod，挂载各工作节点的宿主机根目录。报告会列出每个已检查节点，并说明机群覆盖范围。此证据证明的是该管理身份能够访问的内容，不能证明普通工作负载 Pod 也能访问同一个本地管理接口。默认最多检查 32 个工作节点。如果更大的机群需要完整覆盖，可将 `CLUSTERMAX_AUDIT_K8S_BMC_NODE_LIMIT` 设为更大的正整数。由于探测以宿主机 root 身份运行，Kubernetes 上暴露的 BMC 被评为 WARNING，而非 CRITICAL：裸金属主机上的 root 通常可以访问带内 BMC。请确认租户不能调度特权 Pod，也不能挂载宿主机 IPMI 设备。在 Slurm 和独立主机上，探测以租户用户身份运行，因此暴露的 BMC 仍为 CRITICAL。
 
-专项安全审计（`cmax audit security`）会在每台 GPU 主机上评估宿主机级最低版本要求，而非仅检查被抽样的工作节点。检查对象包括 GPU 驱动、NVIDIA Container Toolkit、runc、Docker、ConnectX 固件、DCGM 和内核安全公告。每项检查都会报告结果最差的主机及其名称，并列出各主机的结果。ConnectX 设备以 `host/device` 格式列出。如果某台 GPU 主机无法读取，原本可通过的检查会保持未知状态。Kubernetes 在各节点上复用 BMC 宿主机根目录 Pod；Slurm 使用 `--immediate=30` 在每个 GPU 节点上运行一个短时的单 GPU 作业步骤，因此繁忙节点会被报告为未读取，而非一直等待。默认最多读取 32 台 GPU 主机；更大的机群可设置 `CLUSTERMAX_AUDIT_SECURITY_HOST_LIMIT`。
+每种调度环境只有一个采集器 `cmax/scripts/1-audit/cluster-audit-<harness>.sh`。`cmax audit` 和 `cmax audit security` 运行同一个采集器，`security` 范围只筛选报告，因此两条命令对每项安全检查给出相同结论。该采集器加载 `cmax/scripts/1-audit/security-fleet.sh`，它会在每台 GPU 主机上评估宿主机级最低版本要求，而非仅检查被抽样的工作节点。检查对象包括 GPU 驱动、NVIDIA Container Toolkit、runc、Docker、ConnectX 固件、DCGM 和内核安全公告。每项检查都会报告结果最差的主机及其名称，并列出各主机的结果。ConnectX 设备以 `host/device` 格式列出。如果某台 GPU 主机无法读取，原本可通过的检查会保持未知状态。Kubernetes 在各节点上复用 BMC 宿主机根目录 Pod；Slurm 使用 `--immediate=30` 在每个 GPU 节点上运行一个短时的单 GPU 作业步骤，因此繁忙节点会被报告为未读取，而非一直等待。默认最多读取 32 台 GPU 主机；更大的机群可设置 `CLUSTERMAX_AUDIT_SECURITY_HOST_LIMIT`。
 
 Kubernetes 的完整审计、安全审计和隔离审计还会检查 ClusterRole 和 ClusterRoleBinding 是否授予对 `nodes/proxy` 的 `get` 权限。报告会列出主体、角色、绑定和节点名称限制，包括通配符授权。发现匹配的授权时，结果为 `FAIL`。管理权限可能是有意授予的，也会列出供审查。清单不完整时，结果为 `WARNING`，除非审计已发现授权。此检查只读取 RBAC 配置，不连接 kubelet，也不在 Pod 内执行命令。请参阅 [Kubernetes kubelet 授权文档](https://kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/)和 [Graham Helton 的 nodes/proxy 文章](https://grahamhelton.com/blog/nodes-proxy-rce)。
 

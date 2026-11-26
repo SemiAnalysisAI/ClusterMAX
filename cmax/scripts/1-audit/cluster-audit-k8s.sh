@@ -28,6 +28,8 @@ exec {CLUSTERMAX_KUBECTL_ERROR_FD}>&2
 WORKLOAD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 . "$WORKLOAD_DIR/audit-common.sh"
+# shellcheck source=/dev/null
+. "$WORKLOAD_DIR/security-fleet.sh"
 k8s_audit_source_control_helpers() {
     # k8s-control.sh enables nounset and pipefail for workload launchers. The
     # audit intentionally uses only errexit because many legacy checks accept
@@ -1265,7 +1267,7 @@ cleanup_audit_check_namespace() {
     # still use it. The namespace contains no per-run artifacts after cleanup.
     return 0
 }
-trap cleanup_audit_check_namespace EXIT
+trap 'cleanup_audit_check_namespace; cleanup_k8s_security_pod' EXIT
 
 cleanup_audit_check_pod() {
     local ns="$1"
@@ -3899,6 +3901,11 @@ ${SECURITY_ADVISORY_JSON}
 }
 EOF
 )
+# The heredoc above can hold invalid JSON. Keep it for the error path below,
+# and add the fleet evidence only when it parses.
+if jq -e . >/dev/null 2>&1 <<< "$JSON_OUTPUT"; then
+    merge_security_fleet k8s "$HOST_CHECK_OUT"
+fi
 
 # Output JSON
 if [[ "$JSON_ONLY" == "true" ]]; then

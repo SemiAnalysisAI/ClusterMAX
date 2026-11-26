@@ -390,12 +390,13 @@ def test_read_only_collector_re_roots_facts(tmp_path):
 @pytest.mark.parametrize("version,expected", [("6.12.112", "fail"), ("6.12.113", "pass")])
 def test_collectors_feed_their_actual_host_facts(collector, version, expected):
     if collector == "security":
-        target = "SECURITY_ADVISORY_JSON"
-        raw_variable = "WORKER_CHECK_OUTPUT"
-        call = bashtest.extract_block(
-            WORKLOAD / "cluster-audit-slurm-security.sh",
-            "SECURITY_ADVISORY_JSON=$(printf",
-            "    | jq 'del(._end)')",
+        # The per-host grade in the fleet stage that every collector runs.
+        target = "advisories"
+        raw_variable = "host_out"
+        call = "janus='\"unknown\"'\n" + bashtest.extract_block(
+            WORKLOAD / "security-fleet.sh",
+            "advisories=$(printf",
+            "| jq -c 'del(._end)' 2>/dev/null) || advisories='{}'",
         )
     elif collector == "k8s":
         script = WORKLOAD / "cluster-audit-k8s.sh"
@@ -479,7 +480,7 @@ def test_full_report_preserves_pwnescape_scope(guest, expected):
 
 # --- Fleet coverage: every worker and control-plane host -------------------
 
-SECURITY_SCRIPT = WORKLOAD / "cluster-audit-slurm-security.sh"
+SECURITY_SCRIPT = WORKLOAD / "security-fleet.sh"
 FLEET_HELPERS = ("add_pwnescape_host_record", "apply_pwnescape_fleet")
 
 

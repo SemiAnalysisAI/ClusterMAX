@@ -37,6 +37,8 @@ readonly SCALE_OUT_CHECKS_ENABLED=false
 WORKLOAD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 . "$WORKLOAD_DIR/audit-common.sh"
+# shellcheck source=/dev/null
+. "$WORKLOAD_DIR/security-fleet.sh"
 
 # Colors for terminal output
 RED='\033[0;31m'
@@ -2451,6 +2453,7 @@ fi
 # Build JSON
 AUDIT_TYPE="standalone"
 JSON_OUTPUT=$(build_audit_json)
+merge_security_fleet standalone "$WORKER_CHECK_OUTPUT"
 
 # Output JSON
 if [[ "$JSON_ONLY" == "true" ]]; then
