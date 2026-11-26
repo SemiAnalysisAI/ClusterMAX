@@ -322,16 +322,6 @@ def collector_steps(script: Path | str) -> list[Step]:
     """Read the ordered check plan out of a collector script's source."""
     script = Path(script)
     text = script.read_text(errors="replace")
-    # Standalone and Kubernetes use thin wrappers that select the harness and
-    # exec the shared focused security collector. Follow that local target for
-    # planning so their progress bars have the same real phases as Slurm.
-    wrapper = re.search(
-        r'exec\s+bash\s+"\$WORKLOAD_DIR/([^"/]+\.sh)"', text
-    )
-    if wrapper is not None:
-        target = script.parent / wrapper.group(1)
-        if target.is_file() and target != script:
-            text = target.read_text(errors="replace")
     steps: list[Step] = []
     group = ""
     for match in _CALL_SITE.finditer(text):
@@ -344,15 +334,6 @@ def collector_steps(script: Path | str) -> list[Step]:
             Step(group=group, label=_display_label(label), pattern=_label_pattern(label))
         )
     return steps
-
-
-def scoped_collector(script_dir: Path, harness: str, scope: str) -> Path:
-    """Select the collector that the runner uses for one audit profile."""
-    collector = Path(script_dir) / f"cluster-audit-{harness}.sh"
-    if scope == "full":
-        return collector
-    candidate = collector.with_name(f"{collector.stem}-{scope}.sh")
-    return candidate if candidate.is_file() else collector
 
 
 def audit_plan(script_dir: Path, harness: str, scope: str = "full") -> list[Step]:
@@ -372,7 +353,7 @@ def audit_plan(script_dir: Path, harness: str, scope: str = "full") -> list[Step
     running. The denominator therefore moves by a few over a run.
     """
     plan = [Step(group=STARTUP_GROUP, label="Resolve audit plan and collector")]
-    collector = scoped_collector(Path(script_dir), harness, scope)
+    collector = Path(script_dir) / f"cluster-audit-{harness}.sh"
     if collector.is_file():
         plan.extend(collector_steps(collector))
     plan.append(
