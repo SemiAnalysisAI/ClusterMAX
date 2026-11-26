@@ -110,33 +110,65 @@ class PlanAuditTests(unittest.TestCase):
 
 
 class RunLegacyAuditTests(unittest.TestCase):
-    def test_packaged_security_collectors_exist_for_every_harness(self) -> None:
+    def test_each_harness_has_one_collector(self) -> None:
+        # `cmax audit` and `cmax audit security` must read the same evidence.
+        # A scope-specific collector, for example cluster-audit-slurm-security.sh,
+        # lets the two commands drift apart, so none may exist.
+        self.assertEqual(sorted(AUDIT_SCRIPTS.glob("cluster-audit-*-*.sh")), [])
         for harness in ("slurm", "standalone", "k8s"):
             with self.subTest(harness=harness):
-                full = AUDIT_SCRIPTS / f"cluster-audit-{harness}.sh"
-                focused = run_legacy_audit.scoped_audit_script(full, "security")
-                self.assertEqual(
-                    focused,
-                    AUDIT_SCRIPTS / f"cluster-audit-{harness}-security.sh",
-                )
-                self.assertTrue(focused.is_file())
-                self.assertTrue(focused.stat().st_mode & 0o111)
+                collector = AUDIT_SCRIPTS / f"cluster-audit-{harness}.sh"
+                source = collector.read_text()
+                self.assertIn('. "$WORKLOAD_DIR/security-fleet.sh"', source)
+                self.assertIn(f"merge_security_fleet {harness} ", source)
 
-    def test_security_scope_selects_the_focused_collector(self) -> None:
+    def test_collector_runs_without_the_audit_scope(self) -> None:
+        # host-check.sh skips facts when CLUSTERMAX_AUDIT_SCOPE=security, and
+        # srun passes the environment to the worker. The scope only filters
+        # the report, so it must not reach the collector.
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            full = root / "cluster-audit-slurm.sh"
-            focused = root / "cluster-audit-slurm-security.sh"
-            full.write_text("full\n")
-            focused.write_text("security\n")
-
-            self.assertEqual(
-                run_legacy_audit.scoped_audit_script(full, "security"), focused
+            root = Path(tmp).resolve()
+            audit_script = root / "cluster-audit-slurm.sh"
+            audit_script.write_text(
+                "#!/bin/bash\n"
+                "out=''\n"
+                "while [[ $# -gt 0 ]]; do\n"
+                "  case \"$1\" in\n"
+                "    --output-dir) out=\"$2\"; shift 2 ;;\n"
+                "    *) shift ;;\n"
+                "  esac\n"
+                "done\n"
+                "printf '{\"scope\": \"%s\"}\\n' \"${CLUSTERMAX_AUDIT_SCOPE:-unset}\" "
+                "> \"$out/audit.json\"\n"
             )
-            self.assertEqual(run_legacy_audit.scoped_audit_script(full, "full"), full)
-            self.assertEqual(
-                run_legacy_audit.scoped_audit_script(full, "hardware"), full
-            )
+            (root / "cluster-audit-slurm-security.sh").write_text("exit 9\n")
+            tmpdir = root / "tmp"
+            tmpdir.mkdir()
+            audit_json_path = root / "raw.path"
+            for scope in ("full", "security", "versions"):
+                with self.subTest(scope=scope), patch.dict(
+                    run_legacy_audit.os.environ,
+                    {
+                        "CLUSTERMAX_AUDIT_SCOPE": scope,
+                        "CLUSTERMAX_AUDIT_LEGACY_CWD": str(root / "cwd"),
+                    },
+                    clear=True,
+                ):
+                    rc = run_legacy_audit.main(
+                        [
+                            "run_legacy_audit.py",
+                            str(root),
+                            str(audit_script),
+                            "cluster",
+                            str(tmpdir),
+                            str(audit_json_path),
+                        ]
+                    )
+                    self.assertEqual(rc, 0)
+                    self.assertEqual(
+                        (tmpdir / "audit.json").read_text().strip(),
+                        '{"scope": "unset"}',
+                    )
 
     def test_uses_ephemeral_shared_cwd_for_legacy_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

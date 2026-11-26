@@ -180,7 +180,7 @@ def test_unresolved_januscape_verdict_names_the_missing_evidence():
 
 
 def test_collector_wires_the_fleet_grader_into_the_security_advisory():
-    source = (WORKLOAD / "cluster-audit-slurm-security.sh").read_text()
+    source = (WORKLOAD / "security-fleet.sh").read_text()
     assert "apply_host_fleet" in source
     assert 'python3 "$WORKLOAD_DIR/host_fleet.py"' in source
     assert ".pwnescape = $fleet.pwnescape" in source
@@ -188,7 +188,7 @@ def test_collector_wires_the_fleet_grader_into_the_security_advisory():
 
 
 def test_login_host_read_carries_the_fragnesia_floor():
-    collector = WORKLOAD / "cluster-audit-slurm-security.sh"
+    collector = WORKLOAD / "security-fleet.sh"
     script = (
         "minimum_version() { echo 136; }\n"
         "minimum_version_grace() { echo false; }\n"

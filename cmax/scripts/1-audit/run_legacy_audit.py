@@ -9,12 +9,18 @@ import sys
 from pathlib import Path
 
 
-def scoped_audit_script(audit_script: Path, scope: str) -> Path:
-    """Select a focused collector when the requested profile provides one."""
-    if scope == "full":
-        return audit_script
-    candidate = audit_script.with_name(f"{audit_script.stem}-{scope}.sh")
-    return candidate if candidate.is_file() else audit_script
+def collector_env() -> dict[str, str]:
+    """Return the collector environment without the audit scope.
+
+    Each harness has one collector. A category such as `security` only filters
+    the checks that run_checks.py reports, so the collector must read the same
+    evidence for every scope. host-check.sh and container-check.sh skip facts
+    when CLUSTERMAX_AUDIT_SCOPE=security, and srun passes the environment to
+    the worker, so the scope must not reach the collector.
+    """
+    env = dict(os.environ)
+    env.pop("CLUSTERMAX_AUDIT_SCOPE", None)
+    return env
 
 
 def newest_json(path: Path) -> Path | None:
@@ -38,9 +44,6 @@ def main(argv: list[str]) -> int:
     tmpdir = Path(argv[4])
     audit_json_path = Path(argv[5])
 
-    audit_script = scoped_audit_script(
-        audit_script, os.environ.get("CLUSTERMAX_AUDIT_SCOPE", "full")
-    )
     if not audit_script.is_file():
         print(f"ERROR: audit script not found at {audit_script}", file=sys.stderr)
         return 1
@@ -55,6 +58,7 @@ def main(argv: list[str]) -> int:
     result = subprocess.run(
         ["bash", str(audit_script), "--name", slug, "--output-dir", str(tmpdir)],
         cwd=legacy_cwd,
+        env=collector_env(),
     )
     if result.returncode != 0:
         return result.returncode

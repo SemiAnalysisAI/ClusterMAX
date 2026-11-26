@@ -282,12 +282,13 @@ def test_real_collector_argument_wiring(collector):
         )
         output = 'printf "{%s \\"end\\":null}" "$SECURITY_ADVISORY_JSON"'
     elif collector == "security":
-        call = bashtest.extract_block(
-            WORKLOAD / "cluster-audit-slurm-security.sh",
-            "SECURITY_ADVISORY_JSON=$(printf",
-            '--vmscape-status "${WORKER_VMSCAPE_STATUS:-unknown}")"',
-        ) + ")\n"
-        output = 'printf "%s" "$SECURITY_ADVISORY_JSON"'
+        # The per-host grade in the fleet stage that every collector runs.
+        call = 'host_out=""\njanus=false\n' + bashtest.extract_block(
+            WORKLOAD / "security-fleet.sh",
+            "advisories=$(printf",
+            "| jq -c 'del(._end)' 2>/dev/null) || advisories='{}'",
+        )
+        output = 'printf "%s" "$advisories"'
     else:
         call = bashtest.extract_block(
             WORKLOAD / "audit-common.sh",

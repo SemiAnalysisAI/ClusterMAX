@@ -1,60 +1,22 @@
 #!/bin/bash
-# Focused host collector for `cmax audit security` on standalone, Slurm, and
-# Kubernetes targets.
+# Fleet security evidence for the audit collectors.
 #
-# The complete Slurm collector evaluates the full configuration inventory. This
-# collector keeps the shared worker checks that provide security evidence, then
-# emits the same raw JSON contract for the standard merge and report path.
-
-set -euo pipefail
-
-WORKLOAD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=/dev/null
-. "$WORKLOAD_DIR/audit-common.sh"
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m'
-
-CUSTOM_NAME=""
-OUTPUT_DIR=""
-JSON_ONLY="false"
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --name) CUSTOM_NAME="$2"; shift 2 ;;
-        --output-dir) OUTPUT_DIR="$2"; shift 2 ;;
-        --json-only) JSON_ONLY="true"; shift ;;
-        --help)
-            printf 'Usage: %s [--name NAME] [--output-dir DIR] [--json-only]\n' "$0"
-            exit 0
-            ;;
-        *) printf 'Unknown option: %s\n' "$1" >&2; exit 2 ;;
-    esac
-done
-
-if ! command -v jq >/dev/null 2>&1; then
-    printf 'Error: jq is required but not installed.\n' >&2
-    exit 1
-fi
-SECURITY_HARNESS="${CLUSTERMAX_AUDIT_HARNESS:-slurm}"
-if [[ "$SECURITY_HARNESS" != "slurm" \
-        && "$SECURITY_HARNESS" != "standalone" \
-        && "$SECURITY_HARNESS" != "k8s" ]]; then
-    printf 'Error: focused host security collector does not support %s.\n' "$SECURITY_HARNESS" >&2
-    exit 1
-fi
-if [[ "$SECURITY_HARNESS" == "slurm" ]] && ! command -v srun >/dev/null 2>&1; then
-    printf 'Error: srun is required for a Slurm security audit.\n' >&2
-    exit 1
-fi
-if [[ "$SECURITY_HARNESS" == "k8s" ]] && ! command -v kubectl >/dev/null 2>&1; then
-    printf 'Error: kubectl is required for a Kubernetes security audit.\n' >&2
-    exit 1
-fi
+# Each harness has one collector (cluster-audit-<harness>.sh). That collector
+# reads the sampled GPU worker in full, then sources this file and calls
+# merge_security_fleet before it writes its JSON. The merge reads every other
+# host that a security verdict depends on:
+#
+#   - PwnEscape, AMD KVM, Fragnesia and Januscape facts on every
+#     worker, the login host and each control-plane host (host_fleet.py).
+#   - The host and container checks on every GPU host (security_fleet.py).
+#   - On Kubernetes, the BMC and IPMI probe on every worker node.
+#
+# `cmax audit` and `cmax audit security` run the same collector, so the two
+# commands always grade the same evidence. The security scope only filters
+# which checks run_checks.py reports.
+#
+# The caller must source audit-common.sh first and define print_info,
+# print_error and WORKLOAD_DIR.
 
 json_bool() {
     case "${1:-}" in
@@ -70,12 +32,6 @@ json_int() {
     esac
 }
 
-AUDIT_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-AUDIT_TIMESTAMP_FILE=$(date +"%Y%m%d-%H%M%S")
-AUDIT_SRUN_FLAGS=()
-if [[ -n "${SLURM_JOB_ID:-}" ]]; then
-    AUDIT_SRUN_FLAGS=(--jobid="$SLURM_JOB_ID" --overlap)
-fi
 
 K8S_SECURITY_NODE=""
 K8S_SECURITY_NODE_COUNT=1
@@ -110,7 +66,7 @@ add_pwnescape_host_record() {
     local node="$1" role="$2" facts="$3" error="$4" checked=false
     grep -q '^WORKER_GUEST_KERNEL_RUNNING=' <<< "$facts" && checked=true
     PWNESCAPE_HOST_RECORDS+="$(jq -cn --arg node "$node" --arg role "$role" \
-        --arg facts "$facts" --arg error "$error" --argjson checked "$checked" '{
+        --rawfile facts <(printf '%s' "$facts") --arg error "$error" --argjson checked "$checked" '{
           node: $node, role: $role, checked: $checked, facts: $facts,
           error: (if $checked then null else $error end)
         }')"$'\n'
@@ -125,7 +81,7 @@ apply_pwnescape_fleet() {
                 '{hosts: ., controlPlane: $control}' \
             | python3 "$WORKLOAD_DIR/pwnescape.py" --fleet 2>/dev/null) \
             && [[ -n "$fleet" ]]; then
-        SECURITY_ADVISORY_JSON=$(jq --argjson fleet "$fleet" '.pwnescape = $fleet' \
+        SECURITY_ADVISORY_JSON=$(jq --slurpfile fleet <(printf '%s' "$fleet") '.pwnescape = $fleet[0]' \
             <<< "$SECURITY_ADVISORY_JSON")
     else
         SECURITY_ADVISORY_JSON=$(jq '.pwnescape = {
@@ -191,14 +147,10 @@ security_host_record() {
                 --qemu-status "${WORKER_QEMU_CVE_2024_3446_STATUS:-unknown}" \
                 --vmscape-status "${WORKER_VMSCAPE_STATUS:-unknown}")" \
             | jq -c 'del(._end)' 2>/dev/null) || advisories='{}'
-        # The version verdict carries the fix availability of every graded
-        # Ubuntu kernel row, which is larger than one command-line argument
-        # may be (128 KiB on Linux). Pass it on a file descriptor instead.
         jq -cn --arg node "$node" \
-            --slurpfile versions_doc <(printf '%s' "${versions:-{\}}") \
-            --argjson advisories "${advisories:-{\}}" \
-            '$versions_doc[0] as $versions
-             | {node: $node, checked: true, securityVersions: $versions, security: $advisories}' \
+            --slurpfile versions <(printf '%s' "${versions:-{\}}") \
+            --slurpfile advisories <(printf '%s' "${advisories:-{\}}") \
+            '{node: $node, checked: true, securityVersions: $versions[0], security: $advisories[0]}' \
             2>/dev/null \
             || jq -cn --arg node "$node" \
                 '{node: $node, checked: false, error: "The host evidence could not be graded."}'
@@ -215,11 +167,10 @@ apply_security_host_fleet() {
     local merged
     [[ -n "$SECURITY_HOST_RECORDS" ]] || return 0
     if merged=$(printf '%s' "$SECURITY_HOST_RECORDS" \
-            | jq -s --slurpfile versions_doc <(printf '%s' "$SECURITY_VERSION_AUDIT_JSON") \
-                --slurpfile security_doc <(printf '%s' "$SECURITY_ADVISORY_JSON") \
+            | jq -s --slurpfile versions <(printf '%s' "$SECURITY_VERSION_AUDIT_JSON") \
+                --slurpfile security <(printf '%s' "$SECURITY_ADVISORY_JSON") \
                 --argjson total "$(json_int "$SECURITY_GPU_HOSTS_TOTAL")" \
-                '$versions_doc[0] as $versions | $security_doc[0] as $security
-                 | {sampled: {securityVersions: $versions, security: $security},
+                '{sampled: {securityVersions: $versions[0], security: $security[0]},
                   hostsTotal: $total, hosts: .}' \
             | python3 "$WORKLOAD_DIR/security_fleet.py" 2>/dev/null) \
             && [[ -n "$merged" ]]; then
@@ -253,8 +204,9 @@ apply_host_fleet() {
                   fragnesiaGrace: $grace}' \
             | python3 "$WORKLOAD_DIR/host_fleet.py" 2>/dev/null) \
             && [[ -n "$fleet" ]]; then
-        SECURITY_ADVISORY_JSON=$(jq --argjson fleet "$fleet" '
-            .pwnescape = $fleet.pwnescape
+        SECURITY_ADVISORY_JSON=$(jq --slurpfile fleet_doc <(printf '%s' "$fleet") '
+            $fleet_doc[0] as $fleet
+            | .pwnescape = $fleet.pwnescape
             | .kvmSvm = $fleet.kvmSvm
             | .fragnesia = ((.fragnesia // {})
                 + {status: $fleet.fragnesia.status,
@@ -294,7 +246,6 @@ cleanup_k8s_security_pod() {
         K8S_SECURITY_CHECK_POD=""
     fi
 }
-trap cleanup_k8s_security_pod EXIT
 
 prepare_k8s_security_pod() {
     local nodes_json nv_total amd_total resource_key apply_error
@@ -802,402 +753,85 @@ collect_slurm_security_host_fleet() {
     rm -rf "$tmp"
 }
 
-print_header "1. SECURITY WORKER"
-print_section "Select GPU worker"
-GPU_PARTITION="local"
-GPU_SRUN_SCOPE_ARGS=()
-if [[ "$SECURITY_HARNESS" == "slurm" ]]; then
-    GPU_PARTITION="${CLUSTERMAX_GPU_PARTITION:-${SLURM_JOB_PARTITION:-}}"
-    if [[ -z "$GPU_PARTITION" ]] && command -v sinfo >/dev/null 2>&1; then
-        SINFO_ROWS=$(sinfo -N -o "%P|%N|%G" --noheader 2>/dev/null || true)
-        GPU_PARTITION=$(select_gpu_partition "$SINFO_ROWS")
-    fi
-    if [[ -z "$GPU_PARTITION" ]]; then
-        print_error "No GPU partition was detected."
-        print_detail "Set CLUSTERMAX_GPU_PARTITION or run inside a GPU allocation."
-        exit 1
-    fi
-    if [[ -z "${SLURM_JOB_ID:-}" ]]; then
-        GPU_SRUN_SCOPE_ARGS=(-p "$GPU_PARTITION")
-    fi
-elif [[ "$SECURITY_HARNESS" == "k8s" ]]; then
-    prepare_k8s_security_pod
-    GPU_PARTITION="$K8S_SECURITY_NODE"
-fi
-print_info "Target: ${GPU_PARTITION}"
+# Read one KEY=value line from host-check output.
+security_fact() {
+    sed -n "s/^$1=//p" <<< "$2" | head -1
+}
 
-print_section "Collect security host evidence"
-if [[ "$SECURITY_HARNESS" == "slurm" ]]; then
-    WORKER_CHECK_OUTPUT=$(srun "${AUDIT_SRUN_FLAGS[@]}" \
-        "${GPU_SRUN_SCOPE_ARGS[@]}" \
-        -N1 --ntasks=1 --gres=gpu:"$(slurm_job_gpus_per_node)" --time=5:00 \
-        env CLUSTERMAX_AUDIT_SCOPE=security CLUSTERMAX_AUDIT_HARNESS=slurm \
-        CLUSTERMAX_NVIDIA_BRANCH_FLOORS="$(nvidia_driver_floors)" \
-        bash -s < "$WORKLOAD_DIR/host-check.sh" 2>/dev/null || true)
-elif [[ "$SECURITY_HARNESS" == "standalone" ]]; then
-    WORKER_CHECK_OUTPUT=$(CLUSTERMAX_AUDIT_SCOPE=security \
-        CLUSTERMAX_AUDIT_HARNESS=standalone \
-        CLUSTERMAX_NVIDIA_BRANCH_FLOORS="$(nvidia_driver_floors)" \
-        bash "$WORKLOAD_DIR/host-check.sh" 2>/dev/null || true)
-else
-    WORKER_CHECK_OUTPUT=$(run_k8s_security_script \
-        < "$WORKLOAD_DIR/host-check.sh" 2>/dev/null || true)
-fi
-if [[ -z "$WORKER_CHECK_OUTPUT" ]] \
-        || ! grep -q '^WORKER_HOSTNAME=' <<< "$WORKER_CHECK_OUTPUT"; then
-    print_error "The security host check did not return worker evidence."
-    exit 1
-fi
+# Fold the fleet evidence into JSON_OUTPUT, the JSON the collector built from
+# its sampled worker. Usage: merge_security_fleet HARNESS SAMPLED_HOST_OUTPUT
+#
+# The collector has already graded the sampled worker. This step adds the
+# other hosts and replaces each host-level verdict with the fleet verdict, the
+# same verdict for `cmax audit` and `cmax audit security`. A standalone target
+# is one host, so its sampled verdict is already complete.
+merge_security_fleet() {
+    local harness="$1" sampled_out="${2:-}" pcie runtime_enriched
+    pcie=$(jq -cn \
+        --argjson complete "$(json_bool_or_unknown "$(security_fact WORKER_PCIE_SCAN_COMPLETE "$sampled_out")")" \
+        --argjson vfio "$(json_int "$(security_fact WORKER_PCIE_VFIO_DEVICES "$sampled_out")")" \
+        --argjson unsafe "$(json_int "$(security_fact WORKER_PCIE_UNSAFE_GROUPS "$sampled_out")")" \
+        '{inventoryComplete: $complete, vfioDevices: $vfio, unsafeGroups: $unsafe,
+          scope: "sampled-worker-host"}')
+    JSON_OUTPUT=$(jq -c --argjson pcie "$pcie" \
+        '.security.pciePassthrough = ((.security.pciePassthrough // {}) + $pcie)' \
+        <<< "$JSON_OUTPUT")
+    [[ "$harness" == "standalone" ]] && return 0
 
-while IFS='=' read -r key value; do
-    [[ "$key" =~ ^WORKER_[A-Za-z0-9_]+$ ]] || continue
-    printf -v "$key" '%s' "$value"
-done < <(grep '^WORKER_' <<< "$WORKER_CHECK_OUTPUT")
-print_info "Security host evidence: ${WORKER_HOSTNAME:-unknown}"
-
-print_header "2. SECURITY RUNTIME"
-print_section "Collect container runtime versions"
-CONTAINER_CHECK_OK="false"
-SECURITY_DOCKER_VERSION="unknown"
-SECURITY_NCT_VERSION="unknown"
-SECURITY_RUNC_VERSION="unknown"
-if [[ -f "$WORKLOAD_DIR/container-check.sh" ]]; then
-    if [[ "$SECURITY_HARNESS" == "slurm" ]]; then
-        CONTAINER_CHECK_OUTPUT=$(srun "${AUDIT_SRUN_FLAGS[@]}" \
-            "${GPU_SRUN_SCOPE_ARGS[@]}" \
-            -N1 --ntasks=1 --gres=gpu:1 --time=2:00 \
-            env CLUSTERMAX_AUDIT_SCOPE=security CLUSTERMAX_AUDIT_HARNESS=slurm \
-            bash -s < "$WORKLOAD_DIR/container-check.sh" 2>/dev/null || true)
-    elif [[ "$SECURITY_HARNESS" == "standalone" ]]; then
-        CONTAINER_CHECK_OUTPUT=$(CLUSTERMAX_AUDIT_SCOPE=security \
-            CLUSTERMAX_AUDIT_HARNESS=standalone \
-            bash "$WORKLOAD_DIR/container-check.sh" 2>/dev/null || true)
-    else
-        CONTAINER_CHECK_OUTPUT=$(run_k8s_security_script \
-            < "$WORKLOAD_DIR/container-check.sh" 2>/dev/null || true)
-    fi
-    if grep -q '^WORKER_CONTAINER_HOSTNAME=' <<< "$CONTAINER_CHECK_OUTPUT"; then
-        CONTAINER_CHECK_OK="true"
-        while IFS='=' read -r key value; do
-            case "$key" in
-                WORKER_CONTAINER_SECURITY_DOCKER_VERSION)
-                    SECURITY_DOCKER_VERSION="$value"
-                    ;;
-                WORKER_CONTAINER_SECURITY_NCT_VERSION)
-                    SECURITY_NCT_VERSION="$value"
-                    ;;
-                WORKER_CONTAINER_SECURITY_RUNC_VERSION)
-                    SECURITY_RUNC_VERSION="$value"
-                    ;;
-            esac
-        done < <(grep '^WORKER_CONTAINER_' <<< "$CONTAINER_CHECK_OUTPUT")
-        print_info "Container runtime versions were collected."
-    else
-        print_warn "Container runtime versions could not be collected."
-    fi
-else
-    print_warn "The container runtime check is unavailable."
-fi
-
-print_header "3. SECURITY EVALUATION"
-print_section "Evaluate security versions"
-AMD_GPUS_PRESENT="false"
-if [[ "${WORKER_AMD_GPU_COUNT:-0}" =~ ^[1-9][0-9]*$ ]] \
-        || [[ -n "${WORKER_AMD_GPU_MODEL:-}" \
-            && "${WORKER_AMD_GPU_MODEL}" != "unknown" ]] \
-        || [[ "$SECURITY_HARNESS" == "k8s" \
-            && "$K8S_SECURITY_GPU_VENDOR" == "amd" \
-            && "$K8S_SECURITY_GPU_COUNT" -gt 0 ]]; then
-    AMD_GPUS_PRESENT="true"
-fi
-
-SECURITY_GPU_VENDOR="nvidia"
-GPU_MODEL="${WORKER_GPU_MODEL:-unknown}"
-DRIVER_VERSION="${WORKER_DRIVER_VERSION:-unknown}"
-NVIDIA_DRIVER_VERSION="${WORKER_DRIVER_VERSION:-unknown}"
-GPU_COUNT="${WORKER_GPU_COUNT:-0}"
-GPU_MEMORY="${WORKER_GPU_MEMORY:-0}"
-if [[ "$AMD_GPUS_PRESENT" == "true" ]]; then
-    SECURITY_GPU_VENDOR="amd"
-    GPU_MODEL="${WORKER_AMD_GPU_MODEL:-unknown}"
-    DRIVER_VERSION="${WORKER_AMD_DRIVER_VERSION:-unknown}"
-    GPU_COUNT="${WORKER_AMD_GPU_COUNT:-0}"
-    GPU_MEMORY="${WORKER_AMD_GPU_MEMORY:-0}"
-fi
-if [[ "$SECURITY_HARNESS" == "k8s" ]]; then
-    if [[ "$GPU_MODEL" == "unknown" ]]; then
-        GPU_MODEL="$K8S_SECURITY_GPU_MODEL"
-    fi
-    if [[ "$DRIVER_VERSION" == "unknown" ]]; then
-        DRIVER_VERSION="$K8S_SECURITY_DRIVER_VERSION"
-        [[ "$SECURITY_GPU_VENDOR" == "nvidia" ]] \
-            && NVIDIA_DRIVER_VERSION="$K8S_SECURITY_DRIVER_VERSION"
-    fi
-    if [[ "${WORKER_CUDA_VERSION:-unknown}" == "unknown" ]]; then
-        WORKER_CUDA_VERSION="$K8S_SECURITY_CUDA_VERSION"
-    fi
-    if [[ "$GPU_COUNT" == "0" && "$K8S_SECURITY_GPU_COUNT" -gt 0 ]]; then
-        GPU_COUNT="$K8S_SECURITY_GPU_COUNT"
-    fi
-fi
-
-# A standalone target is the whole fleet, so a bounded local process/socket
-# scan can prove dcgm-exporter absent. A Slurm worker sample cannot make that
-# fleet-wide claim and deliberately leaves the value unknown.
-if [[ "$SECURITY_HARNESS" == "standalone" ]]; then
-    DCGM_EXPORTER_PRESENT=false
-    if pgrep -x dcgm-exporter >/dev/null 2>&1 \
-            || systemctl is-active dcgm-exporter >/dev/null 2>&1 \
-            || ss -lnt 2>/dev/null | grep -qE ':9400([[:space:]]|$)'; then
-        DCGM_EXPORTER_PRESENT=true
-    fi
-elif [[ "$SECURITY_HARNESS" == "k8s" ]]; then
-    if K8S_SECURITY_PODS_JSON=$(kubectl get pods --all-namespaces -o json \
-            --request-timeout=60s 2>/dev/null); then
-        DCGM_EXPORTER_IMAGE=$(jq -r '
-            [.items[]?.spec.containers[]?
-             | select(((.name // "") + " " + (.image // ""))
-                      | test("dcgm-exporter"; "i"))
-             | .image] | first // ""' <<< "$K8S_SECURITY_PODS_JSON")
-        if [[ -n "$DCGM_EXPORTER_IMAGE" ]]; then
-            DCGM_EXPORTER_PRESENT=true
+    SECURITY_VERSION_AUDIT_JSON=$(jq -c '.securityVersions // {}' <<< "$JSON_OUTPUT")
+    SECURITY_ADVISORY_JSON=$(jq -c '.security // {}' <<< "$JSON_OUTPUT")
+    print_section "Security fleet evidence"
+    if [[ "$harness" == "slurm" ]]; then
+        WORKER_CHECK_OUTPUT="$sampled_out"
+        collect_slurm_pwnescape_fleet
+        collect_slurm_security_host_fleet
+    elif [[ "$harness" == "k8s" ]]; then
+        if prepare_k8s_security_pod; then
+            # collect_k8s_host_fleet moves K8S_SECURITY_NODE from node to node.
+            K8S_SAMPLED_SECURITY_NODE="$K8S_SECURITY_NODE"
+            WORKER_CHECK_OUTPUT=$(run_k8s_security_script \
+                < "$WORKLOAD_DIR/host-check.sh" 2>/dev/null || true)
+            CONTAINER_CHECK_OUTPUT=""
+            if [[ -f "$WORKLOAD_DIR/container-check.sh" ]]; then
+                CONTAINER_CHECK_OUTPUT=$(run_k8s_security_script \
+                    < "$WORKLOAD_DIR/container-check.sh" 2>/dev/null || true)
+            fi
+            collect_k8s_host_fleet
+            SECURITY_ADVISORY_JSON=$(jq -c --argjson bmc "$K8S_BMC_IPMI_JSON" \
+                '.bmcIpmi = $bmc' <<< "$SECURITY_ADVISORY_JSON")
         else
-            DCGM_EXPORTER_PRESENT=false
+            cleanup_k8s_security_pod
+            print_warn "Security fleet: the host-root pod could not start; host-level checks cover only the sampled worker"
         fi
-    else
-        DCGM_EXPORTER_PRESENT=unknown
     fi
-fi
-
-SECURITY_VERSION_AUDIT_JSON=$(build_security_version_audit \
-    "$WORKER_CHECK_OUTPUT" "${NVIDIA_DRIVER_VERSION:-unknown}" \
-    "$SECURITY_NCT_VERSION" "$SECURITY_RUNC_VERSION" \
-    "$SECURITY_DOCKER_VERSION" "$SECURITY_GPU_VENDOR" \
-    "${WORKER_NVCC_VERSION:-unknown}" "$SECURITY_HARNESS")
-print_info "Security version policy was evaluated for ${SECURITY_GPU_VENDOR}."
-
-RDMA_TYPE="none"
-case ",${WORKER_RDMA_LINK_LAYERS:-}," in
-    *,InfiniBand,*|*,infiniband,*) RDMA_TYPE="infiniband" ;;
-    *,Ethernet,*|*,ethernet,*) RDMA_TYPE="roce" ;;
-    *)
-        [[ -n "${WORKER_IB_DEVICES:-}" ]] && RDMA_TYPE="rdma"
-        ;;
-esac
-audit_ufm_secured_profile "$RDMA_TYPE"
-
-IPMI_USER_ACCESS="${WORKER_IPMI_USER_ACCESS:-untested}"
-IPMI_SUDO_ACCESS="${WORKER_IPMI_SUDO_ACCESS:-untested}"
-IPMI_EXPOSED="false"
-if [[ "$IPMI_USER_ACCESS" == "allowed" || "$IPMI_SUDO_ACCESS" == "allowed" ]]; then
-    IPMI_EXPOSED="true"
-fi
-IPMITOOL_INSTALLED="false"
-[[ -n "${WORKER_IPMITOOL_PATH:-}" ]] && IPMITOOL_INSTALLED="true"
-if [[ "$SECURITY_HARNESS" == "k8s" ]]; then
-    collect_k8s_host_fleet
-else
-    K8S_BMC_IPMI_JSON=$(jq -n \
-        --argjson installed "$(json_bool "$IPMITOOL_INSTALLED")" \
-        --arg path "${WORKER_IPMITOOL_PATH:-none}" \
-        --arg user_access "$IPMI_USER_ACCESS" \
-        --arg sudo_access "$IPMI_SUDO_ACCESS" \
-        --argjson exposed "$(json_bool "$IPMI_EXPOSED")" '{
-          ipmitoolInstalled: $installed,
-          ipmitoolPath: $path,
-          userAccess: $user_access,
-          sudoAccess: $sudo_access,
-          exposed: $exposed
-        }')
-fi
-if [[ "$SECURITY_HARNESS" == "slurm" ]]; then
-    collect_slurm_pwnescape_fleet
-    collect_slurm_security_host_fleet
-fi
-
-JANUSCAPE_EXPOSED_JSON=$(json_bool_or_unknown "${WORKER_JANUSCAPE_EXPOSED:-}")
-# Grade the audited worker kernel against the per-kernel Ubuntu CVE rows, the
-# same way the full audit does in build_audit_json. Without this, the security
-# profile never reports the named or discovered Ubuntu kernel CVEs.
-grade_ubuntu_kernel_cves "${WORKER_OS_ID:-unknown}" \
-    "${WORKER_OS_VERSION_ID:-unknown}" "${WORKER_GUEST_KERNEL_RUNNING:-unknown}"
-SECURITY_ADVISORY_JSON=$(printf '{%s "_end": null}' \
-    "$(build_security_advisory_json \
-        --host-facts "${WORKER_CHECK_OUTPUT:-}" \
-        --bad-epoll-os "${WORKER_OS_ID:-unknown}" \
-        --bad-epoll-release "${WORKER_OS_VERSION_ID:-unknown}" \
-        --bad-epoll-running "${WORKER_GUEST_KERNEL_RUNNING:-unknown}" \
-        --bad-epoll-signature "${WORKER_BAD_EPOLL_SIGNATURE:-unknown}" \
-        --bad-epoll-package "${WORKER_BAD_EPOLL_PACKAGE:-unknown}" \
-        --bad-epoll-livepatch "${WORKER_BAD_EPOLL_LIVEPATCH:-unknown}" \
-        --fragnesia-status "${WORKER_FRAGNESIA_STATUS:-unknown}" \
-        --fragnesia-compared-abi "${WORKER_FRAGNESIA_ABI_FLOOR:-unknown}" \
-        --ubuntu-kernel-status "${WORKER_UBUNTU_KERNEL_MINIMUM_STATUS:-unknown}" \
-        --ubuntu-kernel-abi "${WORKER_UBUNTU_KERNEL_ABI:-unknown}" \
-        --ubuntu-kernel-floor "${WORKER_UBUNTU_KERNEL_ABI_FLOOR:-unknown}" \
-        --januscape-cpu-exposed "${WORKER_NESTED_CPU_EXPOSED:-false}" \
-        --januscape-kvm-exposed "${WORKER_KVM_DEVICE:-false}" \
-        --januscape-module "${WORKER_NESTED_MODULE:-none}" \
-        --januscape-nested-enabled "${WORKER_NESTED_ENABLED:-unknown}" \
-        --januscape-exposed "$JANUSCAPE_EXPOSED_JSON" \
-        --januscape-status "${WORKER_JANUSCAPE_STATUS:-unknown}" \
-        --qemu-status "${WORKER_QEMU_CVE_2024_3446_STATUS:-unknown}" \
-        --vmscape-status "${WORKER_VMSCAPE_STATUS:-unknown}")" \
-    | jq 'del(._end)')
-# A standalone target is one host, so its sampled verdict is already complete.
-if [[ "$SECURITY_HARNESS" != "standalone" ]]; then
     apply_security_host_fleet
     apply_host_fleet
-fi
-
-print_section "Write security collector JSON"
-AUDIT_CLUSTER_NAME="${CUSTOM_NAME:-cluster}"
-NVLINK_TOPOLOGY_COVERAGE_COMPLETE=false
-if [[ "$SECURITY_HARNESS" == "standalone" \
-        && "${WORKER_NVLINK_TOPOLOGY_CHECKED:-false}" == "true" ]] \
-        || [[ "$SECURITY_HARNESS" == "k8s" \
-        && "$K8S_SECURITY_GPU_NODE_COUNT" -eq 1 ]]; then
-    NVLINK_TOPOLOGY_COVERAGE_COMPLETE=true
-fi
-JSON_OUTPUT=$(jq -n \
-    --arg timestamp "$AUDIT_TIMESTAMP" \
-    --arg harness "$SECURITY_HARNESS" \
-    --arg cluster_name "$AUDIT_CLUSTER_NAME" \
-    --arg worker "${WORKER_HOSTNAME:-unknown}" \
-    --arg gpu_model "$GPU_MODEL" \
-    --arg driver "$DRIVER_VERSION" \
-    --arg cuda "${WORKER_CUDA_VERSION:-unknown}" \
-    --arg gpu_memory "$GPU_MEMORY" \
-    --argjson gpu_count "$(json_int "$GPU_COUNT")" \
-    --argjson node_count "$(json_int "$K8S_SECURITY_NODE_COUNT")" \
-    --argjson amd_present "$(json_bool "$AMD_GPUS_PRESENT")" \
-    --arg amd_model "${WORKER_AMD_GPU_MODEL:-none}" \
-    --arg amd_driver "${WORKER_AMD_DRIVER_VERSION:-unknown}" \
-    --arg rdma_type "$RDMA_TYPE" \
-    --argjson worker_ok true \
-    --argjson container_ok "$(json_bool "$CONTAINER_CHECK_OK")" \
-    --slurpfile security_versions_doc <(printf '%s' "$SECURITY_VERSION_AUDIT_JSON") \
-    --slurpfile advisories_doc <(printf '%s' "$SECURITY_ADVISORY_JSON") \
-    --argjson ufm "$UFM_SECURED_PROFILE_JSON" \
-    --arg virtualization_type "${WORKER_VIRT_TYPE:-unknown}" \
-    --argjson virtualization_guest "$(json_bool_or_unknown "${WORKER_VIRT_GUEST:-unknown}")" \
-    --argjson nvlink_all_visible "$(json_bool_or_unknown "${WORKER_NVLINK_ALL_HOST_GPUS_VISIBLE:-unknown}")" \
-    --arg nvlink_host_gpus "${WORKER_NVLINK_HOST_GPU_COUNT:-unknown}" \
-    --arg nvlink_visible_gpus "${WORKER_NVLINK_VISIBLE_GPU_COUNT:-unknown}" \
-    --arg qemu_machine "${WORKER_QEMU_MACHINE:-unknown}" \
-    --argjson virtio_serial "$(json_bool "${WORKER_VIRTIO_SERIAL:-false}")" \
-    --arg running_kernel "${WORKER_GUEST_KERNEL_RUNNING:-unknown}" \
-    --arg ubuntu_cve_status "${UBUNTU_KERNEL_CVE_STATUS:-unknown}" \
-    --argjson ubuntu_vulnerable_cves "${UBUNTU_KERNEL_VULNERABLE_CVES_JSON:-[]}" \
-    --argjson ubuntu_cve_grace "${UBUNTU_KERNEL_CVE_GRACE_PERIODS_JSON:-[]}" \
-    --arg newest_kernel "${WORKER_GUEST_KERNEL_NEWEST_INSTALLED:-unknown}" \
-    --argjson newer_kernel "$(json_bool "${WORKER_GUEST_KERNEL_NEWER_INSTALLED:-false}")" \
-    --argjson reboot_required "$(json_bool "${WORKER_GUEST_REBOOT_REQUIRED:-false}")" \
-    --arg nvidia_patched "${WORKER_NVIDIA_MAY_2026_PATCHED:-unknown}" \
-    --arg nvidia_driver "$NVIDIA_DRIVER_VERSION" \
-    --argjson nvlink_exposed "$(json_bool_or_unknown "${WORKER_NVLINK_EXPOSED:-unknown}")" \
-    --argjson nvlink_checked "$(json_bool_or_unknown "${WORKER_NVLINK_TOPOLOGY_CHECKED:-false}")" \
-    --argjson nvlink_coverage_complete "$NVLINK_TOPOLOGY_COVERAGE_COMPLETE" \
-    --argjson nvidia_present "$(json_bool_or_unknown "${WORKER_SECURITY_NVIDIA_GPU_PRESENT:-unknown}")" \
-    --argjson nvlink_domain_exclusive "$(json_bool_or_unknown "${CLUSTERMAX_NVLINK_DOMAIN_EXCLUSIVE_ATTESTED:-unknown}")" \
-    --argjson iommu_groups "$(json_int "${WORKER_IOMMU_GROUPS:-0}")" \
-    --argjson pcie_complete "$(json_bool_or_unknown "${WORKER_PCIE_SCAN_COMPLETE:-unknown}")" \
-    --argjson pcie_vfio "$(json_int "${WORKER_PCIE_VFIO_DEVICES:-0}")" \
-    --argjson pcie_unsafe "$(json_int "${WORKER_PCIE_UNSAFE_GROUPS:-0}")" \
-    --argjson bmc_ipmi "$K8S_BMC_IPMI_JSON" \
-    '$security_versions_doc[0] as $security_versions | $advisories_doc[0] as $advisories
-    | {
-        audit: {
-            version: "2.1",
-            type: $harness,
-            timestamp: $timestamp,
-            clusterName: $cluster_name,
-            hostname: $worker
-        },
-        nodes: {total: $node_count, idle: 0, allocated: 1, down: 0, totalCpus: 0, totalMemoryGB: 0},
-        gpus: {
-            total: $gpu_count,
-            nodeCount: 1,
-            perNode: $gpu_count,
-            model: $gpu_model,
-            memoryMB: $gpu_memory,
-            driverVersion: $driver,
-            cudaVersion: $cuda,
-            gpuDirectRdma: false,
-            amd: {present: $amd_present, model: $amd_model, driverVersion: $amd_driver}
-        },
-        software: {workerCheckOk: $worker_ok, workerNode: $worker},
-        containers: {workerCheckOk: $container_ok},
-        networking: {rdmaType: $rdma_type},
-        securityVersions: $security_versions,
-        security: ($advisories + {
-            ufmSecuredBareMetalCloud: $ufm,
-            virtualization: {
-                type: $virtualization_type,
-                guest: $virtualization_guest,
-                qemuMachine: $qemu_machine,
-                virtioSerialExposed: $virtio_serial
-            },
-            guestKernel: {
-                running: $running_kernel,
-                newestInstalled: $newest_kernel,
-                newerInstalled: $newer_kernel,
-                rebootRequired: $reboot_required,
-                ubuntuCveStatus: $ubuntu_cve_status,
-                ubuntuVulnerableCves: $ubuntu_vulnerable_cves,
-                ubuntuCveGracePeriods: $ubuntu_cve_grace
-            },
-            nvidiaMay2026: {
-                driverVersion: $nvidia_driver,
-                patched: $nvidia_patched,
-                nvlinkExposed: $nvlink_exposed
-            },
-            nvlinkBoundary: {
-                nvlinkExposed: $nvlink_exposed,
-                topologyChecked: $nvlink_checked,
-                topologyCoverageComplete: $nvlink_coverage_complete,
-                nvidiaGpuPresent: $nvidia_present,
-                targetIsVm: $virtualization_guest,
-                allHostGpusVisible: $nvlink_all_visible,
-                hostGpuCount: $nvlink_host_gpus,
-                visibleGpuCount: $nvlink_visible_gpus,
-                domainExclusive: $nvlink_domain_exclusive,
-                domainExclusivitySource: "operator-attestation"
-            },
-            pciePassthrough: {
-                guestIommuGroupCount: $iommu_groups,
-                inventoryComplete: $pcie_complete,
-                vfioDevices: $pcie_vfio,
-                unsafeGroups: $pcie_unsafe,
-                scope: "sampled-worker-host",
-                hostVerificationRequired: true
-            },
-            bmcIpmi: $bmc_ipmi
-        })
-    }')
-
-if [[ "$SECURITY_HARNESS" == k8s ]]; then
-    # K8S_SECURITY_NODE changes during fleet BMC probes. GPU_PARTITION retains
-    # the original sampled GPU worker selected at the start of this collector.
-    if runtime_enriched=$(printf '%s' "$JSON_OUTPUT" | python3 \
-        "${WORKLOAD_DIR}/k8s_runtime_software.py" --node "$GPU_PARTITION"); then
-        JSON_OUTPUT="$runtime_enriched"
+    # The fleet JSON can pass the kernel limit for one argument, so jq reads
+    # it from a file descriptor, not from the command line.
+    # A merge failure keeps the collected JSON, so one bad step cannot empty
+    # the whole audit.
+    local merged_json
+    if merged_json=$(jq -c --slurpfile versions <(printf '%s' "$SECURITY_VERSION_AUDIT_JSON") \
+            --slurpfile security <(printf '%s' "$SECURITY_ADVISORY_JSON") \
+            '.securityVersions = $versions[0] | .security = $security[0]' <<< "$JSON_OUTPUT") \
+            && [[ -n "$merged_json" ]]; then
+        JSON_OUTPUT=$merged_json
     else
-        JSON_OUTPUT=$(jq '
-          .runtimeSoftware.cudaToolkit = {coverageComplete:false,error:"runtime software collector failed"}
-          | if .securityVersions.cudaToolkit.status != "fail" then
-              .securityVersions.cudaToolkit.status = "unknown"
-              | .securityVersions.cudaToolkit.detail = "Runtime software collector failed; patch status is unverified"
-            else . end' <<< "$JSON_OUTPUT")
+        print_warn "Security fleet: the fleet verdicts could not be merged; security checks use the sampled worker only"
     fi
-fi
 
-if [[ "$JSON_ONLY" == "true" ]]; then
-    printf '%s\n' "$JSON_OUTPUT"
-else
-    RESULTS_DIR="${OUTPUT_DIR:-${WORKLOAD_DIR}/audit-results}"
-    mkdir -p "$RESULTS_DIR"
-    OUTPUT_FILE="${RESULTS_DIR}/${AUDIT_TIMESTAMP_FILE}_${AUDIT_CLUSTER_NAME}.json"
-    printf '%s\n' "$JSON_OUTPUT" > "$OUTPUT_FILE"
-    print_info "JSON saved: ${OUTPUT_FILE}"
-fi
+    if [[ "$harness" == "k8s" ]]; then
+        if runtime_enriched=$(printf '%s' "$JSON_OUTPUT" | python3 \
+                "${WORKLOAD_DIR}/k8s_runtime_software.py" \
+                --node "${K8S_SAMPLED_SECURITY_NODE:-$K8S_SECURITY_NODE}"); then
+            JSON_OUTPUT="$runtime_enriched"
+        else
+            JSON_OUTPUT=$(jq -c '
+              .runtimeSoftware.cudaToolkit = {coverageComplete:false,error:"runtime software collector failed"}
+              | if .securityVersions.cudaToolkit.status != "fail" then
+                  .securityVersions.cudaToolkit.status = "unknown"
+                  | .securityVersions.cudaToolkit.detail = "Runtime software collector failed; patch status is unverified"
+                else . end' <<< "$JSON_OUTPUT")
+        fi
+    fi
+}

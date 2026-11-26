@@ -266,7 +266,7 @@ def test_report_shows_the_failing_host():
 sys.path.insert(0, str(ROOT / "tests/audit"))
 import bashtest  # noqa: E402
 
-SECURITY_SCRIPT = WORKLOAD / "cluster-audit-slurm-security.sh"
+SECURITY_SCRIPT = WORKLOAD / "security-fleet.sh"
 HELPERS = (
     "security_host_record", "add_security_host_record", "apply_security_host_fleet",
     "add_pwnescape_host_record", "k8s_pwnescape_record_for_current_pod",

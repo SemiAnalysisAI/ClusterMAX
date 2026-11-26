@@ -116,24 +116,18 @@ class PlanExtractionTests(unittest.TestCase):
             [step.label for step in progress.audit_plan(WORKLOAD, "slurm")],
         )
 
-    def test_every_security_plan_uses_only_the_focused_collector(self) -> None:
+    def test_security_plan_matches_the_full_plan(self) -> None:
+        # Every scope runs the same collector, so the plans are the same.
+        # Only the full profile adds the run.sh findings phase at the end.
         for harness in ("slurm", "standalone", "k8s"):
             with self.subTest(harness=harness):
                 full = progress.audit_plan(WORKLOAD, harness)
                 security = progress.audit_plan(
                     WORKLOAD, harness, scope="security"
                 )
-                security_groups = {step.group for step in security}
-
-                self.assertLess(len(security), len(full) // 2)
-                self.assertIn("1. SECURITY WORKER", security_groups)
-                self.assertIn("2. SECURITY RUNTIME", security_groups)
-                self.assertNotIn(
-                    "4. NVIDIA HPC SDK & SOFTWARE STACK", security_groups
-                )
-                self.assertNotIn("8. STORAGE & FILESYSTEM", security_groups)
-                self.assertNotIn(
-                    "9. HEALTH CHECKS & MONITORING", security_groups
+                self.assertEqual(
+                    [step.label for step in security],
+                    [step.label for step in full if step.label != "Audit findings"],
                 )
 
     def test_run_sh_phase_markers_match_the_plan(self) -> None:

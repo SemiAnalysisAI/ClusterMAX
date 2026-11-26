@@ -254,9 +254,8 @@ audit_profile:
 ```
 
 The resolved plan enables only `audit.audit`. It uses the standard artifact
-files, progress wrapper, and report formatter. On Slurm, the security profile
-uses a focused collector that runs the worker security inventory, container
-version inventory, and backend fabric checks that its report needs.
+files, progress wrapper, and report formatter. It runs the same collector as
+`cmax audit`. The security profile only filters the report.
 
 Every live audit reports its target before it collects data. An interactive
 run requires confirmation. The default answer cancels the audit with exit code
@@ -414,7 +413,11 @@ in-band BMC. Verify that tenants cannot schedule privileged pods or mount host
 IPMI devices. On Slurm and standalone hosts the probe runs as the tenant user,
 so an exposed BMC stays CRITICAL.
 
-The focused security audit (`cmax audit security`) grades host-level minimums
+Each harness has one collector, `cmax/scripts/1-audit/cluster-audit-<harness>.sh`.
+`cmax audit` and `cmax audit security` run the same collector, and the
+`security` scope only filters the report, so both commands give the same
+verdict for each security check. The collector sources
+`cmax/scripts/1-audit/security-fleet.sh`, which grades host-level minimums
 on every GPU host, not only the sampled worker: the GPU driver, NVIDIA
 Container Toolkit, runc, Docker, ConnectX firmware, DCGM, and the kernel
 advisories. Each check reports the worst host, names it, and lists every host's
