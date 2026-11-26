@@ -47,7 +47,7 @@ AUDIT_DEFAULTS = {
     "fetch_minimums": True,
     "verbose": 0,
     "assume_yes": False,
-    "allow_cluster_node": False,
+    "run_here": False,
     "review_source": None,
     "review_commands": [],
     "review_no_interactive": False,
@@ -87,11 +87,22 @@ def add_confirmation_options(parser: argparse.ArgumentParser, *, suppress: bool 
         ),
     )
     parser.add_argument(
+        "--run-here",
+        action="store_true",
+        dest="run_here",
+        default=_default(suppress, False),
+        help=(
+            "Run on this host even when it looks like a cluster node that the "
+            "target does not fit. The host role warning still prints."
+        ),
+    )
+    # The old name. Existing scripts keep working; help shows only --run-here.
+    parser.add_argument(
         "--allow-cluster-node",
         action="store_true",
-        dest="allow_cluster_node",
+        dest="run_here",
         default=_default(suppress, False),
-        help="Run even when this host is a cluster node that the target does not fit.",
+        help=argparse.SUPPRESS,
     )
 
 

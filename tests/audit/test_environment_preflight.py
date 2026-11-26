@@ -26,7 +26,7 @@ def prepare(target=None, **kwargs):
     options.update(kwargs)
     with mock.patch.object(security, "local_environment", return_value="bare-metal"):
         return target_selection.prepare_target(
-            target or security.SecurityTarget("standalone", "bare-metal", True),
+            target or security.SecurityTarget("standalone", "bare-metal", False),
             **options,
         )
 
@@ -68,25 +68,22 @@ def test_unknown_menu_answer_cannot_confirm():
     assert ask.call_count == 4
 
 
-def test_automation_requires_an_override():
-    with pytest.raises(target_selection.TargetSelectionError, match="--allow-cluster-node"):
+def test_automation_requires_a_target_flag_or_yes():
+    with pytest.raises(target_selection.TargetSelectionError, match="--run-here"):
         prepare(interactive=False)
-    prepare(interactive=False, allow_cluster_node=True)
+    output = io.StringIO()
+    prepare(
+        security.SecurityTarget("standalone", "bare-metal", True),
+        interactive=False, stream=output,
+    )
+    assert "accepted with the target flag" in output.getvalue()
+    prepare(interactive=False, assume_yes=True)
+    output = io.StringIO()
+    prepare(interactive=False, run_here=True, stream=output)
+    assert "accepted with --run-here" in output.getvalue()
 
 
 def test_noninteractive_autodetect_proceeds_when_nothing_is_left_to_choose():
-    # An auto-detected standalone run on a compute node has no terminal.
-    # --allow-cluster-node is the override for that mismatch.
-    output = io.StringIO()
-    selected = prepare(
-        security.SecurityTarget("standalone", "bare-metal", False),
-        interactive=False,
-        allow_cluster_node=True,
-        stream=output,
-    )
-    assert selected.harness == "standalone"
-    assert "accepted with --allow-cluster-node" in output.getvalue()
-
     # Kubernetes is unreachable. Slurm is the one interface that answered,
     # so the run continues.
     output = io.StringIO()
@@ -156,7 +153,7 @@ def test_mixed_cluster_without_a_terminal_requires_an_interface_or_yes():
         with pytest.raises(target_selection.TargetSelectionError, match="Select --slurm or --k8s"):
             prepare(
                 security.SecurityTarget("slurm", "slurm"), host_role=LOGIN_POD,
-                interactive=False, allow_cluster_node=True,
+                interactive=False,
             )
 
 
