@@ -102,6 +102,9 @@ _PASS_ASSESSMENTS = {
     "securityVersions.runc.status": (
         "The runc version meets the published security minimum."
     ),
+    "securityVersions.containerd.status": (
+        "The containerd version meets the published security minimum."
+    ),
     "securityVersions.docker.status": (
         "The Docker Engine version meets the published security minimum."
     ),
@@ -356,6 +359,9 @@ _REPRODUCTION_COMMANDS = {
         "on the audited worker: `docker version --format '{{.Server.Version}}'`"
     ),
     "securityVersions.runc.status": "on the audited worker: `runc --version`",
+    "securityVersions.containerd.status": (
+        "on the audited worker: `containerd --version`"
+    ),
     "securityVersions.dcgm.status": "on the audited worker: `dcgmi --version`",
     "security.fragnesia.status": "on the audited worker: `uname -r`",
     "security.ubuntuNobleKernelMinimum.status": "on the audited worker: `uname -r`",

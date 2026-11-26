@@ -37,6 +37,7 @@ VERSION_KEYS = (
     "amdDriver",
     "nvidiaContainerToolkit",
     "runc",
+    "containerd",
     "docker",
     "connectxFirmware",
     "dcgm",

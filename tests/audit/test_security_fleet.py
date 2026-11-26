@@ -51,6 +51,30 @@ def test_one_failing_host_fails_the_fleet_even_when_the_sample_passes():
     assert [h["node"] for h in driver["fleet"]["hosts"]] == ["gpu-a", "gpu-b"]
 
 
+def test_one_host_below_the_containerd_minimum_fails_the_fleet():
+    def block(status, version, detail):
+        return {"containerd": {"status": status, "version": version, "detail": detail}}
+
+    payload = {
+        "sampled": {"securityVersions": block("pass", "2.2.10", "ok"), "security": {}},
+        "hostsTotal": 3,
+        "hosts": [
+            _host("gpu-a", block("pass", "2.2.10", "ok")),
+            _host("gpu-b", block("fail", "1.7.20", "below")),
+            _host("gpu-c", block("not_applicable", "not-installed", "absent")),
+        ],
+    }
+    containerd = fleet.merge(payload)["securityVersions"]["containerd"]
+    assert containerd["status"] == "fail"
+    assert containerd["version"] == "1.7.20"
+    assert containerd["detail"] == "gpu-b: below"
+    assert containerd["fleet"]["worstHost"] == "gpu-b"
+    assert containerd["fleet"]["hostsChecked"] == 3
+    assert [h["version"] for h in containerd["fleet"]["hosts"]] == [
+        "2.2.10", "1.7.20", "not-installed",
+    ]
+
+
 def test_connectx_devices_keep_their_host():
     payload = {
         "sampled": {"securityVersions": {"connectxFirmware": _cx("pass")}, "security": {}},
@@ -267,6 +291,8 @@ sys.path.insert(0, str(ROOT / "tests/audit"))
 import bashtest  # noqa: E402
 
 SECURITY_SCRIPT = WORKLOAD / "security-fleet.sh"
+COMMON_SCRIPT = WORKLOAD / "audit-common.sh"
+COMMON_HELPERS = ("kubelet_containerd_version", "resolve_containerd_version")
 HELPERS = (
     "security_host_record", "add_security_host_record", "apply_security_host_fleet",
     "add_pwnescape_host_record", "k8s_pwnescape_record_for_current_pod",
@@ -286,7 +312,7 @@ k8s_bmc_record_for_current_pod() { printf '{"node":"%s","checked":true,"exposed"
 run_k8s_security_script() {
   local script; script=$(cat)
   case "$script" in
-    "$(cat "$WORKLOAD_DIR/container-check.sh")") printf 'WORKER_CONTAINER_HOSTNAME=%s\nWORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.6\n' "$K8S_SECURITY_NODE" ;;
+    "$(cat "$WORKLOAD_DIR/container-check.sh")") printf 'WORKER_CONTAINER_HOSTNAME=%s\nWORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.6\nWORKER_CONTAINER_SECURITY_CONTAINERD_VERSION=%s\n' "$K8S_SECURITY_NODE" "${HOST_CONTAINERD:-not-installed}" ;;
     "$(cat "$WORKLOAD_DIR/pwnescape-host-facts.sh")") printf 'WORKER_HOSTNAME=%s\nWORKER_GUEST_KERNEL_RUNNING=6.12.113\n' "$K8S_SECURITY_NODE" ;;
     *)
       driver=580.200.01; [[ "$K8S_SECURITY_NODE" == "$BAD_NODE" ]] && driver=580.10.01
@@ -296,25 +322,36 @@ run_k8s_security_script() {
 }
 build_security_version_audit() {
   local status=pass; [[ "$2" == 580.10.01 || "$2" == unknown ]] && status=fail
-  printf '{"nvidiaDriver":{"status":"%s","version":"%s","detail":"d"},"runc":{"status":"pass","version":"%s"}}' "$status" "$2" "$4"
+  local containerd_status=pass
+  case "${9:-unknown}" in
+    1.*) containerd_status=fail ;;
+    not-installed) containerd_status=not_applicable ;;
+    unknown) containerd_status=unknown ;;
+  esac
+  printf '{"nvidiaDriver":{"status":"%s","version":"%s","detail":"d"},"runc":{"status":"pass","version":"%s"},"containerd":{"status":"%s","version":"%s","detail":"d"}}' "$status" "$2" "$4" "$containerd_status" "${9:-unknown}"
 }
 build_security_advisory_json() { printf '"badEpoll": {"status": "pass"},'; }
 '''
 
 
-def _k8s_nodes(*names, cpu=()):
+def _k8s_nodes(*names, cpu=(), runtimes=None):
+    runtimes = runtimes or {}
     items = [
         {"metadata": {"name": n, "labels": {
             "nvidia.com/cuda.driver.major": "580", "nvidia.com/cuda.driver.minor": "200",
             "nvidia.com/cuda.driver.rev": "01"}},
-         "status": {"capacity": {"nvidia.com/gpu": "8"}}}
+         "status": {"capacity": {"nvidia.com/gpu": "8"},
+                    "nodeInfo": {"containerRuntimeVersion": runtimes.get(n, "containerd://2.2.10")}}}
         for n in names
     ] + [{"metadata": {"name": n, "labels": {}}, "status": {"capacity": {}}} for n in cpu]
     return {"items": items}
 
 
-def run_k8s(nodes, sampled_out, bad_node="", limit="32"):
-    functions = "\n".join(bashtest.extract_function(SECURITY_SCRIPT, n) for n in HELPERS)
+def run_k8s(nodes, sampled_out, bad_node="", limit="32", host_containerd="not-installed"):
+    functions = "\n".join(
+        [bashtest.extract_function(COMMON_SCRIPT, n) for n in COMMON_HELPERS]
+        + [bashtest.extract_function(SECURITY_SCRIPT, n) for n in HELPERS]
+    )
     gpu = [i["metadata"]["name"] for i in nodes["items"] if i["status"]["capacity"]]
     script = (
         STUBS + functions
@@ -334,7 +371,11 @@ def run_k8s(nodes, sampled_out, bad_node="", limit="32"):
         "BAD_NODE": bad_node,
         "WORKER_CHECK_OUTPUT": sampled_out,
         "WORKER_DRIVER_VERSION": "580.200.01",
-        "CONTAINER_CHECK_OUTPUT": "WORKER_CONTAINER_HOSTNAME=gpu-1\nWORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.6\n",
+        "CONTAINER_CHECK_OUTPUT": (
+            "WORKER_CONTAINER_HOSTNAME=gpu-1\nWORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.6\n"
+            f"WORKER_CONTAINER_SECURITY_CONTAINERD_VERSION={host_containerd}\n"
+        ),
+        "HOST_CONTAINERD": host_containerd,
         "K8S_SECURITY_DRIVER_VERSION": "580.200.01",
         "SECURITY_HOST_LIMIT": limit,
     })
@@ -359,6 +400,28 @@ def test_k8s_reads_every_gpu_node_and_fails_on_the_unsampled_one():
     assert out["s"]["badEpoll"]["fleet"]["hostsChecked"] == 3
     # Grading other hosts never overwrites the sampled worker's values.
     assert sampled_after == "WORKER_SAMPLED=580.200.01"
+
+
+def test_k8s_grades_the_kubelet_containerd_report_when_the_host_read_finds_none():
+    # K3s and RKE2 keep containerd outside PATH, so the host read reports
+    # "not-installed" although containerd runs every pod on the node.
+    nodes = _k8s_nodes("gpu-1", "gpu-2", "gpu-3", runtimes={
+        "gpu-2": "containerd://1.7.20-k3s1", "gpu-3": "cri-o://1.30.1"})
+    out, _ = run_k8s(nodes, SAMPLED)
+    containerd = out["v"]["containerd"]
+    assert {h["node"]: h["version"] for h in containerd["fleet"]["hosts"]} == {
+        "gpu-1": "2.2.10", "gpu-2": "1.7.20-k3s1", "gpu-3": "not-installed"}
+    assert containerd["status"] == "fail"
+    assert containerd["fleet"]["worstHost"] == "gpu-2"
+    assert containerd["detail"].startswith("gpu-2: ")
+
+
+def test_k8s_host_containerd_read_outranks_the_kubelet_report():
+    nodes = _k8s_nodes("gpu-1", "gpu-2", runtimes={"gpu-2": "containerd://1.7.20"})
+    out, _ = run_k8s(nodes, SAMPLED, host_containerd="2.3.7")
+    containerd = out["v"]["containerd"]
+    assert {h["version"] for h in containerd["fleet"]["hosts"]} == {"2.3.7"}
+    assert containerd["status"] == "pass"
 
 
 def test_k8s_unreachable_gpu_node_blocks_a_pass():
@@ -394,13 +457,18 @@ def run_slurm(tmp_path, bad_node="", busy_node=""):
     (workload / "security_fleet.py").symlink_to(WORKLOAD / "security_fleet.py")
     (workload / "host-check.sh").write_text("HOST_CHECK\n")
     (workload / "container-check.sh").write_text("CONTAINER_CHECK\n")
-    functions = "\n".join(bashtest.extract_function(SECURITY_SCRIPT, n) for n in SLURM_HELPERS)
+    functions = "\n".join(
+        [bashtest.extract_function(COMMON_SCRIPT, n) for n in COMMON_HELPERS]
+        + [bashtest.extract_function(SECURITY_SCRIPT, n) for n in SLURM_HELPERS]
+    )
     srun = (
         'while [[ $# -gt 0 && "$1" != -w ]]; do shift; done\nNODE="$2"\n'
         '[[ "$NODE" == "$BUSY_NODE" ]] && exit 1\n'
         'script=$(cat)\n'
         'if [[ "$script" == CONTAINER_CHECK ]]; then\n'
+        '  c=2.2.10; [[ "$NODE" == "$BAD_NODE" ]] && c=1.7.20\n'
         '  printf "WORKER_CONTAINER_HOSTNAME=%s\\nWORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.6\\n" "$NODE"\n'
+        '  printf "WORKER_CONTAINER_SECURITY_CONTAINERD_VERSION=%s\\n" "$c"\n'
         'else\n'
         '  d=580.200.01; [[ "$NODE" == "$BAD_NODE" ]] && d=580.10.01\n'
         '  printf "WORKER_HOSTNAME=%s\\nWORKER_DRIVER_VERSION=%s\\n" "$NODE" "$d"\n'
@@ -440,6 +508,12 @@ def test_slurm_reads_every_gpu_node_but_not_the_sampled_one_twice(tmp_path):
     # node gets one host check and one container check with a GPU and a bound.
     assert sorted(c[c.index("-w") + 1] for c in calls) == ["gpu-2", "gpu-2", "gpu-3", "gpu-3"]
     assert all("--gres=gpu:1" in c and "--immediate=30" in c for c in calls)
+    # The same container check carries the containerd version of each host.
+    containerd = versions["containerd"]
+    assert containerd["status"] == "fail"
+    assert containerd["fleet"]["worstHost"] == "gpu-3"
+    assert {h["node"]: h["version"] for h in containerd["fleet"]["hosts"]} == {
+        "gpu-1": "unknown", "gpu-2": "2.2.10", "gpu-3": "1.7.20"}
 
 
 def test_slurm_busy_gpu_node_blocks_a_pass(tmp_path):

@@ -177,6 +177,15 @@ The following results have explicit assessment scopes:
   Later trains can pass for the mapped ConnectX-8 and BlueField-3 firmware
   families. Older LTS floors remain separate. Unknown products do not inherit
   that range merely because their version is higher.
+- **containerd:** The check grades the upstream release number of containerd
+  on each GPU host. On Kubernetes, the kubelet report
+  (`containerRuntimeVersion`) is the evidence when the host has no containerd
+  binary in its `PATH`, as on K3s and RKE2. A release must meet the minimum of
+  its branch and must be outside every advisory range. Thus a branch that
+  receives no more fixes fails, and the finding names the nearest fixed release
+  on a maintained branch. A distribution package that has a backported fix
+  under an older release number can fail. Provider evidence is then necessary.
+  A host without containerd is not applicable.
 - **Virtio-Net:** Verified current NIC mode passes the current-exposure check.
   Stored firmware remains unassessed when unreadable. Recheck it before enabling
   DPU mode. A NIC-mode sample cannot clear missing or mixed fleet evidence.
@@ -239,6 +248,7 @@ audit_profile:
   - securityVersions.nvidiaContainerToolkit.status
   - securityVersions.cudaToolkit.status
   - securityVersions.runc.status
+  - securityVersions.containerd.status
   - securityVersions.docker.status
   - securityVersions.connectxFirmware.status
   - securityVersions.dcgm.status
@@ -437,8 +447,8 @@ Each harness has one collector, `cmax/scripts/1-audit/cluster-audit-<harness>.sh
 verdict for each security check. The collector sources
 `cmax/scripts/1-audit/security-fleet.sh`, which grades host-level minimums
 on every GPU host, not only the sampled worker: the GPU driver, NVIDIA
-Container Toolkit, runc, Docker, ConnectX firmware, DCGM, and the kernel
-advisories. Each check reports the worst host, names it, and lists every host's
+Container Toolkit, runc, containerd, Docker, ConnectX firmware, DCGM, and the
+kernel advisories. Each check reports the worst host, names it, and lists every host's
 result. ConnectX devices are listed as `host/device`. A GPU host the audit
 cannot read leaves a passing check unknown. Kubernetes reuses the BMC host-root
 pod on each node; Slurm runs a short one-GPU step on each GPU node with

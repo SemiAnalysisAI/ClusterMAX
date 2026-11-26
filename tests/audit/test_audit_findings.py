@@ -32,6 +32,7 @@ class DetectFindingsTests(unittest.TestCase):
                 "nvidiaContainerToolkit": {"status": "pass"},
                 "docker": {"status": "pass"},
                 "runc": {"status": "pass"},
+                "containerd": {"status": "pass"},
                 "connectxFirmware": {"status": "pass"},
             },
             "containers": {
@@ -129,6 +130,41 @@ class DetectFindingsTests(unittest.TestCase):
         self.assertEqual(finding.severity, audit_findings.MISSING)
         self.assertEqual(finding.value, False)
         self.assertEqual(finding.title, "NVIDIA Container Toolkit not installed")
+
+    def test_containerd_below_its_minimum_and_hidden_containerd_are_flagged(self) -> None:
+        def detect(block: dict) -> list:
+            return audit_findings.detect_findings(
+                {"audit_data": {"securityVersions": {"containerd": block}}}
+            )
+
+        below = detect(
+            {
+                "status": "fail",
+                "version": "1.7.20",
+                "minimum": "1.7.36",
+                "detail": "Affected by GHSA-pg57-6jwg-q645 (fixed in 1.7.36)",
+            }
+        )
+        self.assertEqual(titles(below), {"containerd below security minimum"})
+        finding = by_key(below)["securityVersions.containerd.status"]
+        self.assertEqual(finding.severity, audit_findings.VERSION)
+        report = audit_findings.format_report(below)
+        self.assertIn("1.7.20", report)
+        self.assertIn("1.7.36", report)
+        self.assertIn("GHSA-pg57-6jwg-q645", report)
+
+        hidden = detect({"status": "unknown", "version": "unknown"})
+        self.assertEqual(
+            titles(hidden), {"Host containerd version requires provider attestation"}
+        )
+        self.assertEqual(
+            by_key(hidden)["securityVersions.containerd.status"].severity,
+            audit_findings.CONFIG,
+        )
+        # A host without containerd, for example a Slurm node that runs only
+        # Enroot, has no finding.
+        self.assertEqual(detect({"status": "not_applicable"}), [])
+        self.assertEqual(detect({"status": "pass", "version": "2.2.10"}), [])
 
     def test_minimum_version_failures_and_hidden_host_versions_are_flagged(self) -> None:
         findings = audit_findings.detect_findings(

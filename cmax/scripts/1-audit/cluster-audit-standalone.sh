@@ -1298,6 +1298,7 @@ DOCKER_VERSION_OK="false"
 NVIDIA_CT_VERSION_OK="false"
 RUNC_INSTALLED="false"
 RUNC_VERSION="unknown"
+CONTAINERD_VERSION=""
 # Operational recommendations come from the generated minimum table, the same
 # source the security grading reads. They were hardcoded here and in
 # cluster-audit-slurm.sh, and the NVIDIA Container Toolkit literal (1.19.0) fell
@@ -1390,9 +1391,29 @@ elif command -v rpm >/dev/null 2>&1; then
     fi
 fi
 
+# The containerd version line puts the Go module path before the release, so
+# the release is the first field with three dotted numbers. Docker's package
+# is containerd.io. Distribution packages use containerd.
+CONTAINERD_PATH=$(command -v containerd 2>/dev/null || true)
+if [[ -n "$CONTAINERD_PATH" ]]; then
+    CONTAINERD_VERSION=$(containerd --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+([^[:space:]]*)?' | head -1 || true)
+fi
+for containerd_package in containerd.io containerd; do
+    [[ -z "$CONTAINERD_VERSION" ]] || break
+    if command -v dpkg-query >/dev/null 2>&1; then
+        CONTAINERD_VERSION=$(dpkg-query -W -f='${Version}' "$containerd_package" 2>/dev/null || true)
+    fi
+    if [[ -z "$CONTAINERD_VERSION" ]] && command -v rpm >/dev/null 2>&1; then
+        if ! CONTAINERD_VERSION=$(rpm -q --qf '%{VERSION}-%{RELEASE}' "$containerd_package" 2>/dev/null); then
+            CONTAINERD_VERSION=""
+        fi
+    fi
+done
+
 SECURITY_DOCKER_VERSION="unknown"
 SECURITY_NCT_VERSION="unknown"
 SECURITY_RUNC_VERSION="unknown"
+SECURITY_CONTAINERD_VERSION="unknown"
 CONTAINER_RUNTIME_SCOPE="nested-container"
 if [[ ! -f /.dockerenv && ! -f /run/.containerenv \
     && -x "$(command -v systemd-detect-virt 2>/dev/null)" ]] \
@@ -1407,6 +1428,8 @@ if [[ ! -f /.dockerenv && ! -f /run/.containerenv \
         && echo "${NVIDIA_CT_VERSION:-unknown}" || echo not-installed)"
     SECURITY_RUNC_VERSION="$([[ "$RUNC_INSTALLED" == "true" ]] \
         && echo "${RUNC_VERSION:-unknown}" || echo not-installed)"
+    SECURITY_CONTAINERD_VERSION="$([[ -n "$CONTAINERD_PATH" || -n "$CONTAINERD_VERSION" ]] \
+        && echo "${CONTAINERD_VERSION:-unknown}" || echo not-installed)"
 elif docker info >/dev/null 2>&1; then
     SECURITY_DOCKER_VERSION=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo unknown)
 fi
@@ -2441,7 +2464,7 @@ DCGM_EXPORTER_PRESENT="${DCGM_EXPORTER_DETECTED:-unknown}"
 SECURITY_VERSION_AUDIT_JSON=$(build_security_version_audit \
     "$WORKER_CHECK_OUTPUT" "$DRIVER_VERSION" "$SECURITY_NCT_VERSION" \
     "$SECURITY_RUNC_VERSION" "$SECURITY_DOCKER_VERSION" "$SECURITY_GPU_VENDOR" \
-    "" "standalone")
+    "" "standalone" "$SECURITY_CONTAINERD_VERSION")
 
 # Determine cluster name for file
 if [[ -n "$CUSTOM_NAME" ]]; then

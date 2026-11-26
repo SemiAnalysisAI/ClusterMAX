@@ -2190,6 +2190,19 @@ CHECK_SPECS: tuple[CheckSpec, ...] = (
         _version_evaluator("securityVersions.runc"),
     ),
     CheckSpec(
+        "containerd",
+        "containerd minimum version",
+        "containerd pulls the images and starts the containers on a Kubernetes "
+        "or Docker host. Affected releases contain faults that can let an image "
+        "or a pod run commands as host root, read host files, or stop the "
+        "runtime on the node.",
+        "Upgrade containerd to the fixed release that the finding names and "
+        "restart containerd.",
+        # The advisory link comes from the minimum table (see MINIMUM_BOUND_CHECKS).
+        (),
+        _version_evaluator("securityVersions.containerd"),
+    ),
+    CheckSpec(
         "docker",
         "Docker Engine minimum version",
         "An outdated container daemon increases exposure to known runtime and API vulnerabilities.",
@@ -2629,6 +2642,14 @@ MINIMUM_BOUND_CHECKS: dict[str, tuple[str, str, str]] = {
         "restart the container runtime.",
         "runc security advisory",
     ),
+    "containerd": (
+        "containerd",
+        # A per-branch ladder. A branch that receives no more fixes has no
+        # version to name, so the remediation refers to the finding.
+        "Upgrade containerd to the fixed release that the finding names and "
+        "restart containerd.",
+        "containerd security advisories",
+    ),
     "docker": (
         "docker",
         "Upgrade Docker Engine to {minimum} or newer and restart the daemon.",
@@ -2866,6 +2887,7 @@ def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
         "cuda-toolkit": "securityVersions.cudaToolkit",
         "dcgm-exporter": "securityVersions.dcgmExporter",
         "runc": "securityVersions.runc",
+        "containerd": "securityVersions.containerd",
         "docker": "securityVersions.docker",
         "connectx-firmware": "securityVersions.connectxFirmware",
         "virtio-net-bluefield": "securityVersions.virtioNetBluefield",
@@ -2906,6 +2928,7 @@ def evaluate_security(values: dict[str, Any]) -> list[SecurityCheck]:
             "cuda-toolkit": "securityVersions.cudaToolkit.advisory",
             "dcgm-exporter": "securityVersions.dcgmExporter.advisory",
             "runc": "securityVersions.runc.advisory",
+            "containerd": "securityVersions.containerd.advisory",
             "docker": "securityVersions.docker.advisory",
             "connectx-firmware": "securityVersions.connectxFirmware.advisory",
         }.get(spec.id)
@@ -3214,6 +3237,7 @@ def sync_minimum_table(*, repo: str | None = None) -> bool:
             "components.ubuntuResolute.packages.linuxBadEpoll",
             "components.ubuntuResolute.packages.linuxFragnesia",
             "components.linuxKvmSvm",
+            "components.containerd",
         )
         try:
             candidate = json.loads(path.read_text())

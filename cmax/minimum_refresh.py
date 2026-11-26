@@ -7,7 +7,7 @@ machine-readable upstream sources only:
 
   * NVIDIA CSAF bulletins (GPU driver, ConnectX / BlueField firmware, CUDA
     Toolkit, Container Toolkit) from the NVIDIA/product-security repository
-  * OSV for the runc branch ladder
+  * OSV for the runc and containerd branch ladders
   * Canonical's Ubuntu Security Notices for complete Noble package floors,
     plus Ubuntu OSV records for named vulnerability-specific checks
   * The Docker Engine release notes that Docker authors as markdown in the
@@ -230,9 +230,19 @@ RUNC_ADVISORY = (
     "https://github.com/opencontainers/runc/security/advisories/GHSA-9493-h29p-rfm2"
 )
 
+# containerd 2.x changed its Go module path, and OSV files each advisory range
+# under the module that holds the affected release. Both modules are one
+# product on a host, so one ladder reads both.
+CONTAINERD_PACKAGES = (
+    "github.com/containerd/containerd",
+    "github.com/containerd/containerd/v2",
+)
+CONTAINERD_ADVISORY = "https://github.com/containerd/containerd/security/advisories"
+
 NVIDIA_DRIVER_RELEASE_REPO = "NVIDIA/open-gpu-kernel-modules"
 NVIDIA_CONTAINER_TOOLKIT_RELEASE_REPO = "NVIDIA/nvidia-container-toolkit"
 RUNC_RELEASE_REPO = "opencontainers/runc"
+CONTAINERD_RELEASE_REPO = "containerd/containerd"
 DCGM_EXPORTER_RELEASE_REPO = "NVIDIA/dcgm-exporter"
 
 # Upstream Linux kernel CVEs that the audit grades per stable branch. The Linux
@@ -1809,8 +1819,27 @@ def osv_package_vulns(
     )
 
 
-def runc_ladder(fetch: Fetcher | None = None) -> dict:
-    """Highest fixed release per major.minor across every runc GHSA advisory.
+def _go_module_major(package: str) -> int | None:
+    """Return the major version that a Go module path pins, if any.
+
+    A module at major version 2 or later carries a ``/vN`` path suffix. A
+    module without the suffix holds the 0.x and 1.x releases.
+    """
+    match = re.search(r"/v(\d+)$", package)
+    return int(match.group(1)) if match else None
+
+
+def osv_ladder(
+    packages: Sequence[str],
+    release_repo: str,
+    advisory: str,
+    fetch: Fetcher | None = None,
+) -> dict:
+    """Highest fixed release per major.minor across every GHSA advisory.
+
+    ``packages`` names every Go module path of one product. A product that
+    changed its module path at a major version has one OSV package per path,
+    and the ladder reads all of them.
 
     Beside the ladder, the block records ``advisoryRanges``: the SEMVER
     affected ranges of every advisory that contributed to it. The audit is
@@ -1822,14 +1851,25 @@ def runc_ladder(fetch: Fetcher | None = None) -> dict:
     A GIT range carries commit hashes, and a hash split on dots would enter
     the ladder as a branch key that no observed version can ever parse to,
     which the audit reads as an unusable table.
+
+    OSV writes ``introduced: 0`` for a range that starts at the first release
+    of its module. For a ``/vN`` module that release is N.0.0, not 0. The
+    recorded range therefore starts at ``N.0.0-0``, the lowest pre-release of
+    N.0.0. Without that, a range from the v2 module would hold every 1.x
+    release, and the audit would name an advisory that 1.x never had.
     """
+    names = tuple(packages)
     ladder: dict[str, str] = {}
     advisories: list[str] = []
     advisory_ranges: dict[str, list[dict[str, str]]] = {}
     candidates: dict[str, list[tuple[str, dict[str, Any] | None]]] = {}
     sources: dict[str, dict[str, Any]] = {}
-    for vuln in osv_package_vulns(RUNC_PACKAGE, RUNC_ECOSYSTEM, fetch=fetch):
-        vuln_id = vuln.get("id", "")
+    vulns: dict[str, dict] = {}
+    for package in names:
+        for vuln in osv_package_vulns(package, RUNC_ECOSYSTEM, fetch=fetch):
+            # One advisory that affects two module paths arrives once per query.
+            vulns.setdefault(vuln.get("id", ""), vuln)
+    for vuln_id, vuln in vulns.items():
         if not vuln_id.startswith("GHSA-"):
             continue  # GO- entries duplicate the GHSA record.
         if vuln.get("withdrawn"):
@@ -1847,15 +1887,20 @@ def runc_ladder(fetch: Fetcher | None = None) -> dict:
             sources[vuln_id] = source
         ranges: list[dict[str, str]] = []
         for affected in vuln.get("affected", []):
-            if affected.get("package", {}).get("name") != RUNC_PACKAGE:
+            package = affected.get("package", {}).get("name")
+            if package not in names:
                 continue
+            major = _go_module_major(package)
+            first_release = "0" if major is None else f"{major}.0.0-0"
             for entry in affected.get("ranges", []):
                 if entry.get("type") not in ("SEMVER", "ECOSYSTEM"):
                     continue
-                introduced = "0"
+                introduced = first_release
                 for event in entry.get("events", []):
                     if event.get("introduced"):
                         introduced = str(event["introduced"])
+                        if introduced == "0":
+                            introduced = first_release
                         continue
                     last_affected = event.get("last_affected")
                     if last_affected:
@@ -1888,7 +1933,7 @@ def runc_ladder(fetch: Fetcher | None = None) -> dict:
     minimum_availability: dict[str, dict[str, Any]] = {}
     for key, fixed in sorted(ladder.items()):
         availability = github_release_availability(
-            RUNC_RELEASE_REPO, f"v{fixed}", fixed, fetch=fetch
+            release_repo, f"v{fixed}", fixed, fetch=fetch
         )
         source = sources.get(minimum_sources.get(key, ""))
         if source and source.get("released"):
@@ -1902,10 +1947,11 @@ def runc_ladder(fetch: Fetcher | None = None) -> dict:
         "advisoryRanges": {
             vuln_id: advisory_ranges[vuln_id] for vuln_id in sorted(advisory_ranges)
         },
-        "advisory": RUNC_ADVISORY,
+        "advisory": advisory,
         "source": {
             "feed": "osv",
-            "package": RUNC_PACKAGE,
+            "package": names[0],
+            **({"packages": list(names)} if len(names) > 1 else {}),
             "ecosystem": RUNC_ECOSYSTEM,
             "url": OSV_QUERY_URL,
         },
@@ -1914,6 +1960,18 @@ def runc_ladder(fetch: Fetcher | None = None) -> dict:
         result["floorSources"] = minimum_sources
         result["sources"] = [sources[source_id] for source_id in sorted(sources)]
     return result
+
+
+def runc_ladder(fetch: Fetcher | None = None) -> dict:
+    """Highest fixed runc release per major.minor. See ``osv_ladder``."""
+    return osv_ladder((RUNC_PACKAGE,), RUNC_RELEASE_REPO, RUNC_ADVISORY, fetch=fetch)
+
+
+def containerd_ladder(fetch: Fetcher | None = None) -> dict:
+    """Highest fixed containerd release per major.minor. See ``osv_ladder``."""
+    return osv_ladder(
+        CONTAINERD_PACKAGES, CONTAINERD_RELEASE_REPO, CONTAINERD_ADVISORY, fetch=fetch
+    )
 
 
 def ubuntu_notice_url(notice_id: str) -> str:
@@ -3929,6 +3987,7 @@ def build_minimums(
         )
         nvhpc_future = pool.submit(nvhpc_release_window, fetch=fetch)
         runc_future = pool.submit(runc_ladder, fetch=fetch)
+        containerd_future = pool.submit(containerd_ladder, fetch=fetch)
         docker_future = pool.submit(docker_minimums, fetch=fetch)
         # The two AMD readers share one bulletin catalog reader and stay in
         # their usual order: ROCm, then the GPU driver.
@@ -3992,6 +4051,7 @@ def build_minimums(
                 "virtioNetBluefield": nvidia_virtio_net_minimums(nvidia_documents),
                 **({"snap4Container": snap4} if snap4 else {}),
                 "runc": runc_future.result(),
+                "containerd": containerd_future.result(),
                 "docker": docker_future.result(),
                 "rocm": amd_future.result()[0],
                 "amdDriver": amd_future.result()[1],
@@ -4079,7 +4139,7 @@ def verify(doc: dict, existing: dict | None = None) -> None:
     wider upstream query, or a parsing regression that lowered one
     would turn a vulnerable fleet green, so it is a hard error rather than a
     warning. The rule covers every keyed minimum (driver branches, ConnectX
-    firmware trains, Instinct ROCm programs, runc ladder rungs, VIRTIO-Net
+    firmware trains, Instinct ROCm programs, runc and containerd ladder rungs,
     release lines) and the single-value `minimum` components.
     """
     problems: list[str] = []

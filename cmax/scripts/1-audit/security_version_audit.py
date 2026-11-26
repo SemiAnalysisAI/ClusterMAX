@@ -146,12 +146,18 @@ def _semver_key(value: str) -> tuple:
     the applicability check needs: (release numbers, stable flag, rc number).
     A value with no digits orders lowest, which reads OSV's \"0\" introduced
     marker as the beginning of every range.
+
+    Any other SemVer pre-release, such as ``2.1.0-beta.0`` or the range start
+    ``2.0.0-0``, orders below every candidate of that release. Its digits must
+    not join the release numbers: (2, 1, 0, 0) would order above 2.1.0, and a
+    range that starts at 2.1.0-beta.0 would then miss a 2.1.0 host.
     """
     marker = _PRERELEASE_RE.search(value)
-    release_text = value[: marker.start()] if marker else value
-    release = tuple(int(part) for part in re.findall(r"\d+", release_text))
     if marker is None:
-        return (release, 1, 0)
+        release_text, dash, _ = value.partition("-")
+        release = tuple(int(part) for part in re.findall(r"\d+", release_text))
+        return (release, 0, -1) if dash else (release, 1, 0)
+    release = tuple(int(part) for part in re.findall(r"\d+", value[: marker.start()]))
     return (release, 0, int(marker.group(1) or 0))
 
 
@@ -633,28 +639,50 @@ def _meets_ladder_minimum(version: str, observed: tuple[int, ...], minimum_versi
     return observed_rc is None or observed_rc >= minimum_rc
 
 
-def runc_verdict(version: str) -> Verdict:
+def _ladder_verdict(
+    version: str, component: str, *, enforce_ranges: bool = False
+) -> Verdict:
+    """Grade one release against the branch ladder of ``component``.
+
+    ``enforce_ranges`` also fails a release that an advisory range still
+    holds. A branch can stop receiving fixes while its last fixed release
+    stays in the ladder, so the branch minimum alone would pass a release that
+    a later advisory affects.
+    """
     try:
-        block = minimum_versions.component("runc")
+        block = minimum_versions.component(component)
         ladder = block.get("ladder") or {}
         branches = {}
         for key, minimum_version in ladder.items():
             major, _, minor = str(key).partition(".")
             branches[(int(major), int(minor))] = str(minimum_version)
         if not branches:
-            raise MinimumDataError("minimum version table has no runc ladder")
+            raise MinimumDataError(f"minimum version table has no {component} ladder")
     except (MinimumDataError, TypeError, ValueError) as exc:
         return _minimums_unavailable(version, MinimumDataError(str(exc)))
 
     advisory = _advisory(block)
-    listed = " or ".join(
-        branches[branch] for branch in sorted(branches, reverse=True)
-    )
+    # A table without advisory ranges has no evidence to enforce, so the
+    # branch minimum stays the only rule for it.
+    enforce_ranges = enforce_ranges and bool(block.get("advisoryRanges"))
+    # `clear` holds the branches whose minimum no advisory range holds. A
+    # minimum on a branch that has stopped receiving fixes would fail again
+    # after the upgrade, so the verdict does not name it.
+    clear = [
+        candidate
+        for candidate in sorted(branches)
+        if not enforce_ranges
+        or _applicable_advisories(block, branches[candidate]) == []
+    ]
+    listed = " or ".join(branches[branch] for branch in reversed(clear))
+    listed = listed or "no fixed release"
     if version.strip().lower() in NOT_INSTALLED_VALUES:
-        return _not_installed(version, listed, advisory, "runc")
+        return _not_installed(version, listed, advisory, component)
     parsed = numeric_version(version)
     if parsed is None:
-        return _unknown(version, listed, advisory, "Host runc version is unavailable")
+        return _unknown(
+            version, listed, advisory, f"Host {component} version is unavailable"
+        )
 
     # The minimum names the one release that clears the observed branch, not
     # the whole ladder. "observed 1.3.3, minimum 0.1.0 or 1.0.3 or ... or
@@ -662,48 +690,62 @@ def runc_verdict(version: str) -> Verdict:
     # actionable minimum for a 1.3 host is 1.3.6 alone.
     branch = (parsed[0], parsed[1])
     branch_name = f"{branch[0]}.{branch[1]}"
+    # `target` is the branch whose minimum the verdict names.
+    target: tuple[int, int] | None
     if branch in branches:
         passed = _meets_ladder_minimum(version, parsed, branches[branch])
-        minimum = branches[branch]
+        target = branch
     elif branch > max(branches):
         # A branch above every branch in the ladder postdates the fixed
         # releases and cannot be below them.
-        newest = max(branches)
-        return Verdict(
-            version,
-            "pass",
-            f"newer than the {newest[0]}.{newest[1]} branch minimum",
-            advisory,
-            f"runc {branch_name} postdates every branch assessed by the "
-            f"advisory table (newest {newest[0]}.{newest[1]}), so no published "
-            f"minimum version applies to it",
-        )
+        passed = True
+        target = None
     else:
         # Anything below the ladder is an unmaintained branch that never
         # received the fixes. The nearest maintained branch is the way out.
         passed = False
-        next_up = min(candidate for candidate in branches if candidate > branch)
-        minimum = branches[next_up]
-
-    if passed:
-        return Verdict(
-            version,
-            "pass",
-            minimum,
-            advisory,
-            f"Meets the runc {branch_name} branch minimum version ({minimum})",
-        )
+        target = min(candidate for candidate in branches if candidate > branch)
 
     # Name only the advisories that hold the observed version, never the
     # package's whole advisory history. runc 1.3.3 already carries the fixes
     # for every advisory patched at or below 1.3.3, so listing those seventeen
     # IDs buried the single advisory (the 1.3.6 fix) the fail was about.
     applicable = _applicable_advisories(block, version)
-    minimum_label = (
-        f"runc {branch_name} branch minimum version {minimum}"
-        if branch in branches
-        else f"nearest maintained runc branch minimum {minimum}"
-    )
+    if enforce_ranges and applicable:
+        passed = False
+    if enforce_ranges and not passed:
+        # Name the nearest minimum that no advisory range holds.
+        target = next(
+            (candidate for candidate in clear if candidate >= branch), None
+        )
+
+    if passed and target is None:
+        newest = max(branches)
+        return Verdict(
+            version,
+            "pass",
+            f"newer than the {newest[0]}.{newest[1]} branch minimum",
+            advisory,
+            f"{component} {branch_name} postdates every branch assessed by the "
+            f"advisory table (newest {newest[0]}.{newest[1]}), so no published "
+            f"minimum version applies to it",
+        )
+    minimum = branches[target] if target is not None else "no fixed release"
+    if passed:
+        return Verdict(
+            version,
+            "pass",
+            minimum,
+            advisory,
+            f"Meets the {component} {branch_name} branch minimum version ({minimum})",
+        )
+
+    if target is None:
+        minimum_label = f"the advisory table lists no fixed {component} release"
+    elif target == branch:
+        minimum_label = f"{component} {branch_name} branch minimum version {minimum}"
+    else:
+        minimum_label = f"nearest maintained {component} branch minimum {minimum}"
     if applicable:
         detail = f"Affected by {', '.join(applicable)}; {minimum_label}"
     elif applicable is None:
@@ -713,11 +755,52 @@ def runc_verdict(version: str) -> Verdict:
         detail = (
             f"{minimum_source} minimum version ({minimum})"
             if isinstance(minimum_source, str) and minimum_source.strip()
-            else _cve_detail(block, "runc minimum version")
+            else _cve_detail(block, f"{component} minimum version")
         )
     else:
-        detail = f"Below the runc {branch_name} branch minimum version ({minimum})"
+        detail = f"Below the {component} {branch_name} branch minimum version ({minimum})"
     return Verdict(version, "fail", minimum, advisory, detail)
+
+
+def runc_verdict(version: str) -> Verdict:
+    return _ladder_verdict(version, "runc")
+
+
+_CONTAINERD_RELEASE_RE = re.compile(r"v?(\d+\.\d+\.\d+\S*)")
+
+
+def _containerd_release(value: str) -> str:
+    """Read the release out of a containerd version report.
+
+    ``containerd --version`` prints the Go module path before the release:
+    ``containerd github.com/containerd/containerd/v2 v2.1.4 <commit>``. The
+    ``v2`` of the module path is not the release, so the first number in the
+    line is the wrong one. The kubelet reports ``containerd://2.1.4``. The
+    release is the first field that starts with three dotted numbers. The
+    report of a different runtime, such as ``cri-o://1.30.1``, is not a
+    containerd release and stays unknown.
+    """
+    for field in value.strip().split():
+        scheme, separator, release = field.rpartition("://")
+        if separator and scheme.lower() != "containerd":
+            return "unknown"
+        match = _CONTAINERD_RELEASE_RE.fullmatch(release)
+        if match:
+            return match.group(1)
+    return value.strip()
+
+
+def containerd_verdict(version: str) -> Verdict:
+    """Grade containerd against its branch ladder and every advisory range.
+
+    containerd keeps the last fixed release of a retired branch in the ladder.
+    For example, 2.1.9 is the highest fix on the 2.1 branch, and later
+    advisories have a fix only on 2.2 and newer. The branch minimum alone would
+    pass 2.1.9, so a release must also be outside every advisory range.
+    """
+    return _ladder_verdict(
+        _containerd_release(version), "containerd", enforce_ranges=True
+    )
 
 
 def _release_lines(block: dict[str, Any]) -> tuple[dict[str, str], dict[str, str]]:
@@ -1895,6 +1978,7 @@ def evaluate(
     connectx_firmware: Iterable[str],
     gpu_vendor: str = "nvidia",
     docker: str = "unknown",
+    containerd: str = "unknown",
     cuda: str = "unknown",
     connectx_inventory_complete: bool = False,
     virtio_net: str = "unknown",
@@ -1992,6 +2076,7 @@ def evaluate(
     )
     isolation_record = dpu_host_isolation_result(dpu_isolation)
     runc_parsed = numeric_version(runc, parts=2)
+    containerd_parsed = numeric_version(_containerd_release(containerd), parts=2)
     return {
         "amdDriver": amd_driver_record(
             amd_model, amd_driver_evidence, gpu_vendor=gpu_vendor
@@ -2008,6 +2093,13 @@ def evaluate(
             runc_verdict(runc),
             "runc",
             ".".join(str(part) for part in runc_parsed[:2]) if runc_parsed else None,
+        ),
+        "containerd": _verdict_record(
+            containerd_verdict(containerd),
+            "containerd",
+            ".".join(str(part) for part in containerd_parsed[:2])
+            if containerd_parsed
+            else None,
         ),
         "connectxFirmware": aggregate_connectx(
             connectx_firmware, inventory_complete=connectx_inventory_complete
@@ -2075,6 +2167,11 @@ def main() -> int:
     parser.add_argument("--nct", default="unknown")
     parser.add_argument("--runc", default="unknown")
     parser.add_argument("--docker", default="unknown")
+    parser.add_argument(
+        "--containerd",
+        default="unknown",
+        help="containerd release, with or without the kubelet's containerd:// prefix",
+    )
     parser.add_argument("--cuda", default="unknown")
     parser.add_argument("--gpu-vendor", default="nvidia")
     parser.add_argument("--amd-model", default="unknown")
@@ -2155,6 +2252,7 @@ def main() -> int:
                 amd_model=args.amd_model,
                 amd_driver_evidence=_parse_isolation_json(args.amd_driver_evidence),
                 docker=args.docker,
+                containerd=args.containerd,
                 cuda=args.cuda,
                 connectx_inventory_complete=args.connectx_inventory_complete,
                 virtio_net=args.virtio_net,

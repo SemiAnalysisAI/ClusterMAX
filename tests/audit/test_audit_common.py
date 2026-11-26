@@ -941,7 +941,7 @@ class CollectorSafetyTests(unittest.TestCase):
         call = bashtest.extract_block(
             self.K8S_SCRIPT,
             "SECURITY_VERSION_AUDIT_JSON=$(build_security_version_audit \\",
-            '"$K8S_SECURITY_DOCKER_VERSION" "$GPU_VENDOR")',
+            '"$K8S_SECURITY_CONTAINERD_VERSION")',
         )
         for worker in ("", "unknown", "580.159.03"):
             with self.subTest(worker=worker):
@@ -953,6 +953,110 @@ class CollectorSafetyTests(unittest.TestCase):
                 )
                 self.assertEqual(run.returncode, 0, run.stderr)
                 self.assertEqual(run.stdout.strip(), worker if worker and worker != "unknown" else "unknown")
+
+    def test_k8s_grades_the_kubelet_containerd_report_when_the_host_read_finds_none(self) -> None:
+        block = bashtest.extract_block(
+            self.K8S_SCRIPT,
+            'if [[ -z "$K8S_SECURITY_CONTAINERD_NODE" ]]; then',
+            '"$K8S_SECURITY_CONTAINERD_VERSION")',
+        )
+        nodes = {
+            "items": [
+                {"metadata": {"name": name}, "status": {"nodeInfo": {"containerRuntimeVersion": runtime}}}
+                for name, runtime in (
+                    ("gpu-1", "containerd://1.7.27-k3s1"),
+                    ("gpu-2", "containerd://2.2.10"),
+                    ("crio-1", "cri-o://1.30.1"),
+                )
+            ]
+        }
+        for host, node, gpu_nodes, expected in (
+            # The host read is the evidence when it found a version.
+            ("2.1.4", "gpu-1", "gpu-1 gpu-2", "2.1.4"),
+            # K3s keeps containerd outside PATH. The kubelet report of the
+            # node that the host check read is the evidence.
+            ("not-installed", "gpu-2", "gpu-1 gpu-2", "2.2.10"),
+            # No host check ran. The first GPU node stands in for it.
+            ("unknown", "", "gpu-1 gpu-2", "1.7.27-k3s1"),
+            ("not-installed", "crio-1", "crio-1", "not-installed"),
+            ("unknown", "", "", "unknown"),
+        ):
+            with self.subTest(host=host, node=node):
+                run = bashtest.run_bash(
+                    f'source "{COMMON_PATH}"\n'
+                    'build_security_version_audit() { printf "%s|%s\\n" "$#" "$9"; }\n'
+                    + block
+                    + '\nprintf "%s\\n" "$SECURITY_VERSION_AUDIT_JSON"',
+                    env={
+                        "NODES_JSON": json.dumps(nodes),
+                        "K8S_SECURITY_CONTAINERD_VERSION": host,
+                        "K8S_SECURITY_CONTAINERD_NODE": node,
+                        "GPU_NODE_NAMES": gpu_nodes,
+                    },
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(run.stdout.strip(), f"9|{expected}")
+
+    def test_slurm_and_standalone_pass_containerd_as_the_ninth_argument(self) -> None:
+        for script, start, end, expected in (
+            (
+                self.SLURM_SCRIPT,
+                '    "$WORKER_CHECK_OUTPUT" "$SECURITY_DRIVER_VERSION" "$SECURITY_NCT_VERSION" \\',
+                '    "" "" "$SECURITY_CONTAINERD_VERSION")',
+                "9|amd|||1.7.36",
+            ),
+            (
+                AUDIT_SCRIPTS / "cluster-audit-standalone.sh",
+                '    "$WORKER_CHECK_OUTPUT" "$DRIVER_VERSION" "$SECURITY_NCT_VERSION" \\',
+                '    "" "standalone" "$SECURITY_CONTAINERD_VERSION")',
+                "9|amd||standalone|1.7.36",
+            ),
+        ):
+            with self.subTest(script=script.name):
+                call = bashtest.extract_block(script, start, end)
+                run = bashtest.run_bash(
+                    'build_security_version_audit() { printf "%s|%s|%s|%s|%s\\n" "$#" "$6" "$7" "$8" "$9"; }\n'
+                    "SECURITY_VERSION_AUDIT_JSON=$(build_security_version_audit \\\n"
+                    + call
+                    + '\nprintf "%s\\n" "$SECURITY_VERSION_AUDIT_JSON"',
+                    env={"SECURITY_GPU_VENDOR": "amd", "SECURITY_CONTAINERD_VERSION": "1.7.36"},
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(run.stdout.strip(), expected)
+
+    def test_standalone_reads_the_host_containerd_version(self) -> None:
+        script = AUDIT_SCRIPTS / "cluster-audit-standalone.sh"
+        detection = bashtest.extract_block(
+            script,
+            "CONTAINERD_PATH=$(command -v containerd 2>/dev/null || true)",
+            "done",
+        )
+        grading = bashtest.extract_block(
+            script,
+            '    SECURITY_CONTAINERD_VERSION="$([[ -n "$CONTAINERD_PATH" || -n "$CONTAINERD_VERSION" ]] \\',
+            '        && echo "${CONTAINERD_VERSION:-unknown}" || echo not-installed)"',
+        )
+        tools = {
+            name: f'exec "{shutil.which(name)}" "$@"'
+            for name in ("grep", "head")
+        }
+        dpkg = '[[ "${@: -1}" == containerd ]] || exit 1\nprintf %s "1.7.28-0ubuntu1~22.04.1"'
+        for stubs, expected in (
+            ({"containerd": "echo containerd github.com/containerd/containerd/v2 v2.1.4 75cb2b7"}, "2.1.4"),
+            ({"containerd": "echo containerd containerd.io 1.7.27 05044ec"}, "1.7.27"),
+            ({"containerd": "exit 1"}, "unknown"),
+            ({"dpkg-query": dpkg}, "1.7.28-0ubuntu1~22.04.1"),
+            ({}, "not-installed"),
+        ):
+            with self.subTest(stubs=sorted(stubs)):
+                run = bashtest.run_bash(
+                    'CONTAINERD_VERSION=""\n' + detection + "\n" + grading
+                    + '\nprintf "%s\\n" "$SECURITY_CONTAINERD_VERSION"',
+                    stubs={**tools, **stubs},
+                    path_only=True,
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(run.stdout.strip(), expected)
 
     def test_security_json_default_stays_valid(self) -> None:
         normalization = bashtest.extract_block(
@@ -1083,6 +1187,141 @@ class ContainerWorkerCheckTests(unittest.TestCase):
                 self.assertEqual(facts["WORKER_CONTAINER_SECURITY_NCT_VERSION"], expected)
                 self.assertEqual(facts["WORKER_CONTAINER_SECURITY_RUNC_VERSION"], expected)
                 self.assertIn(["version", "--format", "{{.Server.Version}}"], run.calls("docker"))
+
+    def container_facts(self, scope: str, stubs: dict[str, str]) -> dict[str, str]:
+        tools = {
+            name: f'exec "{shutil.which(name)}" "$@"'
+            for name in ("grep", "head")
+        }
+        run = bashtest.run_bash(
+            f'/bin/bash "{AUDIT_SCRIPTS / "container-check.sh"}"',
+            stubs={**tools, "hostname": "echo worker", **stubs},
+            env={"CLUSTERMAX_CONTAINER_RUNTIME_SCOPE": scope, "CLUSTERMAX_AUDIT_SCOPE": "security"},
+            path_only=True,
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return dict(line.split("=", 1) for line in run.stdout.splitlines() if "=" in line)
+
+    def test_containerd_version_is_read_only_on_the_host(self) -> None:
+        # containerd 2.x prints its Go module path, which ends in "/v2", before
+        # the release. The release is 2.1.4, not 2.
+        v2_line = "echo containerd github.com/containerd/containerd/v2 v2.1.4 75cb2b7193e4e490e9fbdc236c0e811ccaba3376"
+        docker_line = "echo containerd containerd.io 1.7.27 05044ec0a9a75232cad458027ca83437aae3f4da"
+        ubuntu_line = "echo containerd github.com/containerd/containerd 1.7.28-0ubuntu1~22.04.1"
+        for scope, stub, expected in (
+            ("host", v2_line, "2.1.4"),
+            ("host", docker_line, "1.7.27"),
+            ("host", ubuntu_line, "1.7.28-0ubuntu1~22.04.1"),
+            ("host", "exit 1", "unknown"),
+            ("host", None, "not-installed"),
+            ("nested-container", v2_line, "unknown"),
+            ("container", None, "unknown"),
+        ):
+            with self.subTest(scope=scope, stub=stub):
+                facts = self.container_facts(scope, {"containerd": stub} if stub else {})
+                self.assertEqual(
+                    facts["WORKER_CONTAINER_SECURITY_CONTAINERD_VERSION"], expected
+                )
+
+    def test_containerd_version_falls_back_to_the_host_package(self) -> None:
+        for package, version in (("containerd.io", "1.7.27-1"), ("containerd", "1.7.28-0ubuntu1~22.04.1")):
+            with self.subTest(package=package):
+                dpkg = (
+                    f'[[ "${{@: -1}}" == {package} ]] || exit 1\n'
+                    f'printf %s "{version}"'
+                )
+                facts = self.container_facts("host", {"dpkg-query": dpkg})
+                self.assertEqual(
+                    facts["WORKER_CONTAINER_SECURITY_CONTAINERD_VERSION"], version
+                )
+                nested = self.container_facts("nested-container", {"dpkg-query": dpkg})
+                self.assertEqual(
+                    nested["WORKER_CONTAINER_SECURITY_CONTAINERD_VERSION"], "unknown"
+                )
+
+    def test_containerd_reaches_the_grader_as_the_ninth_argument(self) -> None:
+        ladder = minimum_versions.get("components.containerd.ladder")
+        branches = sorted(ladder, key=lambda item: tuple(int(part) for part in item.split(".")))
+        # The newest branch minimum clears every advisory. The first release of
+        # the oldest branch is below a minimum that a refresh cannot lower.
+        for containerd, expected in (
+            (ladder[branches[-1]], "pass"),
+            (f"{branches[0]}.0", "fail"),
+            ("not-installed", "not_applicable"),
+            ("unknown", "unknown"),
+        ):
+            with self.subTest(containerd=containerd):
+                run = bashtest.run_bash(
+                    f'source "{COMMON_PATH}"; WORKLOAD_DIR="{AUDIT_SCRIPTS}"; '
+                    'build_security_version_audit "" unknown unknown unknown unknown "" "" "" "$CONTAINERD"',
+                    env={"CONTAINERD": containerd},
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                security = json.loads(run.stdout)
+                self.assertEqual(security["containerd"]["status"], expected)
+                self.assertEqual(security["containerd"]["version"], containerd)
+
+    def test_an_omitted_containerd_argument_is_unknown(self) -> None:
+        security = self.security_policy("")
+        self.assertEqual(security["containerd"]["status"], "unknown")
+
+    def test_the_fallback_payload_carries_containerd_when_the_grader_fails(self) -> None:
+        for workload in ("/nonexistent", ""):
+            with self.subTest(workload=workload):
+                run = bashtest.run_bash(
+                    f'source "{COMMON_PATH}"; WORKLOAD_DIR="$MISSING"; '
+                    'build_security_version_audit "" unknown unknown unknown unknown',
+                    env={"MISSING": workload},
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(
+                    json.loads(run.stdout)["containerd"], {"status": "unknown"}
+                )
+
+    def test_kubelet_containerd_version_reads_only_a_containerd_runtime(self) -> None:
+        nodes = {
+            "items": [
+                {"metadata": {"name": "gpu-1"}, "status": {"nodeInfo": {"containerRuntimeVersion": "containerd://2.1.4"}}},
+                {"metadata": {"name": "gpu-2"}, "status": {"nodeInfo": {"containerRuntimeVersion": "containerd://1.7.27-k3s1"}}},
+                {"metadata": {"name": "crio-1"}, "status": {"nodeInfo": {"containerRuntimeVersion": "cri-o://1.30.1"}}},
+                {"metadata": {"name": "bare-1"}, "status": {}},
+            ]
+        }
+        for node, expected in (
+            ("gpu-1", "2.1.4"),
+            ("gpu-2", "1.7.27-k3s1"),
+            ("crio-1", ""),
+            ("bare-1", ""),
+            ("absent", ""),
+        ):
+            with self.subTest(node=node):
+                run = bashtest.run_bash(
+                    f'source "{COMMON_PATH}"; kubelet_containerd_version "$NODES" "$NODE"',
+                    env={"NODES": json.dumps(nodes), "NODE": node},
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(run.stdout.strip(), expected)
+        run = bashtest.run_bash(
+            f'source "{COMMON_PATH}"; kubelet_containerd_version "not json" gpu-1'
+        )
+        self.assertEqual((run.returncode, run.stdout.strip()), (0, ""))
+
+    def test_the_kubelet_report_is_used_only_when_the_host_read_finds_no_version(self) -> None:
+        for host, kubelet, expected in (
+            ("2.1.4", "1.7.27", "2.1.4"),
+            ("not-installed", "1.7.27-k3s1", "1.7.27-k3s1"),
+            ("unknown", "1.7.27", "1.7.27"),
+            ("not-installed", "", "not-installed"),
+            ("unknown", "", "unknown"),
+            ("", "", "unknown"),
+        ):
+            with self.subTest(host=host, kubelet=kubelet):
+                run = bashtest.run_bash(
+                    f'source "{COMMON_PATH}"; resolve_containerd_version "$HOST_READ" "$KUBELET"',
+                    env={"HOST_READ": host, "KUBELET": kubelet},
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(run.stdout.strip(), expected)
 
     def test_gpu_operator_toolkit_dir_is_searched_only_on_the_host(self) -> None:
         check = COMMON_PATH.parent / "container-check.sh"

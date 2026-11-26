@@ -12,6 +12,7 @@ import unittest
 from contextlib import contextmanager, redirect_stdout
 from datetime import date
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest import mock
 
 
@@ -415,6 +416,275 @@ class RuncLadderPolicyTests(unittest.TestCase):
         self.assertEqual(security._prerelease("1:1.4.0~rc.2-0ubuntu1"), 2)
         self.assertEqual(security._prerelease("1.4.0-rc3"), 3)
         self.assertIsNone(security._prerelease("runc version 1.4.3"))
+
+
+# A synthetic containerd block. The 2.1 branch is retired: its last fixed
+# release is 2.1.9, and a later advisory has a fix only on the 2.2 branch.
+# The 1.6 branch is retired in the same way below the 1.7 branch.
+CONTAINERD_ADVISORY = "https://example.invalid/minimums/containerd"
+SHARED = "GHSA-aaaa-aaaa-aaaa"
+V2_ONLY = "GHSA-bbbb-bbbb-bbbb"
+OLD_BRANCH = "GHSA-cccc-cccc-cccc"
+CONTAINERD_BLOCK = {
+    "kind": "ladder",
+    "advisory": CONTAINERD_ADVISORY,
+    "advisories": [SHARED, V2_ONLY, OLD_BRANCH],
+    "ladder": {
+        "1.6": "1.6.38",
+        "1.7": "1.7.36",
+        "2.0": "2.0.13",
+        "2.1": "2.1.9",
+        "2.2": "2.2.10",
+    },
+    "floorSources": {
+        "1.6": OLD_BRANCH,
+        "1.7": SHARED,
+        "2.0": SHARED,
+        "2.1": SHARED,
+        "2.2": V2_ONLY,
+    },
+    "advisoryRanges": {
+        SHARED: [
+            {"introduced": "0", "fixed": "1.7.36"},
+            {"introduced": "2.0.0-0", "fixed": "2.0.13"},
+            {"introduced": "2.1.0-beta.0", "fixed": "2.1.9"},
+            {"introduced": "2.2.0-beta.0", "fixed": "2.2.4"},
+        ],
+        V2_ONLY: [{"introduced": "2.1.0-beta.0", "fixed": "2.2.10"}],
+        OLD_BRANCH: [{"introduced": "0", "fixed": "1.6.38"}],
+    },
+    "source": {"feed": "osv"},
+}
+
+
+@contextmanager
+def pinned_containerd_table(**changes):
+    """Grade against the synthetic containerd block, with optional changes."""
+    block = json.loads(json.dumps(CONTAINERD_BLOCK))
+    block.update(changes)
+    table = {
+        "schemaVersion": 1,
+        "generated": "2026-01-01T00:00:00Z",
+        "components": {"containerd": block},
+    }
+    previous = os.environ.get(minimums.MINIMUMS_ENV)
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / "minimum-versions.json"
+        path.write_text(json.dumps(table))
+        os.environ[minimums.MINIMUMS_ENV] = str(path)
+        minimums._CACHE = None
+        try:
+            yield
+        finally:
+            if previous is None:
+                os.environ.pop(minimums.MINIMUMS_ENV, None)
+            else:
+                os.environ[minimums.MINIMUMS_ENV] = previous
+            minimums._CACHE = None
+
+
+class ContainerdLadderPolicyTests(unittest.TestCase):
+    def test_a_maintained_branch_passes_at_its_minimum(self) -> None:
+        with pinned_containerd_table():
+            for version in ("1.7.36", "2.0.13", "2.2.10", "2.2.11"):
+                with self.subTest(version=version):
+                    verdict = security.containerd_verdict(version)
+                    self.assertEqual(verdict.status, "pass")
+                    self.assertNotIn("GHSA-", verdict.detail)
+                    self.assertEqual(verdict.advisory, CONTAINERD_ADVISORY)
+
+    def test_a_release_below_its_branch_minimum_names_that_minimum(self) -> None:
+        with pinned_containerd_table():
+            verdict = security.containerd_verdict("1.7.35")
+        self.assertEqual(verdict.status, "fail")
+        self.assertEqual(verdict.minimum, "1.7.36")
+        self.assertIn(f"{SHARED} (fixed in 1.7.36)", verdict.detail)
+        self.assertIn("containerd 1.7 branch minimum version 1.7.36", verdict.detail)
+
+    def test_the_last_release_of_a_retired_branch_fails(self) -> None:
+        # 2.1.9 meets the 2.1 branch minimum, but the 2.1 branch has no fix
+        # for the later advisory. The minimum must be on a branch that has it.
+        with pinned_containerd_table():
+            retired = security.containerd_verdict("2.1.9")
+            newer_patch = security.containerd_verdict("2.1.12")
+            older_line = security.containerd_verdict("1.6.38")
+        for verdict in (retired, newer_patch):
+            self.assertEqual(verdict.status, "fail")
+            self.assertEqual(verdict.minimum, "2.2.10")
+            self.assertIn(f"{V2_ONLY} (fixed in 2.2.10)", verdict.detail)
+            self.assertNotIn(SHARED, verdict.detail)
+            self.assertIn(
+                "nearest maintained containerd branch minimum 2.2.10", verdict.detail
+            )
+        self.assertEqual(older_line.status, "fail")
+        self.assertEqual(older_line.minimum, "1.7.36")
+        self.assertIn(f"{SHARED} (fixed in 1.7.36)", older_line.detail)
+
+    def test_a_branch_below_the_ladder_names_a_minimum_that_is_clear(self) -> None:
+        # The next branch in the ladder is 1.6, and 1.6.38 is itself affected.
+        with pinned_containerd_table():
+            verdict = security.containerd_verdict("1.5.18")
+        self.assertEqual(verdict.status, "fail")
+        self.assertEqual(verdict.minimum, "1.7.36")
+
+    def test_a_range_of_a_different_major_version_does_not_apply(self) -> None:
+        with pinned_containerd_table():
+            verdict = security.containerd_verdict("1.7.30")
+        self.assertEqual(verdict.status, "fail")
+        self.assertIn(SHARED, verdict.detail)
+        self.assertNotIn(V2_ONLY, verdict.detail)
+        self.assertNotIn("2.0.13", verdict.detail)
+
+    def test_a_range_that_starts_at_a_prerelease_holds_the_release(self) -> None:
+        # 2.1.0 is above 2.1.0-beta.0, and 2.0.0 is above the 2.0.0-0 marker
+        # that starts the range of the v2 Go module.
+        with pinned_containerd_table():
+            first_minor = security.containerd_verdict("2.1.0")
+            first_major = security.containerd_verdict("2.0.0")
+        self.assertIn(V2_ONLY, first_minor.detail)
+        self.assertEqual(first_major.status, "fail")
+        self.assertEqual(first_major.minimum, "2.0.13")
+        self.assertIn(f"{SHARED} (fixed in 2.0.13)", first_major.detail)
+
+    def test_prerelease_range_bounds_order_below_the_release(self) -> None:
+        ordered = [
+            "0",
+            "2.0.0-0",
+            "2.0.0-beta.0",
+            "2.0.0-rc.0",
+            "2.0.0-rc.1",
+            "2.0.0",
+            "2.0.1",
+        ]
+        keys = [security._semver_key(value) for value in ordered]
+        self.assertEqual(keys, sorted(keys))
+        self.assertEqual(
+            security._semver_key("2.0.0-0"), security._semver_key("2.0.0-beta.0")
+        )
+
+    def test_the_release_is_read_from_each_version_report(self) -> None:
+        cases = {
+            "containerd github.com/containerd/containerd v1.7.36 0123abc": "1.7.36",
+            "containerd github.com/containerd/containerd/v2 v2.2.10 0123abc": "2.2.10",
+            "containerd containerd.io 1.7.36 0123abc": "1.7.36",
+            "containerd github.com/containerd/containerd 1.7.36-0ubuntu1~24.04.1 ": (
+                "1.7.36-0ubuntu1~24.04.1"
+            ),
+            "containerd://1.7.36": "1.7.36",
+            "containerd://1.7.36-k3s1": "1.7.36-k3s1",
+            "v1.7.36-k3s1": "1.7.36-k3s1",
+            "1.7.36": "1.7.36",
+            "not-installed": "not-installed",
+            "unknown": "unknown",
+        }
+        with pinned_containerd_table():
+            for reported, release in cases.items():
+                with self.subTest(reported=reported):
+                    self.assertEqual(security._containerd_release(reported), release)
+                    if release[0].isdigit():
+                        verdict = security.containerd_verdict(reported)
+                        self.assertEqual(verdict.status, "pass")
+                        self.assertEqual(verdict.version, release)
+
+    def test_the_go_module_major_version_is_not_the_release(self) -> None:
+        # The first number in this line is the "2" of the module path.
+        line = "containerd github.com/containerd/containerd/v2 v2.1.9 0123abc"
+        with pinned_containerd_table():
+            verdict = security.containerd_verdict(line)
+            record = security.evaluate(
+                driver="unknown",
+                nct="unknown",
+                runc="unknown",
+                connectx_firmware=[],
+                containerd=line,
+            )["containerd"]
+        self.assertEqual(verdict.status, "fail")
+        self.assertEqual(verdict.minimum, "2.2.10")
+        self.assertEqual(record["version"], "2.1.9")
+        self.assertEqual(record["status"], "fail")
+
+    def test_absent_and_hidden_containerd(self) -> None:
+        with pinned_containerd_table():
+            absent = security.containerd_verdict("not-installed")
+            hidden = security.containerd_verdict("unknown")
+            unparsed = security.containerd_verdict("cri-o://1.30.1")
+        self.assertEqual(absent.status, "not_applicable")
+        self.assertIn("containerd is not installed", absent.detail)
+        self.assertEqual(hidden.status, "unknown")
+        self.assertEqual(hidden.detail, "Host containerd version is unavailable")
+        self.assertEqual(unparsed.status, "unknown")
+        # The 1.6 and 2.1 branch minimums are affected, so an upgrade to one of
+        # them would fail. The verdict names only the minimums that are clear.
+        for verdict in (absent, hidden, unparsed):
+            self.assertEqual(verdict.minimum, "2.2.10 or 2.0.13 or 1.7.36")
+
+    def test_a_branch_above_the_ladder(self) -> None:
+        with pinned_containerd_table():
+            clear = security.containerd_verdict("2.3.0")
+        self.assertEqual(clear.status, "pass")
+        self.assertIn("postdates every branch", clear.detail)
+        # An advisory without a fixed release holds the new branch.
+        ranges = dict(CONTAINERD_BLOCK["advisoryRanges"])
+        ranges["GHSA-dddd-dddd-dddd"] = [
+            {"introduced": "2.3.0-beta.0", "lastAffected": "2.3.1"}
+        ]
+        with pinned_containerd_table(advisoryRanges=ranges):
+            held = security.containerd_verdict("2.3.1")
+            later = security.containerd_verdict("2.3.2")
+        self.assertEqual(held.status, "fail")
+        self.assertEqual(held.minimum, "no fixed release")
+        self.assertIn("GHSA-dddd-dddd-dddd (no fixed release)", held.detail)
+        self.assertEqual(later.status, "pass")
+
+    def test_a_table_without_ranges_grades_the_branch_minimum_only(self) -> None:
+        with pinned_containerd_table(advisoryRanges={}):
+            at_minimum = security.containerd_verdict("2.1.9")
+            below = security.containerd_verdict("2.1.8")
+        self.assertEqual(at_minimum.status, "pass")
+        self.assertEqual(below.status, "fail")
+        self.assertEqual(below.minimum, "2.1.9")
+        self.assertIn(SHARED, below.detail)
+        with pinned_containerd_table(advisoryRanges={}):
+            hidden = security.containerd_verdict("unknown")
+        self.assertEqual(
+            hidden.minimum, "2.2.10 or 2.1.9 or 2.0.13 or 1.7.36 or 1.6.38"
+        )
+
+    def test_a_table_without_containerd_is_unknown(self) -> None:
+        with unreadable_minimum_table():
+            verdict = security.containerd_verdict("2.2.10")
+        self.assertEqual(verdict.status, "unknown")
+        self.assertIn("minimum-versions.json", verdict.detail)
+
+    def test_the_published_table_has_a_release_that_passes(self) -> None:
+        ladder = read_minimum("components.containerd.ladder")
+        verdicts = {
+            branch: security.containerd_verdict(minimum)
+            for branch, minimum in ladder.items()
+        }
+        newest = max(ladder, key=lambda key: tuple(int(part) for part in key.split(".")))
+        self.assertEqual(verdicts[newest].status, "pass")
+        for branch, verdict in verdicts.items():
+            with self.subTest(branch=branch):
+                if verdict.status == "pass":
+                    self.assertEqual(verdict.minimum, ladder[branch])
+                    continue
+                # A retired branch: the verdict names an advisory and a
+                # minimum on a different branch, and that minimum passes.
+                self.assertEqual(verdict.status, "fail")
+                self.assertIn("GHSA-", verdict.detail)
+                self.assertNotEqual(verdict.minimum, ladder[branch])
+                self.assertEqual(
+                    security.containerd_verdict(verdict.minimum).status, "pass"
+                )
+
+    def test_runc_keeps_the_branch_minimum_rule(self) -> None:
+        # runc has the same retired-branch condition. This change does not
+        # change the runc verdict: the branch minimum stays its only rule.
+        ladder = read_minimum("components.runc.ladder")
+        for branch, minimum in ladder.items():
+            with self.subTest(branch=branch):
+                self.assertEqual(security.runc_verdict(minimum).status, "pass")
 
 
 class ConnectxFirmwarePolicyTests(unittest.TestCase):
@@ -1743,6 +2013,39 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(result["docker"]["status"], "not_applicable")
         self.assertEqual(result["runc"]["status"], "not_applicable")
 
+    def test_containerd_is_graded_and_defaults_to_unknown(self) -> None:
+        newest = sorted(
+            read_minimum("components.containerd.ladder").values(),
+            key=lambda value: security.numeric_version(value, parts=3),
+        )[-1]
+        hosts = {
+            "unknown": {},
+            "not_applicable": {"containerd": "not-installed"},
+            "pass": {"containerd": f"containerd://{newest}"},
+            "fail": {"containerd": "1.0.0"},
+        }
+        for expected, arguments in hosts.items():
+            with self.subTest(expected=expected):
+                result = security.evaluate(
+                    driver="unknown",
+                    nct="unknown",
+                    runc="unknown",
+                    connectx_firmware=[],
+                    **arguments,
+                )
+                self.assertEqual(result["containerd"]["status"], expected)
+
+    def test_the_command_line_accepts_the_containerd_version(self) -> None:
+        argv = [
+            "security_version_audit.py", "--driver", "unknown", "--nct", "unknown",
+            "--runc", "unknown", "--containerd", "not-installed",
+        ]
+        stdout = io.StringIO()
+        with mock.patch.object(sys, "argv", argv), redirect_stdout(stdout):
+            security.main()
+        record = json.loads(stdout.getvalue())["containerd"]
+        self.assertEqual(record["status"], "not_applicable")
+
     def test_hidden_host_versions_are_unknown(self) -> None:
         result = security.evaluate(
             driver=newest_driver_minimum(),
@@ -1883,6 +2186,7 @@ class MissingMinimumTableTests(unittest.TestCase):
                 driver="580.159.03",
                 nct="1.19.1",
                 runc="1.4.3",
+                containerd="2.2.10",
                 docker="29.4.3",
                 cuda="13.1",
                 connectx_firmware=["mlx5_0=40.46.3008"],
@@ -1898,6 +2202,7 @@ class MissingMinimumTableTests(unittest.TestCase):
             "cudaToolkit",
             "docker",
             "runc",
+            "containerd",
             "connectxFirmware",
             "virtioNetBluefield",
             "dcgm",

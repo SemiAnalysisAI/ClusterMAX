@@ -89,6 +89,7 @@ _CHECK_ANCHORS = {
     "securityVersions.nvidiaContainerToolkit.status": _SECURITY_CONTAINER_TOOLKIT,
     "securityVersions.cudaToolkit.status": _SECURITY_PATCHING,
     "securityVersions.runc.status": _SECURITY_PATCHING,
+    "securityVersions.containerd.status": _SECURITY_PATCHING,
     "securityVersions.docker.status": _SECURITY_PATCHING,
     "securityVersions.connectxFirmware.status": _SECURITY_PATCHING,
     "securityVersions.dcgm.status": _SECURITY_PATCHING,

@@ -513,6 +513,27 @@ class AuditReportTests(unittest.TestCase):
             {key: audit_report.WARNING for key in keys},
         )
 
+    def test_containerd_verdicts_map_to_report_statuses(self) -> None:
+        key = "securityVersions.containerd.status"
+        for block, status in (
+            ({"status": "pass", "version": "2.2.10", "detail": "ok"}, audit_report.PASS),
+            ({"status": "fail", "version": "1.7.20", "minimum": "1.7.36"}, audit_report.FAIL),
+            ({"status": "unknown", "version": "unknown"}, audit_report.WARNING),
+            ({"status": "not_applicable", "version": "not-installed"}, audit_report.SKIPPED),
+        ):
+            with self.subTest(status=block["status"]):
+                values = {
+                    "cluster": {"orchestrator": "standalone"},
+                    "audit_data": {"securityVersions": {"containerd": block}},
+                }
+                by_key = {
+                    check.key: check
+                    for check in audit_report.evaluate(
+                        values, RUNTIME_ROOT, harness="standalone"
+                    )
+                }
+                self.assertEqual(by_key[key].status, status)
+
     def test_passes_show_collected_context_for_every_harness(self) -> None:
         values = {
             "audit_data": {
