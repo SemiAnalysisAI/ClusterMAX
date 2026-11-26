@@ -506,24 +506,54 @@ class UbuntuKernelCveTests(TempDirMixin):
         self.assertEqual((status, json.loads(cves)), ("unknown", []))
 
     def test_shipped_table_grades_ipv4_inet_opt_on_every_tracked_kernel(self) -> None:
-        # The shipped table carries the tracker state of CVE-2026-98432. No
-        # Ubuntu kernel has a released fix, so a high ABI still fails.
+        # The shipped table carries the live tracker state of CVE-2026-98432,
+        # which moves as Ubuntu releases fixes. Derive each kernel's expected
+        # verdict from its row: below a released fix ABI the CVE fails, at it
+        # the CVE clears, and with no released fix even a high ABI fails.
         shipped = json.loads((WORKLOAD / "minimum-versions.json").read_text())
-        for release, kernel in (
-            ("22.04", "5.15.0-999-generic"),
-            ("22.04", "5.15.0-9999-nvidia"),
-            ("22.04", "6.8.0-999-generic"),
-            ("24.04", "6.8.0-999-generic"),
-            ("24.04", "6.8.0-9999-nvidia-64k"),
-            ("24.04", "6.8.0-9999-aws"),
-            ("24.04", "6.17.0-999-generic"),
-            ("26.04", "7.0.0-999-generic"),
-            ("26.04", "7.0.0-9999-nvidia"),
+        components = {"22.04": "ubuntuJammy", "24.04": "ubuntuNoble", "26.04": "ubuntuResolute"}
+        cve = "CVE-2026-98432"
+
+        def tracked_row(release: str, family: str, flavor: str):
+            packages = shipped["components"][components[release]].get("packages") or {}
+            for row in packages.values():
+                if (
+                    row.get("cve") == cve
+                    and row.get("kernelGroup") == "linuxIpv4InetOptUaf"
+                    and row.get("kernelFamily") == family
+                    and flavor in (row.get("kernelFlavors") or [])
+                    and row.get("status") != "ignored"
+                ):
+                    return row
+            return None
+
+        for release, family, flavor, high_abi in (
+            ("22.04", "5.15", "generic", 999),
+            ("22.04", "5.15", "nvidia", 9999),
+            ("22.04", "6.8", "generic", 999),
+            ("24.04", "6.8", "generic", 999),
+            ("24.04", "6.8", "nvidia-64k", 9999),
+            ("24.04", "6.8", "aws", 9999),
+            ("26.04", "7.0", "generic", 999),
+            ("26.04", "7.0", "nvidia", 9999),
         ):
-            with self.subTest(kernel=kernel):
-                status, cves, _ = self.grade(shipped, release, kernel)
-                self.assertEqual(status, "fail")
-                self.assertIn("CVE-2026-98432", json.loads(cves))
+            row = tracked_row(release, family, flavor)
+            with self.subTest(release=release, family=family, flavor=flavor):
+                self.assertIsNotNone(row, "the shipped table must track this kernel")
+                if row.get("status") == "released" and row.get("abi"):
+                    fixed_abi = int(row["abi"])
+                    status, cves, _ = self.grade(
+                        shipped, release, f"{family}.0-{fixed_abi - 1}-{flavor}")
+                    self.assertEqual(status, "fail")
+                    self.assertIn(cve, json.loads(cves))
+                    _, cves, _ = self.grade(
+                        shipped, release, f"{family}.0-{fixed_abi}-{flavor}")
+                    self.assertNotIn(cve, json.loads(cves))
+                else:
+                    status, cves, _ = self.grade(
+                        shipped, release, f"{family}.0-{high_abi}-{flavor}")
+                    self.assertEqual(status, "fail")
+                    self.assertIn(cve, json.loads(cves))
 
     def test_missing_tracker_rows_are_unknown(self) -> None:
         table = minimum_table()
