@@ -56,10 +56,14 @@ env:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    # The refresh reads the advisory feeds and the exact fixed-release records.
-    # The rest of the time is the pip install and the audit test suite. 15
-    # minutes leaves room for retries and still kills a hung connection quickly.
-    timeout-minutes: 15
+    # A backstop only. Every slow step carries its own, smaller timeout-minutes,
+    # and their sum stays under this limit. A step timeout fails the step, so a
+    # slow upstream turns the run red ("failure"). A job timeout instead ends
+    # the run as "cancelled", which GitHub does not report as a failed
+    # scheduled run; that is how the refresh timed out unnoticed on every run
+    # from 2026-11-17, when the 20-minute refresh step sat inside a 15-minute
+    # job.
+    timeout-minutes: 60
     permissions:
       # The job pushes one branch and opens or updates one pull request.
       # It needs nothing more.
@@ -100,8 +104,13 @@ jobs:
       - name: Refresh the minimum table
         # The Ubuntu kernel CVE discovery clones the ubuntu-cve-tracker
         # repository (about 250 MB, up to 2 minutes per attempt) and reads one
-        # tracker record per discovered CVE.
-        timeout-minutes: 20
+        # tracker record per discovered CVE. ubuntu.com answers some records in
+        # 20 to 60 seconds, so one attempt can take several minutes. Each
+        # attempt gets `attempt_minutes`, so a hung attempt is retried instead of
+        # using the whole step. The step limit is three attempts plus the
+        # retry sleeps, and it stays under the job limit so that a timeout
+        # fails this step and the run is red.
+        timeout-minutes: 36
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -111,14 +120,25 @@ jobs:
           # fail-closed error (a populated component that extracts empty) is
           # deterministic: it fails every attempt, the generator writes nothing,
           # and the final exit below makes the job red.
+          attempt_minutes=11
           for attempt in 1 2 3; do
-            if python3 -u -m cmax.minimum_refresh --verbose --write "$MINIMUMS_PATH" --generated "$generated"; then
+            # timeout exits 124 when the attempt runs out of time. The
+            # generator writes the table only at the end, so a killed attempt
+            # leaves the committed file unchanged.
+            if timeout --kill-after=30s "${attempt_minutes}m" \
+              python3 -u -m cmax.minimum_refresh --verbose --write "$MINIMUMS_PATH" --generated "$generated"; then
               exit 0
+            else
+              rc=$?
             fi
-            echo "::warning::the minimum refresh failed on attempt ${attempt}"
+            if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+              echo "::warning::the minimum refresh timed out after ${attempt_minutes} minutes on attempt ${attempt}"
+            else
+              echo "::warning::the minimum refresh failed on attempt ${attempt} with exit ${rc}"
+            fi
             sleep $((attempt * 10))
           done
-          echo "::error::the minimum refresh failed on all 3 attempts. The generator wrote nothing. Read the log above for the failed component."
+          echo "::error::the minimum refresh failed or timed out on all 3 attempts. The generator wrote nothing. Read the log above for the failed component or the slow upstream."
           exit 1
 
       - name: Check that the refreshed table is complete
@@ -242,6 +262,7 @@ jobs:
         # minimum compares as safe at the minimum and unsafe below it. The reported
         # audit result permits a below-minimum version during the declared
         # vendor window, measured from the later of the bulletin and fix dates.
+        timeout-minutes: 10
         run: python3 -m pytest -q tests/audit/
 
       - name: Detect new upstream bulletins
