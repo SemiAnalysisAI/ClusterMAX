@@ -1113,7 +1113,7 @@ class SecurityCliTests(unittest.TestCase):
             command="cmax audit security",
             noun="audit",
             assume_yes=False,
-            allow_cluster_node=False,
+            run_here=False,
         )
         run.assert_called_once_with(
             repo="/runtime",

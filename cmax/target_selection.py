@@ -419,7 +419,7 @@ def prepare_target(
     stream: TextIO | None = None,
     environ: MutableMapping[str, str] | None = None,
     interactive: bool | None = None,
-    allow_cluster_node: bool = False,
+    run_here: bool = False,
     host_role: host_roles.HostRole | None = None,
 ) -> security.SecurityTarget:
     """Show, validate, and confirm the target before the command starts.
@@ -444,6 +444,15 @@ def prepare_target(
             roles["detected"] = host_roles.detect(target_environ)
         return roles["detected"]
 
+    def accepted_by(choice: security.SecurityTarget) -> str:
+        """Name the option that already accepts a host role mismatch."""
+        if run_here:
+            return "--run-here"
+        # A target flag names the target. A menu answer does not.
+        if target.explicit and choice is target:
+            return "the target flag"
+        return "--yes" if assume_yes else ""
+
     def accept(choice: security.SecurityTarget) -> security.SecurityTarget:
         try:
             host_roles.confirm(
@@ -454,8 +463,7 @@ def prepare_target(
                 reader=ask,
                 stream=output,
                 terminal=terminal,
-                allow_cluster_node=allow_cluster_node,
-                assume_yes=assume_yes,
+                accepted_by=accepted_by(choice),
             )
         except host_roles.HostRoleRefused as exc:
             raise TargetSelectionError(str(exc)) from exc
@@ -534,7 +542,7 @@ def prepare_target(
                     selected.harness, current_role, noun=noun, command=command
                 ) is not None
             )
-            if mismatch and not (allow_cluster_node or assume_yes):
+            if mismatch and not accepted_by(selected):
                 # The mismatch menu and its final question replace the usual
                 # target question, so the operator confirms exactly twice.
                 return accept(selected)
@@ -543,11 +551,11 @@ def prepare_target(
                 return accept(selected)
             if not terminal:
                 # One answered probe leaves a single interface.
-                # --allow-cluster-node already answered a host-role mismatch.
+                # --run-here already answered a host-role mismatch.
                 single_interface = (
                     probed_interfaces is not None and len(probed_interfaces) < 2
                 )
-                if selected.explicit or allow_cluster_node or single_interface:
+                if selected.explicit or run_here or single_interface:
                     if selected.explicit:
                         print(
                             "  Confirmation: accepted from the explicit target",

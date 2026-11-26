@@ -304,9 +304,9 @@ Run Slurm audits from a login node and Kubernetes audits from a machine with `ku
 
 The mismatch menu defaults to cancel. Select `c` and then confirm with `y` to continue on this host. Select `r` to review sanitized detection details and the [public issue form](https://github.com/SemiAnalysisAI/ClusterMAX/issues/new). The CLI does not upload anything. Review the preview before sharing it, and do not attach credentials, cluster names, hostnames, or raw logs.
 
-`--yes` or `--allow-cluster-node` skips the mismatch menu and runs the selected target on this host. Without a terminal, a mismatched run stops unless one of them is present.
+Three options skip the mismatch menu. Each one prints the warning and runs on this host: a target flag such as `--standalone` or `--slurm`, `--run-here` (which also covers an auto-detected target), and `--yes` (which also accepts every other confirmation). Without a terminal, a mismatched run stops unless one of them is present. `--allow-cluster-node` is the old name of `--run-here` and still works.
 
-For Slurm on Kubernetes, including Slinky, the CLI shows the Slurm role separately from the runtime context. When auto-detection finds both interfaces reachable, it asks which interface to use. `--yes` keeps the auto-detected interface, and `--slurm` or `--k8s` selects one. Without a terminal, the run stops unless one of these is present. An explicit interface skips this choice, but a Slurm run from a compute node still requires `--yes`, `--allow-cluster-node`, or interactive confirmation.
+For Slurm on Kubernetes, including Slinky, the CLI shows the Slurm role separately from the runtime context. When auto-detection finds both interfaces reachable, it asks which interface to use. `--yes` keeps the auto-detected interface, and `--slurm` or `--k8s` selects one. Without a terminal, the run stops unless one of these is present. An explicit interface skips this choice and also answers the host role check.
 
 The regression tests use synthetic signals to cover cancellation, reporting, overrides, mixed interfaces, and failed access checks. They do not establish live cluster qualification.
 

@@ -204,7 +204,8 @@ def test_controller_lookup_is_skipped_when_slurmd_is_visible() -> None:
 
 
 COMPUTE = host_role.HostRole(host_role.SLURM_COMPUTE, ("slurmd is running",))
-STANDALONE = security.SecurityTarget("standalone", "bare-metal", True)
+STANDALONE = security.SecurityTarget("standalone", "bare-metal", False)
+EXPLICIT_STANDALONE = security.SecurityTarget("standalone", "bare-metal", True)
 
 
 def prepare(target=STANDALONE, role=COMPUTE, **options):
@@ -239,7 +240,7 @@ def test_standalone_on_a_compute_node_stops_without_a_terminal() -> None:
     assert "Host role: Slurm compute node (slurmd is running)" in text
     assert "From a Slurm login node, run: cmax audit --slurm" in text
     assert host_role.ISSUE_URL in text
-    assert "--allow-cluster-node" in str(error.value)
+    assert "pass the target flag, --run-here, or --yes" in str(error.value)
 
 
 def test_yes_accepts_the_mismatch_without_a_terminal() -> None:
@@ -258,11 +259,30 @@ def test_yes_accepts_the_mismatch_without_a_terminal() -> None:
     assert "Host role check: accepted with --yes" in output.getvalue()
 
 
-def test_allow_cluster_node_overrides_the_guard() -> None:
-    selected, text = prepare(allow_cluster_node=True)
+def test_run_here_overrides_the_guard() -> None:
+    selected, text = prepare(run_here=True)
 
     assert selected == STANDALONE
-    assert "Host role check: accepted with --allow-cluster-node" in text
+    assert "Host role check: accepted with --run-here" in text
+
+
+def test_explicit_target_warns_and_runs() -> None:
+    selected, text = prepare(target=EXPLICIT_STANDALONE)
+
+    assert selected == EXPLICIT_STANDALONE
+    assert "This host looks like a Slurm compute node" in text
+    assert "Host role check: accepted with the target flag" in text
+
+
+def test_explicit_target_skips_the_mismatch_menu_in_a_terminal() -> None:
+    reader = answers("y")
+
+    selected, text = prepare(target=EXPLICIT_STANDALONE, interactive=True, reader=reader)
+
+    assert selected == EXPLICIT_STANDALONE
+    assert len(reader.prompts) == 1
+    assert reader.prompts[0].startswith("Run this audit?")
+    assert "Host role check: accepted with the target flag" in text
 
 
 def test_interactive_run_asks_twice() -> None:
@@ -293,7 +313,7 @@ def test_interactive_yes_skips_the_mismatch_questions() -> None:
 
 
 def test_slurm_audit_from_a_compute_node_is_guarded() -> None:
-    target = security.SecurityTarget("slurm", "slurm", True)
+    target = security.SecurityTarget("slurm", "slurm", False)
     with mock.patch.object(
         target_selection, "_slurm_details", return_value=(("Target", "Slurm cluster"),)
     ):
@@ -317,9 +337,11 @@ def test_slurm_audit_from_a_login_node_runs() -> None:
 
 
 def test_standalone_on_an_unknown_host_runs() -> None:
-    selected, text = prepare(role=host_role.HostRole(host_role.UNKNOWN))
+    selected, text = prepare(
+        target=EXPLICIT_STANDALONE, role=host_role.HostRole(host_role.UNKNOWN),
+    )
 
-    assert selected == STANDALONE
+    assert selected == EXPLICIT_STANDALONE
     assert "Host role" not in text
     assert "Warning" not in text
 
@@ -351,17 +373,17 @@ def test_auto_detected_host_type_has_no_mismatch_warning() -> None:
     assert "Warning" not in details
 
 
-def test_cli_passes_allow_cluster_node() -> None:
+def test_cli_passes_run_here() -> None:
     target = security.SecurityTarget("standalone", "bare-metal", True)
     with mock.patch.object(security, "detect_target", return_value=target), mock.patch.object(
         target_selection, "prepare_target", return_value=target
     ) as prepared, mock.patch("cmax.audit_runner.run", return_value=0):
         result = cli.main(
-            ["--repo", "/runtime", "audit", "--standalone", "--allow-cluster-node"]
+            ["--repo", "/runtime", "audit", "--standalone", "--run-here"]
         )
 
     assert result == 0
-    assert prepared.call_args.kwargs["allow_cluster_node"] is True
+    assert prepared.call_args.kwargs["run_here"] is True
 
 
 @pytest.mark.parametrize(
@@ -433,6 +455,21 @@ def test_slinky_roles_and_guards(case: str) -> None:
 # The guard applies to every cmax command, not only the audit.
 
 
+def test_old_option_name_sets_run_here(capsys) -> None:
+    target = security.SecurityTarget("standalone", "bare-metal", False)
+    with mock.patch.object(security, "detect_target", return_value=target), mock.patch.object(
+        target_selection, "prepare_target", return_value=target
+    ) as prepared, mock.patch("cmax.audit_runner.run", return_value=0):
+        assert cli.main(["--repo", "/runtime", "audit", "--allow-cluster-node"]) == 0
+    assert prepared.call_args.kwargs["run_here"] is True
+
+    with pytest.raises(SystemExit):
+        cli.main(["audit", "--help"])
+    text = capsys.readouterr().out
+    assert "--run-here" in text
+    assert "--allow-cluster-node" not in text
+
+
 def test_every_cli_command_has_the_host_role_guard() -> None:
     assert cli.host_role_unguarded_commands(cli.build_parser()) == []
 
@@ -492,7 +529,7 @@ def test_prepare_target_guards_any_command() -> None:
     assert "# ClusterMAX benchmark target" in text
     assert "From a Slurm login node, run: cmax bench --slurm" in text
     assert "--standalone --slurm" not in text
-    assert "--allow-cluster-node" in str(error.value)
+    assert "pass the target flag, --run-here, or --yes" in str(error.value)
 
 
 def test_kubelet_process_alone_suggests_yes_for_a_local_cluster() -> None:
@@ -507,7 +544,6 @@ def test_kubelet_process_alone_suggests_yes_for_a_local_cluster() -> None:
         host_role.confirm(
             "standalone", role, noun="benchmark", command="cmax run nccl",
             reader=lambda _: "", stream=io.StringIO(), terminal=False,
-            allow_cluster_node=False,
         )
 
 

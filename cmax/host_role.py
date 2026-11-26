@@ -3,12 +3,13 @@
 The target says what a command runs against. The host role says where the
 command runs. A standalone run on a cluster node covers only that node, and a
 Slurm run from a compute node starts work from a job instead of a login node.
-`confirm` stops these runs before any work starts.
+`confirm` asks about these runs before any work starts, unless the operator
+already accepted them.
 
 The guard is not specific to the audit. Every cmax command that runs against
 a target declares a host role policy in the CLI (see `cmax.cli`), and
 `cmax.target_selection.prepare_target` calls `confirm` for it. A new command
-gets the same checks, wording, and `--allow-cluster-node` option without code
+gets the same checks, wording, and `--run-here` option without code
 of its own.
 """
 
@@ -290,7 +291,7 @@ def guard(
             return Guard(
                 note=(
                     "If this kubelet belongs to a local kind, minikube, or k3d "
-                    "cluster on this host, pass --yes to run here."
+                    "cluster on this host, pass --run-here or --yes."
                     if local_cluster else ""
                 ),
                 reason=(
@@ -346,12 +347,13 @@ def confirm(
     reader: Callable[[str], str],
     stream: TextIO,
     terminal: bool,
-    allow_cluster_node: bool,
-    assume_yes: bool = False,
+    accepted_by: str = "",
 ) -> None:
     """Ask a second time when the target does not fit the role of this host.
 
-    `--yes` and `--allow-cluster-node` both answer this question.
+    accepted_by names the option that already answered this question:
+    `--run-here`, the target flag, or `--yes`. The warning still
+    prints, so the report scope is clear.
     Raises HostRoleRefused in a non-interactive run and HostRoleCancelled when
     the operator does not confirm.
     """
@@ -370,19 +372,16 @@ def confirm(
         f"  If the detection is wrong, review sanitized details before filing: {ISSUE_URL}",
         file=stream,
     )
-    if allow_cluster_node:
-        print("  Host role check: accepted with --allow-cluster-node", file=stream)
-        return
-    if assume_yes:
-        print("  Host role check: accepted with --yes", file=stream)
+    if accepted_by:
+        print(f"  Host role check: accepted with {accepted_by}", file=stream)
         return
     if not terminal:
         raise HostRoleRefused(
             f"{found.reason} {found.instead}. "
             + (f"{found.note} " if found.note else "")
-            + "To run here anyway, pass --yes or --allow-cluster-node."
+            + "To run here anyway, pass the target flag, --run-here, or --yes."
         )
-    print("  To skip this question, pass --yes or --allow-cluster-node.", file=stream)
+    print("  To skip this question, pass the target flag, --run-here, or --yes.", file=stream)
     while True:
         try:
             answer = reader(
