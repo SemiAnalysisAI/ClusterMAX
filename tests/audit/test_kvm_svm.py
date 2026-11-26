@@ -1,6 +1,7 @@
 """Tests for the passive AMD KVM kernel check in the focused audit."""
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -76,6 +77,25 @@ def test_upstream_floors_and_affected_ranges(running, status, floor):
     result = kvm_svm.grade(facts(running))
     assert (result["status"], result["minimum"]) == (status, floor)
     assert result["exploitTested"] is False
+
+
+@pytest.mark.parametrize(("running", "status", "floor"), [
+    ("5.15.80", "not-applicable", "unknown"), ("5.15.81", "fail", "5.15.226"),
+    ("5.15.225", "fail", "5.15.226"), ("5.15.226", "pass", "5.15.226"),
+    ("6.0.10", "not-applicable", "unknown"), ("6.0.11", "fail", "unknown"),
+])
+def test_a_backported_branch_with_a_fix_keeps_its_affected_start(
+        running, status, floor, tmp_path, monkeypatch):
+    # kernel.org later fixed 5.15 too (5.15.226). A 5.15 release before the
+    # 5.15.81 backport that brought the bug stays not affected.
+    table = json.loads(Path(os.environ[minimum_versions.MINIMUMS_ENV]).read_text())
+    table["components"]["linuxKvmSvm"]["branches"]["5.15"] = "5.15.226"
+    path = tmp_path / "with-5.15-fix.json"
+    path.write_text(json.dumps(table))
+    monkeypatch.setenv(minimum_versions.MINIMUMS_ENV, str(path))
+    monkeypatch.setattr(minimum_versions, "_CACHE", None)
+    result = kvm_svm.grade(facts(running))
+    assert (result["status"], result["minimum"]) == (status, floor)
 
 
 @pytest.mark.parametrize(("extra", "status"), [
