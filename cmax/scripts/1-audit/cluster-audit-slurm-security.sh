@@ -191,9 +191,14 @@ security_host_record() {
                 --qemu-status "${WORKER_QEMU_CVE_2024_3446_STATUS:-unknown}" \
                 --vmscape-status "${WORKER_VMSCAPE_STATUS:-unknown}")" \
             | jq -c 'del(._end)' 2>/dev/null) || advisories='{}'
-        jq -cn --arg node "$node" --argjson versions "${versions:-{\}}" \
+        # The version verdict carries the fix availability of every graded
+        # Ubuntu kernel row, which is larger than one command-line argument
+        # may be (128 KiB on Linux). Pass it on a file descriptor instead.
+        jq -cn --arg node "$node" \
+            --slurpfile versions_doc <(printf '%s' "${versions:-{\}}") \
             --argjson advisories "${advisories:-{\}}" \
-            '{node: $node, checked: true, securityVersions: $versions, security: $advisories}' \
+            '$versions_doc[0] as $versions
+             | {node: $node, checked: true, securityVersions: $versions, security: $advisories}' \
             2>/dev/null \
             || jq -cn --arg node "$node" \
                 '{node: $node, checked: false, error: "The host evidence could not be graded."}'
@@ -210,10 +215,11 @@ apply_security_host_fleet() {
     local merged
     [[ -n "$SECURITY_HOST_RECORDS" ]] || return 0
     if merged=$(printf '%s' "$SECURITY_HOST_RECORDS" \
-            | jq -s --argjson versions "$SECURITY_VERSION_AUDIT_JSON" \
-                --argjson security "$SECURITY_ADVISORY_JSON" \
+            | jq -s --slurpfile versions_doc <(printf '%s' "$SECURITY_VERSION_AUDIT_JSON") \
+                --slurpfile security_doc <(printf '%s' "$SECURITY_ADVISORY_JSON") \
                 --argjson total "$(json_int "$SECURITY_GPU_HOSTS_TOTAL")" \
-                '{sampled: {securityVersions: $versions, security: $security},
+                '$versions_doc[0] as $versions | $security_doc[0] as $security
+                 | {sampled: {securityVersions: $versions, security: $security},
                   hostsTotal: $total, hosts: .}' \
             | python3 "$WORKLOAD_DIR/security_fleet.py" 2>/dev/null) \
             && [[ -n "$merged" ]]; then
@@ -1070,8 +1076,8 @@ JSON_OUTPUT=$(jq -n \
     --arg rdma_type "$RDMA_TYPE" \
     --argjson worker_ok true \
     --argjson container_ok "$(json_bool "$CONTAINER_CHECK_OK")" \
-    --argjson security_versions "$SECURITY_VERSION_AUDIT_JSON" \
-    --argjson advisories "$SECURITY_ADVISORY_JSON" \
+    --slurpfile security_versions_doc <(printf '%s' "$SECURITY_VERSION_AUDIT_JSON") \
+    --slurpfile advisories_doc <(printf '%s' "$SECURITY_ADVISORY_JSON") \
     --argjson ufm "$UFM_SECURED_PROFILE_JSON" \
     --arg virtualization_type "${WORKER_VIRT_TYPE:-unknown}" \
     --argjson virtualization_guest "$(json_bool_or_unknown "${WORKER_VIRT_GUEST:-unknown}")" \
@@ -1099,7 +1105,8 @@ JSON_OUTPUT=$(jq -n \
     --argjson pcie_vfio "$(json_int "${WORKER_PCIE_VFIO_DEVICES:-0}")" \
     --argjson pcie_unsafe "$(json_int "${WORKER_PCIE_UNSAFE_GROUPS:-0}")" \
     --argjson bmc_ipmi "$K8S_BMC_IPMI_JSON" \
-    '{
+    '$security_versions_doc[0] as $security_versions | $advisories_doc[0] as $advisories
+    | {
         audit: {
             version: "2.1",
             type: $harness,

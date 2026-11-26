@@ -497,24 +497,86 @@ class SameOriginAuthRedirectHandler(urllib.request.HTTPRedirectHandler):
 SAFE_OPENER = urllib.request.build_opener(SameOriginAuthRedirectHandler())
 
 
+# Open requests allowed at one time per host, for the whole refresh. The
+# components refresh in parallel, so without a per-host bound their thread
+# pools would multiply against one upstream. ubuntu.com drops parallel
+# connections and answers slowly (20 to 60 seconds per record on some days), so
+# it keeps the four requests that one Ubuntu pool already sent before the
+# components ran in parallel. A slot is held only while one request is open and
+# never across a nested call, so the bound cannot deadlock.
+HOST_CONCURRENCY = {"ubuntu.com": 4}
+DEFAULT_HOST_CONCURRENCY = 16
+
+
 class Fetcher:
     """HTTP access for the generator. Tests substitute an offline stand-in."""
 
     timeout: int = 60
+    _host_slots: dict[str, threading.BoundedSemaphore] = {}
+    _host_slots_lock = threading.Lock()
+
+    @classmethod
+    def _host_slot(cls, url: str) -> threading.BoundedSemaphore:
+        host = (urllib.parse.urlsplit(url).hostname or "").lower()
+        with cls._host_slots_lock:
+            slot = cls._host_slots.get(host)
+            if slot is None:
+                slot = threading.BoundedSemaphore(
+                    HOST_CONCURRENCY.get(host, DEFAULT_HOST_CONCURRENCY)
+                )
+                cls._host_slots[host] = slot
+            return slot
+
+    # Seconds to wait before each retry of one request. ubuntu.com answers
+    # HTTP 502 or 504 for a few requests in each run, and one such answer used
+    # to fail the whole refresh attempt after ten minutes of work. A retry here
+    # costs seconds. Only a transient answer is retried: a 404 or another
+    # definite answer is returned at once.
+    retry_delays: tuple[float, ...] = (2, 5)
+    RETRY_HTTP_CODES = frozenset({429, 500, 502, 503, 504})
+
+    @classmethod
+    def _transient(cls, exc: BaseException) -> bool:
+        if isinstance(exc, urllib.error.HTTPError):
+            return exc.code in cls.RETRY_HTTP_CODES
+        return isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError))
 
     @contextmanager
     def _open(self, request):
-        """Log request progress without printing headers or credentials."""
+        """Log request progress without printing headers or credentials.
+
+        A transient failure to open the request is retried after each of
+        `retry_delays`. The host slot is released while the retry waits.
+        """
         logger = logging.getLogger(__name__)
-        started = time.monotonic()
-        logger.info("fetch %s %s", request.get_method(), request.full_url)
-        try:
-            with SAFE_OPENER.open(request, timeout=self.timeout) as response:
-                yield response
-        finally:
-            logger.info(
-                "finished %s after %.1fs", request.full_url, time.monotonic() - started
-            )
+        delays = list(self.retry_delays)
+        while True:
+            with self._host_slot(request.full_url):
+                started = time.monotonic()
+                logger.info("fetch %s %s", request.get_method(), request.full_url)
+                try:
+                    response = SAFE_OPENER.open(request, timeout=self.timeout)
+                except BaseException as exc:
+                    logger.info(
+                        "finished %s after %.1fs", request.full_url,
+                        time.monotonic() - started,
+                    )
+                    if not delays or not self._transient(exc):
+                        raise
+                    error = exc
+                else:
+                    try:
+                        with response:
+                            yield response
+                    finally:
+                        logger.info(
+                            "finished %s after %.1fs", request.full_url,
+                            time.monotonic() - started,
+                        )
+                    return
+            delay = delays.pop(0)
+            logger.warning("retry %s in %ss after %s", request.full_url, delay, error)
+            time.sleep(delay)
 
     def _headers(self, url: str, **extra: str) -> dict[str, str]:
         headers = {"User-Agent": USER_AGENT, **extra}
@@ -524,6 +586,16 @@ class Fetcher:
         return headers
 
     def get_json(self, url: str) -> Any:
+        """Return the JSON at a URL, read once per fetcher.
+
+        Every Ubuntu release and kernel row reads the same CVE, OSV, and USN
+        records, and the releases now refresh in parallel. One read per URL
+        keeps those repeats off the slow upstreams. A failed read is not kept,
+        so a later caller retries it.
+        """
+        return self.memo(f"json:{url}", lambda: self._read_json(url))
+
+    def _read_json(self, url: str) -> Any:
         request = urllib.request.Request(url, headers=self._headers(url))
         try:
             with self._open(request) as response:
@@ -537,8 +609,11 @@ class Fetcher:
         A missing release means its availability is not confirmed yet. Other
         HTTP, network, and JSON failures must stop the refresh, because treating
         an unavailable feed as an unavailable fix would grant an indefinite
-        audit pass.
+        audit pass. Read once per fetcher, like `get_json`.
         """
+        return self.memo(f"optional-json:{url}", lambda: self._read_optional_json(url))
+
+    def _read_optional_json(self, url: str) -> Any | None:
         request = urllib.request.Request(url, headers=self._headers(url))
         try:
             with self._open(request) as response:
@@ -2065,6 +2140,49 @@ def ubuntu_osv_record(cve: str, fetch: Fetcher | None = None) -> dict | None:
     return None
 
 
+def _osv_fixed_index(record: dict) -> dict[str, str | None]:
+    """{"<ecosystem>\\n<package>": fixed} for every package an OSV record lists."""
+    names = {
+        ((affected.get("package") or {}).get("ecosystem"),
+         (affected.get("package") or {}).get("name"))
+        for affected in record.get("affected", [])
+        if isinstance(affected, dict)
+    }
+    return {
+        f"{eco}\n{name}": _osv_fixed(record, name, eco)[1]
+        for eco, name in names
+        if isinstance(eco, str) and isinstance(name, str)
+    }
+
+
+def _ubuntu_osv_entry_index(cve: str, fetch: Fetcher | None = None) -> dict | None:
+    """The parts of a CVE's OSV record that `ubuntu_entry` reads, once per CVE.
+
+    Each kernel row of each release reads the same record. Copying the whole
+    record per row took most of the refresh's time. An unreachable record is
+    not kept, so the next row retries it.
+    """
+    client = _fetcher(fetch)
+
+    def index() -> dict:
+        record = ubuntu_osv_record(cve, fetch=client)
+        if record is None:
+            raise MinimumRefreshError(f"ubuntu osv: no record of {cve}")
+        return {
+            "priority": _osv_priority(record),
+            "fixes": _osv_fixed_index(record),
+            "notices": sorted(
+                {r for r in record.get("related", []) if isinstance(r, str) and r.startswith("USN-")},
+                key=_usn_order,
+            ),
+        }
+
+    try:
+        return client.memo(f"ubuntu-osv-index:{cve}", index)
+    except MinimumRefreshError:
+        return None
+
+
 def _osv_fixed(record: dict, package: str, ecosystem: str) -> tuple[bool, str | None]:
     """Return (listed, fixed) for one source package in one OSV ecosystem."""
     listed = False
@@ -2188,24 +2306,45 @@ def ubuntu_osv_fix_notices(
     parallel connections. An unreadable record is skipped.
     """
 
-    def read(notice_id: str) -> dict | None:
+    client = _fetcher(fetch)
+
+    def summary(notice_id: str) -> dict | None:
+        # A kernel USN record lists every binary of every kernel package and
+        # is several megabytes. Each kernel row of every release asks for the
+        # same records, and a cached read is deep-copied for each caller, so
+        # copying the whole record per row took most of the refresh's time.
+        # Keep only what this check reads: the publication date and the
+        # fixed version of each source package.
         doc = None
         for url in ubuntu_osv_notice_urls(notice_id):
             try:
-                candidate = _fetcher(fetch).get_json(url)
+                candidate = client.get_json(url)
             except MinimumRefreshError:
                 continue
             if isinstance(candidate, dict) and candidate.get("id") == notice_id:
                 doc = candidate
                 break
         if doc is None:
-            return None
+            raise MinimumRefreshError(f"ubuntu osv: no readable record of {notice_id}")
         published = doc.get("published")
         if not isinstance(published, str) or not published.strip():
             return None
-        if _osv_fixed(doc, package, ecosystem)[1] != fixed:
+        return {"published": published, "fixes": _osv_fixed_index(doc)}
+
+    def read(notice_id: str) -> dict | None:
+        # memo keeps no failure, so a later row retries an unreadable record,
+        # as before. An unreadable record is skipped.
+        try:
+            found = client.memo(
+                f"ubuntu-osv-notice:{notice_id}", lambda: summary(notice_id)
+            )
+        except MinimumRefreshError:
             return None
-        return {"id": notice_id, "published": published}
+        if found is None:
+            return None
+        if found["fixes"].get(f"{ecosystem}\n{package}") != fixed:
+            return None
+        return {"id": notice_id, "published": found["published"]}
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         found = [notice for notice in pool.map(read, notice_ids) if notice]
@@ -2214,22 +2353,36 @@ def ubuntu_osv_fix_notices(
 
 def _ubuntu_api_entry(cve: str, package: str, codename: str, fetch: Fetcher | None) -> tuple[dict, list]:
     """Read one package status from the Ubuntu security API (last resort)."""
-    doc = ubuntu_cve_doc(cve, fetch=fetch)
+    client = _fetcher(fetch)
+
+    def summary() -> dict:
+        # Every kernel row of a CVE reads this record, and a kernel CVE record
+        # lists hundreds of packages. Index it once instead of copying the
+        # whole record for each row. The last status of a package and release
+        # wins, as in a scan of the full record.
+        doc = ubuntu_cve_doc(cve, fetch=client)
+        statuses = {}
+        for candidate in doc.get("packages", []):
+            for status in candidate.get("statuses", []):
+                statuses[f"{candidate.get('name')}\n{status.get('release_codename')}"] = (
+                    status.get("status"), status.get("description"),
+                )
+        return {
+            "priority": doc.get("priority"),
+            "statuses": statuses,
+            "notices": list(doc.get("notices", [])),
+        }
+
+    found = client.memo(f"ubuntu-cve-index:{cve}", summary)
+    status, fixed = found["statuses"].get(f"{package}\n{codename}", ("not-found", None))
     entry = {
         "cve": cve,
         "package": package,
-        "priority": doc.get("priority"),
-        "status": "not-found",
-        "fixed": None,
+        "priority": found["priority"],
+        "status": status,
+        "fixed": fixed,
     }
-    for candidate in doc.get("packages", []):
-        if candidate.get("name") != package:
-            continue
-        for status in candidate.get("statuses", []):
-            if status.get("release_codename") == codename:
-                entry["status"] = status.get("status")
-                entry["fixed"] = status.get("description")
-    return entry, list(doc.get("notices", []))
+    return entry, found["notices"]
 
 
 def ubuntu_entry(
@@ -2246,26 +2399,20 @@ def ubuntu_entry(
     ecosystem = UBUNTU_OSV_ECOSYSTEMS.get(codename)
     if ecosystem is None:
         raise MinimumRefreshError(f"ubuntu: no OSV ecosystem for release {codename}")
-    record = ubuntu_osv_record(cve, fetch=fetch)
+    record = _ubuntu_osv_entry_index(cve, fetch=fetch)
     entry: dict | None = None
     notices: list = []
     if record is not None:
-        listed, fixed = _osv_fixed(record, package, ecosystem)
+        fixed = record["fixes"].get(f"{ecosystem}\n{package}")
         if fixed:
             entry = {
                 "cve": cve,
                 "package": package,
-                "priority": _osv_priority(record),
+                "priority": record["priority"],
                 "status": "released",
                 "fixed": fixed,
             }
-            notices = [
-                {"id": related}
-                for related in sorted(
-                    {r for r in record.get("related", []) if isinstance(r, str) and r.startswith("USN-")},
-                    key=_usn_order,
-                )
-            ]
+            notices = [{"id": related} for related in record["notices"]]
     if entry is not None:
         osv_notices = ubuntu_osv_fix_notices(
             [notice["id"] for notice in notices], package, ecosystem, entry["fixed"],
@@ -2330,16 +2477,24 @@ class _MemoFetcher:
         self._inner = _fetcher(inner)
         self._json: dict[str, Any] = {}
         self._optional: dict[str, Any] = {}
+        self._lock = threading.Lock()
+        self._url_locks: dict[tuple[str, str], threading.Lock] = {}
+
+    def _once(self, kind: str, cache: dict[str, Any], url: str, read) -> Any:
+        # The kernel rows of one release resolve in parallel. A per-URL lock
+        # makes a second row wait for the first read instead of sending its own.
+        with self._lock:
+            lock = self._url_locks.setdefault((kind, url), threading.Lock())
+        with lock:
+            if url not in cache:
+                cache[url] = read(url)
+            return copy.deepcopy(cache[url])
 
     def get_json(self, url: str) -> Any:
-        if url not in self._json:
-            self._json[url] = self._inner.get_json(url)
-        return copy.deepcopy(self._json[url])
+        return self._once("json", self._json, url, self._inner.get_json)
 
     def get_optional_json(self, url: str) -> Any | None:
-        if url not in self._optional:
-            self._optional[url] = self._inner.get_optional_json(url)
-        return copy.deepcopy(self._optional[url])
+        return self._once("optional", self._optional, url, self._inner.get_optional_json)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
@@ -2813,32 +2968,45 @@ def ubuntu_minimums(
     with ThreadPoolExecutor(max_workers=4) as pool:
         packages = dict(pool.map(resolve, single))
     memo = _MemoFetcher(fetch)
-    for spec in specs:
-        if spec.get("allKernels"):
-            # A discovered CVE applies only where the tracker lists the GA
-            # `linux` package. A named spec requires that row and fails closed.
-            if spec.get("discovered") and not ubuntu_kernel_cve_listed(
-                spec["cve"], codename, fetch=memo
-            ):
-                continue
-            packages.update(ubuntu_kernel_cve_rows(spec, codename, fetch=memo))
+
+    def kernel_rows(spec: dict) -> dict[str, dict]:
+        # A discovered CVE applies only where the tracker lists the GA
+        # `linux` package. A named spec requires that row and fails closed.
+        if spec.get("discovered") and not ubuntu_kernel_cve_listed(
+            spec["cve"], codename, fetch=memo
+        ):
+            return {}
+        return ubuntu_kernel_cve_rows(spec, codename, fetch=memo)
+
+    # One CVE at a time made the refresh wait for every slow ubuntu.com record
+    # in turn, and the discovered CVE list grows each day. The CVEs are
+    # independent. map keeps the spec order for the update below and stops the
+    # build on the first failure, so no partial package table is returned.
+    # The per-host bound in Fetcher keeps ubuntu.com at its usual load.
+    kernel_specs = [spec for spec in specs if spec.get("allKernels")]
     # Named CVE entries remain because the audit reports those findings
     # separately. Package-wide floors are discovered from every matching Noble
-    # USN, so a new kernel or QEMU advisory cannot wait for a code edit.
+    # USN, so a new kernel or QEMU advisory cannot wait for a code edit. They
+    # read other ubuntu.com pages than the kernel rows, so they start at the
+    # same time instead of after the last kernel row.
     dynamic: dict[str, dict] = {}
-    if package_policy:
-        with ThreadPoolExecutor(max_workers=len(package_policy)) as pool:
-            dynamic = dict(
-                pool.map(
-                    lambda policy: (
-                        policy[0],
-                        ubuntu_package_minimum(
-                            policy[0], policy[1], codename=codename, fetch=fetch
-                        ),
-                    ),
-                    package_policy,
-                )
+    with ThreadPoolExecutor(max_workers=max(1, len(package_policy))) as policy_pool:
+        policy_futures = [
+            (
+                policy[0],
+                policy_pool.submit(
+                    ubuntu_package_minimum, policy[0], policy[1],
+                    codename=codename, fetch=fetch,
+                ),
             )
+            for policy in package_policy
+        ]
+        if kernel_specs:
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                for rows in pool.map(kernel_rows, kernel_specs):
+                    packages.update(rows)
+        for key, future in policy_futures:
+            dynamic[key] = future.result()
     for key, entry in dynamic.items():
         # The QEMU collector still reports its named CVE probe even though the
         # package floor now advances with every USN. Preserve that report
@@ -3748,64 +3916,91 @@ def build_minimums(
     Raises MinimumRefreshError when a feed cannot be read or when a component
     that the existing table populates now extracts empty.
     """
-    nvidia_documents = nvidia_csaf_documents(fetch=fetch)
-    driver = nvidia_driver_minimums(fetch=fetch, documents=nvidia_documents)
-    connectx = connectx_minimums(fetch=fetch, documents=nvidia_documents)
-    simple_products = nvidia_simple_product_minimums(nvidia_documents, fetch=fetch)
-    dcgm = nvidia_dcgm_minimums(nvidia_documents, fetch=fetch)
-    snap4 = nvidia_snap4_minimums(nvidia_documents)
-    discovered = ubuntu_discovered_kernel_specs(existing, fetch=fetch, now=now)
-    doc = {
-        "schemaVersion": SCHEMA_VERSION,
-        "generated": generated or _now_stamp(),
-        "maxAgeDays": MAX_AGE_DAYS,
-        "gracePeriodDays": GRACE_PERIOD_DAYS,
-        "components": {
-            **dcgm,
-            "nvidiaDriver": driver,
-            "nvidiaContainerToolkit": simple_products.get("nvidiaContainerToolkit", {}),
-            "nvhpc": nvhpc_release_window(fetch=fetch),
-            "cudaToolkit": simple_products.get("cudaToolkit", {}),
-            **(
-                {"aistore": simple_products["aistore"]}
-                if simple_products.get("aistore")
-                else {}
+    # The components read different upstreams and do not depend on each other,
+    # except that the NVIDIA products share one CSAF document set and the
+    # Ubuntu releases share the discovered kernel CVEs. Run them in parallel so
+    # the refresh takes as long as its slowest upstream instead of the sum of
+    # all of them. Each future's result() re-raises its error, so a failed
+    # component still stops the build and nothing is written.
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        nvidia_documents_future = pool.submit(nvidia_csaf_documents, fetch=fetch)
+        discovered_future = pool.submit(
+            ubuntu_discovered_kernel_specs, existing, fetch=fetch, now=now
+        )
+        nvhpc_future = pool.submit(nvhpc_release_window, fetch=fetch)
+        runc_future = pool.submit(runc_ladder, fetch=fetch)
+        docker_future = pool.submit(docker_minimums, fetch=fetch)
+        # The two AMD readers share one bulletin catalog reader and stay in
+        # their usual order: ROCm, then the GPU driver.
+        amd_future = pool.submit(
+            lambda: (amd_rocm_minimums(fetch=fetch), amd_driver_minimums(fetch=fetch))
+        )
+        linux_kernel_futures = {
+            spec["key"]: pool.submit(linux_kernel_cve_minimums, spec, fetch=fetch)
+            for spec in LINUX_KERNEL_CVE_SPECS
+        }
+
+        discovered = discovered_future.result()
+        noble_future = pool.submit(
+            ubuntu_minimums, specs=(*UBUNTU_PACKAGES, *discovered), fetch=fetch
+        )
+        jammy_future = pool.submit(
+            ubuntu_minimums,
+            codename="jammy",
+            specs=(
+                {"key": "linuxBadEpoll", "cve": "CVE-2026-46242",
+                 "package": "linux-hwe-6.8"},
+                {"key": "linuxPwnescape", "cve": "CVE-2026-99999",
+                 "package": "linux-hwe-6.8"},
+                *UBUNTU_KERNEL_CVE_PACKAGES,
+                *discovered,
             ),
-            "connectxFirmware": connectx,
-            "virtioNetBluefield": nvidia_virtio_net_minimums(nvidia_documents),
-            **({"snap4Container": snap4} if snap4 else {}),
-            "runc": runc_ladder(fetch=fetch),
-            "docker": docker_minimums(fetch=fetch),
-            "rocm": amd_rocm_minimums(fetch=fetch),
-            "amdDriver": amd_driver_minimums(fetch=fetch),
-            **{
-                spec["key"]: linux_kernel_cve_minimums(spec, fetch=fetch)
-                for spec in LINUX_KERNEL_CVE_SPECS
-            },
-            "ubuntuNoble": ubuntu_minimums(
-                specs=(*UBUNTU_PACKAGES, *discovered), fetch=fetch
-            ),
-            "ubuntuJammy": ubuntu_minimums(
-                codename="jammy",
-                specs=(
-                    {"key": "linuxBadEpoll", "cve": "CVE-2026-46242",
-                     "package": "linux-hwe-6.8"},
-                    {"key": "linuxPwnescape", "cve": "CVE-2026-99999",
-                     "package": "linux-hwe-6.8"},
-                    *UBUNTU_KERNEL_CVE_PACKAGES,
-                    *discovered,
+            package_policy=(),
+            fetch=fetch,
+        )
+        resolute_future = pool.submit(
+            ubuntu_minimums,
+            codename="resolute",
+            specs=(*UBUNTU_RESOLUTE_PACKAGES, *discovered),
+            package_policy=(),
+            fetch=fetch,
+        )
+
+        nvidia_documents = nvidia_documents_future.result()
+        driver = nvidia_driver_minimums(fetch=fetch, documents=nvidia_documents)
+        connectx = connectx_minimums(fetch=fetch, documents=nvidia_documents)
+        simple_products = nvidia_simple_product_minimums(nvidia_documents, fetch=fetch)
+        dcgm = nvidia_dcgm_minimums(nvidia_documents, fetch=fetch)
+        snap4 = nvidia_snap4_minimums(nvidia_documents)
+        doc = {
+            "schemaVersion": SCHEMA_VERSION,
+            "generated": generated or _now_stamp(),
+            "maxAgeDays": MAX_AGE_DAYS,
+            "gracePeriodDays": GRACE_PERIOD_DAYS,
+            "components": {
+                **dcgm,
+                "nvidiaDriver": driver,
+                "nvidiaContainerToolkit": simple_products.get("nvidiaContainerToolkit", {}),
+                "nvhpc": nvhpc_future.result(),
+                "cudaToolkit": simple_products.get("cudaToolkit", {}),
+                **(
+                    {"aistore": simple_products["aistore"]}
+                    if simple_products.get("aistore")
+                    else {}
                 ),
-                package_policy=(),
-                fetch=fetch,
-            ),
-            "ubuntuResolute": ubuntu_minimums(
-                codename="resolute",
-                specs=(*UBUNTU_RESOLUTE_PACKAGES, *discovered),
-                package_policy=(),
-                fetch=fetch,
-            ),
-        },
-    }
+                "connectxFirmware": connectx,
+                "virtioNetBluefield": nvidia_virtio_net_minimums(nvidia_documents),
+                **({"snap4Container": snap4} if snap4 else {}),
+                "runc": runc_future.result(),
+                "docker": docker_future.result(),
+                "rocm": amd_future.result()[0],
+                "amdDriver": amd_future.result()[1],
+                **{key: future.result() for key, future in linux_kernel_futures.items()},
+                "ubuntuNoble": noble_future.result(),
+                "ubuntuJammy": jammy_future.result(),
+                "ubuntuResolute": resolute_future.result(),
+            },
+        }
     record_minimum_bulletin_dates(doc)
     preserve_confirmed_availability(doc, existing)
     verify(doc, existing)
