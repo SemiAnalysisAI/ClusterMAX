@@ -92,3 +92,5 @@ def _independent_of_the_host(monkeypatch, tmp_path_factory):
     monkeypatch.setattr(
         host_role, "detect", lambda environ=None: host_role.HostRole(host_role.UNKNOWN)
     )
+    # An audit run in a test pins the fetched table here; undo it afterwards.
+    monkeypatch.setenv("CLUSTERMAX_MINIMUM_VERSIONS", os.environ.get("CLUSTERMAX_MINIMUM_VERSIONS", ""))
