@@ -57,10 +57,7 @@ def run(
         raise AuditError(str(exc)) from exc
 
     runner = runtime_paths.audit_runner(runtime_root)
-    # A caller can pin the results directory with output_dir, which the
-    # `cmax audit security --output-dir` flag uses. Without it, the audit writes
-    # to a fresh timestamped directory.
-    audit_dir = Path(output_dir) if output_dir else _audit_dir()
+    audit_dir = Path(output_dir).resolve() if output_dir else _audit_dir()
     audit_dir.mkdir(parents=True, exist_ok=bool(output_dir))
     env = {
         **os.environ,

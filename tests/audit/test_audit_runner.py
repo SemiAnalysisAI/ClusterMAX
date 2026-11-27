@@ -302,3 +302,20 @@ def test_runner_prints_the_allocation_hint_for_slurm_outside_a_job(tmp_path, cap
     assert ("salloc -N2 --gres=gpu:1 cmax audit" in out) == shown
     if shown:
         assert out.index("report") < out.index("SLURM_JOB_ID is not set")
+
+
+def test_relative_output_dir_resolves_from_the_caller(tmp_path, monkeypatch):
+    runtime = tmp_path / "runtime"
+    runtime_paths.audit_runner(runtime).parent.mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    seen = []
+    def finish(*args, **kwargs):
+        seen.append(kwargs["env"]["RUN_RESULTS_DIR"])
+        return 0, ""
+    with (
+        mock.patch.object(security, "find_runtime_root", return_value=runtime),
+        mock.patch.object(audit_runner.progress, "run_with_progress", side_effect=finish),
+        pytest.raises(audit_runner.AuditError),
+    ):
+        audit_runner.run(resolved_target=security.SecurityTarget("standalone", "bare-metal", True), output_dir="out")
+    assert seen == [str(tmp_path / "out")]
