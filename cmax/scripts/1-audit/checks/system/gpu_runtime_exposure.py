@@ -604,16 +604,16 @@ def grade_mig(gpus: list[dict[str, Any]], k8s_nodes: list[dict[str, Any]], compl
             "timing side channels. MIG does not isolate shared timing resources.",
             partitions=sorted(shared),
         )
+    if not gpus and not k8s_nodes:
+        return _verdict("unknown", "No GPU was read, so MIG sharing is not known.")
+    if not complete:
+        return _verdict("unknown", "Some GPU nodes were not read, so MIG sharing is not known for them.")
     if ampere:
         return _verdict(
             "pass",
             "MIG is shared only on Ampere GPUs, for which the published study found no leak.",
             partitions=sorted(ampere),
         )
-    if not gpus and not k8s_nodes:
-        return _verdict("unknown", "No GPU was read, so MIG sharing is not known.")
-    if not complete:
-        return _verdict("unknown", "Some GPU nodes were not read, so MIG sharing is not known for them.")
     return _verdict("not_applicable", "No GPU has more than one MIG instance.")
 
 
@@ -634,10 +634,10 @@ def grade_ecc(gpus: list[dict[str, Any]], complete: bool) -> dict[str, Any]:
             "System-Level ECC as the mitigation.",
             gpus=disabled,
         )
-    if gddr:
-        return _verdict("pass", "ECC is enabled on every GDDR GPU that was read.")
     if not complete:
         return _verdict("unknown", "Some GPU nodes were not read.")
+    if gddr:
+        return _verdict("pass", "ECC is enabled on every GDDR GPU that was read.")
     return _verdict("not_applicable", "No GDDR GPU was found. HBM GPUs keep ECC on.")
 
 
@@ -699,6 +699,7 @@ def grade_cdi(hosts: list[dict[str, Any]], k8s: dict[str, Any] | None) -> dict[s
 def grade_ray(hosts: list[dict[str, Any]], k8s: dict[str, Any] | None) -> dict[str, Any]:
     exposed = []
     local_only = []
+    unproven = []
     versions = set()
     for host in hosts:
         ray = host.get("ray") or {}
@@ -720,10 +721,20 @@ def grade_ray(hosts: list[dict[str, Any]], k8s: dict[str, Any] | None) -> dict[s
         for head in heads:
             versions.add(head.get("version", "unknown"))
         services = k8s.get("ray_exposed_services") or []
-        if services and any(head.get("auth_mode") != "token" for head in heads or [{}]):
+        open_heads = []
+        token_heads = []
+        for head in heads:
+            entry = f"{head['namespace']}/{head['pod']} RAY_AUTH_MODE={head['auth_mode']}"
+            if str(head.get("auth_mode", "")).lower() == "token":
+                token_heads.append(entry)
+            else:
+                open_heads.append(entry)
+        if services and (open_heads or not token_heads):
             exposed.extend(f"Service {service} exposes port {RAY_DASHBOARD_PORT}" for service in services)
-        elif heads:
-            local_only.extend(f"{head['namespace']}/{head['pod']} RAY_AUTH_MODE={head['auth_mode']}" for head in heads)
+        else:
+            local_only.extend(token_heads)
+        if not services:
+            unproven.extend(open_heads)
     old = sorted(
         version for version in versions
         if parse_version(version) and parse_version(version) < RAY_TOKEN_AUTH_RELEASE
@@ -735,6 +746,14 @@ def grade_ray(hosts: list[dict[str, Any]], k8s: dict[str, Any] | None) -> dict[s
             "authentication. Anyone who reaches the port can submit a job and run code on the "
             "cluster (ShadowRay 2.0, CVE-2023-48022).",
             endpoints=sorted(exposed),
+            versions=sorted(versions),
+        )
+    if unproven:
+        return _verdict(
+            "warning",
+            "A Ray head is present and token authentication was not recorded. "
+            "The audit did not read the dashboard bind address.",
+            endpoints=sorted(unproven),
             versions=sorted(versions),
         )
     if local_only:
@@ -846,9 +865,21 @@ def build_payload(
         "aistore": grade_aistore(hosts, k8s),
     }
     order = {"fail": 0, "warning": 1, "unknown": 2, "present": 3, "pass": 4, "not_applicable": 5}
-    worst = min((item["status"] for item in topics.values()), key=lambda s: order.get(s, 2))
+    statuses = [item["status"] for item in topics.values()]
+    version_status = ""
+    if topics["aistore"].get("status") == "present":
+        # The topic stays "present" so the security CLI and the dashboard grade
+        # the recorded deployments. The combined status follows versionStatus.
+        version_status = str(topics["aistore"].get("versionStatus") or "unknown")
+        if version_status == "fail":
+            statuses.append("fail")
+        elif version_status != "pass":
+            statuses.append("unknown")
+    worst = min(statuses, key=lambda status: order.get(status, 2))
     worst = {"present": "pass"}.get(worst, worst)
     flagged = [name for name, item in topics.items() if item["status"] in {"fail", "warning"}]
+    if version_status == "fail":
+        flagged.append("aistore")
     message = (
         "findings: " + ", ".join(flagged) if flagged
         else f"read {len(hosts)} host(s); no exposure found"

@@ -1549,6 +1549,44 @@ class ContainerRuleTests(unittest.TestCase):
         self.assertNotIn("containers.enrootImportWorks", absent)
 
 
+    def test_recorded_pyxis_error_without_the_attempt_flag_is_a_container_failure(self) -> None:
+        error = "enroot-nsenter: failed to create user namespace"
+        found = by_key(
+            audit_findings.detect_findings(
+                {
+                    "containers": {
+                        "pyxisRuntimeWorks": False,
+                        "pyxisCliAvailable": True,
+                        "pyxisRuntimeError": error,
+                    }
+                }
+            )
+        )
+        self.assertEqual(
+            found["containers.pyxisRuntimeWorks"].title,
+            "Pyxis container test failed on a GPU worker",
+        )
+        self.assertEqual(found["containers.pyxisRuntimeWorks"].detected, error)
+
+    def test_explicit_false_attempt_flag_keeps_a_stored_error_unverified(self) -> None:
+        found = by_key(
+            audit_findings.detect_findings(
+                {
+                    "containers": {
+                        "pyxisRuntimeWorks": False,
+                        "pyxisCliAvailable": True,
+                        "pyxisRuntimeAttempted": False,
+                        "pyxisRuntimeError": "enroot-nsenter: failed to create user namespace",
+                    }
+                }
+            )
+        )
+        finding = found.get("containers.pyxisRuntimeWorks")
+        self.assertNotEqual(
+            getattr(finding, "title", ""),
+            "Pyxis container test failed on a GPU worker",
+        )
+
 class NumericThresholdRuleTests(unittest.TestCase):
     def test_perf_event_paranoid_flags_only_restrictive_values(self) -> None:
         base = {"software": {"perf": {"installed": True, "perfEventParanoid": "2"}}}

@@ -716,6 +716,28 @@ class AuditReportTests(unittest.TestCase):
             "CLI available true; installed version 0.24.0-1",
         )
 
+    def test_recorded_pyxis_error_without_the_attempt_flag_reports_the_failure(self) -> None:
+        error = "enroot-nsenter: failed to create user namespace"
+        values = {
+            "cluster": {"orchestrator": "slurm"},
+            "audit_data": {
+                "containers": {
+                    "pyxisRuntimeWorks": False,
+                    "pyxisCliAvailable": True,
+                    "pyxisVersion": "0.20.0",
+                    "pyxisRuntimeError": error,
+                }
+            },
+        }
+
+        by_key = {check.key: check for check in audit_report.evaluate(values, RUNTIME_ROOT)}
+
+        row = by_key["containers.pyxisRuntimeWorks"]
+        self.assertEqual(row.status, audit_report.WARNING)
+        self.assertIn("container test failed", str(row.observed))
+        self.assertIn("user namespace", str(row.observed))
+        self.assertIn(error, row.assessment)
+
     def test_format_check_specs_groups_checks_by_category(self) -> None:
         checks = audit_report.list_check_specs(RUNTIME_ROOT, category="networking")
 

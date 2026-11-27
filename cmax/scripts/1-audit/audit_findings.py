@@ -263,9 +263,26 @@ def _pyxis_cli_available(audit: dict[str, Any]) -> bool:
     return nested_get(audit, "containers", "pyxisCliAvailable") is True
 
 
+def _pyxis_runtime_error_text(audit: dict[str, Any]) -> str:
+    """Return the stored worker-test error, or an empty string."""
+    error = nested_get(audit, "containers", "pyxisRuntimeError")
+    if isinstance(error, str):
+        return error.strip()
+    return ""
+
+
 def _pyxis_runtime_attempted(audit: dict[str, Any]) -> bool:
-    """True when the GPU worker container test actually started."""
-    return nested_get(audit, "containers", "pyxisRuntimeAttempted") is True
+    """True when the GPU worker container test started.
+
+    The collector sets pyxisRuntimeAttempted. An older audit omits that
+    field. That collector stored pyxisRuntimeError only after the worker
+    command failed, so a stored error shows that the test ran. An explicit
+    false remains authoritative when both values are present.
+    """
+    containers = nested_get(audit, "containers")
+    if isinstance(containers, dict) and "pyxisRuntimeAttempted" in containers:
+        return containers.get("pyxisRuntimeAttempted") is True
+    return bool(_pyxis_runtime_error_text(audit))
 
 
 def _pyxis_container_test_failed(audit: dict[str, Any]) -> bool:
@@ -1056,7 +1073,8 @@ RULES: tuple[Rule, ...] = (
     ),
     # srun exposes the Pyxis options, and the container test on a GPU worker
     # ran and failed. A missing GPU partition never starts the test. The false
-    # default stays unverified.
+    # default stays unverified unless a stored runtime error shows that an
+    # older collector did run the test.
     Rule(
         "containers.pyxisRuntimeWorks",
         "Pyxis container test failed on a GPU worker",

@@ -138,6 +138,36 @@ class HbmMemoryExposureTests(unittest.TestCase):
             self.assertEqual(report["hbm_like_memory_only_nodes"], [])
             self.assertIn("model evidence", report["summary"]["message"])
 
+    def test_empty_gpu_inventory_keeps_hbm_scale_numa_visible(self) -> None:
+        # nvidia-smi and the driver proc directory can both be absent while
+        # sysfs still shows an HBM-sized memory-only NUMA node. That node is
+        # the same evidence as a known GPU count with no model.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cpu_node_kb = 480 * hbm_memory_exposure.GIB_KB
+            hbm_node_kb = 96 * hbm_memory_exposure.GIB_KB
+            total_kb = cpu_node_kb + hbm_node_kb
+
+            write(root / "proc/meminfo", f"MemTotal:       {total_kb} kB\n")
+            write(root / "proc/sys/kernel/hostname", "unread-gpu-0\n")
+            write(root / "proc/driver/nvidia/params", "CoherentGPUMemoryMode: \n")
+            write(root / "sys/devices/system/node/online", "0-1\n")
+            write_node(root, 0, cpu_node_kb, "0-71")
+            write_node(root, 1, hbm_node_kb, "")
+
+            report = hbm_memory_exposure.collect_host(
+                root=root,
+                harness="slurm",
+                gpu_model_hint="",
+                gpu_memory_mb_hint=0,
+                gpu_count_hint=0,
+            )
+
+            self.assertEqual(report["gpu_count"], 0)
+            self.assertEqual(report["gpu_models"], [])
+            self.assertEqual(report["summary"]["status"], "warning")
+            self.assertIn("model evidence", report["summary"]["message"])
+
     def test_cpu_manager_warning_does_not_change_hbm_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
