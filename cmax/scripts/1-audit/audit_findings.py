@@ -747,6 +747,18 @@ RULES: tuple[Rule, ...] = (
         _status_is("unknown"),
     ),
     Rule(
+        "securityVersions.containerd.status",
+        "containerd below security minimum",
+        VERSION,
+        _status_is("fail"),
+    ),
+    Rule(
+        "securityVersions.containerd.status",
+        "Host containerd version requires provider attestation",
+        CONFIG,
+        _status_is("unknown"),
+    ),
+    Rule(
         "securityVersions.docker.status",
         "Docker Engine below security minimum",
         VERSION,
@@ -1751,6 +1763,7 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "securityVersions.nvidiaContainerToolkit.status": "security-nvidia-container-toolkit",
     "securityVersions.cudaToolkit.status": "cuda-toolkit-security",
     "securityVersions.runc.status": "security-runc",
+    "securityVersions.containerd.status": None,
     "securityVersions.docker.status": "security-docker",
     "securityVersions.connectxFirmware.status": "security-connectx-firmware",
     "securityVersions.dcgm.status": None,
@@ -1862,6 +1875,7 @@ _COMPONENT_NAMES = {
     "nvidiaContainerToolkit": "NVIDIA Container Toolkit",
     "nvidiaDriver": "NVIDIA driver",
     "runc": "runc",
+    "containerd": "containerd",
     "virtioNetBluefield": "BlueField VIRTIO-Net controller",
 }
 

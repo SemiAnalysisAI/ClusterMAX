@@ -135,6 +135,11 @@ class StubFetcher(fr.Fetcher):
             self.json_by_url[
                 fr.github_release_url(fr.RUNC_RELEASE_REPO, f"v{version}")
             ] = release
+        self.osv_containerd = fixture("osv-containerd.json")
+        for version, release in self.osv_containerd.get("_releases", {}).items():
+            self.json_by_url[
+                fr.github_release_url(fr.CONTAINERD_RELEASE_REPO, f"v{version}")
+            ] = release
         self.md_heads = fixture("nvidia-bulletin-md-heads.json")
         self.changelog_heads: dict[str, str] = {}
         for spec in fr.LINUX_KERNEL_CVE_SPECS:
@@ -208,7 +213,18 @@ class StubFetcher(fr.Fetcher):
         self.post_bodies.append(copy.deepcopy(body))
         if url != fr.OSV_QUERY_URL:
             raise fr.MinimumRefreshError(f"cannot query {url}: no fixture")
-        vulns = copy.deepcopy(self.osv).get("vulns", [])
+        package = (body.get("package") or {}).get("name")
+        if package in fr.CONTAINERD_PACKAGES:
+            # Like OSV, return only the advisories that affect the queried module.
+            vulns = [
+                vuln
+                for vuln in copy.deepcopy(self.osv_containerd).get("vulns", [])
+                if any(
+                    entry["package"]["name"] == package for entry in vuln["affected"]
+                )
+            ]
+        else:
+            vulns = copy.deepcopy(self.osv).get("vulns", [])
         version = body.get("version")
         if version:
             # Version-scoped OSV queries omit advisories for other releases.
@@ -623,6 +639,77 @@ class ExtractorTest(unittest.TestCase):
         block = fr.runc_ladder(fetch=self.stub)
         self.assertFalse([item for item in block["advisories"] if item.startswith("GO-")])
         self.assertNotIn("1.13", block["ladder"])
+
+    def test_containerd_ladder_reads_both_go_modules(self) -> None:
+        block = fr.containerd_ladder(fetch=self.stub)
+        self.assertEqual(
+            block["ladder"],
+            {
+                "1.2": "1.2.14",
+                "1.3": "1.3.10",
+                "1.4": "1.4.13",
+                "1.5": "1.5.18",
+                "1.6": "1.6.38",
+                "1.7": "1.7.36",
+                "2.0": "2.0.13",
+                "2.1": "2.1.9",
+                "2.2": "2.2.10",
+                "2.3": "2.3.7",
+                "2.4": "2.4.2",
+            },
+        )
+        self.assertEqual(
+            [body["package"] for body in self.stub.post_bodies],
+            [
+                {"name": package, "ecosystem": fr.RUNC_ECOSYSTEM}
+                for package in fr.CONTAINERD_PACKAGES
+            ],
+        )
+        for body in self.stub.post_bodies:
+            self.assertNotIn("version", body)
+        self.assertEqual(block["advisory"], fr.CONTAINERD_ADVISORY)
+        self.assertEqual(block["source"]["packages"], list(fr.CONTAINERD_PACKAGES))
+        self.assertEqual(sorted(block["floorAvailability"]), sorted(block["ladder"]))
+        for branch, availability in block["floorAvailability"].items():
+            with self.subTest(branch=branch):
+                self.assertEqual(availability["status"], "confirmed")
+                self.assertEqual(availability["repo"], fr.CONTAINERD_RELEASE_REPO)
+
+    def test_an_advisory_in_both_containerd_modules_is_recorded_once(self) -> None:
+        block = fr.containerd_ladder(fetch=self.stub)
+        self.assertEqual(len(block["advisories"]), len(set(block["advisories"])))
+        self.assertFalse([item for item in block["advisories"] if item.startswith("GO-")])
+        # OSV files the 1.7 range under the v1 module and the 2.x ranges under
+        # the v2 module. One record holds both.
+        ranges = block["advisoryRanges"]["GHSA-pg57-6jwg-q645"]
+        self.assertIn({"introduced": "0", "fixed": "1.7.36"}, ranges)
+        self.assertIn({"introduced": "2.0.0", "fixed": "2.0.13"}, ranges)
+
+    def test_a_v2_module_range_starts_at_its_first_release(self) -> None:
+        # OSV writes "introduced: 0" for the v2 module. A range from 0 to
+        # 2.0.4 would hold every 1.x release.
+        block = fr.containerd_ladder(fetch=self.stub)
+        ranges = block["advisoryRanges"]["GHSA-265r-hfxg-fhmg"]
+        self.assertIn({"introduced": "2.0.0-0", "fixed": "2.0.4"}, ranges)
+        self.assertIn({"introduced": "0", "fixed": "1.6.38"}, ranges)
+        for vuln_id, entries in block["advisoryRanges"].items():
+            for entry in entries:
+                if entry["introduced"] == "0":
+                    with self.subTest(advisory=vuln_id):
+                        self.assertLess(fr.version_key(entry["fixed"]), fr.version_key("2.0.0-0"))
+
+    def test_a_single_module_ladder_records_no_module_list(self) -> None:
+        self.assertNotIn("packages", fr.runc_ladder(fetch=self.stub)["source"])
+        self.assertEqual(fr._go_module_major(fr.RUNC_PACKAGE), None)
+        self.assertEqual(fr._go_module_major(fr.CONTAINERD_PACKAGES[1]), 2)
+
+    def test_the_table_includes_the_containerd_ladder(self) -> None:
+        data = fr.build_minimums(generated=GENERATED, existing={}, fetch=self.stub)
+        self.assertEqual(data["components"]["containerd"]["kind"], "ladder")
+        self.assertEqual(
+            data["components"]["containerd"]["ladder"],
+            fr.containerd_ladder(fetch=StubFetcher())["ladder"],
+        )
 
     def test_virtio_net_release_lines_come_from_the_bulletin(self) -> None:
         block = fr.virtio_net_minimums(2026, 5815, fetch=self.stub)

@@ -96,6 +96,7 @@ apply_pwnescape_fleet() {
 # marker leaves the host unassessed, and the fleet grader then blocks a pass.
 security_host_record() {
     local node="$1" host_out="$2" container_out="$3" error="$4" label_driver="${5:-unknown}"
+    local kubelet_containerd="${6:-}"
     if [[ -z "$host_out" ]] || ! grep -q '^WORKER_HOSTNAME=' <<< "$host_out"; then
         jq -cn --arg node "$node" --arg error "$error" \
             '{node: $node, checked: false, error: $error}'
@@ -103,6 +104,7 @@ security_host_record() {
     fi
     (
         local key value vendor driver nct=unknown runc=unknown docker=unknown
+        local containerd=unknown
         local versions advisories janus
         for key in "${!WORKER_@}"; do unset "$key"; done
         while IFS='=' read -r key value; do
@@ -113,7 +115,9 @@ security_host_record() {
             nct=$(sed -n 's/^WORKER_CONTAINER_SECURITY_NCT_VERSION=//p' <<< "$container_out" | head -1)
             runc=$(sed -n 's/^WORKER_CONTAINER_SECURITY_RUNC_VERSION=//p' <<< "$container_out" | head -1)
             docker=$(sed -n 's/^WORKER_CONTAINER_SECURITY_DOCKER_VERSION=//p' <<< "$container_out" | head -1)
+            containerd=$(sed -n 's/^WORKER_CONTAINER_SECURITY_CONTAINERD_VERSION=//p' <<< "$container_out" | head -1)
         fi
+        containerd=$(resolve_containerd_version "${containerd:-unknown}" "$kubelet_containerd")
         vendor=nvidia
         if amd_gpu_check_present "${WORKER_AMD_GPU_COUNT:-0}" "${WORKER_AMD_GPU_MODEL:-}"; then
             vendor=amd
@@ -122,7 +126,7 @@ security_host_record() {
         [[ "$driver" == "unknown" || -z "$driver" ]] && driver="$label_driver"
         versions=$(build_security_version_audit "$host_out" "$driver" \
             "${nct:-unknown}" "${runc:-unknown}" "${docker:-unknown}" "$vendor" \
-            "${WORKER_NVCC_VERSION:-unknown}" per-host)
+            "${WORKER_NVCC_VERSION:-unknown}" per-host "$containerd")
         janus=$(json_bool_or_unknown "${WORKER_JANUSCAPE_EXPOSED:-}")
         advisories=$(printf '{%s "_end": null}' \
             "$(build_security_advisory_json \
@@ -179,7 +183,7 @@ apply_security_host_fleet() {
     else
         local reason="The fleet grader failed, so this check covers only the sampled worker and is unverified for the other GPU hosts."
         SECURITY_VERSION_AUDIT_JSON=$(jq -c --arg reason "$reason" '
-            reduce ("nvidiaDriver","amdDriver","nvidiaContainerToolkit","runc","docker","connectxFirmware","dcgm") as $k
+            reduce ("nvidiaDriver","amdDriver","nvidiaContainerToolkit","runc","containerd","docker","connectxFirmware","dcgm") as $k
               (.; if (.[$k] | type) == "object" and ((.[$k].status // "") | IN("fail") | not)
                   then .[$k].status = "unknown" | .[$k].detail = $reason else . end)' \
             <<< "$SECURITY_VERSION_AUDIT_JSON")
@@ -504,7 +508,8 @@ k8s_security_host_record_for_current_pod() {
             < "$WORKLOAD_DIR/container-check.sh" 2>/dev/null || true)
     fi
     add_security_host_record "$node" "$host_out" "$container_out" \
-        "The host-root pod returned no host evidence." "$(k8s_label_driver "$node")"
+        "The host-root pod returned no host evidence." "$(k8s_label_driver "$node")" \
+        "$(kubelet_containerd_version "$K8S_SECURITY_NODES_JSON" "$node")"
 }
 
 k8s_bmc_unchecked_record() {
@@ -545,7 +550,8 @@ collect_k8s_host_fleet() {
     if [[ "$K8S_SECURITY_GPU_NODES" == *$'\n'"$first_node"$'\n'* ]]; then
         add_security_host_record "$first_node" "$WORKER_CHECK_OUTPUT" \
             "${CONTAINER_CHECK_OUTPUT:-}" "The sampled worker returned no host evidence." \
-            "$K8S_SECURITY_DRIVER_VERSION"
+            "$K8S_SECURITY_DRIVER_VERSION" \
+            "$(kubelet_containerd_version "$K8S_SECURITY_NODES_JSON" "$first_node")"
         gpu_read=1
     fi
     while IFS= read -r node; do

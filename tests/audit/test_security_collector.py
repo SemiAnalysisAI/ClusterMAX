@@ -240,6 +240,9 @@ class KubernetesSecurityFleetTests(unittest.TestCase):
                     "status": {
                         "capacity": {"nvidia.com/gpu": "8"},
                         "allocatable": {"nvidia.com/gpu": "8"},
+                        "nodeInfo": {
+                            "containerRuntimeVersion": "containerd://1.7.27-k3s1"
+                        },
                     },
                 },
                 {
@@ -366,6 +369,12 @@ WORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.6
         self.assertEqual(
             payload["runtimeSoftware"]["cudaToolkit"]["node"], "gpu-node-01"
         )
+        # The container check returned no containerd version, as on a K3s
+        # node, so the collector grades the release that the kubelet reports.
+        containerd = payload["securityVersions"]["containerd"]
+        self.assertEqual(containerd["version"], "1.7.27-k3s1")
+        self.assertEqual(containerd["status"], "fail")
+        self.assertEqual(containerd["fleet"]["worstHost"], "gpu-node-01")
         exec_calls = [call for call in run.calls("kubectl") if call[0] == "exec"]
         # Host check, container check, two BMC probes within the limit, and
         # one PwnEscape read on each of the four nodes.

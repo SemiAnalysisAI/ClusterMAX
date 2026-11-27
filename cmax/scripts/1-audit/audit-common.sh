@@ -714,6 +714,28 @@ dcgm_version_from_check() {
     fi
 }
 
+# Print the containerd release that the kubelet reports for one node. $1 is
+# the `kubectl get nodes -o json` document and $2 is the node name. A node
+# that runs a different runtime, for example CRI-O, prints nothing.
+kubelet_containerd_version() {
+    jq -r --arg node "${2:-}" '.items[]? | select(.metadata.name == $node)
+        | (.status.nodeInfo.containerRuntimeVersion // "")
+        | select(startswith("containerd://")) | ltrimstr("containerd://")' \
+        <<< "${1:-}" 2>/dev/null | head -1 || true
+}
+
+# Select the containerd version to grade. $1 is the host read and $2 is the
+# kubelet report. The host read finds no binary when a distribution keeps
+# containerd outside PATH, as K3s and RKE2 do, although that containerd runs
+# every pod. In that case the kubelet report is the evidence.
+resolve_containerd_version() {
+    local host="${1:-unknown}" kubelet="${2:-}"
+    case "$host" in
+        unknown|not-installed) printf '%s\n' "${kubelet:-$host}" ;;
+        *) printf '%s\n' "$host" ;;
+    esac
+}
+
 build_security_version_audit() {
     # $1 is raw host-check KEY=VALUE output. Remaining arguments are versions
     # collected from the worker container and GPU checks.
@@ -725,12 +747,13 @@ build_security_version_audit() {
     local gpu_vendor="${6:-nvidia}"
     local cuda="${7:-}"
     local harness="${8:-${CLUSTERMAX_AUDIT_HARNESS:-}}"
+    local containerd="${9:-unknown}"
     local policy="${WORKLOAD_DIR}/security_version_audit.py"
     if [[ -z "$cuda" ]]; then
         cuda=$(printf '%s\n' "$check_output" | grep '^WORKER_NVCC_VERSION=' | head -1 | cut -d= -f2- || true)
     fi
     cuda="${cuda:-unknown}"
-    local -a args=(--driver "$driver" --nct "$nct" --runc "$runc" --docker "$docker" --cuda "$cuda" --gpu-vendor "$gpu_vendor")
+    local -a args=(--driver "$driver" --nct "$nct" --runc "$runc" --containerd "$containerd" --docker "$docker" --cuda "$cuda" --gpu-vendor "$gpu_vendor")
     local line dev fw vendor
     local amd_model amd_evidence
     amd_model=$(printf '%s\n' "$check_output" | sed -n 's/^WORKER_AMD_GPU_MODEL=//p' | head -1)
@@ -846,7 +869,7 @@ build_security_version_audit() {
         && args+=(--dpu-isolation-json "$VIRTIO_NET_ISOLATION_JSON")
 
     if [[ ! -f "$policy" ]] || ! command -v python3 >/dev/null 2>&1; then
-        printf '%s\n' '{"amdDriver":{"status":"unknown"},"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"}}'
+        printf '%s\n' '{"amdDriver":{"status":"unknown"},"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"containerd":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"}}'
         return 0
     fi
 
@@ -897,7 +920,7 @@ build_security_version_audit() {
     done <<< "$check_output"
 
     python3 "$policy" "${args[@]}" 2>/dev/null \
-        || printf '%s\n' '{"amdDriver":{"status":"unknown"},"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"}}'
+        || printf '%s\n' '{"amdDriver":{"status":"unknown"},"nvidiaDriver":{"status":"unknown"},"nvidiaContainerToolkit":{"status":"unknown"},"cudaToolkit":{"status":"unknown"},"docker":{"status":"unknown"},"runc":{"status":"unknown"},"containerd":{"status":"unknown"},"connectxFirmware":{"status":"unknown"},"dcgm":{"status":"unknown"},"dcgmExporter":{"status":"unknown"},"virtioNetBluefield":{"status":"unknown"},"dpuHostIsolation":{"status":"unknown"}}'
 }
 
 # Some Slurm/Pyxis integrations return a zero srun status after the task plugin

@@ -75,6 +75,7 @@ cmax audit security -h
 - **BMC/IPMI：** PASS 表示已完成的本地读取命令未返回可用的管理数据。通用 IPMI 错误响应仍记录为 `error-response`，而非访问被拒绝响应。工具缺失、超时和节点覆盖不完整时，结果仍为未知。不测试网络 BMC 接口。
 - **NVLink：** 完整的拓扑扫描加上运营方对所有权的声明可以通过检查。只有在观察到的整个物理域都属于该资源分配时，才应设置 `CLUSTERMAX_NVLINK_DOMAIN_EXCLUSIVE_ATTESTED=true`。仅凭 GPU 数量不能确定所有权。证据会记录声明来源。
 - **ConnectX 固件：** 解析器保留 NVIDIA 明确给出的 GA [“46.3008 或更新版本”范围](https://raw.githubusercontent.com/NVIDIA/product-security/main/2026/5699/5699.json)。对于已映射的 ConnectX-8 和 BlueField-3 固件系列，后续版本分支可以通过检查。较旧 LTS 分支的最低版本要求单独保留。未知产品不会仅因版本号更高而沿用该范围。
+- **containerd：** 该检查根据每台 GPU 主机上 containerd 的上游版本号评级。在 Kubernetes 上，如果宿主机的 `PATH` 中没有 containerd 二进制文件（例如 K3s 和 RKE2），则以 kubelet 报告的 `containerRuntimeVersion` 为证据。版本必须达到其分支的最低版本，并且不在任何安全公告的受影响范围内。因此，不再接收修复的分支会判定为失败，检查结果会给出仍在维护的分支上最近的已修复版本。发行版软件包若以较旧的版本号携带回移修复，可能判定为失败，此时需要供应商提供证据。未安装 containerd 的宿主机结果为不适用。
 - **Virtio-Net：** 当前 NIC 模式经验证后，可通过当前暴露风险检查。无法读取存储中的固件时，其状态仍为未评估。启用 DPU 模式前需重新检查固件。单个 NIC 模式样本不能消除机群证据缺失或不一致的问题。
 - **DPU 宿主机策略：** 已启用的 RShim 通路可能违反配置的限制策略，但这不能证明 DPU 登录成功或漏洞已被利用。运行时锁、权限和所有权需单独检查。审计不会启动 RShim 或切换模式。在 BlueField-3 上，NIC 模式下不会启动 Arm OS（[NVIDIA 模式文档](https://docs.nvidia.com/doca/archive/2-9-4/bluefield-modes-of-operation/index.html)）。
 
@@ -131,6 +132,7 @@ audit_profile:
   - securityVersions.nvidiaContainerToolkit.status
   - securityVersions.cudaToolkit.status
   - securityVersions.runc.status
+  - securityVersions.containerd.status
   - securityVersions.docker.status
   - securityVersions.connectxFirmware.status
   - securityVersions.dcgm.status
@@ -261,7 +263,7 @@ Kubernetes 审计会跨所有命名空间发现服务商组件，因为托管服
 
 Kubernetes 的 BMC 和 IPMI 检查使用已确认的 Kubernetes 身份创建特权 Pod，挂载各工作节点的宿主机根目录。报告会列出每个已检查节点，并说明机群覆盖范围。此证据证明的是该管理身份能够访问的内容，不能证明普通工作负载 Pod 也能访问同一个本地管理接口。默认最多检查 32 个工作节点。如果更大的机群需要完整覆盖，可将 `CLUSTERMAX_AUDIT_K8S_BMC_NODE_LIMIT` 设为更大的正整数。由于探测以宿主机 root 身份运行，Kubernetes 上暴露的 BMC 被评为 WARNING，而非 CRITICAL：裸金属主机上的 root 通常可以访问带内 BMC。请确认租户不能调度特权 Pod，也不能挂载宿主机 IPMI 设备。在 Slurm 和独立主机上，探测以租户用户身份运行，因此暴露的 BMC 仍为 CRITICAL。
 
-每种调度环境只有一个采集器 `cmax/scripts/1-audit/cluster-audit-<harness>.sh`。`cmax audit` 和 `cmax audit security` 运行同一个采集器，`security` 范围只筛选报告，因此两条命令对每项安全检查给出相同结论。该采集器加载 `cmax/scripts/1-audit/security-fleet.sh`，它会在每台 GPU 主机上评估宿主机级最低版本要求，而非仅检查被抽样的工作节点。检查对象包括 GPU 驱动、NVIDIA Container Toolkit、runc、Docker、ConnectX 固件、DCGM 和内核安全公告。每项检查都会报告结果最差的主机及其名称，并列出各主机的结果。ConnectX 设备以 `host/device` 格式列出。如果某台 GPU 主机无法读取，原本可通过的检查会保持未知状态。Kubernetes 在各节点上复用 BMC 宿主机根目录 Pod；Slurm 使用 `--immediate=30` 在每个 GPU 节点上运行一个短时的单 GPU 作业步骤，因此繁忙节点会被报告为未读取，而非一直等待。默认最多读取 32 台 GPU 主机；更大的机群可设置 `CLUSTERMAX_AUDIT_SECURITY_HOST_LIMIT`。
+每种调度环境只有一个采集器 `cmax/scripts/1-audit/cluster-audit-<harness>.sh`。`cmax audit` 和 `cmax audit security` 运行同一个采集器，`security` 范围只筛选报告，因此两条命令对每项安全检查给出相同结论。该采集器加载 `cmax/scripts/1-audit/security-fleet.sh`，它会在每台 GPU 主机上评估宿主机级最低版本要求，而非仅检查被抽样的工作节点。检查对象包括 GPU 驱动、NVIDIA Container Toolkit、runc、containerd、Docker、ConnectX 固件、DCGM 和内核安全公告。每项检查都会报告结果最差的主机及其名称，并列出各主机的结果。ConnectX 设备以 `host/device` 格式列出。如果某台 GPU 主机无法读取，原本可通过的检查会保持未知状态。Kubernetes 在各节点上复用 BMC 宿主机根目录 Pod；Slurm 使用 `--immediate=30` 在每个 GPU 节点上运行一个短时的单 GPU 作业步骤，因此繁忙节点会被报告为未读取，而非一直等待。默认最多读取 32 台 GPU 主机；更大的机群可设置 `CLUSTERMAX_AUDIT_SECURITY_HOST_LIMIT`。
 
 Kubernetes 的完整审计、安全审计和隔离审计还会检查 ClusterRole 和 ClusterRoleBinding 是否授予对 `nodes/proxy` 的 `get` 权限。报告会列出主体、角色、绑定和节点名称限制，包括通配符授权。发现匹配的授权时，结果为 `FAIL`。管理权限可能是有意授予的，也会列出供审查。清单不完整时，结果为 `WARNING`，除非审计已发现授权。此检查只读取 RBAC 配置，不连接 kubelet，也不在 Pod 内执行命令。请参阅 [Kubernetes kubelet 授权文档](https://kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/)和 [Graham Helton 的 nodes/proxy 文章](https://grahamhelton.com/blog/nodes-proxy-rce)。
 

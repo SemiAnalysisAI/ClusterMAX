@@ -15,6 +15,10 @@ class MinimumLinksTests(unittest.TestCase):
             "https://www.clustermax.ai/minimum-versions#runc",
         )
         self.assertEqual(
+            minimum_links.security_check_url("containerd"),
+            "https://www.clustermax.ai/minimum-versions#containerd",
+        )
+        self.assertEqual(
             minimum_links.security_check_url("nvidia-driver"),
             "https://www.clustermax.ai/minimum-versions#nvidiaDriver",
         )
@@ -27,6 +31,10 @@ class MinimumLinksTests(unittest.TestCase):
         self.assertEqual(
             minimum_links.audit_check_url("securityVersions.dcgm.status"),
             "https://www.clustermax.ai/minimum-versions#dcgm",
+        )
+        self.assertEqual(
+            minimum_links.audit_check_url("securityVersions.containerd.status"),
+            "https://www.clustermax.ai/minimum-versions#containerd",
         )
         self.assertEqual(
             minimum_links.audit_check_url("containers.dockerVersionOk"),

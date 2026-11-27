@@ -37,6 +37,7 @@ FIXTURE_ADVISORIES = {
     "nvidiaContainerToolkit": TOOLKIT_MINIMUM["advisory"],
     "cudaToolkit": "https://example.invalid/minimums/cuda",
     "runc": "https://example.invalid/minimums/runc",
+    "containerd": "https://example.invalid/minimums/containerd",
     "docker": "https://example.invalid/minimums/docker",
     "connectxFirmware": "https://example.invalid/minimums/connectx",
     "virtioNetBluefield": "https://example.invalid/minimums/virtio",
@@ -79,6 +80,12 @@ def minimum_table(generated: datetime, **components: dict) -> dict:
                 "kind": "ladder",
                 "ladder": {"1.3": "1.3.3"},
                 "advisory": FIXTURE_ADVISORIES["runc"],
+                "source": {"feed": "osv"},
+            },
+            "containerd": {
+                "kind": "ladder",
+                "ladder": {"1.7": "1.7.36"},
+                "advisory": FIXTURE_ADVISORIES["containerd"],
                 "source": {"feed": "osv"},
             },
             "connectxFirmware": {
@@ -163,6 +170,11 @@ def security_values() -> dict:
                     "status": "pass",
                     "version": "1.3.3",
                     "minimum": "1.3.3",
+                },
+                "containerd": {
+                    "status": "pass",
+                    "version": "1.7.36",
+                    "minimum": "1.7.36",
                 },
                 "docker": {
                     "status": "pass",
@@ -343,6 +355,7 @@ class SecurityReportTests(unittest.TestCase):
         self.assertEqual(statuses["nvidia-driver"], security.CRITICAL)
         self.assertEqual(statuses["nvidia-container-toolkit"], security.WARNING)
         self.assertEqual(statuses["runc"], security.PASS)
+        self.assertEqual(statuses["containerd"], security.PASS)
         self.assertEqual(statuses["cuda-toolkit"], security.NOT_APPLICABLE)
         self.assertEqual(statuses["connectx-firmware"], security.NOT_APPLICABLE)
         self.assertEqual(statuses["guest-kernel"], security.CRITICAL)
@@ -890,7 +903,7 @@ class SecurityReportTests(unittest.TestCase):
             Path("/tmp/report"),
         )
         self.assertIn("# ClusterMAX security audit report", report)
-        self.assertIn("3 failed, 21 warnings, 4 passed, 3 skipped", report)
+        self.assertIn("3 failed, 21 warnings, 5 passed, 3 skipped", report)
         self.assertIn("Action required: 3 critical findings.", report)
         self.assertNotIn("critical findings are known exposure", report)
         self.assertIn("NVIDIA driver minimum version", report)
@@ -1435,13 +1448,13 @@ class MinimumFreshnessTests(unittest.TestCase):
         self.assertEqual(
             security.counts(stale_checks),
             {
-                security.PASS: 3,
+                security.PASS: 4,
                 security.WARNING: 21,
                 security.CRITICAL: 4,
                 security.NOT_APPLICABLE: 3,
             },
         )
-        self.assertEqual(sum(security.counts(stale_checks).values()), 31)
+        self.assertEqual(sum(security.counts(stale_checks).values()), 32)
         self.assertEqual(clean_exit, 0)
         report = self._report(now=self.generated + timedelta(days=40), verbosity=3)
         self.assertNotIn("minimum-version-freshness", report)
@@ -1496,8 +1509,8 @@ class MinimumFreshnessTests(unittest.TestCase):
 
     def test_minimum_freshness_is_not_a_graded_criterion(self) -> None:
         ids = [spec.id for spec in security.CHECK_SPECS]
-        self.assertEqual(len(ids), 31)
-        self.assertEqual(len(set(ids)), 31)
+        self.assertEqual(len(ids), 32)
+        self.assertEqual(len(set(ids)), 32)
         self.assertEqual(
             ids,
             [
@@ -1510,6 +1523,7 @@ class MinimumFreshnessTests(unittest.TestCase):
                 "cuda-toolkit",
                 "dcgm-exporter",
                 "runc",
+                "containerd",
                 "docker",
                 "connectx-firmware",
                 "guest-kernel",

@@ -127,9 +127,32 @@ echo "WORKER_CONTAINER_RUNC_INSTALLED=$([[ -n "$RUNC_PATH" || -n "$RUNC_VERSION"
 echo "WORKER_CONTAINER_RUNC_PATH=$RUNC_PATH"
 echo "WORKER_CONTAINER_RUNC_VERSION=${RUNC_VERSION:-unknown}"
 
+# containerd is the runtime under Kubernetes and under Docker Engine. Its
+# version line puts the Go module path first, for example
+# "containerd github.com/containerd/containerd/v2 v2.1.4 <commit>", so the
+# release is the first field with three dotted numbers, not the first number.
+# Docker's package is containerd.io. Distribution packages use containerd.
+CONTAINERD_PATH=$(command -v containerd 2>/dev/null || true)
+CONTAINERD_VERSION=""
+if [[ -n "$CONTAINERD_PATH" ]]; then
+    CONTAINERD_VERSION=$(containerd --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+([^[:space:]]*)?' | head -1 || true)
+fi
+for containerd_package in containerd.io containerd; do
+    [[ -z "$CONTAINERD_VERSION" ]] || break
+    if command -v dpkg-query >/dev/null 2>&1; then
+        CONTAINERD_VERSION=$(dpkg-query -W -f='${Version}' "$containerd_package" 2>/dev/null || true)
+    fi
+    if [[ -z "$CONTAINERD_VERSION" ]] && command -v rpm >/dev/null 2>&1; then
+        if ! CONTAINERD_VERSION=$(rpm -q --qf '%{VERSION}-%{RELEASE}' "$containerd_package" 2>/dev/null); then
+            CONTAINERD_VERSION=""
+        fi
+    fi
+done
+
 SECURITY_DOCKER_VERSION="unknown"
 SECURITY_NCT_VERSION="unknown"
 SECURITY_RUNC_VERSION="unknown"
+SECURITY_CONTAINERD_VERSION="unknown"
 if [[ "$RUNTIME_SCOPE" == "host" ]]; then
     # The client binary version does not attest the Docker Engine daemon. If
     # the daemon cannot be queried, preserve unknown for provider follow-up.
@@ -143,14 +166,18 @@ if [[ "$RUNTIME_SCOPE" == "host" ]]; then
         && echo "${NCT_VERSION:-unknown}" || echo not-installed)"
     SECURITY_RUNC_VERSION="$([[ -n "$RUNC_PATH" || -n "$RUNC_VERSION" ]] \
         && echo "${RUNC_VERSION:-unknown}" || echo not-installed)"
+    SECURITY_CONTAINERD_VERSION="$([[ -n "$CONTAINERD_PATH" || -n "$CONTAINERD_VERSION" ]] \
+        && echo "${CONTAINERD_VERSION:-unknown}" || echo not-installed)"
 elif [[ -n "$DOCKER_SERVER_VERSION" ]]; then
     # A daemon response is authoritative for Docker even from a client running
-    # in a container. The image-local Toolkit and runc packages remain hidden.
+    # in a container. The image-local Toolkit, runc, and containerd packages
+    # remain hidden.
     SECURITY_DOCKER_VERSION="$DOCKER_SERVER_VERSION"
 fi
 echo "WORKER_CONTAINER_SECURITY_DOCKER_VERSION=$SECURITY_DOCKER_VERSION"
 echo "WORKER_CONTAINER_SECURITY_NCT_VERSION=$SECURITY_NCT_VERSION"
 echo "WORKER_CONTAINER_SECURITY_RUNC_VERSION=$SECURITY_RUNC_VERSION"
+echo "WORKER_CONTAINER_SECURITY_CONTAINERD_VERSION=$SECURITY_CONTAINERD_VERSION"
 
 # The focused security profile needs only the host-runtime version evidence
 # above. Do not run Enroot registry imports or inventory unrelated launchers.

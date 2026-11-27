@@ -27,6 +27,7 @@ AUDIT_CATEGORIES = (
                 "securityVersions.nvidiaContainerToolkit.status",
                 "securityVersions.cudaToolkit.status",
                 "securityVersions.runc.status",
+                "securityVersions.containerd.status",
                 "securityVersions.docker.status",
                 "securityVersions.connectxFirmware.status",
                 "securityVersions.dcgm.status",

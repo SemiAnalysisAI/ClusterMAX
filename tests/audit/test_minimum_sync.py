@@ -250,6 +250,32 @@ class SecurityIntegrationTests(MinimumSyncTestCase):
         self.assertIn("minimum fetch:", output)
         self.assertIn("minimum table in use:", output)
 
+    def test_a_fetched_table_must_keep_the_containerd_ladder(self) -> None:
+        # A client can be installed before the published table carries the
+        # containerd ladder. That table must not replace the installed one,
+        # or the containerd check would report an unavailable minimum.
+        def with_containerd(generated: datetime, present: bool) -> dict:
+            data = table(generated)
+            if present:
+                data["components"]["containerd"] = {
+                    "kind": "ladder", "ladder": {"2.2": "2.2.10"},
+                }
+            return data
+
+        installed = Path(self.tmp.name) / "installed" / "minimum-versions.json"
+        installed.parent.mkdir(parents=True, exist_ok=True)
+        installed.write_text(json.dumps(with_containerd(NOW - timedelta(days=20), True)))
+        with mock.patch.object(security, "minimum_table_path", return_value=installed):
+            changed, output = self._sync(FakeResponse(body(with_containerd(NOW, False))))
+        self.assertFalse(changed)
+        self.assertIn("lacks mappings required", output)
+        self.assertIn("components.containerd", output)
+        self.assertFalse(os.environ.get(_MINIMUM_ENV))
+
+        with mock.patch.object(security, "minimum_table_path", return_value=installed):
+            changed, _ = self._sync(FakeResponse(body(with_containerd(NOW, True))))
+        self.assertTrue(changed)
+
     def test_a_fetched_table_must_keep_every_ubuntu_kernel_cve_group(self) -> None:
         # The audit reads the kernel CVE groups from the table, so a fetched
         # table that drops one would stop grading that CVE.
