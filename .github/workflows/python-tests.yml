@@ -102,14 +102,16 @@ jobs:
           /tmp/clustermax-uv/bin/python -m pip install --disable-pip-version-check "uv @ https://files.pythonhosted.org/packages/4b/a1/de02c0913726728eca56ee258875cbba9c7b0572c63f494fd9f55c7852e3/uv-0.13.4-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl#sha256=05e4332791b4d55b6dde8695b7fa6079b26991519f44760887c5dfbd5ca4fe53"
           # The existing pins are kept as preferences, so this only fails when a
           # lockfile does not match its .in file or was made by another tool.
+          # Compile from inside .github/requirements, as Dependabot does, so the
+          # "# via -r" annotations use the same relative paths either way.
           for name in release minimum-versions; do
-            /tmp/clustermax-uv/bin/uv pip compile ".github/requirements/${name}.in" \
-              --output-file ".github/requirements/${name}.txt" \
+            (cd .github/requirements && /tmp/clustermax-uv/bin/uv pip compile "${name}.in" \
+              --output-file "${name}.txt" \
               --generate-hashes --python-version 3.12 \
-              --python-platform x86_64-manylinux2014 --only-binary :all: -q
+              --python-platform x86_64-manylinux2014 --only-binary :all: -q)
           done
           if ! git diff --exit-code -- .github/requirements/; then
-            echo '::error::A lockfile in .github/requirements does not match uv pip compile output. Run the command in the file header and commit the result.'
+            echo '::error::A lockfile in .github/requirements does not match uv pip compile output. Run the command in the file header from .github/requirements and commit the result.'
             exit 1
           fi
 
