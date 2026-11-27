@@ -602,12 +602,12 @@ slurm_pwnescape_facts_on_node() {
     floor=$(minimum_version components.ubuntuNoble.packages.linuxFragnesia.abi)
     if [[ -n "${SLURM_JOB_ID:-}" && "$SLURM_ALLOCATION_NODES" == *$'\n'"$node"$'\n'* ]]; then
         srun "${AUDIT_SRUN_FLAGS[@]}" -N1 --ntasks=1 -w "$node" --time=2:00 \
-            env CLUSTERMAX_FRAGNESIA_ABI_MINIMUM="$floor" \
+            /usr/bin/env CLUSTERMAX_FRAGNESIA_ABI_MINIMUM="$floor" \
             bash -s < "$WORKLOAD_DIR/pwnescape-host-facts.sh" 2>/dev/null
     else
-        env -u SLURM_JOB_ID -u SLURM_JOBID srun -p "$partition" -N1 --ntasks=1 \
+        /usr/bin/env -u SLURM_JOB_ID -u SLURM_JOBID srun -p "$partition" -N1 --ntasks=1 \
             -w "$node" --time=2:00 --immediate=30 \
-            env CLUSTERMAX_FRAGNESIA_ABI_MINIMUM="$floor" \
+            /usr/bin/env CLUSTERMAX_FRAGNESIA_ABI_MINIMUM="$floor" \
             bash -s < "$WORKLOAD_DIR/pwnescape-host-facts.sh" 2>/dev/null
     fi
 }
@@ -671,7 +671,7 @@ collect_slurm_pwnescape_fleet() {
             facts=$(cat "$tmp/$host.facts" 2>/dev/null)
         else
             facts=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$host" \
-                env CLUSTERMAX_FRAGNESIA_ABI_MINIMUM="$floor" bash -s \
+                /usr/bin/env CLUSTERMAX_FRAGNESIA_ABI_MINIMUM="$floor" bash -s \
                 < "$WORKLOAD_DIR/pwnescape-host-facts.sh" 2>/dev/null || true)
         fi
         add_pwnescape_host_record "$host" control-plane "$facts" \
@@ -692,13 +692,13 @@ slurm_security_script_on_node() {
     if [[ -n "${SLURM_JOB_ID:-}" && "$SLURM_ALLOCATION_NODES" == *$'\n'"$node"$'\n'* ]]; then
         srun "${AUDIT_SRUN_FLAGS[@]}" -N1 --ntasks=1 -w "$node" \
             --gres=gpu:"$(slurm_job_gpus_per_node "$node")" \
-            --time="$limit" env CLUSTERMAX_AUDIT_SCOPE=security CLUSTERMAX_AUDIT_HARNESS=slurm \
+            --time="$limit" /usr/bin/env CLUSTERMAX_AUDIT_SCOPE=security CLUSTERMAX_AUDIT_HARNESS=slurm \
             CLUSTERMAX_NVIDIA_BRANCH_FLOORS="$nvidia_branch_floors" \
             bash -s < "$WORKLOAD_DIR/$script" 2>/dev/null
     else
-        env -u SLURM_JOB_ID -u SLURM_JOBID srun -p "$partition" -N1 --ntasks=1 \
+        /usr/bin/env -u SLURM_JOB_ID -u SLURM_JOBID srun -p "$partition" -N1 --ntasks=1 \
             -w "$node" --gres=gpu:1 --time="$limit" --immediate=30 \
-            env CLUSTERMAX_AUDIT_SCOPE=security CLUSTERMAX_AUDIT_HARNESS=slurm \
+            /usr/bin/env CLUSTERMAX_AUDIT_SCOPE=security CLUSTERMAX_AUDIT_HARNESS=slurm \
             CLUSTERMAX_NVIDIA_BRANCH_FLOORS="$nvidia_branch_floors" \
             bash -s < "$WORKLOAD_DIR/$script" 2>/dev/null
     fi
