@@ -425,5 +425,84 @@ WORKER_CONTAINER_SECURITY_RUNC_VERSION=1.3.6
         self.assertEqual(run.calls("srun"), [])
 
 
+class SampledFailureSurvivesFleetMissTests(unittest.TestCase):
+    def test_kubectl_failure_keeps_a_sampled_host_failure(self) -> None:
+        sampled_json = {
+            "securityVersions": {},
+            "security": {
+                "pwnescape": {
+                    "status": "fail",
+                    "reason": "below minimum",
+                    "runningKernel": "6.8.0-100-generic",
+                },
+                "sctpSendall": {"status": "pass", "reason": "meets minimum"},
+                "januscape": {
+                    "status": "fail",
+                    "exposed": True,
+                    "reason": "nested virtualization is exposed",
+                },
+                "pciePassthrough": {},
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "audit.json"
+            run = bashtest.run_bash(
+                merge_script("k8s", "WORKER_HOSTNAME=gpu-a\n", "", output, sampled_json),
+                stubs={"kubectl": "echo 'kubectl failed' >&2; exit 1\n"},
+                timeout=30,
+            )
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+            payload = json.loads(output.read_text())
+        security = payload["security"]
+        self.assertEqual(security["pwnescape"]["status"], "fail")
+        self.assertEqual(security["pwnescape"]["reason"], "below minimum")
+        self.assertEqual(security["sctpSendall"]["status"], "coverage-incomplete")
+        self.assertIs(security["januscape"]["exposed"], True)
+        self.assertEqual(security["januscape"]["status"], "fail")
+        self.assertEqual(security["januscape"]["reason"], "nested virtualization is exposed")
+
+    def test_passing_fleet_read_keeps_a_sampled_host_failure(self) -> None:
+        sampled = {
+            "pwnescape": {"status": "fail", "reason": "below minimum"},
+            "sctpSendall": {"status": "pass", "reason": "meets minimum"},
+            "kvmSvm": {"status": "not_applicable"},
+            "fragnesia": {"status": "pass"},
+            "januscape": {"status": "fail", "exposed": True, "reason": "nested virtualization is exposed"},
+        }
+        fleet = {
+            "pwnescape": {"status": "pass", "reason": "every host meets minimum", "scope": "fleet"},
+            "sctpSendall": {"status": "pass", "reason": "every host meets minimum", "scope": "fleet"},
+            "kvmSvm": {"status": "not_applicable", "scope": "fleet"},
+            "fragnesia": {"status": "pass", "reason": "ok"},
+            "januscape": {"status": "pass", "exposed": False, "reason": "not exposed"},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            workload = Path(tmp)
+            (workload / "host_fleet.py").write_text(
+                "import sys\nsys.stdin.read()\nprint(" + repr(json.dumps(fleet)) + ")\n"
+            )
+            script = f"""
+set -o pipefail
+. {shlex.quote(str(FLEET))}
+WORKLOAD_DIR={shlex.quote(str(workload))}
+minimum_version() {{ echo 0; }}
+minimum_version_grace() {{ echo false; }}
+PWNESCAPE_HOST_RECORDS='{{}}'
+PWNESCAPE_CONTROL_PLANE_JSON='[]'
+SECURITY_ADVISORY_JSON={shlex.quote(json.dumps(sampled))}
+apply_host_fleet
+printf '%s\\n' "$SECURITY_ADVISORY_JSON"
+"""
+            run = bashtest.run_bash(script, timeout=30)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        merged = json.loads(run.stdout)
+        self.assertEqual(merged["pwnescape"]["status"], "fail")
+        self.assertEqual(merged["pwnescape"]["reason"], "below minimum")
+        self.assertEqual(merged["pwnescape"]["scope"], "fleet")
+        self.assertEqual(merged["sctpSendall"]["status"], "pass")
+        self.assertEqual(merged["januscape"]["status"], "fail")
+        self.assertIs(merged["januscape"]["exposed"], True)
+
+
 if __name__ == "__main__":
     unittest.main()

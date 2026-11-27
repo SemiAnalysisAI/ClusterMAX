@@ -293,7 +293,17 @@ def summarize_host(report: dict[str, Any]) -> dict[str, Any]:
     warnings: list[str] = []
 
     gpu_count = as_int(report.get("gpu_count"))
-    if gpu_count == 0:
+    hbm_nodes = report.get("hbm_like_memory_only_nodes") or []
+    coherent_candidate = bool(report.get("coherent_gpu_candidate"))
+    gpu_models = report.get("gpu_models") or []
+    hbm_scale_nodes = [
+        node
+        for node in report.get("memory_only_numa_nodes") or []
+        if as_int(node.get("mem_total_kb")) >= HBM_MIN_KB
+    ]
+    # An empty GPU inventory leaves the model unknown. The warning below
+    # still reports HBM-sized memory-only NUMA nodes.
+    if gpu_count == 0 and not coherent_candidate and not hbm_scale_nodes:
         return {
             "status": "not_applicable",
             "failures": [],
@@ -301,15 +311,7 @@ def summarize_host(report: dict[str, Any]) -> dict[str, Any]:
             "message": "no NVIDIA GPUs detected",
         }
 
-    hbm_nodes = report.get("hbm_like_memory_only_nodes") or []
-    coherent_candidate = bool(report.get("coherent_gpu_candidate"))
     if not coherent_candidate:
-        gpu_models = report.get("gpu_models") or []
-        hbm_scale_nodes = [
-            node
-            for node in report.get("memory_only_numa_nodes") or []
-            if as_int(node.get("mem_total_kb")) >= HBM_MIN_KB
-        ]
         if not gpu_models and hbm_scale_nodes:
             return {
                 "status": "warning",

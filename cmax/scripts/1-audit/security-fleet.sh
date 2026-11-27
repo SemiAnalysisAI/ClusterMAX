@@ -192,8 +192,23 @@ apply_security_host_fleet() {
 # worker stays the source for the fleet-scope version rows; these rows are
 # fleet-scope from the start, so the merge can fold them over the sampled
 # result without re-collecting.
+#
+# A fleet result that did not itself fail must not clear a failure the sampled
+# worker already recorded. The extra host read can miss that worker. The
+# failure stays in the merged object, with the fleet coverage fields beside it.
 apply_host_fleet() {
     local fleet floor grace=false
+    local -r keep_proven='
+        def keep_proven($before; $key):
+          (.[$key] // {}) as $now
+          | ($before[$key] // {}) as $old
+          | if (($old.status == "fail") and ($now.status != "fail"))
+              or (($old.exposed == true) and ($now.exposed != true)) then
+              .[$key] = ($now
+                + {status: "fail", reason: ($old.reason // $now.reason)}
+                + (if $old.exposed == true then {exposed: true} else {} end))
+            else . end;
+    '
     floor=$(minimum_version components.ubuntuNoble.packages.linuxFragnesia.abi)
     [[ "$(minimum_version_grace ubuntuNoble linuxFragnesia 2>/dev/null || true)" == "true" ]] \
         && grace=true
@@ -204,8 +219,9 @@ apply_host_fleet() {
                   fragnesiaGrace: $grace}' \
             | python3 "$WORKLOAD_DIR/host_fleet.py" 2>/dev/null) \
             && [[ -n "$fleet" ]]; then
-        SECURITY_ADVISORY_JSON=$(jq --slurpfile fleet_doc <(printf '%s' "$fleet") '
-            $fleet_doc[0] as $fleet
+        SECURITY_ADVISORY_JSON=$(jq --slurpfile fleet_doc <(printf '%s' "$fleet") "$keep_proven"'
+            . as $before
+            | $fleet_doc[0] as $fleet
             | .pwnescape = $fleet.pwnescape
             | .sctpSendall = $fleet.sctpSendall
             | .kvmSvm = $fleet.kvmSvm
@@ -218,10 +234,16 @@ apply_host_fleet() {
                    exposed: $fleet.januscape.exposed,
                    reason: $fleet.januscape.reason,
                    scope: "fleet", fleet: $fleet.januscape})
+            | keep_proven($before; "pwnescape")
+            | keep_proven($before; "sctpSendall")
+            | keep_proven($before; "kvmSvm")
+            | keep_proven($before; "fragnesia")
+            | keep_proven($before; "januscape")
         ' <<< "$SECURITY_ADVISORY_JSON")
     else
-        SECURITY_ADVISORY_JSON=$(jq '
-            .pwnescape = {
+        SECURITY_ADVISORY_JSON=$(jq "$keep_proven"'
+            . as $before
+            | .pwnescape = {
                 status: "unknown", scope: "fleet", exploitTested: false,
                 reason: "The host fleet grader failed. Every host needs CVE-specific patch evidence."
             }
@@ -239,6 +261,11 @@ apply_host_fleet() {
             | .januscape = ((.januscape // {})
                 + {status: "unknown", exposed: "unknown", scope: "fleet",
                    reason: "The host fleet grader failed. Every host needs CVE-specific patch evidence."})
+            | keep_proven($before; "pwnescape")
+            | keep_proven($before; "sctpSendall")
+            | keep_proven($before; "kvmSvm")
+            | keep_proven($before; "fragnesia")
+            | keep_proven($before; "januscape")
         ' <<< "$SECURITY_ADVISORY_JSON")
     fi
 }

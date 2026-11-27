@@ -548,12 +548,22 @@ def _version_observation(audit: dict[str, Any], key: str, value: Any) -> Any:
     if key == "containers.pyxisRuntimeWorks":
         version = _nested(audit, "containers.pyxisVersion") or "unknown"
         cli = _nested(audit, "containers.pyxisCliAvailable")
-        attempted = _nested(audit, "containers.pyxisRuntimeAttempted") is True
+        containers = _nested(audit, "containers")
+        if not isinstance(containers, dict):
+            containers = {}
+        error = containers.get("pyxisRuntimeError")
+        error_text = error.strip() if isinstance(error, str) else ""
+        # An explicit attempt flag is authoritative. An older audit omits the
+        # flag and stores pyxisRuntimeError only after the worker command fails.
+        if "pyxisRuntimeAttempted" in containers:
+            attempted = containers.get("pyxisRuntimeAttempted") is True
+        else:
+            attempted = bool(error_text)
         if cli is True and value is not True and attempted:
             # The options exist, and the worker container test failed.
-            error = _nested(audit, "containers.pyxisRuntimeError") or "no output"
+            shown = error_text or "no output"
             return (
-                f"CLI available true; container test failed ({error}); "
+                f"CLI available true; container test failed ({shown}); "
                 f"installed version {version}"
             )
         if cli is True and value is not True:

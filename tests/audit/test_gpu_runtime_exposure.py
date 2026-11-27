@@ -106,6 +106,15 @@ class GpuFactsTests(unittest.TestCase):
         self.assertEqual(exposure.grade_ecc(hbm, True)["status"], "not_applicable")
         self.assertEqual(exposure.grade_ecc([], True)["status"], "unknown")
 
+    def test_unread_gpu_nodes_do_not_clear_mig_or_ecc(self) -> None:
+        gddr_on = [{"host": "n1", "index": 0, "name": "NVIDIA L40S", "ecc_mode": "Enabled"}]
+        ampere = [{"host": "n1", "index": 0, "name": "NVIDIA A100-SXM4-80GB",
+                   "mig_mode": "Enabled", "ecc_mode": "Enabled", "mig_instances": 7}]
+        self.assertEqual(exposure.grade_ecc(gddr_on, False)["status"], "unknown")
+        self.assertEqual(exposure.grade_mig(ampere, [], False)["status"], "unknown")
+        self.assertEqual(exposure.grade_ecc(gddr_on, True)["status"], "pass")
+        self.assertEqual(exposure.grade_mig(ampere, [], True)["status"], "pass")
+
 
 class CdiHookTests(unittest.TestCase):
     SPEC = {
@@ -202,6 +211,15 @@ class RayTests(unittest.TestCase):
         facts = {"dashboards": [], "listen": []}
         self.assertEqual(exposure.grade_ray([{"host": "n1", "ray": facts}], None)["status"], "not_applicable")
 
+    def test_kubernetes_head_without_token_does_not_pass(self) -> None:
+        head = {"namespace": "ml", "pod": "ray-head", "version": "2.60.0", "auth_mode": "disabled"}
+        k8s = {"ray": [head], "ray_exposed_services": []}
+        verdict = exposure.grade_ray([], k8s)
+        self.assertEqual(verdict["status"], "warning")
+        self.assertNotIn("loopback", verdict["message"])
+        head["auth_mode"] = "token"
+        self.assertEqual(exposure.grade_ray([], k8s)["status"], "pass")
+
 
 class KubernetesTests(unittest.TestCase):
     PAYLOADS = {
@@ -258,6 +276,40 @@ class PayloadTests(unittest.TestCase):
         self.assertEqual(payload["cdiHooks"]["status"], "not_applicable")
         self.assertEqual(payload["status"], "warning")
         self.assertIn("mig", payload["message"])
+
+    def test_below_minimum_aistore_fails_the_combined_status(self) -> None:
+        def payload_for(image: str) -> dict:
+            def runner(command, **_kwargs):
+                kind = command[2]
+                if kind == "pods":
+                    body = {"items": [{
+                        "metadata": {"name": "ais-target-0", "namespace": "ais", "labels": {}},
+                        "spec": {"containers": [{"image": image}]},
+                        "status": {"phase": "Running"},
+                    }]}
+                elif kind == "clusterpolicies.nvidia.com":
+                    return subprocess.CompletedProcess(command, 1, "", "missing")
+                else:
+                    body = {"items": []}
+                return subprocess.CompletedProcess(command, 0, json.dumps(body), "")
+
+            quiet = {"status": "not_applicable", "message": "quiet"}
+            with mock.patch.object(exposure, "grade_mig", return_value=quiet), \
+                    mock.patch.object(exposure, "grade_ecc", return_value=quiet), \
+                    mock.patch.object(exposure, "grade_cdi", return_value=quiet), \
+                    mock.patch.object(exposure, "grade_ray", return_value=quiet), \
+                    mock.patch.object(exposure, "aistore_minimum",
+                                      return_value=("5.1", "https://example.invalid/aistore")):
+                return exposure.build_payload(harness="k8s", runner=runner)[exposure.KEY]
+
+        below = payload_for("aistorage/aisnode:v5.0")
+        self.assertEqual(below["aistore"]["status"], "present")
+        self.assertEqual(below["aistore"]["versionStatus"], "fail")
+        self.assertEqual(below["status"], "fail")
+        self.assertIn("aistore", below["message"])
+        unread = payload_for("aistorage/aisnode:latest")
+        self.assertEqual(unread["aistore"]["versionStatus"], "unknown")
+        self.assertEqual(unread["status"], "unknown")
 
     def test_worker_runs_from_standard_input(self) -> None:
         proc = subprocess.run(
