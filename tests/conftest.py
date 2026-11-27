@@ -92,3 +92,21 @@ def _independent_of_the_host(monkeypatch, tmp_path_factory):
     monkeypatch.setattr(
         host_role, "detect", lambda environ=None: host_role.HostRole(host_role.UNKNOWN)
     )
+
+
+@pytest.fixture(autouse=True)
+def _keep_the_minimum_table_pin():
+    """Undo a minimum table pin that a test leaves in os.environ.
+
+    A CLI test with a missing --repo accepts the fetched table and pins it in
+    os.environ. Without this, later tests in the same worker grade against the
+    published table instead of the table in this checkout. A pin set before
+    the test, such as one from setUpModule, stays.
+    """
+    key = "CLUSTERMAX_MINIMUM_VERSIONS"
+    before = os.environ.get(key)
+    yield
+    if before is None:
+        os.environ.pop(key, None)
+    else:
+        os.environ[key] = before
