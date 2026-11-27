@@ -44,6 +44,7 @@ AUDIT_DEFAULTS = {
     "output_file": None,
     "output_dir": None,
     "exit_zero": False,
+    "waivers": None,
     "fetch_minimums": True,
     "verbose": 0,
     "assume_yes": False,
@@ -134,6 +135,20 @@ def _add_fetch_minimums(parser: argparse.ArgumentParser, *, suppress: bool) -> N
     )
 
 
+def _add_waivers(parser: argparse.ArgumentParser, *, suppress: bool) -> None:
+    parser.add_argument(
+        "--waivers",
+        metavar="PATH",
+        default=_default(suppress, None),
+        help=(
+            "Read accepted findings from this waiver file. Without this option "
+            "the audit reads the file that CLUSTERMAX_WAIVERS names, or "
+            ".cmax-waivers.yaml in the working directory. A waived check still "
+            "runs, and the report shows it as WAIVED with its reason."
+        ),
+    )
+
+
 def _add_run_options(parser: argparse.ArgumentParser, *, show_help: str) -> None:
     parser.add_argument(
         "--show",
@@ -144,6 +159,7 @@ def _add_run_options(parser: argparse.ArgumentParser, *, show_help: str) -> None
     add_target_options(parser, suppress=True, dest="profile_target")
     add_confirmation_options(parser, suppress=True)
     _add_fetch_minimums(parser, suppress=True)
+    _add_waivers(parser, suppress=True)
     _add_verbose(parser, suppress=True)
 
 
@@ -163,6 +179,7 @@ def add_audit_parser(
     add_target_options(audit)
     add_confirmation_options(audit)
     _add_fetch_minimums(audit, suppress=False)
+    _add_waivers(audit, suppress=False)
     _add_verbose(audit, suppress=False)
 
     commands = audit.add_subparsers(dest="profile", title="commands", metavar="COMMAND")
@@ -223,6 +240,7 @@ def add_audit_parser(
         help="Audit directory, audit.values.json, or audit.out. Defaults to the newest saved audit.",
     )
     _add_verbose(review, suppress=True)
+    _add_waivers(review, suppress=True)
     review.add_argument(
         "--command",
         action="append",

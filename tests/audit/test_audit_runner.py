@@ -268,6 +268,7 @@ def test_security_profile_returns_two_when_the_standard_report_fails(
         "category": "security",
         "harness": "standalone",
         "environment": "vm",
+        "waivers": None,
     }
 
 
