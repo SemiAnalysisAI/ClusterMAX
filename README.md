@@ -537,6 +537,54 @@ evidence. Use `-vvv` to include recommended remediation and labeled reference
 URLs. Use `--command raw` to print the saved collector log. Use
 `--no-interactive` to print the review and exit.
 
+## Waive accepted findings
+
+A waiver file lists the findings that the operator accepts. A waived check
+still runs. The report shows it as `WAIVED` with its reason and the status
+that it replaces, and the summary counts it apart. A waived failure does not
+produce exit code 2.
+
+```yaml
+version: 1
+waivers:
+  - check: containers.dockerOnWorkers
+    reason: The workers use containerd and Podman. Docker is not installed by design.
+  - check: securityVersions.containerd.status
+    reason: The image update is in progress.
+    expires: 2027-01-31
+```
+
+```text
+WAIVED   Containers / Docker On Workers  [containers.dockerOnWorkers]
+         Observed: false
+         Waived: The workers use containerd and Podman. Docker is not installed by design. (was FAIL)
+
+10 failed, 19 warnings, 24 passed, 38 skipped, 1 waived
+```
+
+Each entry names one check and gives a reason. Use `cmax audit --show` to list
+the check names. The optional `expires` date is the last day on which the
+waiver applies. After that date the check is graded again, and the report says
+that the waiver expired.
+
+The optional `status` field is the worst result that the waiver accepts,
+`warning` or `fail`. A waiver with `status: warning` does not accept a later
+failure: the check is graded again, and the report says that the waiver was
+not applied. Without the field, a waiver accepts a warning and a failure.
+
+When a waived check passes, the waiver is not necessary. The check stays a
+`PASS`, and the report names the waiver below the summary so that you can
+remove it. This does not change the exit code.
+
+The audit reads the file from `--waivers PATH`, then from the
+`CLUSTERMAX_WAIVERS` variable, then from `.cmax-waivers.yaml` in the working
+directory. It prints the file that it uses. `cmax audit review` reads the same
+file, so a saved audit shows the same waived checks.
+
+A waiver changes only a warning or a failure. A check that passes or is skipped
+keeps its status. A file with an unknown check name, a missing reason, or an
+unknown field stops the audit before the target prompt.
+
 ## Repository contents
 
 | Path | Contents |

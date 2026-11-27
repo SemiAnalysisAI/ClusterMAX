@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, TextIO
 
-from cmax import audit_report
+from cmax import audit_report, audit_waivers
 
 
 class AuditReviewError(RuntimeError):
@@ -119,7 +119,11 @@ def find_latest(
     return resolve_source(max(files, key=_timestamp_key))
 
 
-def load_checks(artifacts: AuditArtifacts, rules_root: Path):
+def load_checks(
+    artifacts: AuditArtifacts,
+    rules_root: Path,
+    waivers: audit_waivers.WaiverSet | None = None,
+):
     if artifacts.values is None:
         return []
     try:
@@ -128,7 +132,7 @@ def load_checks(artifacts: AuditArtifacts, rules_root: Path):
         raise AuditReviewError(
             f"could not read audit values from {artifacts.values}: {exc}"
         ) from exc
-    return audit_report.evaluate(values, rules_root)
+    return audit_report.evaluate(values, rules_root, waivers=waivers)
 
 
 def _check_list(checks, selected: list[int] | None = None) -> str:
@@ -144,12 +148,15 @@ def _check_list(checks, selected: list[int] | None = None) -> str:
 
 def _show_check(check, number: int) -> str:
     observed = json.dumps(check.observed, indent=2, sort_keys=True, default=str)
-    return (
+    shown = (
         f"{number}. {check.title}\n"
         f"status: {check.status}\n"
         f"key: {check.key}\n"
         f"observed: {observed}"
     )
+    if check.waiver_reason:
+        shown += f"\nwaiver ({check.waiver_state}): {check.waiver_reason}"
+    return shown
 
 
 HELP = """Audit review commands:
@@ -255,6 +262,7 @@ def run(
     interactive: bool | None = None,
     input_fn: Callable[[str], str] = input,
     output: TextIO | None = None,
+    waivers: audit_waivers.WaiverSet | None = None,
 ) -> int:
     """Render one saved audit and optionally start the review prompt."""
     output = output or sys.stdout
@@ -262,7 +270,7 @@ def run(
         getattr(output, "isatty", lambda: False)()
         and "NO_COLOR" not in os.environ
     )
-    checks = load_checks(artifacts, rules_root)
+    checks = load_checks(artifacts, rules_root, waivers)
     print(f"Audit review: {artifacts.source}", file=output)
     if artifacts.values is not None:
         print(

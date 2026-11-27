@@ -8,7 +8,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from cmax import audit_report, progress, report_style, runtime_paths, security
+from cmax import audit_report, audit_waivers, progress, report_style, runtime_paths, security
 
 # The Slurm collector prints this too, but the progress display hides
 # collector output, so the runner repeats it after the report.
@@ -49,6 +49,7 @@ def run(
     resolved_target: security.SecurityTarget | None = None,
     exit_on_fail: bool = False,
     output_dir: str | None = None,
+    waivers: audit_waivers.WaiverSet | None = None,
 ) -> int:
     try:
         runtime_root = security.find_runtime_root(repo)
@@ -114,6 +115,7 @@ def run(
         # exit-code path, so target-specific skipped checks cannot drift.
         harness=selected_target.harness,
         environment=selected_target.environment,
+        waivers=waivers,
     )
     print(report)
     if selected_target.harness == "slurm" and not os.environ.get("SLURM_JOB_ID", "").strip():
@@ -126,6 +128,8 @@ def run(
             category=category,
             harness=selected_target.harness,
             environment=selected_target.environment,
+            # A waived failure does not fail the run.
+            waivers=waivers,
         )
         if any(check.status == audit_report.FAIL for check in checks):
             return 2

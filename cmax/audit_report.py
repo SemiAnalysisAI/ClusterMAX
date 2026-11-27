@@ -8,11 +8,12 @@ import json
 import re
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import date
 from pathlib import Path
 from typing import Any
 
-from cmax import criteria_links, minimum_links, report_style, runtime_paths
+from cmax import audit_waivers, criteria_links, minimum_links, report_style, runtime_paths
 from cmax.audit_profiles import (
     AUDIT_CATEGORIES,
     AUDIT_PROFILE_NAMES,
@@ -24,7 +25,13 @@ PASS = "pass"
 WARNING = "warning"
 FAIL = "fail"
 SKIPPED = "skipped"
-_STATUS_ORDER = {PASS: 0, SKIPPED: 1, WARNING: 2, FAIL: 3}
+WAIVED = "waived"
+# What a waiver did to its check. Only WAIVER_APPLIED changes the status.
+WAIVER_APPLIED = "applied"
+WAIVER_EXPIRED = "expired"
+WAIVER_EXCEEDED = "exceeded"
+WAIVER_NOT_NEEDED = "not-needed"
+_STATUS_ORDER = {PASS: 0, SKIPPED: 1, WAIVED: 2, WARNING: 3, FAIL: 4}
 _SECURITY_EXTENSION_IDS = frozenset(
     {
         "bmc-ipmi",
@@ -256,6 +263,13 @@ class AuditCheck:
     recommendation: str = ""
     references: tuple[tuple[str, str], ...] = ()
     reproduce: str = ""
+    # Set by a waiver. `waiver_state` is one of the WAIVER_* values, and
+    # `waived_status` is the status that a waived check had.
+    waiver_state: str = ""
+    waiver_reason: str = ""
+    waiver_expires: str = ""
+    waiver_accepts: str = ""
+    waived_status: str = ""
 
 
 @dataclass(frozen=True)
@@ -1194,6 +1208,77 @@ def format_check_specs(checks: list[AuditCheckSpec]) -> str:
     return "\n".join(lines)
 
 
+def check_waivers(waivers: audit_waivers.WaiverSet, repo_root: Path) -> None:
+    """Reject a waiver for a check that this release does not have."""
+    known = {check.key for check in list_check_specs(repo_root)}
+    unknown = sorted(waiver.check for waiver in waivers.waivers if waiver.check not in known)
+    if unknown:
+        raise audit_waivers.WaiverError(
+            f"{waivers.path}: unknown audit check {', '.join(unknown)}; "
+            "run 'cmax audit --show' for the check names"
+        )
+
+
+def apply_waivers(
+    checks: list[AuditCheck],
+    waivers: audit_waivers.WaiverSet | None,
+    *,
+    today: date | None = None,
+) -> list[AuditCheck]:
+    """Mark each waived warning or failure, and keep it in the report."""
+    if waivers is None:
+        return checks
+    today = today or date.today()
+    marked = []
+    for check in checks:
+        waiver = waivers.get(check.key)
+        # A skipped check stays silent: one file can serve two cluster types.
+        if waiver is None or check.status == SKIPPED:
+            marked.append(check)
+            continue
+        if check.status == PASS:
+            state = WAIVER_NOT_NEEDED
+        elif waiver.expired(today):
+            state = WAIVER_EXPIRED
+        elif not waiver.accepts(check.status):
+            state = WAIVER_EXCEEDED
+        else:
+            state = WAIVER_APPLIED
+        applied = state == WAIVER_APPLIED
+        marked.append(
+            replace(
+                check,
+                status=WAIVED if applied else check.status,
+                waiver_state=state,
+                waiver_reason=waiver.reason,
+                waiver_expires=waiver.expires.isoformat() if waiver.expires else "",
+                waiver_accepts=waiver.status or "",
+                waived_status=check.status if applied else "",
+            )
+        )
+    return marked
+
+
+def _waiver_detail(check: AuditCheck) -> tuple[str, str] | None:
+    reason = f"Reason was: {check.waiver_reason}"
+    if check.waiver_state == WAIVER_APPLIED:
+        was = f"was {report_style.status_label(check.waived_status)}"
+        if check.waiver_expires:
+            was += f"; expires {check.waiver_expires}"
+        return ("Waived", f"{check.waiver_reason} ({was})")
+    if check.waiver_state == WAIVER_EXPIRED:
+        return ("Waiver expired", f"{check.waiver_expires}; the check is graded again. {reason}")
+    if check.waiver_state == WAIVER_EXCEEDED:
+        accepted = report_style.status_label(check.waiver_accepts)
+        return (
+            "Waiver not applied",
+            f"it accepts {accepted} only, and the check is graded again. {reason}",
+        )
+    if check.waiver_state == WAIVER_NOT_NEEDED:
+        return ("Waiver not needed", "the check passes; remove it from the waiver file.")
+    return None
+
+
 def evaluate(
     values: dict[str, Any],
     repo_root: Path,
@@ -1201,6 +1286,7 @@ def evaluate(
     category: str | None = None,
     harness: str | None = None,
     environment: str | None = None,
+    waivers: audit_waivers.WaiverSet | None = None,
 ) -> list[AuditCheck]:
     """Evaluate each unique finding rule key for the selected audit target."""
     if category is not None and category not in AUDIT_PROFILE_NAMES:
@@ -1448,6 +1534,7 @@ def evaluate(
         for check in _security_extension_checks(values, harness, environment)
         if profile_includes(category, check.key)
     )
+    checks = apply_waivers(checks, waivers)
     return sorted(checks, key=lambda check: (_STATUS_ORDER[check.status], check.title))
 
 
@@ -1462,7 +1549,7 @@ def format_report(
     verbosity = min(max(verbosity, 1), 3)
     counts = {
         status: sum(check.status == status for check in checks)
-        for status in (PASS, WARNING, FAIL, SKIPPED)
+        for status in (PASS, WARNING, FAIL, SKIPPED, WAIVED)
     }
     command = command or (f"cmax audit {category}" if category else "cmax audit")
     title = (
@@ -1482,6 +1569,10 @@ def format_report(
             )
             assessment = f"Observed: {observed}"
             details = []
+            # The reason shows at every detail level, so a waiver is never silent.
+            waiver_detail = _waiver_detail(check)
+            if waiver_detail:
+                details.append(waiver_detail)
             if verbosity >= 3:
                 assessment = check.assessment
                 details.append(
@@ -1520,22 +1611,36 @@ def format_report(
         lines.append("    No warnings or failures detected.")
     else:
         lines.append("    No classifiable audit checks were found.")
-    summary = ", ".join(
-        (
-            report_style.count(f"{counts[FAIL]} failed", FAIL, color=color),
-            report_style.count(
-                f"{counts[WARNING]} warning"
-                f"{'' if counts[WARNING] == 1 else 's'}",
-                WARNING,
-                color=color,
-            ),
-            report_style.count(f"{counts[PASS]} passed", PASS, color=color),
-            report_style.count(
-                f"{counts[SKIPPED]} skipped", SKIPPED, color=color
-            ),
+    summary_counts = [
+        report_style.count(f"{counts[FAIL]} failed", FAIL, color=color),
+        report_style.count(
+            f"{counts[WARNING]} warning"
+            f"{'' if counts[WARNING] == 1 else 's'}",
+            WARNING,
+            color=color,
+        ),
+        report_style.count(f"{counts[PASS]} passed", PASS, color=color),
+        report_style.count(
+            f"{counts[SKIPPED]} skipped", SKIPPED, color=color
+        ),
+    ]
+    # Without a waiver the summary keeps its four counts.
+    if counts[WAIVED]:
+        summary_counts.append(
+            report_style.count(f"{counts[WAIVED]} waived", WAIVED, color=color)
         )
-    )
-    lines.extend(("", summary))
+    lines.extend(("", ", ".join(summary_counts)))
+    # A waiver for a check that passes is stale. Name it, and do not fail the run.
+    stale = [check.key for check in checks if check.waiver_state == WAIVER_NOT_NEEDED]
+    if stale:
+        lines.append(
+            report_style.paint(
+                f"{len(stale)} waiver{'' if len(stale) == 1 else 's'} not needed, "
+                f"the check passes: {', '.join(stale)}",
+                "yellow",
+                color=color,
+            )
+        )
     if verbosity < 3:
         hint = {
             1: f"run '{command} -vv' for CVE and documentation links, -vvv for issue details, reproduction, and remediation",
@@ -1577,6 +1682,7 @@ def render(
     category: str | None = None,
     harness: str | None = None,
     environment: str | None = None,
+    waivers: audit_waivers.WaiverSet | None = None,
 ) -> str:
     if rules_root is None:
         from cmax.security import find_runtime_root
@@ -1590,6 +1696,7 @@ def render(
             category=category,
             harness=harness,
             environment=environment,
+            waivers=waivers,
         ),
         verbosity=verbosity,
         color=color,

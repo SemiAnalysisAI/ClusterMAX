@@ -12,6 +12,7 @@ _ANSI = {
     "red": "\033[1;31m",
     "yellow": "\033[33m",
     "green": "\033[32m",
+    "cyan": "\033[36m",
 }
 
 _STATUS = {
@@ -21,6 +22,7 @@ _STATUS = {
     "critical": ("FAIL", "red"),
     "skipped": ("SKIPPED", "dim"),
     "not_applicable": ("SKIPPED", "dim"),
+    "waived": ("WAIVED", "cyan"),
 }
 
 
@@ -40,6 +42,11 @@ def hyperlink(label: str, url: str, *, color: bool) -> str:
     closing = "\x1b]8;;\x1b\\"
     linked = f"{opening}\x1b[4m{label}\x1b[24m{closing}"
     return f"{linked}  {paint(url, 'dim', color=color)}"
+
+
+def status_label(status: str) -> str:
+    """Return the report label of one check status."""
+    return _STATUS[status][0]
 
 
 def count(text: str, status: str, *, color: bool) -> str:

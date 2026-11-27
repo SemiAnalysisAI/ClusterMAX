@@ -301,6 +301,48 @@ cmax audit review --command 'show securityVersions.runc.status'
 
 使用 `-v` 可包含通过和跳过的检查。使用 `-vv` 可包含采集到的证据。使用 `-vvv` 可包含建议的修复方法和带标签的参考 URL。使用 `--command raw` 可打印已保存的采集器日志。使用 `--no-interactive` 可打印审阅结果后退出。
 
+## 豁免已接受的发现
+
+豁免文件列出运营方已接受的发现。被豁免的检查仍会运行。报告将其显示为
+`WAIVED`，并给出理由和被替换的原状态，汇总行单独统计。被豁免的失败不会
+产生退出码 2。
+
+```yaml
+version: 1
+waivers:
+  - check: containers.dockerOnWorkers
+    reason: The workers use containerd and Podman. Docker is not installed by design.
+  - check: securityVersions.containerd.status
+    reason: The image update is in progress.
+    expires: 2027-01-31
+```
+
+```text
+WAIVED   Containers / Docker On Workers  [containers.dockerOnWorkers]
+         Observed: false
+         Waived: The workers use containerd and Podman. Docker is not installed by design. (was FAIL)
+
+10 failed, 19 warnings, 24 passed, 38 skipped, 1 waived
+```
+
+每个条目指定一项检查并给出理由。使用 `cmax audit --show` 列出检查名称。可选的
+`expires` 日期是豁免生效的最后一天。此日期之后，该检查重新评分，报告会说明
+豁免已过期。
+
+可选的 `status` 字段是豁免接受的最差结果，取值为 `warning` 或 `fail`。带有
+`status: warning` 的豁免不接受之后出现的失败：该检查重新评分，报告会说明豁免
+未生效。没有该字段时，豁免同时接受警告和失败。
+
+被豁免的检查通过时，该豁免已无必要。检查保持 `PASS`，报告在汇总行下方列出
+该豁免，以便将其删除。这不会改变退出码。
+
+审计依次从 `--waivers PATH`、`CLUSTERMAX_WAIVERS` 变量、工作目录中的
+`.cmax-waivers.yaml` 读取该文件，并打印所使用的文件。`cmax audit review`
+读取同一文件，因此已保存的审计显示相同的豁免检查。
+
+豁免只改变警告或失败。通过或跳过的检查保持原状态。如果文件包含未知的检查
+名称、缺少理由或包含未知字段，审计会在目标确认提示之前停止。
+
 ## 仓库内容
 
 | 路径 | 内容 |

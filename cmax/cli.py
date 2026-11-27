@@ -155,6 +155,23 @@ def _audit_verbosity(verbose: int) -> int:
     return min(max(verbose, 1), 3)
 
 
+def _load_waivers(args: argparse.Namespace, parser: argparse.ArgumentParser):
+    """Load the waiver file, if one exists, and say which file is in use."""
+    from cmax import audit_report, audit_waivers, security
+
+    try:
+        path = audit_waivers.find_path(args.waivers)
+        if path is None:
+            return None
+        waivers = audit_waivers.load(path)
+        audit_report.check_waivers(waivers, security.find_runtime_root(args.repo))
+    except (audit_waivers.WaiverError, security.SecurityAuditError) as exc:
+        parser.error(str(exc))
+    # A file in the working directory applies without an option, so name it.
+    print(f"==> cmax audit: {len(waivers.waivers)} waiver(s) from {path}", file=sys.stderr)
+    return waivers
+
+
 def _run_security(
     args: argparse.Namespace,
     passthrough: list[str],
@@ -241,6 +258,9 @@ def _run_audit(
     from cmax import audit_runner, security
 
     try:
+        # Read the waiver file first: a mistake in it stops the run before
+        # the target prompt and before the collector starts.
+        waivers = _load_waivers(args, parser)
         target = _resolve_audit_target(
             args,
             parser,
@@ -261,6 +281,8 @@ def _run_audit(
             category=category,
             resolved_target=target,
         )
+        if waivers is not None:
+            runner_options["waivers"] = waivers
         if exit_on_fail:
             runner_options["exit_on_fail"] = True
         if args.output_dir:
@@ -294,6 +316,7 @@ def _run_audit_review(
             verbosity=_audit_verbosity(args.verbose),
             commands=args.review_commands,
             interactive=False if args.review_no_interactive else None,
+            waivers=_load_waivers(args, parser),
         )
     except (audit_review.AuditReviewError, security.SecurityAuditError) as exc:
         parser.error(str(exc))
