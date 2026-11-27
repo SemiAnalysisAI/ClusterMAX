@@ -29,9 +29,9 @@ import sys
 from typing import Any
 
 # Checks whose evidence lives on each GPU host. Cluster-level checks (the
-# dcgm-exporter image, the CUDA runtime pods, and the BlueField VIRTIO-Net and
-# DPU host-isolation results, which both come from the fabric-wide virtio-net
-# check) already have their own scope and are left as the collector built them.
+# dcgm-exporter image, the CUDA runtime pods, and the BlueField VIRTIO-Net,
+# SNAP-4, and DPU host-isolation results, which all come from the fabric-wide
+# virtio-net check) already have their own scope and are left as the collector built them.
 VERSION_KEYS = (
     "nvidiaDriver",
     "amdDriver",

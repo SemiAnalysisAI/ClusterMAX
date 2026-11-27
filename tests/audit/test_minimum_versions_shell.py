@@ -1688,6 +1688,7 @@ class VirtioNetEvaluatorFlagContractTests(TempDirMixin):
                 "virtioNetWorstObservedMode": "dpu",
                 "virtioNetWorstObservedHost": "worker-3",
                 "virtioNetObservedJson": '[{"host": "worker-3"}]',
+                "snap4Json": '{"state": "version", "observed": [{"version": "4.9.0"}]}',
             }
         )
 
@@ -1704,6 +1705,9 @@ class VirtioNetEvaluatorFlagContractTests(TempDirMixin):
         self.assertEqual(pairs["--virtio-net-worst-host"], "worker-3")
         self.assertEqual(pairs["--virtio-net-observed-json"], '[{"host": "worker-3"}]')
         self.assertEqual(pairs["--dpu-isolation-json"], '{"scanComplete": true}')
+        self.assertEqual(
+            pairs["--snap4-json"], '{"state": "version", "observed": [{"version": "4.9.0"}]}'
+        )
 
 class DegradedSecurityAuditFallbackTests(TempDirMixin):
     def evaluator_components(self) -> set[str]:

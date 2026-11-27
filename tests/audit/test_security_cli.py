@@ -41,6 +41,7 @@ FIXTURE_ADVISORIES = {
     "docker": "https://example.invalid/minimums/docker",
     "connectxFirmware": "https://example.invalid/minimums/connectx",
     "virtioNetBluefield": "https://example.invalid/minimums/virtio",
+    "snap4Container": "https://example.invalid/minimums/snap4",
     "dcgmExporter": "https://example.invalid/minimums/dcgm-exporter",
     "aistore": "https://example.invalid/minimums/aistore",
     "amdDriver": "https://example.invalid/minimums/amd-driver",
@@ -100,6 +101,13 @@ def minimum_table(generated: datetime, **components: dict) -> dict:
                 "advisory": FIXTURE_ADVISORIES["virtioNetBluefield"],
                 "cves": ["CVE-2026-65094"],
                 "source": {"aId": 5815, "feed": "nvidia-csaf"},
+            },
+            "snap4Container": {
+                "kind": "releaseLines",
+                "lines": {"4.5": {"fixed": "4.5.5"}, "4.9": {"fixed": "4.9.1"}},
+                "advisory": FIXTURE_ADVISORIES["snap4Container"],
+                "cves": ["CVE-2025-33215", "CVE-2025-33216"],
+                "source": {"aId": 5744, "feed": "nvidia-csaf"},
             },
             "dcgmExporter": {
                 "kind": "minimum",
@@ -903,7 +911,7 @@ class SecurityReportTests(unittest.TestCase):
             Path("/tmp/report"),
         )
         self.assertIn("# ClusterMAX security audit report", report)
-        self.assertIn("3 failed, 21 warnings, 5 passed, 3 skipped", report)
+        self.assertIn("3 failed, 22 warnings, 5 passed, 3 skipped", report)
         self.assertIn("Action required: 3 critical findings.", report)
         self.assertNotIn("critical findings are known exposure", report)
         self.assertIn("NVIDIA driver minimum version", report)
@@ -1356,6 +1364,12 @@ class AbsentDeviceTests(unittest.TestCase):
         )
         self.assertEqual(status, security.PASS)
 
+    def test_remediation_does_not_prescribe_zero_trust_in_nic_mode(self) -> None:
+        spec = next(s for s in security.CHECK_SPECS if s.id == "dpu-host-isolation")
+        self.assertIn("In DPU mode, apply the zero-trust host profile", spec.remediation)
+        self.assertIn("In NIC mode, do not apply mlxprivhost zero-trust", spec.remediation)
+        self.assertIn("re-image from a trusted BFB", spec.remediation)
+
     def test_absent_hardware_is_given_no_remediation_to_apply(self) -> None:
         checks = [
             security.SecurityCheck(
@@ -1449,12 +1463,12 @@ class MinimumFreshnessTests(unittest.TestCase):
             security.counts(stale_checks),
             {
                 security.PASS: 4,
-                security.WARNING: 21,
+                security.WARNING: 22,
                 security.CRITICAL: 4,
                 security.NOT_APPLICABLE: 3,
             },
         )
-        self.assertEqual(sum(security.counts(stale_checks).values()), 32)
+        self.assertEqual(sum(security.counts(stale_checks).values()), 33)
         self.assertEqual(clean_exit, 0)
         report = self._report(now=self.generated + timedelta(days=40), verbosity=3)
         self.assertNotIn("minimum-version-freshness", report)
@@ -1509,8 +1523,8 @@ class MinimumFreshnessTests(unittest.TestCase):
 
     def test_minimum_freshness_is_not_a_graded_criterion(self) -> None:
         ids = [spec.id for spec in security.CHECK_SPECS]
-        self.assertEqual(len(ids), 32)
-        self.assertEqual(len(set(ids)), 32)
+        self.assertEqual(len(ids), 33)
+        self.assertEqual(len(set(ids)), 33)
         self.assertEqual(
             ids,
             [
@@ -1541,6 +1555,7 @@ class MinimumFreshnessTests(unittest.TestCase):
                 "nvlink-boundary",
                 "virtio-net-bluefield",
                 "dpu-host-isolation",
+                "snap4-container",
                 "mig-side-channel",
                 "gpu-ecc-rowhammer",
                 "nvidia-cdi-hook-monitoring",
