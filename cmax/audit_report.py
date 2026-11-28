@@ -161,7 +161,11 @@ _PASS_ASSESSMENTS = {
     "containers.enroot": "Enroot is installed on the worker.",
     "containers.enrootImportWorks": "Enroot can import container images.",
     "containers.dockerOnWorkers": "Docker is installed on the worker nodes.",
+    "containers.dockerUsable": (
+        "Docker is absent or usable, with a GPU runtime on a GPU worker."
+    ),
     "containers.singularity": "Singularity or Apptainer is installed on the worker.",
+    "containers.singularityUsable": "Singularity or Apptainer is absent or runs.",
     "software.nccl.installed": "NCCL is installed.",
     "software.perf.installed": "perf (Linux performance counters) is installed.",
     "software.perf.perfEventParanoid": (

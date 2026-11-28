@@ -262,6 +262,8 @@ Slurm 审计通过 Pyxis 添加到 `srun --help` 中的容器选项检查 Pyxis�
 
 Kubernetes 审计会跨所有命名空间发现服务商组件，因为托管服务可能使用服务商专用命名空间和当前的 Kubernetes 应用标签。审计还会区分真正的容器运行时二进制文件与命令名为 `docker` 的兼容性链接。当审计发现 Promtail 与 Loki 或 Elasticsearch 一起使用时，会将聚合系统报告为日志栈，而仅将 Promtail 报告为已检测到的日志传输代理。
 
+Docker 和 Singularity/Apptainer 在 Slurm 工作节点上是可选的，因此缺少这些运行时只会产生 WARNING。已安装但无法使用的运行时会产生 FAIL。当 Docker 守护进程没有响应，或 GPU 工作节点上的 Docker 既没有 NVIDIA 或 AMD 容器运行时，也没有 GPU CDI 规范时，Docker 检查失败。当 Apptainer 二进制文件无法运行时，Apptainer 检查失败。
+
 Kubernetes 的 BMC 和 IPMI 检查使用已确认的 Kubernetes 身份创建特权 Pod，挂载各工作节点的宿主机根目录。报告会列出每个已检查节点，并说明机群覆盖范围。此证据证明的是该管理身份能够访问的内容，不能证明普通工作负载 Pod 也能访问同一个本地管理接口。默认最多检查 32 个工作节点。如果更大的机群需要完整覆盖，可将 `CLUSTERMAX_AUDIT_K8S_BMC_NODE_LIMIT` 设为更大的正整数。由于探测以宿主机 root 身份运行，Kubernetes 上暴露的 BMC 被评为 WARNING，而非 CRITICAL：裸金属主机上的 root 通常可以访问带内 BMC。请确认租户不能调度特权 Pod，也不能挂载宿主机 IPMI 设备。在 Slurm 和独立主机上，探测以租户用户身份运行，因此暴露的 BMC 仍为 CRITICAL。
 
 每种调度环境只有一个采集器 `cmax/scripts/1-audit/cluster-audit-<harness>.sh`。`cmax audit` 和 `cmax audit security` 运行同一个采集器，`security` 范围只筛选报告，因此两条命令对每项安全检查给出相同结论。该采集器加载 `cmax/scripts/1-audit/security-fleet.sh`，它会在每台 GPU 主机上评估宿主机级最低版本要求，而非仅检查被抽样的工作节点。检查对象包括 GPU 驱动、NVIDIA Container Toolkit、runc、containerd、Docker、ConnectX 固件、DCGM 和内核安全公告。每项检查都会报告结果最差的主机及其名称，并列出各主机的结果。ConnectX 设备以 `host/device` 格式列出。如果某台 GPU 主机无法读取，原本可通过的检查会保持未知状态。Kubernetes 在各节点上复用 BMC 宿主机根目录 Pod；Slurm 使用 `--immediate=30` 在每个 GPU 节点上运行一个短时的单 GPU 作业步骤，因此繁忙节点会被报告为未读取，而非一直等待。默认最多读取 32 台 GPU 主机；更大的机群可设置 `CLUSTERMAX_AUDIT_SECURITY_HOST_LIMIT`。

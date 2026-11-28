@@ -969,7 +969,7 @@ class DetectFindingsTests(unittest.TestCase):
                 keyed = by_key(audit_findings.detect_findings({"audit_data": audit_data}))
                 self.assertIn(key, keyed)
                 if key == "containers.singularity":
-                    self.assertEqual(keyed[key].severity, audit_findings.MISSING)
+                    self.assertEqual(keyed[key].severity, audit_findings.CONFIG)
 
 
 class DpuAndDcgmFindingTests(unittest.TestCase):
@@ -1580,6 +1580,28 @@ class ContainerRuleTests(unittest.TestCase):
         self.assertIn("containers.enroot", found)
         self.assertIn("containers.dockerOnWorkers", found)
         self.assertIn("containers.singularity", found)
+
+    def test_missing_docker_and_singularity_only_warn(self) -> None:
+        found = by_key(audit_findings.detect_findings({"containers": {
+            "workerCheckOk": True, "dockerOnWorkers": False, "singularity": False,
+            "dockerUsable": "not_applicable", "singularityUsable": "not_applicable",
+        }}))
+        self.assertEqual(found["containers.dockerOnWorkers"].severity, audit_findings.CONFIG)
+        self.assertEqual(found["containers.singularity"].severity, audit_findings.CONFIG)
+        self.assertNotIn("containers.dockerUsable", found)
+        self.assertNotIn("containers.singularityUsable", found)
+
+    def test_installed_but_unusable_runtimes_fail(self) -> None:
+        for key, field, value in (
+            ("containers.dockerUsable", "dockerUsable", "daemon-down"),
+            ("containers.dockerUsable", "dockerUsable", "no-gpu-runtime"),
+            ("containers.singularityUsable", "singularityUsable", "broken"),
+        ):
+            with self.subTest(value=value):
+                found = by_key(audit_findings.detect_findings(
+                    {"containers": {"workerCheckOk": True, field: value}}
+                ))
+                self.assertEqual(found[key].severity, audit_findings.MISSING)
 
     def test_worker_vantage_failure_suppresses_runtime_findings(self) -> None:
         found = by_key(

@@ -1407,19 +1407,45 @@ RULES: tuple[Rule, ...] = (
         guard=_enroot_installed,
         harnesses=frozenset({"slurm"}),
     ),
+    # Docker and Apptainer are optional runtimes, so their absence only warns.
+    # An installed runtime that does not work fails.
     Rule(
         "containers.dockerOnWorkers",
         "Docker not installed on worker nodes",
-        MISSING,
+        CONFIG,
         _is_false,
+        guard=lambda audit: not _container_check_unavailable(audit),
+        harnesses=frozenset({"slurm"}),
+    ),
+    Rule(
+        "containers.dockerUsable",
+        "Docker is installed on the worker, but its daemon does not answer",
+        MISSING,
+        _status_is("daemon-down"),
+        guard=lambda audit: not _container_check_unavailable(audit),
+        harnesses=frozenset({"slurm"}),
+    ),
+    Rule(
+        "containers.dockerUsable",
+        "Docker on the GPU worker has no NVIDIA or AMD container runtime or CDI spec",
+        MISSING,
+        _status_is("no-gpu-runtime"),
         guard=lambda audit: not _container_check_unavailable(audit),
         harnesses=frozenset({"slurm"}),
     ),
     Rule(
         "containers.singularity",
         "Singularity / Apptainer not installed",
-        MISSING,
+        CONFIG,
         _is_false,
+        guard=lambda audit: not _container_check_unavailable(audit),
+        harnesses=frozenset({"slurm"}),
+    ),
+    Rule(
+        "containers.singularityUsable",
+        "Singularity / Apptainer is installed on the worker, but it does not run",
+        MISSING,
+        _status_is("broken"),
         guard=lambda audit: not _container_check_unavailable(audit),
         harnesses=frozenset({"slurm"}),
     ),
@@ -1824,7 +1850,9 @@ CHECK_CRITERIA: dict[str, str | None] = {
     "containers.enroot": "enroot",
     "containers.enrootImportWorks": "enroot",
     "containers.dockerOnWorkers": "docker-workers",
+    "containers.dockerUsable": "docker-workers",
     "containers.singularity": "singularity",
+    "containers.singularityUsable": "singularity",
     "software.nvhpc.status": "hpc-sdk",
     "software.ncu.installed": "ncu-profiling",
     "software.ncu.profilingEnabled": "ncu-profiling",
@@ -2329,6 +2357,21 @@ def _finding_guidance(
             "example, an end-of-life kernel), move to a supported kernel series "
             "that has the fix."
         )
+    elif rule.key == "containers.dockerUsable" and value == "daemon-down":
+        detected = "The Docker CLI is installed, but the Docker daemon does not answer."
+        recommendation = "Start and enable the Docker daemon on every worker, or remove Docker."
+    elif rule.key == "containers.dockerUsable":
+        detected = (
+            "Docker runs on a GPU worker, but Docker has no NVIDIA or AMD "
+            "runtime and no GPU CDI spec."
+        )
+        recommendation = (
+            "Configure the NVIDIA Container Toolkit or the AMD Container Toolkit "
+            "for Docker with nvidia-ctk or amd-ctk, restart Docker, and run the audit again."
+        )
+    elif rule.key == "containers.singularityUsable":
+        detected = "The Singularity or Apptainer binary is installed, but it does not run."
+        recommendation = "Repair the Apptainer installation on every worker, or remove it."
     elif rule.key == "networking.topologyConfigured":
         detected = "No topology-aware scheduling configuration was detected."
         recommendation = (

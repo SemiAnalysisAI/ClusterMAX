@@ -429,6 +429,12 @@ from a compatibility link whose command name is `docker`. When the audit finds
 Promtail with Loki or Elasticsearch, it reports the aggregation system as the
 logging stack and reports Promtail only as a detected log shipper.
 
+Docker and Singularity or Apptainer are optional on Slurm workers, so a missing
+runtime is a WARNING. An installed runtime that does not work is a FAIL. Docker
+fails when its daemon does not answer, or when Docker on a GPU worker has no
+NVIDIA or AMD container runtime and no GPU CDI spec. Apptainer fails when its
+binary does not run.
+
 The Kubernetes BMC and IPMI check uses the confirmed Kubernetes identity to
 create a privileged pod that mounts each worker host root. The report names
 each checked node and states the fleet coverage. This evidence proves what that

@@ -1834,6 +1834,7 @@ build_audit_json() {
     "dockerRecommendedMin": "${DOCKER_RECOMMENDED_MIN}",
     "dockerVersionOk": ${DOCKER_VERSION_OK},
     "dockerOnWorkers": ${DOCKER_ON_WORKERS},
+    "dockerUsable": "${DOCKER_USABLE:-not_applicable}",
     "workerCheckOk": ${CONTAINER_WORKER_CHECK_OK:-false},
     "workerNode": "${CONTAINER_WORKER_NODE:-unknown}",
     "nvidiaContainerToolkit": ${NVIDIA_CONTAINER_TOOLKIT},
@@ -1847,6 +1848,7 @@ build_audit_json() {
     "runcVersion": "${RUNC_VERSION:-unknown}",
     "singularity": ${SINGULARITY_INSTALLED},
     "singularityVersion": "${SINGULARITY_VERSION:-unknown}",
+    "singularityUsable": "${SINGULARITY_USABLE:-not_applicable}",
     "singularityOnHead": ${SINGULARITY_ON_HEAD:-false},
     "singularityOnWorkers": ${SINGULARITY_ON_WORKERS:-false}
   },

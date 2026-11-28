@@ -1360,6 +1360,60 @@ class ContainerWorkerCheckTests(unittest.TestCase):
         self.assertIn("WORKER_CONTAINER_SECURITY_DOCKER_VERSION=not-installed", run.stdout)
         self.assertNotIn("WORKER_CONTAINER_DOCKER_VERSION=2.1.6", run.stdout)
 
+    def test_docker_on_a_gpu_worker_needs_a_gpu_runtime(self) -> None:
+        cases = (
+            ("nvidia-smi", '{"nvidia":{}}', "pass"),
+            ("nvidia-smi", '{"runc":{}}', "no-gpu-runtime"),
+            ("amd-smi", '{"amd":{}}', "pass"),
+            ("amd-smi", '{"nvidia":{}}', "no-gpu-runtime"),
+            (None, '{"runc":{}}', "pass"),
+        )
+        for tool, runtimes, expected in cases:
+            with self.subTest(tool=tool, runtimes=runtimes):
+                stubs = {
+                    "docker": (
+                        'case "$1" in\n'
+                        '--version) echo "Docker version 29.4.3, build test" ;;\n'
+                        f"info) echo '{runtimes}' ;;\n"
+                        'version) echo 29.4.3 ;;\nesac'
+                    ),
+                    **{name: f'exec "{shutil.which(name)}" "$@"' for name in ("grep", "head", "hostname", "tr")},
+                }
+                if tool:
+                    stubs[tool] = "exit 0"
+                run = bashtest.run_bash(
+                    f'/bin/bash "{AUDIT_SCRIPTS / "container-check.sh"}"',
+                    stubs=stubs,
+                    env={"CLUSTERMAX_CONTAINER_RUNTIME_SCOPE": "host"},
+                    path_only=True,
+                )
+                facts = dict(line.split("=", 1) for line in run.stdout.splitlines() if "=" in line)
+                self.assertEqual(facts["WORKER_CONTAINER_DOCKER_USABLE"], expected)
+
+    def test_docker_daemon_state_separates_denied_from_down(self) -> None:
+        for error, expected in (
+            ("permission denied while trying to connect to the docker API", "not_applicable"),
+            ("Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?", "daemon-down"),
+            ("failed to connect to the docker API at unix:///x; check if the path is correct and if the daemon is running", "daemon-down"),
+        ):
+            with self.subTest(error=error):
+                run = bashtest.run_bash(
+                    f'/bin/bash "{AUDIT_SCRIPTS / "container-check.sh"}"',
+                    stubs={
+                        "docker": (
+                            'case "$1" in\n'
+                            '--version) echo "Docker version 29.4.3, build test" ;;\n'
+                            f'info) echo "{error}" >&2; exit 1 ;;\n'
+                            "*) exit 1 ;;\nesac"
+                        ),
+                        **{name: f'exec "{shutil.which(name)}" "$@"' for name in ("grep", "head", "hostname")},
+                    },
+                    env={"CLUSTERMAX_CONTAINER_RUNTIME_SCOPE": "host"},
+                    path_only=True,
+                )
+                facts = dict(line.split("=", 1) for line in run.stdout.splitlines() if "=" in line)
+                self.assertEqual(facts["WORKER_CONTAINER_DOCKER_USABLE"], expected)
+
     def test_runtime_only_toolkit_is_installed_with_unknown_security_version(
         self,
     ) -> None:
