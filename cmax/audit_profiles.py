@@ -94,7 +94,9 @@ AUDIT_CATEGORIES = (
                 "containers.enroot",
                 "containers.enrootImportWorks",
                 "containers.dockerOnWorkers",
+                "containers.dockerUsable",
                 "containers.singularity",
+                "containers.singularityUsable",
                 # Internal collector rows that the public release does not emit.
                 "containers.nvidiaContainerToolkitVersionOk",
                 "containers.dockerVersionOk",

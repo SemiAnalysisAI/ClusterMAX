@@ -42,6 +42,15 @@ if [[ -n "$DOCKER_PATH" ]]; then
     fi
 fi
 NVIDIA_RUNTIME_CONFIGURED=false
+GPU_VENDOR=none
+if [[ -e /dev/nvidiactl ]] || command -v nvidia-smi >/dev/null 2>&1; then
+    GPU_VENDOR=nvidia
+elif [[ -e /dev/kfd ]] || command -v amd-smi >/dev/null 2>&1 || command -v rocm-smi >/dev/null 2>&1; then
+    GPU_VENDOR=amd
+fi
+# Missing Docker is only a warning. Installed Docker must work: its daemon
+# must run, and on a GPU worker a GPU runtime or CDI spec must be configured.
+DOCKER_USABLE=not_applicable
 if [[ -n "$DOCKER_PATH" ]]; then
     echo "WORKER_CONTAINER_DOCKER_INSTALLED=true"
     echo "WORKER_CONTAINER_DOCKER_PATH=$DOCKER_PATH"
@@ -56,9 +65,31 @@ if [[ -n "$DOCKER_PATH" ]]; then
         else
             echo "WORKER_CONTAINER_NVIDIA_RUNTIME_CONFIGURED=false"
         fi
+        DOCKER_USABLE=pass
+        if [[ "$GPU_VENDOR" != none ]]; then
+            # The toolkit registers an "nvidia" or "amd" runtime. Docker 25+
+            # can use a CDI spec instead, and lists the spec directories.
+            CDI_SPEC=false
+            for dir in $(docker info --format '{{json .CDISpecDirs}}' 2>/dev/null | tr -d '[]"' | tr ',' ' '); do
+                grep -qsF "$GPU_VENDOR.com/gpu" "$dir"/* && CDI_SPEC=true
+            done
+            if ! grep -q "\"$GPU_VENDOR\"" <<< "$DOCKER_RUNTIMES" && [[ "$CDI_SPEC" == false ]]; then
+                DOCKER_USABLE=no-gpu-runtime
+            fi
+        fi
     else
         echo "WORKER_CONTAINER_DOCKER_ACCESSIBLE=false"
         echo "WORKER_CONTAINER_NVIDIA_RUNTIME_CONFIGURED=false"
+        # A denied socket can be a root-only daemon by design, so only a
+        # daemon that does not answer proves Docker is broken.
+        DOCKER_ERROR=$(docker info 2>&1 >/dev/null)
+        if grep -qi 'permission denied' <<< "$DOCKER_ERROR"; then
+            DOCKER_USABLE=not_applicable
+        elif grep -qiE 'Cannot connect to the Docker daemon|daemon is running' <<< "$DOCKER_ERROR"; then
+            DOCKER_USABLE=daemon-down
+        else
+            DOCKER_USABLE=unknown
+        fi
     fi
     DOCKER_SERVER_VERSION=$(docker version --format '{{.Server.Version}}' 2>/dev/null || true)
 else
@@ -70,6 +101,7 @@ else
     DOCKER_SERVER_VERSION=""
 fi
 echo "WORKER_CONTAINER_DOCKER_SERVER_VERSION=${DOCKER_SERVER_VERSION:-unknown}"
+echo "WORKER_CONTAINER_DOCKER_USABLE=$DOCKER_USABLE"
 
 # NVIDIA Container Toolkit.  Prefer the installed CLI version, then package
 # managers.  The runtime binary is a valid fallback for deployments where the
@@ -241,7 +273,12 @@ if [[ -n "$SINGULARITY_PATH" ]]; then
     echo "WORKER_CONTAINER_SINGULARITY_INSTALLED=true"
     echo "WORKER_CONTAINER_SINGULARITY_PATH=$SINGULARITY_PATH"
     echo "WORKER_CONTAINER_SINGULARITY_VERSION=${SINGULARITY_VERSION:-unknown}"
+    # A binary that cannot report its version is installed but broken.
+    "$SINGULARITY_PATH" --version >/dev/null 2>&1 \
+        && echo "WORKER_CONTAINER_SINGULARITY_USABLE=pass" \
+        || echo "WORKER_CONTAINER_SINGULARITY_USABLE=broken"
 else
+    echo "WORKER_CONTAINER_SINGULARITY_USABLE=not_applicable"
     echo "WORKER_CONTAINER_SINGULARITY_INSTALLED=false"
     echo "WORKER_CONTAINER_SINGULARITY_PATH="
     echo "WORKER_CONTAINER_SINGULARITY_VERSION=unknown"
